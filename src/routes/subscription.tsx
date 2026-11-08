@@ -68,13 +68,21 @@ export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; per
   );
   return (
     <>
-      <div className="card flex flex-col gap-2">
-        <div className="flex justify-between items-baseline"><b className="text-lg">Formule {e.plan.name}{e.trial && " (essai)"}</b><span className={`text-sm ${STATE_TONE[e.state]}`}>{STATE_LABEL[e.state]}</span></div>
-        <div className="text-sm text-white/60">{e.state === "locked" || e.state === "grace" ? "Échue le" : "Valable jusqu'au"} {dateFr(e.endsAt)}{e.state === "active" || e.state === "expiring" ? ` · ${e.daysLeft} jour(s) restant(s)` : ""}</div>
-        {use("Boutiques", data.usage.shops, e.limits.maxShops)}{use("Utilisateurs (vous inclus)", data.usage.users, e.limits.maxUsers)}{use("Produits", data.usage.products, e.limits.maxProducts)}
-      </div>
+      {e.lifetime ? (
+        <div className="card flex flex-col gap-2 border-[var(--gold)]">
+          <div className="flex justify-between items-baseline"><b className="text-lg">Accès à vie</b><span className="text-sm text-emerald-400">Actif</span></div>
+          <p className="text-sm text-white/70">Ce commerce dispose d'un accès à vie : toutes les fonctions actuelles et futures, sans limite de boutiques, d'utilisateurs ni de produits, et sans paiement ni renouvellement.</p>
+          {use("Boutiques", data.usage.shops, e.limits.maxShops)}{use("Utilisateurs (vous inclus)", data.usage.users, e.limits.maxUsers)}{use("Produits", data.usage.products, e.limits.maxProducts)}
+        </div>
+      ) : (
+        <div className="card flex flex-col gap-2">
+          <div className="flex justify-between items-baseline"><b className="text-lg">Formule {e.plan.name}{e.trial && " (essai)"}</b><span className={`text-sm ${STATE_TONE[e.state]}`}>{STATE_LABEL[e.state]}</span></div>
+          <div className="text-sm text-white/60">{e.state === "locked" || e.state === "grace" ? "Échue le" : "Valable jusqu'au"} {dateFr(e.endsAt)}{e.state === "active" || e.state === "expiring" ? ` · ${e.daysLeft} jour(s) restant(s)` : ""}</div>
+          {use("Boutiques", data.usage.shops, e.limits.maxShops)}{use("Utilisateurs (vous inclus)", data.usage.users, e.limits.maxUsers)}{use("Produits", data.usage.products, e.limits.maxProducts)}
+        </div>
+      )}
 
-      <div className="card flex flex-col gap-2">
+      {!e.lifetime && <div className="card flex flex-col gap-2">
         <h2 className="font-semibold">Choisir une formule</h2>
         {cameFrom && <p className="text-sm rounded-lg bg-white/5 p-2">Vous revenez de Selar ? Votre formule est en surbrillance. Sélectionnez ci-dessus la période que vous avez payée, touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
         <div className="grid grid-cols-5 gap-1 text-xs">
@@ -90,9 +98,9 @@ export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; per
         ))}
         {!Object.keys(data.available).length && <p className="text-xs text-amber-300">Le paiement en ligne n'est pas encore activé par la plateforme.</p>}
         <p className="text-xs text-white/50">Sur la page Selar, vous choisissez la période dans la liste « Choisir un abonnement » : sélectionnez celle indiquée ici, sinon le paiement sera refusé à la vérification. Si vous gardez la même formule, la durée s'ajoute à l'échéance.</p>
-      </div>
+      </div>}
 
-      {data.payments.length > 0 && (
+      {!e.lifetime && data.payments.length > 0 && (
         <div className="card flex flex-col gap-1">
           <h2 className="font-semibold">Mes paiements</h2>
           {data.payments.map((p) => (
@@ -184,6 +192,7 @@ export function PlatformSection() {
       {list.data?.payments.length === 0 && <p className="text-center text-white/50 py-4">Rien dans cette liste.</p>}
       <PlatformSettingsForm />
       <GrantForm />
+      <LifetimeForm />
       </>}
     </>
   );
@@ -300,6 +309,27 @@ function GrantForm() {
       </div>
       <input className="input" placeholder="Motif (ex. paiement espèces reçu le…)" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
       <button className="btn">Attribuer</button>
+      {msg && <p className="text-sm text-amber-300">{msg}</p>}
+    </form>
+  );
+}
+
+function LifetimeForm() {
+  const { session } = useSession(); const s = session!;
+  const [tenantId, setTenantId] = useState(""); const [revoke, setRevoke] = useState(false); const [msg, setMsg] = useState("");
+  async function submit(e: React.FormEvent) {
+    e.preventDefault(); setMsg("");
+    if (revoke && !confirm("Retirer l'accès à vie ? Le commerce sera suspendu immédiatement tant qu'il n'a pas d'abonnement payant.")) return;
+    try { const r = await api<{ lifetime: boolean }>(s, "platform.subscription.lifetime", { tenantId, revoke }); setMsg(r.lifetime ? "Accès à vie accordé." : "Accès à vie retiré."); }
+    catch (x) { setMsg((x as Error).message); }
+  }
+  return (
+    <form className="card flex flex-col gap-2" onSubmit={submit}>
+      <h2 className="font-semibold">Accès à vie</h2>
+      <p className="text-xs text-white/50">Votre propre commerce (créé avec votre compte administrateur) a déjà l'accès à vie. Ce formulaire sert à l'accorder ou le retirer à un autre commerce.</p>
+      <input className="input" placeholder="Identifiant du commerce (tenantId)" required value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
+      <label className="text-sm flex items-center gap-2"><input type="checkbox" checked={revoke} onChange={(e) => setRevoke(e.target.checked)} /> Retirer l'accès à vie</label>
+      <button className="btn">{revoke ? "Retirer" : "Accorder"}</button>
       {msg && <p className="text-sm text-amber-300">{msg}</p>}
     </form>
   );

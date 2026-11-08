@@ -1,6 +1,6 @@
 import { stockFor } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
-import { assertQuota, getSub } from "./subscriptions";
+import { assertQuota, getSub, grantLifetime } from "./subscriptions";
 import { labelsFor } from "./permissions";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
@@ -12,6 +12,7 @@ const MAX_SHOPS = 20;
 /** Première boutique d'un commerce, identifiant déterministe donc idempotente. */
 export async function initTenant(store: Store, ctx: Ctx, b: { name?: string }) {
   need(ctx, "owner");
+  if (ctx.admin) await grantLifetime(store, ctx.tenantId); // le commerce de l'administrateur de la plateforme a un accès à vie (idempotent, même si la boutique existe déjà)
   const id = `m${ctx.tenantId}`.slice(0, 36);
   const existing = await store.get("shops", id);
   if (existing) return { shopId: id, created: false };

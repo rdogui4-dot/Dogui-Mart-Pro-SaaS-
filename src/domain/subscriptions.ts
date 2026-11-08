@@ -47,18 +47,25 @@ export function addPeriod(from: Date, period: Period, count: number): Date {
   return new Date(from.getTime() + PERIOD_DAYS[period] * count * 86_400_000);
 }
 
-export type Sub = { plan: PlanId; period: Period; status: "trial" | "paid"; renewsAt: string };
+/** « lifetime » : accès à vie accordé par la plateforme (jamais d'échéance, aucune limite, toutes les fonctions présentes et futures). */
+export type Sub = { plan: PlanId; period: Period; status: "trial" | "paid" | "lifetime"; renewsAt: string };
+export const LIFETIME_END = "9999-12-31T23:59:59.000Z";
+export const UNLIMITED: Limits = { maxShops: -1, maxUsers: -1, maxProducts: -1 };
 export type AccessState = "active" | "expiring" | "grace" | "locked";
-export type Entitlement = { state: AccessState; plan: Plan; period: Period; trial: boolean; endsAt: string; daysLeft: number; limits: Limits; writable: boolean };
+export type Entitlement = { state: AccessState; plan: Plan; period: Period; trial: boolean; lifetime: boolean; endsAt: string; daysLeft: number; limits: Limits; writable: boolean };
 
 export function entitlement(sub: Sub, plans: Plan[], now: Date = new Date()): Entitlement {
+  if (sub.status === "lifetime") { // accès à vie : ne dépend ni des dates, ni du catalogue, ni des futures formules
+    const top = planById(plans, "pro") ?? plans[plans.length - 1]!;
+    return { state: "active", plan: { ...top, name: "À vie", limits: UNLIMITED }, period: "year", trial: false, lifetime: true, endsAt: LIFETIME_END, daysLeft: 99_999, limits: UNLIMITED, writable: true };
+  }
   const plan = planById(plans, sub.plan) ?? plans[0]!;
   const ends = new Date(sub.renewsAt).getTime();
   const trial = sub.status === "trial";
   const grace = trial ? 0 : GRACE_DAYS[sub.period];
   const left = (ends - now.getTime()) / 86_400_000;
   const state: AccessState = left > EXPIRING_SOON_DAYS ? "active" : left > 0 ? "expiring" : now.getTime() <= ends + grace * 86_400_000 ? "grace" : "locked";
-  return { state, plan, period: sub.period, trial, endsAt: sub.renewsAt, daysLeft: Math.max(0, Math.ceil(left)), limits: plan.limits, writable: state !== "locked" };
+  return { state, plan, period: sub.period, trial, lifetime: false, endsAt: sub.renewsAt, daysLeft: Math.max(0, Math.ceil(left)), limits: plan.limits, writable: state !== "locked" };
 }
 
 /** `max` = -1 : illimité. `count` = nombre déjà utilisé. */

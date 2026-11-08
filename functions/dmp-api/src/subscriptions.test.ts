@@ -9,6 +9,7 @@ const call = (user: string, action: string, payload: unknown = {}, tenant = T, s
 const plat = (action: string, payload: unknown = {}, user = "root") => handle(st, user, { action, payload }, env);
 const ok = async (r: Promise<any>) => { const x = await r; expect(x.status, JSON.stringify(x.body)).toBe(200); return x.body.data; };
 const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+const daysAgoIso = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
 const setSub = (tenantId: string, plan: string, period: string, renewsAt: string, status = "paid") => {
   if (!st.tables.has("subscriptions")) st.tables.set("subscriptions", new Map());
   st.tables.get("subscriptions")!.set(tenantId, { $id: tenantId, tenantId, plan, period, status, renewsAt });
@@ -206,7 +207,7 @@ describe("validation par la plateforme", () => {
   });
   it("chaque période achetée donne la bonne durée (1, 7, 30, 90, 365 jours)", async () => {
     for (const [period, days] of [["day", 1], ["week", 7], ["month", 30], ["quarter", 90], ["year", 365]] as const) {
-      st.tables.get("subscriptions")?.delete(T);
+      setSub(T, "business", "month", daysAgoIso(100)); // abonnement échu : le nouvel achat repart de maintenant
       await ok(review(await paid(period, "business", `req-${period}-0001`, `TXREF${period.toUpperCase()}`)));
       expect(daysLeft(), period).toBe(days);
     }
@@ -324,5 +325,62 @@ describe("relances d'expiration (plateforme)", () => {
     setSub(T, "business", "month", days(2));
     await ok(plat("platform.subscription.grant", { grantId: "grant-00009", tenantId: T, plan: "business", period: "month", count: 1 }));
     expect((await ok(list())).renewals).toHaveLength(0);
+  });
+});
+
+describe("accès à vie", () => {
+  const lifetime = (tenant = T, revoke = false, user = "root") => plat("platform.subscription.lifetime", { tenantId: tenant, revoke }, user);
+  const sub = () => st.tables.get("subscriptions")!.get(T)!;
+
+  it("le commerce créé par l'administrateur de la plateforme a un accès à vie ; celui des autres démarre par un essai", async () => {
+    await ok(call("root", "tenant.init", { name: "Mon commerce" }, T, ""));
+    expect(sub()).toMatchObject({ status: "lifetime", plan: "pro" });
+    await st.grant("t3", "own3", ["owner"], []); // un autre commerçant, commerce neuf
+    await ok(call("own3", "tenant.init", { name: "Autre" }, "t3", ""));
+    expect(st.tables.get("subscriptions")!.get("t3")).toMatchObject({ status: "trial", plan: "business" });
+  });
+  it("même si la boutique existe déjà, l'administrateur qui relance tenant.init obtient l'accès à vie", async () => {
+    await ok(call("own", "subscription.get")); // essai créé
+    expect(sub().status).toBe("trial");
+    await ok(call("root", "tenant.init", {}, T, "")); // la boutique existe déjà
+    expect(sub().status).toBe("lifetime");
+  });
+  it("pas d'échéance, aucune limite, aucun verrou, aucune relance", async () => {
+    await ok(lifetime());
+    const e = (await ok(call("own", "subscription.get"))).entitlement;
+    expect(e).toMatchObject({ lifetime: true, state: "active", trial: false, writable: true, daysLeft: 99_999, limits: { maxShops: -1, maxUsers: -1, maxProducts: -1 } });
+    expect(e.plan.name).toBe("À vie"); expect(e.endsAt).toMatch(/^9999-/);
+    expect((await ok(plat("platform.renewals.list", { withinDays: 90 }))).renewals).toEqual([]);
+    // au-delà des limites de n'importe quelle formule : 300 produits (Starter = 200) et 4 boutiques (Business = 3)
+    for (let i = 0; i < 4; i++) expect((await call("own", "shop.create", { name: `B${i}` }, T, "")).status).toBe(200);
+    await ok(call("own", "staff.create", { name: "G", username: "gerant.un", password: "motdepasse1", role: "manager", shopIds: [S] }, T, ""));
+    st.tables.set("products", new Map(Array.from({ length: 300 }, (_, i) => [`x${i}`, { $id: `x${i}`, tenantId: T, shopId: S, name: `P${i}`, price: 1 }])));
+    expect((await call("mgr", "entity.save", { table: "products", data: { name: "Un de plus", price: 1 } })).status).toBe(200);
+  });
+  it("un paiement, une attribution ou une demande de paiement ne modifient pas un accès à vie", async () => {
+    await ok(lifetime());
+    await ok(plat("platform.settings.save", TPL));
+    expect((await call("own", "subscription.checkout", { requestId: "request-0001", plan: "starter", period: "week" }, T, "")).status).toBe(409);
+    await ok(plat("platform.subscription.grant", { grantId: "grant-00001", tenantId: T, plan: "starter", period: "day", count: 1 }));
+    expect(sub()).toMatchObject({ status: "lifetime", plan: "pro" });
+    // un paiement validé avant l'accès à vie ne peut pas non plus le remplacer
+    await st.update("subscriptions", T, { status: "paid", plan: "business", period: "month", renewsAt: days(5) });
+    const pay = await ok(call("own", "subscription.checkout", { requestId: "request-0002", plan: "business", period: "month" }, T, ""));
+    await ok(call("own", "subscription.submitProof", { paymentId: pay.id, txRef: "TX123456", payerEmail: "awa@exemple.sn" }, T, ""));
+    await ok(lifetime());
+    await ok(plat("platform.payment.review", { paymentId: pay.id, approve: true }));
+    expect(sub().status).toBe("lifetime");
+  });
+  it("réservé à l'administrateur, commerce inconnu refusé, opération idempotente et tracée", async () => {
+    expect((await lifetime(T, false, "own")).status).toBe(403);
+    expect((await lifetime("inconnu")).status).toBe(404);
+    await ok(lifetime()); await ok(lifetime());
+    expect(st.rows("subscriptions").filter((r) => r.tenantId === T)).toHaveLength(1);
+    expect(st.rows("audit_log").filter((a) => a.action === "subscription.lifetime_granted").length).toBe(2);
+  });
+  it("le retrait de l'accès à vie fait retomber le commerce en délai de grâce puis suspension", async () => {
+    await ok(lifetime()); await ok(lifetime(T, true));
+    expect(sub()).toMatchObject({ status: "paid", period: "day" });
+    expect((await call("mgr", "entity.save", { table: "customers", data: { name: "C" } })).status).toBe(402); // période « jour » : aucune grâce
   });
 });

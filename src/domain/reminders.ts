@@ -14,7 +14,8 @@ export const REMIND_BEFORE_DAYS: Record<Period, { info: number; warning: number;
 
 export function msLeft(e: Pick<Entitlement, "endsAt">, now: Date): number { return new Date(e.endsAt).getTime() - now.getTime(); }
 
-export function reminderLevel(e: Pick<Entitlement, "state" | "endsAt" | "period" | "trial">, now: Date = new Date()): ReminderLevel {
+export function reminderLevel(e: Pick<Entitlement, "state" | "endsAt" | "period" | "trial"> & { lifetime?: boolean }, now: Date = new Date()): ReminderLevel {
+  if (e.lifetime) return "none"; // accès à vie : jamais de relance
   if (e.state === "locked") return "locked";
   if (e.state === "grace") return "grace";
   const days = msLeft(e, now) / 86_400_000;

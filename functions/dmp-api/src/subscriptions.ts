@@ -2,7 +2,7 @@ import { linkRef } from "../../../src/domain/payment-links";
 import { reminderLevel, renewalMessage } from "../../../src/domain/reminders";
 import { isEmail, mergeSelarLinks, parseLinks } from "../../../src/domain/selar";
 import {
-  MAX_COUNT, PERIODS, TRIAL, addPeriod, canAdd, entitlement, mergePlans, planById, priceFor, renewal, validCount,
+  LIFETIME_END, MAX_COUNT, PERIODS, TRIAL, addPeriod, canAdd, entitlement, mergePlans, planById, priceFor, renewal, validCount,
   type Entitlement, type Period, type Plan, type PlanId, type Sub,
 } from "../../../src/domain/subscriptions";
 import { HttpError, need, type Ctx, type Row, type Store } from "./store";
@@ -18,7 +18,7 @@ export async function loadPlans(store: Store): Promise<Plan[]> {
   try { return mergePlans(s?.plans ? JSON.parse(String(s.plans)) : null); } catch { return mergePlans(null); } // une surcharge corrompue ne doit jamais bloquer les ventes
 }
 
-const toSub = (r: Row): Sub => ({ plan: r.plan as PlanId, period: r.period as Period, status: r.status === "trial" ? "trial" : "paid", renewsAt: String(r.renewsAt) });
+const toSub = (r: Row): Sub => ({ plan: r.plan as PlanId, period: r.period as Period, status: r.status === "trial" ? "trial" : r.status === "lifetime" ? "lifetime" : "paid", renewsAt: String(r.renewsAt) });
 
 /** Abonnement du commerce ; crée l'essai gratuit à la première lecture (identifiant = tenantId : idempotent). */
 export async function getSub(store: Store, tenantId: string, now = new Date()): Promise<Sub> {
@@ -31,6 +31,14 @@ export async function getSub(store: Store, tenantId: string, now = new Date()): 
 
 export async function entitlementOf(store: Store, tenantId: string, now = new Date()): Promise<Entitlement> {
   return entitlement(await getSub(store, tenantId, now), await loadPlans(store), now);
+}
+
+/** Accès à vie : crée ou convertit l'abonnement du commerce (idempotent). Réservé à la plateforme (voir les appelants). */
+export async function grantLifetime(store: Store, tenantId: string, now = new Date()): Promise<void> {
+  const data = { tenantId, plan: "pro", period: "year", status: "lifetime", startedAt: now.toISOString(), renewsAt: LIFETIME_END };
+  const row = await store.get("subscriptions", tenantId);
+  if (!row) await store.create("subscriptions", tenantId, tenantId, data);
+  else if (row.status !== "lifetime") await store.update("subscriptions", tenantId, data);
 }
 
 /** Verrou : un abonnement expiré (hors délai de grâce) interdit toute action d'écriture. */
@@ -81,6 +89,7 @@ export async function subscriptionCheckout(store: Store, ctx: Ctx, b: { requestI
   const id = safeId(b.requestId); if (id.length < 8) throw new HttpError(400, "requestId invalide");
   const existing = await store.get("subscription_payments", id);
   if (existing) { if (existing.tenantId !== ctx.tenantId) throw new HttpError(409, "Identifiant déjà utilisé"); return { id, url: existing.url, reference: existing.reference, amount: existing.amount, duplicate: true }; }
+  if ((await entitlementOf(store, ctx.tenantId)).lifetime) throw new HttpError(409, "Votre accès est à vie : aucun paiement n'est nécessaire");
   const plans = await loadPlans(store);
   const plan = must(planById(plans, String(b.plan)), "Formule inconnue", 400);
   if (!PERIODS.includes(b.period as Period)) throw new HttpError(400, "Période invalide");
@@ -119,6 +128,7 @@ export async function subscriptionSubmitProof(store: Store, ctx: Ctx, b: { payme
 // ---------- côté plateforme (administrateur) ----------
 async function applySubscription(store: Store, tenantId: string, plan: PlanId, period: Period, startsAt: string, endsAt: string) {
   const row = await store.get("subscriptions", tenantId);
+  if (row?.status === "lifetime") return; // un accès à vie n'est jamais écrasé par un paiement ou une attribution
   const data = { tenantId, plan, period, status: "paid", startedAt: startsAt, renewsAt: endsAt };
   if (!row) { await store.create("subscriptions", tenantId, tenantId, data); return; }
   // Idempotent : une reprise ne doit jamais raccourcir un abonnement déjà prolongé par un paiement plus récent.
@@ -136,7 +146,7 @@ export async function platformRenewals(store: Store, ctx: Ctx, b: { withinDays?:
   const now = new Date(); const plans = await loadPlans(store);
   const due = (await store.list("subscriptions", {}, 500))
     .map((r) => ({ r, e: entitlement(toSub(r), plans, now) }))
-    .filter(({ e }) => (new Date(e.endsAt).getTime() - now.getTime()) / 86_400_000 <= within)
+    .filter(({ e }) => !e.lifetime && (new Date(e.endsAt).getTime() - now.getTime()) / 86_400_000 <= within)
     .sort((a, b) => new Date(a.e.endsAt).getTime() - new Date(b.e.endsAt).getTime())
     .slice(0, 100); // borne de coût : chaque commerce coûte quelques lectures
   const renewals = [];
@@ -160,6 +170,23 @@ export async function platformMarkReminded(store: Store, ctx: Ctx, b: { tenantId
   await store.update("subscriptions", tenantId, { remindedAt: at });
   await audit(store, ctx, tenantId, "subscription.reminded", "relance envoyée");
   return { remindedAt: at };
+}
+
+/** Accorde (ou retire) l'accès à vie à un commerce. Réservé à l'administrateur de la plateforme ; tracé. */
+export async function platformLifetime(store: Store, ctx: Ctx, b: { tenantId: string; revoke?: boolean }) {
+  adminOnly(ctx);
+  const tenantId = String(b.tenantId ?? "");
+  const known = (await store.get("subscriptions", tenantId)) || (await store.list("shops", { tenantId }, 1))[0];
+  if (!known) throw new HttpError(404, "Commerce introuvable");
+  if (b.revoke) {
+    const row = await store.get("subscriptions", tenantId);
+    if (row?.status === "lifetime") await store.update("subscriptions", tenantId, { status: "paid", period: "day", renewsAt: new Date(Date.now() - 1000).toISOString() }); // échéance déjà passée : le commerce est suspendu aussitôt (période « jour » : aucune grâce)
+    await audit(store, ctx, tenantId, "subscription.lifetime_revoked", "accès à vie retiré");
+    return { lifetime: false };
+  }
+  await grantLifetime(store, tenantId);
+  await audit(store, ctx, tenantId, "subscription.lifetime_granted", "accès à vie accordé");
+  return { lifetime: true };
 }
 
 export async function platformMe(_s: Store, ctx: Ctx) { return { admin: !!ctx.admin }; }
