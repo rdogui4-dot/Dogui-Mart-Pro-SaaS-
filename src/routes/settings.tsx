@@ -7,6 +7,8 @@ import { ShopsSection, StaffSection } from "./team";
 import { PlatformSection, SubscriptionSection, useSubscription } from "./subscription";
 import { parseDeepLink } from "@/domain/redirects";
 import { DEFAULT_PLANS } from "@/domain/subscriptions";
+import { COST_METHODS, isCostMethod, methodLabel } from "@/domain/costing";
+import { planAllows } from "@/domain/features";
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
@@ -23,6 +25,13 @@ export function SettingsPage() {
   const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) });
   const [sh, setSh] = useState({ name: "", address: "", city: "", phone: "", legal: "", vatRatePct: "18" });
   const [shMsg, setShMsg] = useState("");
+  const costMethod = (isCostMethod((shop.data as { costMethod?: string } | null)?.costMethod) ? (shop.data as { costMethod: string }).costMethod : "cmup");
+  const [costMsg, setCostMsg] = useState(""); const [costBusy, setCostBusy] = useState(false);
+  async function saveMethod(m: string) {
+    setCostMsg(""); setCostBusy(true);
+    try { await api(s, "shop.save", { costMethod: m }); setCostMsg("Méthode enregistrée."); await qc.invalidateQueries({ queryKey: ["shop"] }); }
+    catch (x) { setCostMsg((x as Error).message); } finally { setCostBusy(false); }
+  }
   useEffect(() => { if (shop.data) setSh({ name: shop.data.name ?? "", address: shop.data.address ?? "", city: shop.data.city ?? "", phone: shop.data.phone ?? "", legal: shop.data.legal ?? "", vatRatePct: String(shop.data.vatRatePct ?? 18) }); }, [shop.data]);
   async function saveShop(e: React.FormEvent) {
     e.preventDefault(); setShMsg("");
@@ -64,6 +73,16 @@ export function SettingsPage() {
           <button className="btn">Enregistrer</button>
           {shMsg && <p className="text-sm text-amber-300">{shMsg}</p>}
         </form>
+      )}
+      {tab === "shop" && can(s, "settings") && (
+        <div className="card flex flex-col gap-2">
+          <h2 className="font-semibold">Valorisation du stock</h2>
+          <p className="text-xs text-white/50">Une seule méthode par boutique. Elle s'applique aux réceptions suivantes ; les ventes passées gardent le coût figé au moment de la vente.</p>
+          <select className="input" aria-label="Méthode de valorisation" value={costMethod} disabled={costBusy} onChange={(e) => void saveMethod(e.target.value)}>{COST_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
+          <p className="text-xs text-white/50">{COST_METHODS.find((m) => m.id === costMethod)?.help}</p>
+          {!planAllows(sub.data?.entitlement.plan.id, "costing") && <p className="text-xs text-amber-300">Le choix de la méthode est réservé à la formule Pro (méthode actuelle : {methodLabel(costMethod)}).</p>}
+          {costMsg && <p className="text-sm text-amber-300" role="status">{costMsg}</p>}
+        </div>
       )}
       {tab === "payments" && can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={save}>

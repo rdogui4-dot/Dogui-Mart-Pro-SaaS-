@@ -4,6 +4,9 @@ import { Query } from "@/lib/appwrite";
 import { api } from "@/lib/api";
 import { list, saveEntity, type Product, type Row, type Supplier, type VariantRow } from "@/lib/data";
 import { lineKey } from "@/domain/variants";
+import { planAllows } from "@/domain/features";
+import { useSubscription } from "./subscription";
+import type { LinkRow } from "./costing";
 import { can, useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { purchaseOrderModel } from "@/domain/documents";
@@ -64,19 +67,20 @@ function Orders() {
   const sups = useQuery({ queryKey: ["suppliers"], queryFn: () => list<Supplier>("suppliers", s, [], 500) });
   const prods = useQuery({ queryKey: ["products"], queryFn: () => list<Product>("products", s, [], 500) });
   const vars = useQuery({ queryKey: ["variants-po"], queryFn: () => list<VariantRow>("article_variants", s, [Query.equal("archived", false)], 500) });
+  const links = useQuery({ queryKey: ["links-po"], queryFn: () => list<LinkRow>("article_suppliers", s, [], 500) });
   const [creating, setCreating] = useState(false);
   const supName = (id: string) => sups.data?.find((x) => x.$id === id)?.name ?? "—";
   return (
     <>
       <button className="btn" onClick={() => setCreating(!creating)}>{creating ? "Fermer" : "Nouvelle commande"}</button>
-      {creating && <NewPo suppliers={sups.data ?? []} products={prods.data ?? []} variants={vars.data ?? []} onDone={() => { setCreating(false); refresh(); }} />}
+      {creating && <NewPo suppliers={sups.data ?? []} products={prods.data ?? []} variants={vars.data ?? []} links={links.data ?? []} onDone={() => { setCreating(false); refresh(); }} />}
       {(pos.data ?? []).map((po) => <PoCard key={po.$id} po={po} supplier={supName(po.supplierId)} onChange={refresh} />)}
       {pos.data?.length === 0 && <p className="text-center text-white/50 py-6">Aucune commande.</p>}
     </>
   );
 }
 
-function NewPo({ suppliers, products, variants, onDone }: { suppliers: Row<Supplier>[]; products: Row<Product>[]; variants: VariantRow[]; onDone: () => void }) {
+function NewPo({ suppliers, products, variants, links, onDone }: { suppliers: Row<Supplier>[]; products: Row<Product>[]; variants: VariantRow[]; links: LinkRow[]; onDone: () => void }) {
   const { session } = useSession(); const s = session!;
   const clientId = useRef(crypto.randomUUID()); // même identifiant en cas de nouvel essai : jamais deux commandes
   const [supplierId, setSupplierId] = useState("");
@@ -98,11 +102,12 @@ function NewPo({ suppliers, products, variants, onDone }: { suppliers: Row<Suppl
       </select>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[1fr_4.5rem_6rem] gap-1">
-          <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value, unitCost: String(options.find((o) => o.value === e.target.value)?.cost ?? "") })}>
+          <select className="input !px-2" value={r.productId} onChange={(e) => { const [pid, vid] = e.target.value.split(":"); const offer = links.find((l) => l.supplierId === supplierId && l.productId === pid && (l.variantId ?? "") === (vid ?? "") && l.status !== "inactive"); set(i, { productId: e.target.value, unitCost: String(offer?.price ?? options.find((o) => o.value === e.target.value)?.cost ?? "") }); }}>
             <option value="">Produit…</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <input className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
           <input className="input !px-2" inputMode="numeric" placeholder="Prix HT" value={r.unitCost} onChange={(e) => set(i, { unitCost: e.target.value })} />
+          {(() => { const [pid, vid] = r.productId.split(":"); const o = r.productId ? links.find((l) => l.supplierId === supplierId && l.productId === pid && (l.variantId ?? "") === (vid ?? "")) : undefined; const short = o?.minQty && Number(r.qty.replace(",", ".")) > 0 && Number(r.qty.replace(",", ".")) < o.minQty; return o && (o.minQty || o.leadDays) ? <p className={`col-span-3 text-xs ${short ? "text-amber-300" : "text-white/40"}`}>{o.minQty ? `Minimum chez ce fournisseur : ${o.minQty}${short ? " (quantité insuffisante)" : ""}` : ""}{o.minQty && o.leadDays ? " · " : ""}{o.leadDays ? `délai ${o.leadDays} j` : ""}</p> : null; })()}
         </div>
       ))}
       <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { productId: "", qty: "", unitCost: "" }])}>+ Ligne</button>
@@ -116,7 +121,7 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
   const { session } = useSession(); const s = session!;
   const sharePdf = async () => deliverPdf(await pdfBlob(purchaseOrderModel({ number: po.number, createdAt: po.$createdAt, lines: lines(po) }, await getShop(s), { name: supplier })), `${po.number}.pdf`);
   const ls = lines(po);
-  const [open, setOpen] = useState(false); const [qty, setQty] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState(false); const [qty, setQty] = useState<Record<string, string>>({}); const [fees, setFees] = useState(""); const proCosting = planAllows(useSubscription().data?.entitlement.plan.id, "costing");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const receiptId = useRef(crypto.randomUUID()); const invoiceId = useRef(crypto.randomUUID());
   const canReceive = po.status === "ordered" || po.status === "partial";
@@ -137,9 +142,10 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
             <label key={lineKey(l)} className="flex items-center justify-between gap-2 text-sm">{l.name} (reste {toReceive(l)})
               <input className="input !w-20 !py-2" inputMode="decimal" value={qty[lineKey(l)] ?? ""} onChange={(e) => setQty({ ...qty, [lineKey(l)]: e.target.value })} /></label>
           ))}
-          <button className="btn" disabled={busy} onClick={() => void run(
-            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, lines: Object.entries(qty).filter(([, v]) => Number(v.replace(",", ".")) > 0).map(([key, v]) => { const [productId, variantId] = key.split(":"); return { productId, ...(variantId ? { variantId } : {}), qty: v }; }) }),
-            () => { setOpen(false); receiptId.current = crypto.randomUUID(); })}>Confirmer la réception</button>
+          {proCosting && <label className="flex items-center justify-between gap-2 text-sm">Frais d'approvisionnement (transport, douane…) <input className="input !w-28 !py-2" inputMode="numeric" placeholder="FCFA" aria-label="Frais d'approvisionnement" value={fees} onChange={(e) => setFees(e.target.value)} /></label>}
+          <button className="btn" disabled={busy || (!!fees && !/^\d+$/.test(fees.replace(/\s/g, "")))} onClick={() => void run(
+            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, ...(fees ? { fees: fees.replace(/\s/g, "") } : {}), lines: Object.entries(qty).filter(([, v]) => Number(v.replace(",", ".")) > 0).map(([key, v]) => { const [productId, variantId] = key.split(":"); return { productId, ...(variantId ? { variantId } : {}), qty: v }; }) }),
+            () => { setOpen(false); setFees(""); receiptId.current = crypto.randomUUID(); })}>Confirmer la réception</button>
         </div>
       )}
       <div className="flex gap-2 flex-wrap">

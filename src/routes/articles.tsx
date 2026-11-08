@@ -6,6 +6,9 @@ import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
 import { listAll, list, qtyOf, stockLevels, variantQty, type Product, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
 import { VariantsSheet } from "./variants";
 import { PricingSheet, useRules } from "./pricing";
+import { ProfitSheet, SuppliersSheet, useLinks } from "./costing";
+import { getShop } from "@/lib/data";
+import { marginStats, methodLabel } from "@/domain/costing";
 import { compressImage, fetchArticles, fetchPriceHistory, useArticleImage, type ArticleRow, type Filters } from "@/lib/articles";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
@@ -45,6 +48,7 @@ function Catalogue() {
   const sub = useSubscription(); const pro = planAllows(sub.data?.entitlement.plan.id, "packaging");
   const [f, setF] = useState<Filters>({ q: "", status: "active", category: "", sort: "name_asc" });
   const [qInput, setQInput] = useState(""); const [grid, setGrid] = useState(false);
+  const [profitOpen, setProfitOpen] = useState(false); const proProfit = planAllows(sub.data?.entitlement.plan.id, "profitability");
   const [form, setForm] = useState<ArticleRow | "new" | null>(null); const [detail, setDetail] = useState<ArticleRow | null>(null); const [scan, setScan] = useState(false);
   useEffect(() => { const t = setTimeout(() => setF((x) => ({ ...x, q: qInput })), 300); return () => clearTimeout(t); }, [qInput]);
   const filterKey = JSON.stringify(f);
@@ -106,7 +110,9 @@ function Catalogue() {
         {rows.map((a) => <ArticleCard key={a.$id} a={a} nVariants={a.hasVariants ? liveVariants.filter((v) => v.productId === a.$id).length : 0} qty={levels ? qtyOf(levels, a) : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
       </ul>
       {page.hasNextPage && <button className="btn-ghost" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>{page.isFetchingNextPage ? "Chargement…" : "Voir plus d'articles"}</button>}
+      {proProfit && <button className="btn-ghost" onClick={() => setProfitOpen(true)}>Rentabilité par article et catégorie</button>}
       <ProLocks />
+      {profitOpen && <ProfitSheet onClose={() => setProfitOpen(false)} />}
 
       {detail && <ArticleDetail a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} variants={variants.filter((v) => v.productId === detail.$id)} levels={levels} onClose={() => setDetail(null)} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
       {form && <ArticleForm initial={form === "new" ? null : form} pro={pro} qty={form === "new" ? 0 : qtyOf(levels, form)} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
@@ -137,7 +143,8 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
-  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false);
+  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false); const [supOpen, setSupOpen] = useState(false);
+  const proCosting = planAllows(useSubscription().data?.entitlement.plan.id, "costing"); const links = useLinks(a.$id); const shopDoc = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) }); const method = (shopDoc.data as { costMethod?: string } | null)?.costMethod ?? "cmup";
   const proPricing = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing"); const rules = useRules(a.$id);
   const proVariants = planAllows(useSubscription().data?.entitlement.plan.id, "variants");
   const live = variants.filter((v) => !v.archived); const prices = live.map((v) => v.price);
@@ -162,7 +169,7 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
         {row("Référence", a.sku)}{row("Code-barres", a.barcode)}{row("Catégorie", a.category)}{row("Unité de vente", unitLabel(a.unit))}
         {row("Fournisseur principal", sup.data?.name ?? (a.supplierId && !can(s, "purchases") ? "Non visible avec vos accès" : ""))}
         {a.hasVariants ? row("Prix de vente", <b className="gold-text">{prices.length ? (Math.min(...prices) === Math.max(...prices) ? formatFcfa(prices[0]!) : `${formatFcfa(Math.min(...prices))} – ${formatFcfa(Math.max(...prices))}`) : "—"}</b>) : <>{row("Prix de vente", <b className="gold-text">{formatFcfa(a.price)}</b>)}{row("Prix d'achat", a.cost ? formatFcfa(a.cost) : "")}
-        {row("Marge brute indicative", a.cost ? `${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Prix d'achat non renseigné")}</>}
+        {row("Marge brute indicative", a.cost ? `${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Prix d'achat non renseigné")}{proCosting && a.cost ? <>{row("Taux de marge (sur le coût)", `${(marginStats(a.price, a.cost).markupPct ?? "—").toLocaleString("fr-FR")} %`)}{row("Taux de marque (sur le prix)", `${(marginStats(a.price, a.cost).markPct ?? "—").toLocaleString("fr-FR")} %`)}</> : null}</>}
         {row("Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-red-400" : ""}>{formatQty(qty)} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Précision des quantités", scaleLabel(a.qtyScale ?? 0))}{row("Seuil d'alerte", a.minStock ?? 0)}
       </div>
       {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
@@ -172,6 +179,12 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
           <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>
             <span className="text-right">{h.oldPrice ? `${formatFcfa(h.oldPrice)} → ` : "Création : "}{formatFcfa(h.newPrice ?? 0)}<span className="text-white/40"> · achat {formatFcfa(h.newCost ?? 0)}</span></span></li>)}</ul>}
         <p className="text-xs text-white/40 mt-2">Les ventes déjà enregistrées gardent le prix du jour de la vente.</p></div>
+      {(proCosting || !!links.data?.length) && (
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Fournisseurs & coûts</h3><button className="text-sm text-[var(--gold)]" onClick={() => setSupOpen(true)}>{proCosting ? "Gérer" : "Voir"}</button></div>
+          <p className="text-sm text-white/50 mt-1">{links.data?.length ? `${links.data.length} fournisseur${links.data.length > 1 ? "s" : ""} associé${links.data.length > 1 ? "s" : ""} · coût de revient, comparaison et évolution.` : "Aucun fournisseur associé : comparez vos fournisseurs et suivez l'évolution de vos coûts."}</p>
+          {!proCosting && <p className="text-xs text-amber-300 mt-2">Lecture seule (formule Business) : vos données sont conservées ; les frais d'approvisionnement ne sont plus appliqués.</p>}
+        </div>
+      )}
       {(proPricing || !!rules.data?.length) && (
         <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Tarifs spéciaux</h3><button className="text-sm text-[var(--gold)]" onClick={() => setPriceOpen(true)}>{proPricing ? "Gérer" : "Voir"}</button></div>
           <p className="text-sm text-white/50 mt-1">{rules.data?.length ? `${rules.data.length} tarif${rules.data.length > 1 ? "s" : ""} : promotions, prix de gros, paliers de quantité.` : "Aucun : le prix de base s'applique à tous."}</p>
@@ -209,6 +222,7 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
           <p className="text-xs text-white/50">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
           <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+([.,]\d{1,3})?$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
       )}
+      {supOpen && <SuppliersSheet a={a} variants={variants} canManage={proCosting} method={method} onClose={() => setSupOpen(false)} onChanged={() => { void links.refetch(); onChanged(); }} />}
       {priceOpen && <PricingSheet a={a} variants={variants} units={units.data ?? []} canManage={proPricing} onClose={() => setPriceOpen(false)} onChanged={() => { void rules.refetch(); onChanged(); }} />}
       {varsOpen && <VariantsSheet a={a} variants={variants} levels={levels} canManage={proVariants} onClose={() => setVarsOpen(false)} onChanged={onChanged} />}
       {unitsOpen && <UnitsEditor a={a} current={units.data ?? []} onClose={() => setUnitsOpen(false)} onSaved={() => { void units.refetch(); onChanged(); }} />}
