@@ -1,7 +1,8 @@
 import { toFcfa } from "./money";
 import { qtyFor } from "./quantity";
+import { lineKey } from "./variants";
 
-export type PoLine = { productId: string; name: string; qty: number; unitCost: number; received: number; invoiced: number };
+export type PoLine = { productId: string; variantId?: string; name: string; qty: number; unitCost: number; received: number; invoiced: number };
 export type PoStatus = "ordered" | "partial" | "received" | "cancelled";
 export type InvoiceStatus = "unpaid" | "partial" | "paid";
 export type Payment = { id: string; amount: number; method: "cash" | "wave" | "orange" | "card"; date: string };
@@ -34,15 +35,15 @@ export const dueOf = (total: number, payments: Payment[]): number => Math.max(0,
 
 /** Valide une saisie de réception/facturation : quantités entières > 0, pas au-delà du restant. */
 export function validateQuantities(
-  lines: PoLine[], wanted: { productId: string; qty: number }[], remaining: (l: PoLine) => number, scaleOf: (productId: string) => number = () => 0,
+  lines: PoLine[], wanted: { productId: string; variantId?: string; qty: number }[], remaining: (l: PoLine) => number, scaleOf: (productId: string) => number = () => 0,
 ): { ok: true } | { ok: false; error: string } {
   if (!wanted.length) return { ok: false, error: "Aucune ligne" };
   const seen = new Set<string>();
   for (const w of wanted) {
-    const line = lines.find((l) => l.productId === w.productId);
+    const line = lines.find((l) => lineKey(l) === lineKey(w));
     if (!line) return { ok: false, error: "Produit hors commande" };
-    if (seen.has(w.productId)) return { ok: false, error: "Ligne en double" };
-    seen.add(w.productId);
+    if (seen.has(lineKey(w))) return { ok: false, error: "Ligne en double" };
+    seen.add(lineKey(w));
     try { qtyFor(w.qty, scaleOf(w.productId)); } catch { return { ok: false, error: "Quantité invalide" }; }
     if (w.qty > remaining(line)) return { ok: false, error: `Quantité supérieure au restant : ${line.name}` };
   }

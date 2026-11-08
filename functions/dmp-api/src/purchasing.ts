@@ -1,8 +1,9 @@
 import { ACCOUNTS, purchaseJournal } from "../../../src/domain/accounting";
 import { toFcfa } from "../../../src/domain/money";
 import { invoiceStatus, invoiceTtc, lineHt, paidOf, poStatus, toInvoice, toReceive, validateQuantities, weightedCost, type Payment, type PoLine } from "../../../src/domain/purchasing";
-import { stockFor } from "./checkout";
-import { qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
+import { stockFor, stockScaledVariant } from "./checkout";
+import { qtyFor, scaleOf, scaledInt, fromScaled } from "../../../src/domain/quantity";
+import { lineKey } from "../../../src/domain/variants";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
 const safeId = (s: string) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
@@ -18,7 +19,7 @@ async function loadPo(store: Store, ctx: Ctx, poId: string) {
   return { po, lines: parse<PoLine[]>(po.lines, []), receipts: parse<string[]>(po.receipts, []), invoicedIds: parse<string[]>(po.invoicedIds, []) };
 }
 
-export async function createPo(store: Store, ctx: Ctx, b: { clientId: string; supplierId: string; lines: { productId: string; qty: number; unitCost: number }[] }) {
+export async function createPo(store: Store, ctx: Ctx, b: { clientId: string; supplierId: string; lines: { productId: string; variantId?: string; qty: number; unitCost: number }[] }) {
   needModule(ctx, "purchases");
   const id = safeId(b.clientId); if (id.length < 8) throw new HttpError(400, "clientId invalide");
   const existing = await store.get("purchase_orders", id);
@@ -30,12 +31,15 @@ export async function createPo(store: Store, ctx: Ctx, b: { clientId: string; su
   for (const l of b.lines) {
     const unitCost = Number(l.unitCost);
     if (!Number.isInteger(unitCost) || unitCost < 0) throw new HttpError(400, "Prix d'achat invalide");
-    if (seen.has(l.productId)) throw new HttpError(400, "Produit en double");
-    seen.add(l.productId);
+    if (seen.has(lineKey(l))) throw new HttpError(400, "Produit en double");
+    seen.add(lineKey(l));
     const p = must(await store.get("products", l.productId), "Produit introuvable");
     if (!mine(ctx, p)) throw new HttpError(403, "Accès refusé");
+    let v: Row | null = null;
+    if (p.hasVariants) { v = l.variantId ? await store.get("article_variants", l.variantId) : null; if (!v || !mine(ctx, v) || v.productId !== p.$id) throw new HttpError(400, `Choisissez une variante pour ${p.name}`); }
+    else if (l.variantId) throw new HttpError(400, `${p.name} n'a pas de variantes`);
     let qty: number; try { qty = qtyFor(l.qty, scaleOf(p)); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
-    lines.push({ productId: p.$id, name: String(p.name), qty, unitCost, received: 0, invoiced: 0 });
+    lines.push({ productId: p.$id, ...(v ? { variantId: v.$id } : {}), name: v ? `${p.name} — ${v.label}` : String(p.name), qty, unitCost, received: 0, invoiced: 0 });
   }
   const now = day(); const number = `BC-${ymd(now)}-${id.slice(0, 6).toUpperCase()}`;
   const total = lines.reduce((s, l) => s + lineHt(l.qty, l.unitCost), 0);
@@ -55,54 +59,56 @@ export async function cancelPo(store: Store, ctx: Ctx, b: { poId: string }) {
 
 /** Réception (totale ou partielle) : mouvements de stock + coût moyen pondéré.
  *  Ordre sûr en cas de reprise : la commande est mise à jour d'abord (receiptId mémorisé), puis les mouvements sont écrits avec des identifiants déterministes. */
-export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; receiptId: string; lines: { productId: string; qty: number }[] }) {
+export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; receiptId: string; lines: { productId: string; variantId?: string; qty: number }[] }) {
   needModule(ctx, "purchases");
   const rid = safeId(b.receiptId); if (rid.length < 8) throw new HttpError(400, "receiptId invalide");
   const { po, lines, receipts } = await loadPo(store, ctx, b.poId);
   if (po.status === "cancelled") throw new HttpError(409, "Commande annulée");
   const duplicate = receipts.includes(rid);
-  const wanted = (b.lines ?? []).map((w) => ({ productId: w.productId, qty: Number(String(w.qty).replace(",", ".")) }));
+  const wanted = (b.lines ?? []).map((w) => ({ productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), qty: Number(String(w.qty).replace(",", ".")) }));
   const scales = new Map<string, number>();
   for (const w of wanted) scales.set(w.productId, scaleOf(await store.get("products", w.productId)));
   if (!duplicate) {
     const v = validateQuantities(lines, wanted, toReceive, (id) => scales.get(id) ?? 0); if (!v.ok) throw new HttpError(409, v.error);
-    // coûts moyens calculés avant que le stock ne bouge
-    const costs = new Map<string, number>();
+    // coûts moyens calculés avant que le stock ne bouge (par variante pour un article décliné)
+    const costs = new Map<string, { table: string; id: string; cost: number }>();
     for (const w of wanted) {
-      const line = lines.find((l) => l.productId === w.productId)!;
+      const line = lines.find((l) => lineKey(l) === lineKey(w))!;
       const p = must(await store.get("products", w.productId), "Produit introuvable");
-      costs.set(w.productId, weightedCost(await stockFor(store, w.productId, scales.get(w.productId)), Number(p.cost ?? 0), w.qty, line.unitCost));
+      const v = w.variantId ? must(await store.get("article_variants", w.variantId), "Variante introuvable") : null;
+      const stock = v ? fromScaled(await stockScaledVariant(store, v.$id), scales.get(w.productId) ?? 0) : await stockFor(store, w.productId, scales.get(w.productId));
+      costs.set(lineKey(w), { table: v ? "article_variants" : "products", id: v ? v.$id : p.$id, cost: weightedCost(stock, Number((v ?? p).cost ?? 0), w.qty, line.unitCost) });
       line.received = Math.round((line.received + w.qty) * 1e6) / 1e6;
     }
     await store.update("purchase_orders", po.$id, { lines: JSON.stringify(lines), receipts: JSON.stringify([...receipts, rid]), status: poStatus(lines) });
-    for (const [pid, cost] of costs) await store.update("products", pid, { cost });
+    for (const c of costs.values()) await store.update(c.table, c.id, { cost: c.cost });
   }
   const base = rid.slice(0, 28);
   for (const [i, w] of wanted.entries())
-    await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: w.productId, qty: scaledInt(w.qty, scales.get(w.productId) ?? 0), kind: "purchase", refId: String(po.number), userId: ctx.userId });
+    await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), qty: scaledInt(w.qty, scales.get(w.productId) ?? 0), kind: "purchase", refId: String(po.number), userId: ctx.userId });
   return { status: poStatus(lines), duplicate };
 }
 
 /** Facture fournisseur sur les quantités reçues et non encore facturées. Écritures SYSCOHADA : 601 + 4452 / 401. */
-export async function invoicePo(store: Store, ctx: Ctx, b: { poId: string; invoiceId: string; supplierRef?: string; dueAt?: string; lines?: { productId: string; qty: number }[] }) {
+export async function invoicePo(store: Store, ctx: Ctx, b: { poId: string; invoiceId: string; supplierRef?: string; dueAt?: string; lines?: { productId: string; variantId?: string; qty: number }[] }) {
   needModule(ctx, "accounting");
   const iid = safeId(b.invoiceId); if (iid.length < 8) throw new HttpError(400, "invoiceId invalide");
   const { po, lines, invoicedIds } = await loadPo(store, ctx, b.poId);
   if (po.status === "cancelled") throw new HttpError(409, "Commande annulée");
   const duplicate = invoicedIds.includes(iid);
-  const wanted = (b.lines?.length ? b.lines : lines.filter((l) => toInvoice(l) > 0).map((l) => ({ productId: l.productId, qty: toInvoice(l) }))).map((w) => ({ productId: w.productId, qty: Number(w.qty) }));
+  const wanted = (b.lines?.length ? b.lines : lines.filter((l) => toInvoice(l) > 0).map((l) => ({ productId: l.productId, variantId: l.variantId, qty: toInvoice(l) }))).map((w) => ({ productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), qty: Number(w.qty) }));
   const shop = await store.get("shops", ctx.shopId);
   const vatRatePct = Number(shop?.vatRatePct ?? 18);
   if (!duplicate) {
     const iscales = new Map<string, number>(); for (const w of wanted) iscales.set(w.productId, scaleOf(await store.get("products", w.productId)));
     const v = validateQuantities(lines, wanted, toInvoice, (id) => iscales.get(id) ?? 0); if (!v.ok) throw new HttpError(409, v.error === "Aucune ligne" ? "Rien à facturer : réceptionnez d'abord" : v.error);
-    for (const w of wanted) { const ln = lines.find((l) => l.productId === w.productId)!; ln.invoiced = Math.round((ln.invoiced + w.qty) * 1e6) / 1e6; }
+    for (const w of wanted) { const ln = lines.find((l) => lineKey(l) === lineKey(w))!; ln.invoiced = Math.round((ln.invoiced + w.qty) * 1e6) / 1e6; }
     await store.update("purchase_orders", po.$id, { lines: JSON.stringify(lines), invoicedIds: JSON.stringify([...invoicedIds, iid]) });
   }
   // En reprise, la facture existe peut-être déjà : on ne la recrée pas, on complète seulement les écritures manquantes.
   const existing = await store.get("invoices", iid);
   const now = day();
-  const ht = wanted.reduce((s, w) => s + lineHt(w.qty, lines.find((l) => l.productId === w.productId)!.unitCost), 0);
+  const ht = wanted.reduce((s, w) => s + lineHt(w.qty, lines.find((l) => lineKey(l) === lineKey(w))!.unitCost), 0);
   const total = existing ? Number(existing.total) : invoiceTtc(ht, vatRatePct);
   const number = existing ? String(existing.number) : `FF-${ymd(now)}-${iid.slice(0, 6).toUpperCase()}`;
   if (!existing) {

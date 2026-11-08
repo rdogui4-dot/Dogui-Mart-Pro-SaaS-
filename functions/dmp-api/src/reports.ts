@@ -35,13 +35,26 @@ export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: stri
     // Stock valorisé au coût moyen et ruptures : impossibles à calculer honnêtement si l'historique a été tronqué.
     let stockValue: number | null = null, stockouts: number | null = null;
     if (!moves.truncated && !products.truncated) {
-      const byProduct = new Map<string, StockMove[]>();
-      for (const m of moves.rows) { const k = String(m.productId); (byProduct.get(k) ?? byProduct.set(k, []).get(k)!).push({ productId: k, qty: Number(m.qty), kind: m.kind as StockMove["kind"] }); }
+      const byProduct = new Map<string, StockMove[]>(), byVariant = new Map<string, StockMove[]>();
+      for (const m of moves.rows) {
+        const mv = { productId: String(m.productId), qty: Number(m.qty), kind: m.kind as StockMove["kind"] };
+        const [map, k] = m.variantId ? [byVariant, String(m.variantId)] : [byProduct, String(m.productId)];
+        (map.get(k) ?? map.set(k, []).get(k)!).push(mv);
+      }
       stockValue = 0; stockouts = 0;
-      for (const p of products.rows.filter((x) => !x.archived)) {
+      const productRows = products.rows.filter((x) => !x.archived);
+      for (const p of productRows.filter((x) => !x.hasVariants)) {
         const n = fromScaled(stockOf(byProduct.get(String(p.$id)) ?? []), scaleOf(p)); // décimal pour les articles au kilo / au litre
         stockValue += Math.max(0, n) * Number(p.cost ?? 0);
         if (n <= Number(p.minStock ?? 0)) stockouts++;
+      }
+      // Articles déclinés : chaque variante active a son stock, son coût et son seuil.
+      const variants = await store.scan("article_variants", where, { maxRows: 20_000 });
+      const live = new Set(productRows.filter((x) => x.hasVariants).map((x) => String(x.$id)));
+      for (const v of variants.rows.filter((x) => !x.archived && live.has(String(x.productId)))) {
+        const n = fromScaled(stockOf(byVariant.get(String(v.$id)) ?? []), scaleOf(products.rows.find((x) => x.$id === v.productId)));
+        stockValue += Math.max(0, n) * Number(v.cost ?? 0);
+        if (n <= Number(v.minStock ?? 0)) stockouts++;
       }
     }
     const sum = (rs: Record<string, unknown>[], f: (r: Record<string, unknown>) => number) => rs.reduce((s, r) => s + f(r), 0);

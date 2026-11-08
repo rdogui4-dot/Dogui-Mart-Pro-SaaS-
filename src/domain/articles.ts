@@ -22,14 +22,14 @@ export type Article = {
 export const PRO_FIELDS = ["qtyScale"] as const;
 export const BUSINESS_FIELDS = ["description", "unit", "supplierId", "imageFileId"] as const;
 
-const text = (v: unknown, max: number, label: string): string => {
+export const cleanText = (v: unknown, max: number, label: string): string => {
   if (v === undefined || v === null) return "";
   if (typeof v !== "string") throw new Error(`${label} invalide`);
   const t = v.trim().replace(/\s+/g, " ");
   if (t.length > max) throw new Error(`${label} : ${max} caractères maximum`);
   return t;
 };
-const amount = (v: unknown, label: string): number => {
+export const parseAmount = (v: unknown, label: string): number => {
   if (v === undefined || v === null || v === "") return 0;
   const n = typeof v === "string" ? Number(v.replace(/\s/g, "").replace(",", ".")) : Number(v);
   if (!Number.isFinite(n)) throw new Error(`${label} invalide`);
@@ -41,9 +41,9 @@ const amount = (v: unknown, label: string): number => {
 
 /** Normalise une fiche article complète (création). Lève une Error au message lisible pour l'utilisateur. */
 export function normalizeArticle(raw: ArticleInput): Article {
-  const name = text(raw.name, 160, "Désignation"); if (!name) throw new Error("La désignation est obligatoire");
-  const barcode = text(raw.barcode, 64, "Code-barres"); if (barcode && !/^[A-Za-z0-9._\-/]+$/.test(barcode)) throw new Error("Code-barres : lettres, chiffres et . _ - / uniquement");
-  const price = amount(raw.price, "Prix de vente"); const cost = amount(raw.cost, "Prix d'achat");
+  const name = cleanText(raw.name, 160, "Désignation"); if (!name) throw new Error("La désignation est obligatoire");
+  const barcode = cleanText(raw.barcode, 64, "Code-barres"); if (barcode && !/^[A-Za-z0-9._\-/]+$/.test(barcode)) throw new Error("Code-barres : lettres, chiffres et . _ - / uniquement");
+  const price = parseAmount(raw.price, "Prix de vente"); const cost = parseAmount(raw.cost, "Prix d'achat");
   const unit = raw.unit === undefined || raw.unit === "" ? "piece" : String(raw.unit);
   if (!UNITS.some((u) => u.id === unit)) throw new Error("Unité inconnue");
   const qtyScale = raw.qtyScale === undefined || raw.qtyScale === "" ? 0 : Number(raw.qtyScale);
@@ -51,8 +51,8 @@ export function normalizeArticle(raw: ArticleInput): Article {
   const minStock = raw.minStock === undefined || raw.minStock === "" ? 0 : Number(raw.minStock);
   if (!Number.isInteger(minStock) || minStock < 0 || minStock > 1_000_000) throw new Error("Seuil d'alerte invalide (entier positif)");
   return {
-    name, sku: text(raw.sku, 64, "Référence"), barcode, category: text(raw.category, 80, "Catégorie"), description: text(raw.description, 1000, "Description"),
-    price, cost, unit: unit as UnitId, minStock, qtyScale, supplierId: text(raw.supplierId, 64, "Fournisseur"), archived: raw.archived === true,
+    name, sku: cleanText(raw.sku, 64, "Référence"), barcode, category: cleanText(raw.category, 80, "Catégorie"), description: cleanText(raw.description, 1000, "Description"),
+    price, cost, unit: unit as UnitId, minStock, qtyScale, supplierId: cleanText(raw.supplierId, 64, "Fournisseur"), archived: raw.archived === true,
   };
 }
 

@@ -22,10 +22,14 @@ export async function needFeature(store: Store, ctx: Ctx, key: FeatureKey): Prom
 const audit = (store: Store, ctx: Ctx, action: string, detail: string) =>
   store.create("audit_log", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action, detail: detail.slice(0, 1000) });
 
-async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barcode", value: string, selfId?: string) {
+/** Référence et code-barres uniques dans la boutique, TOUS articles et variantes confondus (la caisse retrouve un article par scan). */
+export async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barcode", value: string, self?: { productId?: string; variantId?: string }) {
   if (!value) return;
-  const dup = (await store.list("products", { tenantId: ctx.tenantId, shopId: ctx.shopId, [field]: value }, 5)).find((r) => r.$id !== selfId);
-  if (dup) throw new HttpError(409, `${field === "sku" ? "Référence déjà utilisée" : "Code-barres déjà utilisé"} par « ${dup.name} »`);
+  const where = { tenantId: ctx.tenantId, shopId: ctx.shopId, [field]: value };
+  const dup = (await store.list("products", where, 5)).find((r) => r.$id !== self?.productId);
+  const vdup = (await store.list("article_variants", where, 5)).find((r) => r.$id !== self?.variantId);
+  const hit = dup ?? vdup;
+  if (hit) throw new HttpError(409, `${field === "sku" ? "Référence déjà utilisée" : "Code-barres déjà utilisé"} par « ${dup ? dup.name : `${(await store.get("products", String(vdup!.productId)))?.name ?? "article"} — ${vdup!.label}`} »`);
 }
 
 /** Écritures qui suivent la création de la fiche (stock initial, premier prix, journal) : à identifiants fixes, donc rejouables sans doublon. */
@@ -69,8 +73,8 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
       if ((await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id }, { maxRows: 1 })).rows.length) throw new HttpError(409, "La précision des quantités ne peut plus changer : cet article a déjà des mouvements de stock.");
       if ((await store.list("article_units", { productId: row.$id, active: true }, 1)).length) throw new HttpError(409, "Retirez d'abord les conditionnements de cet article.");
     }
-    if (patch.sku !== undefined) await assertUnique(store, ctx, "sku", patch.sku, row.$id);
-    if (patch.barcode !== undefined) await assertUnique(store, ctx, "barcode", patch.barcode, row.$id);
+    if (patch.sku !== undefined) await assertUnique(store, ctx, "sku", patch.sku, { productId: row.$id });
+    if (patch.barcode !== undefined) await assertUnique(store, ctx, "barcode", patch.barcode, { productId: row.$id });
     if (!Object.keys(patch).length) return { id: row.$id };
     await store.update("products", row.$id, patch);
     const priceChanged = patch.price !== undefined && patch.price !== Number(row.price), costChanged = patch.cost !== undefined && patch.cost !== Number(row.cost ?? 0);
@@ -114,6 +118,7 @@ export async function archiveArticle(store: Store, ctx: Ctx, b: { id: string; ar
 export async function deleteArticle(store: Store, ctx: Ctx, b: { id: string }) {
   needModule(ctx, "stock"); await needFeature(store, ctx, "articles"); need(ctx, "manager");
   const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+  if (row.hasVariants) throw new HttpError(409, "Cet article a des variantes : supprimez ou archivez-les d'abord.");
   const moves = (await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id })).rows;
   const used = moves.some((m) => !(m.kind === "adjust" && m.refId === INITIAL));
   const inOrders = (await store.scan("purchase_orders", { tenantId: ctx.tenantId, shopId: ctx.shopId })).rows.some((po) => { try { return (JSON.parse(String(po.lines)) as { productId?: string }[]).some((l) => l.productId === row.$id); } catch { return false; } });
@@ -134,12 +139,18 @@ const MAGIC: { mime: string; ext: string; ok: (b: Uint8Array) => boolean }[] = [
 
 /** Photo d'un article : `data` = image compressée en base64 (le client la réduit avant l'envoi) ; `data: null` retire la photo.
  *  Le fichier reçoit les mêmes droits de lecture que la ligne de l'article (propriétaire + employés de la boutique). */
-export async function setArticleImage(store: Store, ctx: Ctx, b: { id: string; mime?: string; data: string | null }) {
+export async function setArticleImage(store: Store, ctx: Ctx, b: { id: string; variantId?: string; mime?: string; data: string | null }) {
   needModule(ctx, "stock"); await needFeature(store, ctx, "articles");
-  const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+  const prod = must(await store.get("products", b.id)); if (!mine(ctx, prod)) throw new HttpError(403, "Accès refusé");
+  let row = prod, table = "products";
+  if (b.variantId) { // photo d'une variante : fonction Pro
+    await needFeature(store, ctx, "variants");
+    const v = must(await store.get("article_variants", b.variantId), "Variante introuvable"); if (!mine(ctx, v) || v.productId !== prod.$id) throw new HttpError(403, "Accès refusé");
+    row = v; table = "article_variants";
+  }
   const old = row.imageFileId ? String(row.imageFileId) : "";
   if (b.data === null) {
-    await store.update("products", row.$id, { imageFileId: "" }); if (old) await store.deleteFile(old);
+    await store.update(table, row.$id, { imageFileId: "" }); if (old) await store.deleteFile(old);
     await audit(store, ctx, "article.image.remove", `${row.name} (${row.$id})`); return { fileId: "" };
   }
   if (typeof b.data !== "string" || !/^[A-Za-z0-9+/]+=*$/.test(b.data)) throw new HttpError(400, "Image invalide");
@@ -149,8 +160,8 @@ export async function setArticleImage(store: Store, ctx: Ctx, b: { id: string; m
   const kind = MAGIC.find((m) => m.ok(bytes)); // le contenu fait foi, pas le type annoncé par le client
   if (!kind) throw new HttpError(400, "Format d'image non pris en charge (JPEG, PNG ou WebP)");
   const fileId = newId();
-  await store.putFile(fileId, bytes, `${row.$id}.${kind.ext}`, kind.mime, readRoles("products", ctx.tenantId, row as Record<string, unknown>, row.$id));
-  await store.update("products", row.$id, { imageFileId: fileId });
+  await store.putFile(fileId, bytes, `${row.$id}.${kind.ext}`, kind.mime, readRoles("products", ctx.tenantId, prod as Record<string, unknown>, prod.$id));
+  await store.update(table, row.$id, { imageFileId: fileId });
   if (old) await store.deleteFile(old);
   await audit(store, ctx, "article.image", `${row.name} (${row.$id})`);
   return { fileId };
