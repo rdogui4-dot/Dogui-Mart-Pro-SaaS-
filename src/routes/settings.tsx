@@ -4,12 +4,17 @@ import { api } from "@/lib/api";
 import { getShop } from "@/lib/data";
 import { can, useSession } from "@/lib/session";
 import { ShopsSection, StaffSection } from "./team";
+import { PlatformSection, SubscriptionSection, useSubscription } from "./subscription";
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
   const [f, setF] = useState({ waveTemplate: "", orangeTemplate: "", expiryMinutes: "15" });
   const [msg, setMsg] = useState("");
-  const [tab, setTab] = useState<"general" | "shops" | "staff">("general");
+  const [tab, setTab] = useState<"general" | "shops" | "staff" | "subscription" | "platform">("general");
+  const sub = useSubscription();
+  const me = useQuery({ queryKey: ["platform-me"], queryFn: () => api<{ admin: boolean }>(s, "platform.me", {}), staleTime: 300_000 });
+  const [opened, setOpened] = useState(false);
+  useEffect(() => { if (!opened && sub.data?.entitlement.state === "locked") { setTab("subscription"); setOpened(true); } }, [sub.data, opened]);
   const qc = useQueryClient();
   const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) });
   const [sh, setSh] = useState({ name: "", address: "", city: "", phone: "", legal: "", vatRatePct: "18" });
@@ -30,14 +35,16 @@ export function SettingsPage() {
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Réglages</h1>
       {can(s.role, "settings") && (
-        <div className="grid grid-cols-3 gap-1 text-sm">
-          {([["general", "Général"], ["shops", "Boutiques"], ["staff", "Équipe"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>)}
+        <div className="flex flex-wrap gap-1 text-sm [&>button]:flex-1">
+          {([["general", "Général"], ["shops", "Boutiques"], ["staff", "Équipe"], ["subscription", "Abonnement"], ...(me.data?.admin ? [["platform", "Plateforme"] as const] : [])] as const).map(([k, l]) => <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>)}
         </div>
       )}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
+      {tab === "subscription" && <SubscriptionSection />}
+      {tab === "platform" && me.data?.admin && <PlatformSection />}
       {tab === "general" && <>
-      <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}</div>
+      <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>
       {can(s.role, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={saveShop}>
           <h2 className="font-semibold">Ma boutique (en-tête des factures et tickets)</h2>

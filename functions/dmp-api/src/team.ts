@@ -1,5 +1,6 @@
 import { stockFor } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
+import { assertQuota, getSub } from "./subscriptions";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const safeId = (s: unknown) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
@@ -16,6 +17,7 @@ export async function initTenant(store: Store, ctx: Ctx, b: { name?: string }) {
   const shops = await store.list("shops", { tenantId: ctx.tenantId }, 1);
   if (shops.length) return { shopId: String(shops[0]!.$id), created: false };
   await store.create("shops", id, ctx.tenantId, { tenantId: ctx.tenantId, name: String(b.name || "Boutique principale").slice(0, 120), vatRatePct: 18 });
+  await getSub(store, ctx.tenantId); // démarre l'essai gratuit à l'inscription
   return { shopId: id, created: true };
 }
 
@@ -25,6 +27,7 @@ export async function createShop(store: Store, ctx: Ctx, b: { name: string; addr
   const vat = b.vatRatePct === undefined ? 18 : Number(b.vatRatePct);
   if (!(vat >= 0 && vat <= 30)) throw new HttpError(400, "TVA invalide (0 à 30 %)");
   if ((await store.list("shops", { tenantId: ctx.tenantId }, MAX_SHOPS + 1)).length >= MAX_SHOPS) throw new HttpError(409, `Maximum ${MAX_SHOPS} boutiques`);
+  await assertQuota(store, ctx.tenantId, "shops");
   const id = newId();
   await store.create("shops", id, ctx.tenantId, { tenantId: ctx.tenantId, name: name.slice(0, 120), address: String(b.address ?? "").slice(0, 160), city: String(b.city ?? "").slice(0, 80), phone: String(b.phone ?? "").slice(0, 32), legal: String(b.legal ?? "").slice(0, 120), vatRatePct: vat });
   await store.create("audit_log", `${id}_a`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: id, userId: ctx.userId, action: "shop.create", detail: name });
@@ -50,6 +53,7 @@ export async function createStaff(store: Store, ctx: Ctx, b: { name: string; use
   let email: string, username = "";
   if (b.email) { email = String(b.email).trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.endsWith(`@${STAFF_EMAIL_DOMAIN}`)) throw new HttpError(400, "E-mail invalide"); }
   else { username = String(b.username ?? "").trim().toLowerCase(); if (!/^[a-z0-9._-]{3,24}$/.test(username)) throw new HttpError(400, "Identifiant : 3 à 24 caractères (lettres, chiffres, . _ -)"); email = `${username}@${STAFF_EMAIL_DOMAIN}`; }
+  await assertQuota(store, ctx.tenantId, "users");
   const userId = newId();
   await store.createUser({ userId, email, password, name }); // 409 si déjà pris
   try {

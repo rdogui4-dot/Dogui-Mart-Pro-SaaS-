@@ -20,7 +20,7 @@ export interface Store {
   removeMember(tenantId: string, userId: string): Promise<void>;
 }
 /** shopId vaut "" pour les actions qui ne dépendent d'aucune boutique (équipe, création de boutique). */
-export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all" };
+export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean };
 export type Role = "owner" | "manager" | "cashier";
 export const roleOf = (roles: string[]): Role => (roles.includes("owner") ? "owner" : roles.includes("manager") ? "manager" : "cashier");
 export const need = (ctx: Ctx, min: Role) => {

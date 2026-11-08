@@ -25,7 +25,8 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
     async create(tableId, rowId, tenantId, data) {
       try {
         // Lecture pour l'équipe ; aucune écriture client : tout passe par cette fonction.
-        await db.createRow({ databaseId, tableId, rowId, data, permissions: [Permission.read(Role.team(tenantId))] });
+        // tenantId vide = donnée de plateforme : aucune lecture client (accessible seulement via la clé serveur).
+        await db.createRow({ databaseId, tableId, rowId, data, permissions: tenantId ? [Permission.read(Role.team(tenantId))] : [] });
         return true;
       } catch (e: any) { if (e?.code === 409) return false; throw e; }
     },

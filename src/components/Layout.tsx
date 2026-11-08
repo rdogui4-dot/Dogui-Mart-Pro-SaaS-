@@ -3,6 +3,7 @@ import { BookOpen, Boxes, Receipt, ScanLine, Settings, Users } from "lucide-reac
 import { useEffect, useState } from "react";
 import { can, useSession } from "@/lib/session";
 import { pendingCount, syncPending } from "@/lib/offline";
+import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
 
 const NAV = [
   { to: "/pos", label: "Caisse", icon: ScanLine, perm: "sell" },
@@ -15,6 +16,7 @@ const NAV = [
 
 export function Layout() {
   const { session, switchShop, logout } = useSession();
+  const sub = useSubscription();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [pending, setPending] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
@@ -33,6 +35,7 @@ export function Layout() {
           {online ? "Synchronisation" : "Hors ligne"} · {pending} vente(s) en attente
         </div>
       )}
+      <SubscriptionBanner />
       {session && session.shops.length > 1 && (
         <div className="px-4 pt-3">
           <select aria-label="Boutique" className="input !py-2" value={session.shopId} onChange={(e) => switchShop(e.target.value)}>
@@ -41,7 +44,9 @@ export function Layout() {
         </div>
       )}
       <main className="flex-1 overflow-y-auto p-4 pb-24">
-        {session?.shopId ? <Outlet key={session.shopId} /> : <div className="text-center text-white/60 py-10 flex flex-col gap-3 items-center"><p>Aucune boutique ne vous est affectée. Contactez le propriétaire.</p><button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button></div>}
+        {sub.data?.entitlement.state === "locked" && !(session?.role === "owner" && path.startsWith("/reglages"))
+          ? <div className="text-center py-10 flex flex-col gap-3 items-center"><h1 className="text-xl font-bold">Abonnement expiré</h1><p className="text-white/60">L'application est en lecture seule.{session?.role === "owner" ? " Renouvelez votre formule pour reprendre." : " Contactez le propriétaire du commerce."}</p>{session?.role === "owner" && <Link to="/reglages" className="btn">Renouveler mon abonnement</Link>}<button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button></div>
+          : session?.shopId ? <Outlet key={session.shopId} /> : <div className="text-center text-white/60 py-10 flex flex-col gap-3 items-center"><p>Aucune boutique ne vous est affectée. Contactez le propriétaire.</p><button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button></div>}
       </main>
       <nav className="fixed bottom-0 inset-x-0 bg-[#111] border-t border-white/10 grid grid-flow-col auto-cols-fr pb-[env(safe-area-inset-bottom)]">
         {NAV.filter((n) => can(session?.role, n.perm)).map(({ to, label, icon: I }) => (

@@ -4,6 +4,7 @@ import { ACCOUNTS } from "../../../src/domain/accounting";
 import { checkout, stockFor, type CheckoutInput } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
 import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
+import { assertQuota, platformGrant, platformMe, platformPayments, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
@@ -12,6 +13,9 @@ const must = <T,>(v: T | null | undefined, msg: string, status = 404): T => { if
 const mine = (ctx: Ctx, r: Record<string, unknown> | null) => !!r && r.tenantId === ctx.tenantId && r.shopId === ctx.shopId;
 
 // Champs modifiables par le client. creditBalance / points / annualSpend sont gérés par le serveur uniquement.
+/** Actions de lecture / d'abonnement toujours permises, même quand l'abonnement est expiré. */
+export const LOCK_EXEMPT = new Set(["subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "payments.settings.get", "payment_link.status"]);
+
 const ENTITIES = {
   products: { min: "manager", fields: ["sku", "barcode", "name", "category", "price", "cost", "minStock", "archived"] },
   customers: { min: "cashier", fields: ["name", "phone", "creditLimit"] },
@@ -30,6 +34,7 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
     await store.update(b.table, b.id, data);
     return { id: b.id };
   }
+  if (b.table === "products") await assertQuota(store, ctx.tenantId, "products");
   if (b.table === "products" && (typeof data.name !== "string" || !(Number(data.price) >= 0))) throw new HttpError(400, "Nom et prix requis");
   const id = newId();
   const init = b.table === "customers" ? { creditBalance: 0, points: 0, annualSpend: 0 } : b.table === "suppliers" ? { balance: 0 } : {};
@@ -133,7 +138,7 @@ export async function paymentLinkStatus(store: Store, ctx: Ctx, b: { linkId: str
 }
 
 /** Actions qui ne dépendent d'aucune boutique particulière (le shopId du contexte est alors vide). */
-export const TENANT_LEVEL = new Set(["tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword"]);
+export const TENANT_LEVEL = new Set(["subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword"]);
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
@@ -143,5 +148,7 @@ export const ACTIONS = {
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
   "shop.save": saveShop, "invoice.customer.fromSale": invoiceFromSale, "invoice.customer.create": createFreeInvoice, "invoice.customer.pay": payCustomerInvoice,
   "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "stock.transfer": transferStock,
+  "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof,
+  "platform.me": platformMe, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,
 } as const;

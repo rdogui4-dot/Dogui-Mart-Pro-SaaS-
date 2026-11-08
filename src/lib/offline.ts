@@ -32,6 +32,8 @@ export async function syncPending(): Promise<number> {
         await d.delete("sales", p.clientId); done++;
       } catch (e) {
         // Refus métier (4xx) : on garde la vente marquée en erreur au lieu de boucler indéfiniment.
+        // Abonnement expiré : la vente reste en attente et partira après le renouvellement (ce n'est pas un refus définitif).
+        if (e instanceof ApiError && e.status === 402 && e.message.startsWith("Abonnement expiré")) break;
         if (e instanceof ApiError && e.status >= 400 && e.status < 500) await d.put("sales", { ...p, error: e.message });
         else break; // réseau / 5xx : on réessaiera
       }

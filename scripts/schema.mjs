@@ -12,7 +12,7 @@ const base = [s("tenantId", 64, true), s("shopId", 64, true)];
 
 export const TABLES = {
   shops: { cols: [s("tenantId", 64, true), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
-  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]]] },
+  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]]] },
   // Journal immuable de mouvements : le stock est la somme des mouvements.
   stock_moves: { cols: [...base, s("productId", 64, true), i("qty", true), s("kind", 24, true), s("refId", 64), s("userId", 64)], idx: [["prod", ["productId"]]] },
   customers: { cols: [...base, s("name", 160, true), s("phone", 32), i("creditLimit"), i("creditBalance"), i("points"), i("annualSpend")], idx: [["shop", ["tenantId", "shopId"]], ["phone", ["phone"]]] },
@@ -27,6 +27,11 @@ export const TABLES = {
   // Fiche employé (le rôle fait foi dans l'appartenance à la Team ; ici : boutiques affectées et statut).
   staff: { cols: [s("tenantId", 64, true), s("userId", 64, true), s("name", 100, true), s("username", 32), s("email", 160), s("role", 16, true), t("shopIds"), b("active")], idx: [["tenant", ["tenantId"]]] },
   transfers: { cols: [...base, s("toShopId", 64, true), s("number", 32), t("lines"), s("userId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["to", ["toShopId"]]] },
-  subscriptions: { cols: [s("tenantId", 64, true), s("plan", 16, true), s("status", 16), d("renewsAt"), i("maxShops"), i("maxUsers")], idx: [["tenant", ["tenantId"], "unique"]] },
+  // Abonnement du commerce : identifiant de ligne = tenantId. Les limites viennent du catalogue de formules (modifiable par la plateforme).
+  subscriptions: { cols: [s("tenantId", 64, true), s("plan", 16, true), s("period", 16), s("status", 16), d("startedAt"), d("renewsAt")], idx: [["tenant", ["tenantId"], "unique"]] },
+  // Demandes de paiement d'abonnement (Wave / Orange Business de la plateforme) et attributions manuelles.
+  subscription_payments: { cols: [s("tenantId", 64, true), s("tenantName", 120), s("plan", 16, true), s("period", 16, true), i("count"), i("amount", true), s("provider", 16), s("reference", 40), t("url"), s("status", 24, true), s("txRef", 64), s("requestedBy", 64), s("reviewedBy", 64), s("note", 200), d("startsAt"), d("endsAt")], idx: [["tenant", ["tenantId"]], ["status", ["status"]], ["tx", ["txRef"]]] },
+  // Réglages de la plateforme (une seule ligne "main") : aucune lecture client, accessibles seulement par la fonction serveur.
+  platform_settings: { cols: [t("waveTemplate"), t("orangeTemplate"), t("plans")], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
 };
