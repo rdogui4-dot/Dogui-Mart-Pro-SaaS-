@@ -13,8 +13,7 @@ const setSub = (tenantId: string, plan: string, period: string, renewsAt: string
   if (!st.tables.has("subscriptions")) st.tables.set("subscriptions", new Map());
   st.tables.get("subscriptions")!.set(tenantId, { $id: tenantId, tenantId, plan, period, status, renewsAt });
 };
-const PLANS = ["starter", "business", "pro"], PERIODS = ["day", "week", "month", "quarter", "year"];
-const LINKS: Record<string, string> = Object.fromEntries(PLANS.flatMap((p) => PERIODS.map((k) => [`${p}:${k}`, `https://selar.co/dmp-${p}-${k}`])));
+const LINKS: Record<string, string> = { starter: "https://selar.com/98c371k399", business: "https://selar.com/1fd1c16111", pro: "https://selar.com/775984p80m" };
 const TPL = { selarLinks: LINKS };
 
 beforeEach(async () => {
@@ -93,23 +92,24 @@ describe("quotas de la formule", () => {
 
 describe("souscription : lien Selar et preuve", () => {
   const req = (over: object = {}, user = "own", id = "request-0001") => call(user, "subscription.checkout", { requestId: id, plan: "starter", period: "week", ...over }, T, "");
-  it("refuse tant que la plateforme n'a pas configuré le lien de cette formule et période", async () => {
+  it("refuse tant que la plateforme n'a pas configuré le lien de la formule", async () => {
     expect((await req()).status).toBe(409);
-    await ok(plat("platform.settings.save", { selarLinks: { "starter:month": "https://selar.co/dmp-starter-month" } }));
-    expect((await req({ period: "week" })).status).toBe(409);
-    expect((await req({ period: "month" })).status).toBe(200);
+    await ok(plat("platform.settings.save", { selarLinks: { business: LINKS.business } }));
+    expect((await req({ plan: "starter" })).status).toBe(409);
+    expect((await req({ plan: "business" })).status).toBe(200);
   });
-  it("renvoie le lien Selar de la formule et période, avec le prix du catalogue, pour chacune des cinq périodes ; réservé au propriétaire", async () => {
+  it("renvoie le lien Selar de la formule et, pour chacune des cinq périodes, le prix du catalogue attendu ; réservé au propriétaire", async () => {
     await ok(plat("platform.settings.save", TPL));
     const expected = { day: 500, week: 2_500, month: 7_500, quarter: 20_000, year: 70_000 } as const;
     for (const [period, price] of Object.entries(expected)) {
       const r = await ok(req({ period }, "own", `req-${period}-0001`));
-      expect(r.amount).toBe(price); expect(r.url).toBe(`https://selar.co/dmp-starter-${period}`); expect(r.reference).toMatch(/^ABO-/);
+      expect(r.amount).toBe(price); expect(r.url).toBe(LINKS.starter); expect(r.reference).toMatch(/^ABO-/);
     }
+    expect((await ok(req({ plan: "pro", period: "year" }, "own", "req-pro-year-1"))).url).toBe(LINKS.pro);
     expect((await req({}, "mgr", "req-mgr-00001")).status).toBe(403);
     expect(st.rows("subscription_payments").every((p) => p.provider === "selar" && p.count === 1)).toBe(true);
   });
-  it("ignore toute quantité fournie (un lien Selar = une période) et valide formule et période ; idempotent", async () => {
+  it("ignore toute quantité fournie et valide formule et période ; idempotent", async () => {
     await ok(plat("platform.settings.save", TPL));
     expect((await ok(req({ count: 5 }, "own", "req-count-0005"))).amount).toBe(2_500);
     expect((await req({ plan: "gold" })).status).toBe(400);
@@ -120,9 +120,9 @@ describe("souscription : lien Selar et preuve", () => {
   it("le lien reste celui de la demande même si l'administrateur le change ensuite", async () => {
     await ok(plat("platform.settings.save", TPL));
     const a = await ok(req());
-    await ok(plat("platform.settings.save", { selarLinks: { "starter:week": "https://selar.co/nouveau-lien" } }));
+    await ok(plat("platform.settings.save", { selarLinks: { starter: "https://selar.com/nouveau-lien" } }));
     expect((await ok(req())).url).toBe(a.url);
-    expect((await ok(req({}, "own", "request-0002"))).url).toBe("https://selar.co/nouveau-lien");
+    expect((await ok(req({}, "own", "request-0002"))).url).toBe("https://selar.com/nouveau-lien");
   });
   it("un autre commerce ne peut pas réutiliser la demande", async () => {
     await ok(plat("platform.settings.save", TPL)); await ok(req());
@@ -152,16 +152,16 @@ describe("souscription : lien Selar et preuve", () => {
     await ok(plat("platform.settings.save", TPL));
     const a = await ok(req());
     const own = await ok(call("own", "subscription.get"));
-    expect(own.payments).toHaveLength(1); expect(own.payments[0].url).toBe("https://selar.co/dmp-starter-week");
+    expect(own.payments).toHaveLength(1); expect(own.payments[0].url).toBe(LINKS.starter);
     await ok(proofOf("own", T, a.id, "TX123456"));
     expect((await ok(call("own", "subscription.get"))).payments[0].url).toBeUndefined();
     expect((await ok(call("mgr", "subscription.get"))).payments).toEqual([]);
     expect((await ok(call("own2", "subscription.get", {}, "t2", "s2"))).payments).toEqual([]);
   });
-  it("subscription.get n'expose que les couples disponibles, jamais les adresses des liens", async () => {
-    await ok(plat("platform.settings.save", { selarLinks: { "pro:year": "https://selar.co/secret-looking-slug" } }));
+  it("subscription.get n'expose que les formules disponibles, jamais les adresses des liens", async () => {
+    await ok(plat("platform.settings.save", { selarLinks: { pro: "https://selar.co/secret-looking-slug" } }));
     const d = await ok(call("mgr", "subscription.get"));
-    expect(d.available).toEqual({ "pro:year": true });
+    expect(d.available).toEqual({ pro: true });
     expect(JSON.stringify(d)).not.toContain("secret-looking-slug");
   });
 });
@@ -193,7 +193,7 @@ describe("validation par la plateforme", () => {
     expect((await ok(plat("platform.payments.list"))).payments).toHaveLength(0);
     const id = await paid();
     const l = (await ok(plat("platform.payments.list"))).payments;
-    expect(l).toHaveLength(1); expect(l[0]).toMatchObject({ id, tenantName: "Chez Awa", amount: 15_000, txRef: "TX123456", payerEmail: "awa@exemple.sn", provider: "selar", url: "https://selar.co/dmp-business-month" });
+    expect(l).toHaveLength(1); expect(l[0]).toMatchObject({ id, tenantName: "Chez Awa", amount: 15_000, txRef: "TX123456", payerEmail: "awa@exemple.sn", provider: "selar", url: LINKS.business });
   });
   it("refuse d'approuver sans preuve, approuve une fois, active la formule payée", async () => {
     await ok(plat("platform.settings.save", TPL));
@@ -257,14 +257,15 @@ describe("attribution manuelle & configuration", () => {
     expect(st.tables.get("subscriptions")!.get(T)).toMatchObject({ plan: "pro", status: "paid" });
   });
   it("liens Selar : validés, fusionnés, supprimables, et signalés si le domaine est inhabituel", async () => {
-    const r = await ok(plat("platform.settings.save", { selarLinks: { "starter:month": "https://selar.co/a", "pro:day": "https://boutique.exemple.com/p" } }));
+    const r = await ok(plat("platform.settings.save", { selarLinks: { starter: "https://selar.com/a", pro: "https://boutique.exemple.com/p" } }));
     expect(r.warnings).toHaveLength(1);
-    expect((await plat("platform.settings.save", { selarLinks: { "starter:month": "http://selar.co/a" } })).status).toBe(400);
-    expect((await plat("platform.settings.save", { selarLinks: { "gold:month": "https://selar.co/a" } })).status).toBe(400);
-    await ok(plat("platform.settings.save", { selarLinks: { "starter:week": "https://selar.co/b" } }));
-    expect(Object.keys((await ok(plat("platform.settings.get"))).selarLinks).sort()).toEqual(["pro:day", "starter:month", "starter:week"]);
-    await ok(plat("platform.settings.save", { selarLinks: { "starter:month": "" } }));
-    expect((await ok(plat("platform.settings.get"))).selarLinks["starter:month"]).toBeUndefined();
+    expect((await plat("platform.settings.save", { selarLinks: { starter: "http://selar.com/a" } })).status).toBe(400);
+    expect((await plat("platform.settings.save", { selarLinks: { gold: "https://selar.com/a" } })).status).toBe(400);
+    expect((await plat("platform.settings.save", { selarLinks: { "starter:month": "https://selar.com/a" } })).status).toBe(400); // ancien format refusé
+    await ok(plat("platform.settings.save", { selarLinks: { business: "https://selar.com/b" } }));
+    expect(Object.keys((await ok(plat("platform.settings.get"))).selarLinks).sort()).toEqual(["business", "pro", "starter"]);
+    await ok(plat("platform.settings.save", { selarLinks: { starter: "" } }));
+    expect((await ok(plat("platform.settings.get"))).selarLinks.starter).toBeUndefined();
   });
   it("tarifs modifiables : validés et appliqués aux nouvelles demandes", async () => {
     await ok(plat("platform.settings.save", TPL));
@@ -272,7 +273,7 @@ describe("attribution manuelle & configuration", () => {
     expect((await plat("platform.settings.save", { plans: [{ id: "nope" }] })).status).toBe(400);
     await ok(plat("platform.settings.save", { plans: [{ id: "starter", prices: { month: 9_000 } }] }));
     expect((await ok(call("own", "subscription.checkout", { requestId: "request-0001", plan: "starter", period: "month" }, T, ""))).amount).toBe(9_000);
-    expect((await ok(plat("platform.settings.get"))).selarLinks["starter:month"]).toBe("https://selar.co/dmp-starter-month"); // les liens survivent à une mise à jour des tarifs
+    expect((await ok(plat("platform.settings.get"))).selarLinks.starter).toBe(LINKS.starter); // les liens survivent à une mise à jour des tarifs
   });
   it("une configuration corrompue ne bloque jamais le commerce", async () => {
     await st.create("platform_settings", "main", "", { plans: "{pas du json", selarLinks: "[corrompu" });

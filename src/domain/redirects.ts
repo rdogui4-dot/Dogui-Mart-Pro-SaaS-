@@ -16,9 +16,11 @@ export function normalizeAppBase(base: string): string {
   return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
 }
 
-export function redirectUrl(plan: PlanId, period: Period, base?: string): string {
+/** URL de redirection d'un produit Selar. Selar propose une redirection par produit (donc par formule) : la période, choisie par le client
+ *  sur la page Selar, n'est pas connue ici ; `period` n'est ajoutée que pour une adresse construite à la main. */
+export function redirectUrl(plan: PlanId, base?: string, period?: Period): string {
   const origin = base ? normalizeAppBase(base) : PLACEHOLDER_ORIGIN;
-  return `${origin}${REDIRECT_PATH}?onglet=abonnement&formule=${plan}&periode=${period}`;
+  return `${origin}${REDIRECT_PATH}?onglet=abonnement&formule=${plan}${period ? `&periode=${period}` : ""}`;
 }
 
 export type DeepLink = { tab?: "subscription"; plan?: PlanId; period?: Period };

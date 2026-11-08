@@ -1,19 +1,22 @@
-/** Liens de paiement Selar pour les abonnements. Un lien Selar est une offre à prix fixe : il faut donc un lien par couple (formule, période). */
-import { PERIODS, type Period } from "./subscriptions";
+/** Liens de paiement Selar pour les abonnements. Chez Selar, un abonnement est un produit par FORMULE : le client choisit la période
+ *  (jour, semaine, mois, trimestre, année) dans une liste sur la page Selar. Il y a donc 3 liens, un par formule. */
+import { type Period } from "./subscriptions";
 
-export const linkKey = (plan: string, period: Period): string => `${plan}:${period}`;
 export type SelarLinks = Record<string, string>;
+
+/** Libellé de l'option de période tel que Selar l'affiche (« Chaque month (CFA40 000) ») : l'intervalle y est en anglais. */
+export const SELAR_INTERVAL: Record<Period, string> = { day: "day", week: "week", month: "month", quarter: "quarter", year: "year" };
+export const selarOptionLabel = (period: Period): string => `Chaque ${SELAR_INTERVAL[period]}`;
 
 /** Hôtes Selar connus. Un autre hôte n'est pas refusé (domaine personnalisé possible) mais signalé à l'administrateur. */
 export const isSelarHost = (host: string): boolean => /(^|\.)selar\.(co|com)$/i.test(host);
 
-/** Valide une saisie de liens et la fusionne dans `current`. Valeur vide = suppression du lien. Lève sur toute entrée invalide. */
+/** Valide une saisie de liens (clé = identifiant de formule) et la fusionne dans `current`. Valeur vide = suppression. Lève sur toute entrée invalide. */
 export function mergeSelarLinks(current: SelarLinks, input: unknown, planIds: string[]): { links: SelarLinks; warnings: string[] } {
   if (input == null || typeof input !== "object" || Array.isArray(input)) throw new Error("Liens invalides");
   const links = { ...current }; const warnings: string[] = [];
   for (const [key, raw] of Object.entries(input as Record<string, unknown>)) {
-    const [plan, period] = key.split(":");
-    if (!plan || !planIds.includes(plan) || !PERIODS.includes(period as Period) || key.split(":").length !== 2) throw new Error(`Clé de lien invalide : ${key}`);
+    if (!planIds.includes(key)) throw new Error(`Clé de lien invalide : ${key} (attendu : ${planIds.join(", ")})`);
     if (typeof raw !== "string") throw new Error(`Lien invalide (${key})`);
     const value = raw.trim();
     if (value === "") { delete links[key]; continue; }

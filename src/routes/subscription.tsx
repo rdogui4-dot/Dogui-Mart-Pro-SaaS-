@@ -5,12 +5,12 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { PERIODS, PERIOD_LABEL, priceFor, type Entitlement, type Period, type Plan, type PlanId } from "@/domain/subscriptions";
-import { linkKey } from "@/domain/selar";
+import { selarOptionLabel } from "@/domain/selar";
 import { bannerMessage, stateLabel, whatsappNumber, type ReminderLevel } from "@/domain/reminders";
 
 export type SubInfo = {
   entitlement: Entitlement; plans: Plan[]; usage: { shops: number; users: number; products: number };
-  /** Couples « formule:période » pour lesquels la plateforme a configuré un lien Selar. */
+  /** Formules dont la plateforme a configuré le lien Selar (un produit Selar par formule ; la période se choisit sur la page Selar). */
   available: Record<string, boolean>;
   payments: { id: string; plan: string; period: Period; count: number; amount: number; provider: string; status: string; reference: string; url?: string; note?: string; endsAt?: string; createdAt: string }[];
 };
@@ -49,7 +49,7 @@ export function SubscriptionBanner() {
   );
 }
 
-export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; period: Period } }) {
+export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; period?: Period } }) {
   const { session } = useSession(); const s = session!;
   const picked = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
@@ -76,20 +76,20 @@ export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; per
 
       <div className="card flex flex-col gap-2">
         <h2 className="font-semibold">Choisir une formule</h2>
-        {cameFrom && <p className="text-sm rounded-lg bg-white/5 p-2">Vous revenez de Selar ? Votre offre est en surbrillance. Touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
+        {cameFrom && <p className="text-sm rounded-lg bg-white/5 p-2">Vous revenez de Selar ? Votre formule est en surbrillance. Sélectionnez ci-dessus la période que vous avez payée, touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
         <div className="grid grid-cols-5 gap-1 text-xs">
           {PERIODS.map((p) => <button key={p} className={period === p ? "btn !py-2 !px-1 !text-xs" : "btn-ghost !py-2 !px-1 !text-xs"} onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</button>)}
         </div>
         {data.plans.map((p) => (
-          <div key={p.id} ref={cameFrom?.plan === p.id && cameFrom.period === period ? picked : undefined} className={`rounded-xl border p-3 flex flex-col gap-1 ${cameFrom?.plan === p.id && cameFrom.period === period ? "border-[var(--gold)] ring-2 ring-[var(--gold)]/40" : p.id === e.plan.id ? "border-[var(--gold)]" : "border-white/10"}`}>
+          <div key={p.id} ref={cameFrom?.plan === p.id ? picked : undefined} className={`rounded-xl border p-3 flex flex-col gap-1 ${cameFrom?.plan === p.id ? "border-[var(--gold)] ring-2 ring-[var(--gold)]/40" : p.id === e.plan.id ? "border-[var(--gold)]" : "border-white/10"}`}>
             <div className="flex justify-between"><b>{p.name}</b><span className="text-[var(--gold)] font-semibold">{formatFcfa(priceFor(p, period, 1))}</span></div>
             <div className="text-xs text-white/60">{lim(p.limits.maxShops)} boutique(s) · {lim(p.limits.maxUsers)} utilisateur(s) · {lim(p.limits.maxProducts)} produits</div>
             {p.id !== e.plan.id && !e.trial && e.state !== "locked" && <div className="text-xs text-amber-300">Changer de formule démarre la nouvelle période maintenant : le temps restant de l'actuelle n'est pas reporté.</div>}
-            <button className="btn-ghost !py-2 mt-1" disabled={!data.available[linkKey(p.id, period)]} onClick={() => setPay(p)}>{data.available[linkKey(p.id, period)] ? `Payer sur Selar · ${PERIOD_LABEL[period]}` : "Paiement bientôt disponible"}</button>
+            <button className="btn-ghost !py-2 mt-1" disabled={!data.available[p.id]} onClick={() => setPay(p)}>{data.available[p.id] ? `Payer sur Selar · ${PERIOD_LABEL[period]}` : "Paiement bientôt disponible"}</button>
           </div>
         ))}
         {!Object.keys(data.available).length && <p className="text-xs text-amber-300">Le paiement en ligne n'est pas encore activé par la plateforme.</p>}
-        <p className="text-xs text-white/50">Chaque paiement Selar correspond à une période. Pour plusieurs périodes, répétez la démarche : la durée s'ajoute à l'échéance si vous gardez la même formule.</p>
+        <p className="text-xs text-white/50">Sur la page Selar, vous choisissez la période dans la liste « Choisir un abonnement » : sélectionnez celle indiquée ici, sinon le paiement sera refusé à la vérification. Si vous gardez la même formule, la durée s'ajoute à l'échéance.</p>
       </div>
 
       {data.payments.length > 0 && (
@@ -129,9 +129,9 @@ function PayModal({ plan, period, onClose }: { plan: Plan; period: Period; onClo
         {link && <>
           <a className="btn w-full max-w-xs text-center" href={link.url} target="_blank" rel="noreferrer noopener">Payer sur Selar</a>
           <ol className="text-sm text-white/70 max-w-xs list-decimal pl-5 flex flex-col gap-1">
-            <li>Payez exactement <b>{formatFcfa(link.amount)}</b> sur la page Selar (scannez le QR code ou touchez le bouton).</li>
+            <li>Sur la page Selar (scannez le QR code ou touchez le bouton), dans « Choisir un abonnement », sélectionnez <b>« {selarOptionLabel(period)} »</b> ({formatFcfa(link.amount)}), puis payez. Le libellé peut s'afficher en anglais (day, week, month, quarter, year).</li>
             <li>Selar vous envoie par e-mail un reçu avec une <b>référence de commande</b>.</li>
-            <li>Saisissez-la ci-dessous avec l'e-mail utilisé sur Selar. Notre équipe vérifie puis active votre formule.</li>
+            <li>Saisissez-la ci-dessous avec l'e-mail utilisé sur Selar. Notre équipe vérifie que la commande correspond bien à la période <b>{PERIOD_LABEL[period]}</b> puis active votre formule.</li>
           </ol>
           <p className="text-xs text-white/40">Réf. interne {link.reference}</p>
           <input className="input max-w-xs" type="email" inputMode="email" autoCapitalize="none" placeholder="E-mail utilisé sur Selar" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -258,15 +258,15 @@ function PlatformSettingsForm() {
   return (
     <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); setMsg(""); save.mutate(); }}>
       <h2 className="font-semibold">Liens Selar et tarifs</h2>
-      <p className="text-xs text-white/50">Un lien Selar est une offre à prix fixe : créez dans Selar une offre par formule et par période, au prix exact indiqué ci-dessous, puis collez son lien. {done}/15 liens configurés. Pas d'API : vous vérifiez chaque paiement dans Selar avant de le valider ici.</p>
+      <p className="text-xs text-white/50">Un produit Selar par formule : le client y choisit la période. Collez le lien de chaque produit ({done}/{plans?.length ?? 3} configurés). Les prix ci-dessous doivent être exactement ceux des options de période créées dans Selar. Pas d'API : vous vérifiez chaque paiement dans Selar avant de le valider ici.</p>
       {plans?.map((p, i) => (
         <div key={p.id} className="rounded-xl border border-white/10 p-2 flex flex-col gap-2">
           <b className="text-sm">{p.name}</b>
+          <input aria-label={`Lien Selar ${p.name}`} className="input !px-2 !py-1 !text-xs" placeholder="https://selar.com/…" autoCapitalize="none" value={links?.[p.id] ?? ""} onChange={(e) => setLinks({ ...links, [p.id]: e.target.value })} />
           {PERIODS.map((k) => (
-            <div key={k} className="grid grid-cols-[5.5rem_5rem_1fr] gap-1 items-center">
-              <span className="text-xs text-white/60">{PERIOD_LABEL[k]}</span>
-              <input aria-label={`Prix ${p.name} ${PERIOD_LABEL[k]}`} className="input !px-1 !py-1 !text-xs" inputMode="numeric" value={p.prices[k]} onChange={(e) => setPlans(plans.map((x, j) => (j === i ? { ...x, prices: { ...x.prices, [k]: num(e.target.value) } } : x)))} />
-              <input aria-label={`Lien ${p.name} ${PERIOD_LABEL[k]}`} className="input !px-2 !py-1 !text-xs" placeholder="https://selar.co/…" autoCapitalize="none" value={links?.[linkKey(p.id, k)] ?? ""} onChange={(e) => setLinks({ ...links, [linkKey(p.id, k)]: e.target.value })} />
+            <div key={k} className="grid grid-cols-[7rem_1fr] gap-1 items-center">
+              <span className="text-xs text-white/60">{selarOptionLabel(k)}</span>
+              <input aria-label={`Prix ${p.name} ${PERIOD_LABEL[k]}`} className="input !px-2 !py-1 !text-xs" inputMode="numeric" value={p.prices[k]} onChange={(e) => setPlans(plans.map((x, j) => (j === i ? { ...x, prices: { ...x.prices, [k]: num(e.target.value) } } : x)))} />
             </div>
           ))}
           <div className="grid grid-cols-3 gap-1">{([["maxShops", "Boutiques"], ["maxUsers", "Utilisateurs"], ["maxProducts", "Produits (-1 = ∞)"]] as const).map(([k, l]) => (

@@ -1,8 +1,8 @@
 import { linkRef } from "../../../src/domain/payment-links";
 import { reminderLevel, renewalMessage } from "../../../src/domain/reminders";
-import { isEmail, linkKey, mergeSelarLinks, parseLinks } from "../../../src/domain/selar";
+import { isEmail, mergeSelarLinks, parseLinks } from "../../../src/domain/selar";
 import {
-  MAX_COUNT, PERIODS, PERIOD_LABEL, TRIAL, addPeriod, canAdd, entitlement, mergePlans, planById, priceFor, renewal, validCount,
+  MAX_COUNT, PERIODS, TRIAL, addPeriod, canAdd, entitlement, mergePlans, planById, priceFor, renewal, validCount,
   type Entitlement, type Period, type Plan, type PlanId, type Sub,
 } from "../../../src/domain/subscriptions";
 import { HttpError, need, type Ctx, type Row, type Store } from "./store";
@@ -68,14 +68,14 @@ export async function subscriptionGet(store: Store, ctx: Ctx) {
   const [e, plans, platform] = await Promise.all([entitlementOf(store, ctx.tenantId), loadPlans(store), store.get("platform_settings", PLATFORM)]);
   const usage = await usageOf(store, ctx.tenantId, e.limits);
   const links = parseLinks(platform?.selarLinks);
-  // Les adresses des liens ne sont pas renvoyées ici : seul le couple (formule, période) disponible l'est.
+  // Les adresses des liens ne sont pas renvoyées ici : seules les formules dont le lien est configuré sont indiquées.
   const available = Object.fromEntries(Object.keys(links).map((k) => [k, true]));
   const mine = ctx.roles.includes("owner") ? (await store.list("subscription_payments", { tenantId: ctx.tenantId }, 30)).map((p) => ({ id: p.$id, plan: p.plan, period: p.period, count: p.count, amount: p.amount, provider: p.provider, status: p.status, reference: p.reference, url: p.status === "awaiting_payment" ? p.url : undefined, note: p.note, endsAt: p.endsAt, createdAt: p.$createdAt })) : [];
   return { entitlement: e, plans, usage, available, payments: mine };
 }
 
-/** Prépare un paiement Selar : le lien (une offre à prix fixe) est celui que la plateforme a configuré pour ce couple (formule, période).
- *  Un lien = une période : pour en acheter plusieurs, on refait la démarche. Idempotent par requestId. */
+/** Prépare un paiement Selar : le lien est celui du produit Selar de la formule ; le client y choisit la période. La période demandée ici
+ *  (et donc le montant attendu) sert à l'administrateur pour vérifier la commande. Idempotent par requestId. */
 export async function subscriptionCheckout(store: Store, ctx: Ctx, b: { requestId: string; plan: string; period: string }) {
   need(ctx, "owner");
   const id = safeId(b.requestId); if (id.length < 8) throw new HttpError(400, "requestId invalide");
@@ -86,8 +86,8 @@ export async function subscriptionCheckout(store: Store, ctx: Ctx, b: { requestI
   if (!PERIODS.includes(b.period as Period)) throw new HttpError(400, "Période invalide");
   const period = b.period as Period;
   const platform = await store.get("platform_settings", PLATFORM);
-  const url = parseLinks(platform?.selarLinks)[linkKey(plan.id, period)];
-  if (!url) throw new HttpError(409, `Le paiement n'est pas encore disponible pour ${plan.name} / ${PERIOD_LABEL[period]}`);
+  const url = parseLinks(platform?.selarLinks)[plan.id];
+  if (!url) throw new HttpError(409, `Le paiement n'est pas encore disponible pour la formule ${plan.name}`);
   const amount = priceFor(plan, period, 1);
   if (!(amount > 0)) throw new HttpError(409, "Tarif non configuré");
   const open = (await store.list("subscription_payments", { tenantId: ctx.tenantId }, 50)).filter((p) => p.status === "awaiting_payment" || p.status === "pending_review").length;

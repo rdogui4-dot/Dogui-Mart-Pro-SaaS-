@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { buildOffersPdf } from "./offers-pdf";
 
-describe("PDF des offres Selar", () => {
-  it("document valide : couverture, consignes, tarifs, une page par offre (15), procédures", async () => {
+describe("PDF des produits Selar", () => {
+  it("document valide : couverture, consignes, tarifs, une fiche par produit, procédures", async () => {
     const doc = await buildOffersPdf(new Date("2026-11-08T10:00:00Z"));
-    const withDomain = await buildOffersPdf(new Date("2026-11-08T10:00:00Z"), undefined, "https://app.exemple.com");
-    expect(withDomain.getNumberOfPages()).toBe(19); // un domaine plus long ne doit pas faire déborder une fiche
-    // 1 couverture + 1 consignes + 1 tarifs/récapitulatif + 15 fiches + 1 procédures. Si une fiche débordait, le total changerait.
-    expect(doc.getNumberOfPages()).toBe(19);
+    // couverture + consignes (1-2 p.) + tarifs + 3 fiches (1-2 p. chacune) + procédures : borné pour détecter un débordement anormal
+    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(8);
+    expect(doc.getNumberOfPages()).toBeLessThanOrEqual(14);
     const bytes = new Uint8Array(doc.output("arraybuffer"));
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
-    expect(bytes.length).toBeGreaterThan(20_000);
+    expect(bytes.length).toBeGreaterThan(15_000);
+  });
+  it("un domaine plus long ne change pas le nombre de pages", async () => {
+    const a = await buildOffersPdf(new Date("2026-11-08T10:00:00Z")); const b = await buildOffersPdf(new Date("2026-11-08T10:00:00Z"), undefined, "https://rdogui4-dot.github.io/Dogui-Mart-Pro-SaaS-");
+    expect(b.getNumberOfPages()).toBe(a.getNumberOfPages());
   });
 });

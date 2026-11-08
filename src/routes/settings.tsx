@@ -45,7 +45,7 @@ export function SettingsPage() {
       )}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
-      {tab === "subscription" && <SubscriptionSection initial={deep.plan && deep.period ? { plan: deep.plan, period: deep.period } : undefined} />}
+      {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}
       {tab === "platform" && me.data?.admin && <PlatformSection />}
       {tab === "general" && <>
       <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>
