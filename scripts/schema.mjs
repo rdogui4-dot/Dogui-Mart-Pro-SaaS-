@@ -29,9 +29,10 @@ export const TABLES = {
   transfers: { cols: [...base, s("toShopId", 64, true), s("number", 32), t("lines"), s("userId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["to", ["toShopId"]]] },
   // Abonnement du commerce : identifiant de ligne = tenantId. Les limites viennent du catalogue de formules (modifiable par la plateforme).
   subscriptions: { cols: [s("tenantId", 64, true), s("plan", 16, true), s("period", 16), s("status", 16), d("startedAt"), d("renewsAt")], idx: [["tenant", ["tenantId"], "unique"]] },
-  // Demandes de paiement d'abonnement (Wave / Orange Business de la plateforme) et attributions manuelles.
-  subscription_payments: { cols: [s("tenantId", 64, true), s("tenantName", 120), s("plan", 16, true), s("period", 16, true), i("count"), i("amount", true), s("provider", 16), s("reference", 40), t("url"), s("status", 24, true), s("txRef", 64), s("requestedBy", 64), s("reviewedBy", 64), s("note", 200), d("startsAt"), d("endsAt")], idx: [["tenant", ["tenantId"]], ["status", ["status"]], ["tx", ["txRef"]]] },
+  // Demandes de paiement d'abonnement (liens Selar, validés à la main par la plateforme) et attributions manuelles.
+  subscription_payments: { cols: [s("tenantId", 64, true), s("tenantName", 120), s("plan", 16, true), s("period", 16, true), i("count"), i("amount", true), s("provider", 16), s("reference", 40), t("url"), s("status", 24, true), s("txRef", 64), s("payerEmail", 160), s("requestedBy", 64), s("reviewedBy", 64), s("note", 200), d("startsAt"), d("endsAt")], idx: [["tenant", ["tenantId"]], ["status", ["status"]], ["tx", ["txRef"]]] },
   // Réglages de la plateforme (une seule ligne "main") : aucune lecture client, accessibles seulement par la fonction serveur.
-  platform_settings: { cols: [t("waveTemplate"), t("orangeTemplate"), t("plans")], idx: [] },
+  // selarLinks : JSON { "formule:période": "https://selar.co/…" } ; plans : surcharge JSON du catalogue.
+  platform_settings: { cols: [t("selarLinks"), t("plans")], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
 };

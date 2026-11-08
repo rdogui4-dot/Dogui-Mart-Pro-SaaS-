@@ -75,3 +75,33 @@ describe("surcharge des tarifs", () => {
     expect(mergePlans(null)).toEqual(DEFAULT_PLANS);
   });
 });
+
+import { isEmail, isSelarHost, linkKey, mergeSelarLinks, parseLinks } from "./selar";
+describe("liens Selar", () => {
+  const ids = ["starter", "business", "pro"];
+  it("un lien par formule et par période", () => { expect(linkKey("pro", "year")).toBe("pro:year"); });
+  it("valide, normalise et signale un domaine inhabituel sans le refuser", () => {
+    const r = mergeSelarLinks({}, { "starter:month": " https://selar.co/dmp-starter-mois ", "pro:day": "https://boutique.exemple.com/pro" }, ids);
+    expect(r.links["starter:month"]).toBe("https://selar.co/dmp-starter-mois");
+    expect(r.warnings).toHaveLength(1); expect(r.warnings[0]).toMatch(/pro:day.*boutique\.exemple\.com/);
+    expect(isSelarHost("selar.co")).toBe(true); expect(isSelarHost("shop.selar.com")).toBe(true); expect(isSelarHost("evilselar.co")).toBe(false); expect(isSelarHost("selar.co.evil.com")).toBe(false);
+  });
+  it("une valeur vide supprime le lien ; le reste est conservé", () => {
+    const r = mergeSelarLinks({ "starter:month": "https://selar.co/a", "pro:day": "https://selar.co/b" }, { "starter:month": "" }, ids);
+    expect(r.links).toEqual({ "pro:day": "https://selar.co/b" });
+  });
+  it("refuse http, identifiants dans l'URL, clés inconnues, valeurs non textuelles", () => {
+    expect(() => mergeSelarLinks({}, { "starter:month": "http://selar.co/a" }, ids)).toThrow(/https/);
+    expect(() => mergeSelarLinks({}, { "starter:month": "https://user:pw@selar.co/a" }, ids)).toThrow(/identifiants/);
+    expect(() => mergeSelarLinks({}, { "gold:month": "https://selar.co/a" }, ids)).toThrow(/Clé/);
+    expect(() => mergeSelarLinks({}, { "starter:decade": "https://selar.co/a" }, ids)).toThrow(/Clé/);
+    expect(() => mergeSelarLinks({}, { "starter:month:x": "https://selar.co/a" }, ids)).toThrow(/Clé/);
+    expect(() => mergeSelarLinks({}, { "starter:month": 5 }, ids)).toThrow(/invalide/);
+    expect(() => mergeSelarLinks({}, { "starter:month": "pas une url" }, ids)).toThrow(/invalide/);
+    expect(() => mergeSelarLinks({}, [], ids)).toThrow();
+  });
+  it("lit une configuration corrompue comme vide, et valide les e-mails", () => {
+    expect(parseLinks("{pas du json")).toEqual({}); expect(parseLinks('["x"]')).toEqual({}); expect(parseLinks('{"a":"b","c":3}')).toEqual({ a: "b" });
+    expect(isEmail("awa@exemple.sn")).toBe(true); expect(isEmail("awa@exemple")).toBe(false); expect(isEmail("a b@x.co")).toBe(false);
+  });
+});

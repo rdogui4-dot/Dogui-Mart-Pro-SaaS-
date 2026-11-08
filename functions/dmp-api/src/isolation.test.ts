@@ -94,7 +94,7 @@ describe("fiches boutiques, employés, transferts, abonnement", () => {
   });
   it("l'abonnement et ses paiements ne sont lisibles que du propriétaire ; les réglages de plateforme de personne", async () => {
     await ok(call("own", "subscription.get", {}, A));
-    await ok(handle(st, "root", { action: "platform.settings.save", payload: { waveTemplate: "https://pay.example.com/?a={amount}" } }, env));
+    await ok(handle(st, "root", { action: "platform.settings.save", payload: { selarLinks: { "pro:month": "https://selar.co/dmp-pro-month" } } }, env));
     for (const u of [mgrA, cashA, both, mgrB]) { expect(st.readableBy(u, "subscriptions"), u).toEqual([]); expect(st.readableBy(u, "platform_settings")).toEqual([]); }
     expect(st.readableBy("own", "subscriptions")).toHaveLength(1);
     expect(st.readableBy("own", "platform_settings")).toEqual([]);
