@@ -8,7 +8,8 @@ import { Layout } from "@/components/Layout";
 import { AuthPage } from "@/routes/auth";
 import { PosPage } from "@/routes/pos";
 import { StockPage } from "@/routes/stock";
-import { AchatsPage, ClientsPage } from "@/routes/simple";
+import { ClientsPage } from "@/routes/simple";
+import { AchatsPage } from "@/routes/achats";
 import { ComptaPage } from "@/routes/compta";
 import { SettingsPage } from "@/routes/settings";
 

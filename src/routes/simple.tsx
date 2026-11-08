@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
-import { list, saveEntity, type Customer, type Supplier } from "@/lib/data";
+import { list, saveEntity, type Customer } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { tierFor } from "@/domain/loyalty";
 
@@ -33,27 +33,6 @@ export function ClientsPage() {
           <div className="text-right text-sm">{(c.creditBalance ?? 0) > 0 ? <span className="text-red-400">Doit {formatFcfa(c.creditBalance ?? 0)}</span> : "À jour"}</div>
         </div>
       ))}
-    </Page>
-  );
-}
-
-export function AchatsPage() {
-  const { session } = useSession(); const s = session!; const qc = useQueryClient();
-  const rows = useQuery({ queryKey: ["suppliers"], queryFn: () => list<Supplier>("suppliers", s, [], 500) });
-  const [f, setF] = useState({ name: "", phone: "" });
-  const add = useMutation({
-    mutationFn: () => saveEntity(s, "suppliers", { name: f.name, phone: f.phone }),
-    onSuccess: () => { setF({ name: "", phone: "" }); void qc.invalidateQueries({ queryKey: ["suppliers"] }); },
-  });
-  return (
-    <Page title="Achats & fournisseurs">
-      <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
-        <input className="input" placeholder="Fournisseur" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        <input className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-        <button className="btn">Ajouter le fournisseur</button>
-      </form>
-      {(rows.data ?? []).map((x) => <div key={x.$id} className="card flex justify-between"><span>{x.name}</span><span className="text-white/50">{x.phone}</span></div>)}
-      <p className="text-xs text-white/40">Bons de commande et réception : prochaine étape (voir ROADMAP.md).</p>
     </Page>
   );
 }

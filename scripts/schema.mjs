@@ -18,8 +18,8 @@ export const TABLES = {
   customers: { cols: [...base, s("name", 160, true), s("phone", 32), i("creditLimit"), i("creditBalance"), i("points"), i("annualSpend")], idx: [["shop", ["tenantId", "shopId"]], ["phone", ["phone"]]] },
   suppliers: { cols: [...base, s("name", 160, true), s("phone", 32), s("email", 160), i("balance")], idx: [["shop", ["tenantId", "shopId"]]] },
   sales: { cols: [...base, s("number", 32, true), i("total", true), i("vat"), s("customerId", 64), s("cashierId", 64), t("payments"), t("lines"), s("status", 16), s("clientId", 64, true), d("soldAt")], idx: [["shop", ["tenantId", "shopId"]]] },
-  purchase_orders: { cols: [...base, s("number", 32, true), s("supplierId", 64, true), t("lines"), i("total"), s("status", 16)], idx: [["shop", ["tenantId", "shopId"]]] },
-  invoices: { cols: [...base, s("number", 32, true), s("kind", 16, true), s("partyId", 64), i("total", true), i("paid"), s("status", 16), d("dueAt")], idx: [["shop", ["tenantId", "shopId"]]] },
+  purchase_orders: { cols: [...base, s("number", 32, true), s("supplierId", 64, true), t("lines"), i("total"), s("status", 16), t("receipts"), t("invoicedIds")], idx: [["shop", ["tenantId", "shopId"]]] },
+  invoices: { cols: [...base, s("number", 32, true), s("kind", 16, true), s("partyId", 64), i("total", true), i("paid"), s("status", 16), d("dueAt"), s("poId", 64), s("ref", 64), i("vat"), t("payments")], idx: [["shop", ["tenantId", "shopId"]], ["kind", ["kind"]]] },
   journal_entries: { cols: [...base, s("ref", 64, true), s("account", 16, true), i("debit"), i("credit"), s("label", 200), d("date")], idx: [["shop", ["tenantId", "shopId"]], ["ref", ["ref"]]] },
   payment_settings: { cols: [...base, t("waveTemplate"), t("orangeTemplate"), i("expiryMinutes")], idx: [] },
   // Liens de paiement Wave/Orange Business (le QR est dessiné côté client depuis `url`).

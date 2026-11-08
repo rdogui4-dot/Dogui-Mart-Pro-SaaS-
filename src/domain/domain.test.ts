@@ -68,3 +68,34 @@ describe("payment links", () => {
     expect(linkRef("abc-12345678xyz")).toMatch(/^DMP-[A-Z0-9]{8}$/);
   });
 });
+
+import { invoiceStatus, invoiceTtc, paidOf, poStatus, poTotalHt, toInvoice, validateQuantities, weightedCost, type PoLine } from "./purchasing";
+describe("purchasing", () => {
+  const L = (o: Partial<PoLine> = {}): PoLine => ({ productId: "p", name: "Riz", qty: 10, unitCost: 600, received: 0, invoiced: 0, ...o });
+  it("statut de commande selon les réceptions", () => {
+    expect(poStatus([L()])).toBe("ordered");
+    expect(poStatus([L({ received: 4 })])).toBe("partial");
+    expect(poStatus([L({ received: 10 })])).toBe("received");
+    expect(poStatus([L()], true)).toBe("cancelled");
+    expect(poTotalHt([L(), L({ qty: 2, unitCost: 250 })])).toBe(6500);
+  });
+  it("coût moyen pondéré", () => {
+    expect(weightedCost(10, 500, 10, 700)).toBe(600);
+    expect(weightedCost(-5, 500, 10, 700)).toBe(700);
+  });
+  it("validation des quantités", () => {
+    const lines = [L({ received: 6 })];
+    expect(validateQuantities(lines, [{ productId: "p", qty: 4 }], (l) => l.qty - l.received).ok).toBe(true);
+    expect(validateQuantities(lines, [{ productId: "p", qty: 5 }], (l) => l.qty - l.received).ok).toBe(false);
+    expect(validateQuantities(lines, [{ productId: "p", qty: 1.5 }], (l) => l.qty - l.received).ok).toBe(false);
+    expect(validateQuantities(lines, [{ productId: "zz", qty: 1 }], (l) => l.qty - l.received).ok).toBe(false);
+    expect(toInvoice(L({ received: 6, invoiced: 2 }))).toBe(4);
+  });
+  it("facture TTC et statut de paiement", () => {
+    expect(invoiceTtc(10_000, 18)).toBe(11_800);
+    const pays = [{ id: "a", amount: 5000, method: "cash" as const, date: "" }];
+    expect(paidOf(pays)).toBe(5000);
+    expect(invoiceStatus(11_800, 5000)).toBe("partial");
+    expect(invoiceStatus(11_800, 11_800)).toBe("paid");
+  });
+});

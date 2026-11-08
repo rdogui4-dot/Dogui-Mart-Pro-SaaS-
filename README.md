@@ -34,6 +34,10 @@ Toutes les écritures passent par une seule fonction Appwrite ; **aucune table n
 | `entity.save` | manager (client : caissier) | Produits, clients, fournisseurs ; champs serveur (crédit, points) non modifiables. |
 | `stock.adjust` | manager | Inventaire par mouvement d'écart. |
 | `credit.repay` | caissier | Remboursement de crédit + écritures. |
+| `po.create/cancel` | manager | Bon de commande (prix HT, produits et fournisseur du commerce vérifiés), annulation avant toute réception. |
+| `po.receive` | manager | Réception totale ou partielle : mouvements de stock + coût moyen pondéré. Idempotent par `receiptId`. |
+| `invoice.supplier.create` | manager | Facture sur les quantités reçues non facturées (TVA incluse) ; écritures 601 + 4452 / 401. Idempotent par `invoiceId`. |
+| `invoice.supplier.pay` | manager | Règlement total ou partiel (espèces, Wave, Orange, banque), plafonné au reste dû ; écritures 401 / trésorerie. Idempotent par `paymentId`. |
 | `payments.settings.save/get` | owner / caissier | Modèles de lien Wave / Orange Business. |
 | `payment_link.create/confirm/cancel/status` | caissier | Lien de paiement, QR, confirmation. |
 
@@ -44,7 +48,7 @@ Toutes les écritures passent par une seule fonction Appwrite ; **aucune table n
 4. **Limite actuelle** : la confirmation est manuelle (le serveur ne peut pas vérifier auprès de l'opérateur). Un webhook / une API opérateur doit la remplacer pour une garantie réelle (voir ROADMAP).
 
 ## État réel (v2.0.0-alpha)
-Vérifié : typecheck, 25 tests (domaine + 13 scénarios de la fonction sur un store en mémoire : isolation entre commerces, droits, idempotence, plafond de crédit, stock, liens QR), build du front et de la fonction ; base et 12 tables créées dans Appwrite.
+Vérifié : typecheck, 40 tests (domaine + scénarios de la fonction, dont achats : réception partielle, reprise après plantage, double facturation, règlements sur un store en mémoire : isolation entre commerces, droits, idempotence, plafond de crédit, stock, liens QR), build du front et de la fonction ; base et 12 tables créées dans Appwrite.
 
 **Non vérifié** : aucun appel réel à Appwrite depuis le code (fonction non déployée, adaptateur `appwrite-store.ts` et appels `createExecution` jamais exécutés), rien testé sur un téléphone Android.
-**Pas encore fait** : bons de commande/réception, factures PDF, abonnements/quotas, multi-boutiques (une boutique `default` par commerce), invitation d'employés, vérification opérateur des paiements QR. Écart connu : si l'exécution plante entre la mise à jour du client et le passage de la vente à « paid », une reprise pourrait appliquer deux fois le crédit/points de cette vente.
+**Pas encore fait** : factures PDF et impression des bons de commande, factures clients, abonnements/quotas, multi-boutiques (une boutique `default` par commerce), invitation d'employés, vérification opérateur des paiements QR. Écarts connus : à la réception, si l'exécution plante après l'enregistrement de la commande mais avant la mise à jour du coût moyen, ce coût n'est pas recalculé à la reprise (le stock, lui, est complété) ; les achats n'ont pas de réception sans bon de commande ni de retour fournisseur ; la dette fournisseur est calculée à partir des factures (le champ `balance` n'est pas utilisé). Autre écart : si l'exécution plante entre la mise à jour du client et le passage de la vente à « paid », une reprise pourrait appliquer deux fois le crédit/points de cette vente.

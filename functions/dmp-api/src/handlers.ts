@@ -3,6 +3,7 @@ import { toFcfa } from "../../../src/domain/money";
 import { ACCOUNTS } from "../../../src/domain/accounting";
 import { checkout, stockFor, type CheckoutInput } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
+import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const must = <T,>(v: T | null | undefined, msg: string, status = 404): T => { if (v == null) throw new HttpError(status, msg); return v; };
@@ -134,5 +135,6 @@ export const ACTIONS = {
   "entity.save": saveEntity, "stock.adjust": adjustStock, "credit.repay": repayCredit,
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
+  "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,
 } as const;
