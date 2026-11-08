@@ -29,8 +29,16 @@ async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barcode", va
 }
 
 /** Création / modification d'un article (table `products`). Également appelée par entity.save pour les produits : un seul chemin d'écriture. */
+/** Action article.save : réservée à la formule Business (ou Pro). */
 export async function saveArticle(store: Store, ctx: Ctx, b: { id?: string; requestId?: string; data: Record<string, unknown>; initialQty?: number }) {
+  needModule(ctx, "stock"); await needFeature(store, ctx, "articles");
+  return saveProduct(store, ctx, b);
+}
+
+/** Chemin d'écriture commun. Via entity.save (écran Stock, toutes formules) : fiche simple uniquement, sans historique de prix ni journal d'article. */
+export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requestId?: string; data: Record<string, unknown>; initialQty?: number }) {
   needModule(ctx, "stock");
+  const business = planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "articles");
   const input: Record<string, unknown> = {};
   for (const f of FIELDS) if (b.data && f in b.data) input[f] = b.data[f];
   let patch: Partial<Article>, full: Article | null = null;
@@ -40,7 +48,7 @@ export async function saveArticle(store: Store, ctx: Ctx, b: { id?: string; requ
   } catch (e) { throw new HttpError(400, (e as Error).message); }
   // Fiche enrichie (description, unité, fournisseur) : formule Business. La fiche simple reste ouverte à toutes les formules.
   const rich = (["description", "unit", "supplierId"] as const).some((k) => k in patch && (b.id ? true : patch[k] !== (k === "unit" ? "piece" : "")));
-  if (rich) await needFeature(store, ctx, "articles");
+  if (rich && !business) throw new HttpError(402, `« ${FEATURES.articles.label} » est réservé à la formule Business ou supérieure.`);
   if (patch.supplierId) {
     const sup = await store.get("suppliers", patch.supplierId);
     if (!mine(ctx, sup)) throw new HttpError(400, "Fournisseur introuvable dans cette boutique");
@@ -52,7 +60,7 @@ export async function saveArticle(store: Store, ctx: Ctx, b: { id?: string; requ
     if (!Object.keys(patch).length) return { id: row.$id };
     await store.update("products", row.$id, patch);
     const priceChanged = patch.price !== undefined && patch.price !== Number(row.price), costChanged = patch.cost !== undefined && patch.cost !== Number(row.cost ?? 0);
-    if (priceChanged || costChanged) {
+    if (business && (priceChanged || costChanged)) {
       await store.create("price_history", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id, oldPrice: Number(row.price), newPrice: patch.price ?? Number(row.price), oldCost: Number(row.cost ?? 0), newCost: patch.cost ?? Number(row.cost ?? 0), userId: ctx.userId });
       await audit(store, ctx, "article.price", `${row.name} : vente ${row.price}→${patch.price ?? row.price}, achat ${row.cost ?? 0}→${patch.cost ?? row.cost ?? 0}`);
     }
@@ -70,13 +78,13 @@ export async function saveArticle(store: Store, ctx: Ctx, b: { id?: string; requ
   const qty = Math.floor(Number(b.initialQty ?? 0));
   if (b.initialQty !== undefined && !(qty >= 0 && qty <= 10_000_000)) throw new HttpError(400, "Quantité en stock invalide");
   if (qty > 0) await store.create("stock_moves", `${id}_init`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, qty, kind: "adjust", refId: INITIAL, userId: ctx.userId });
-  await store.create("price_history", `${id}_p0`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, oldPrice: 0, newPrice: a.price, oldCost: 0, newCost: a.cost, userId: ctx.userId });
-  await audit(store, ctx, "article.create", `${a.name} (${id}) vente ${a.price} achat ${a.cost} stock initial ${qty}`);
+  if (business) await store.create("price_history", `${id}_p0`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, oldPrice: 0, newPrice: a.price, oldCost: 0, newCost: a.cost, userId: ctx.userId });
+  if (business) await audit(store, ctx, "article.create", `${a.name} (${id}) vente ${a.price} achat ${a.cost} stock initial ${qty}`);
   return { id };
 }
 
 export async function archiveArticle(store: Store, ctx: Ctx, b: { id: string; archived: boolean }) {
-  needModule(ctx, "stock");
+  needModule(ctx, "stock"); await needFeature(store, ctx, "articles");
   const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
   const archived = b.archived === true;
   if (!!row.archived !== archived) { await store.update("products", row.$id, { archived }); await audit(store, ctx, archived ? "article.archive" : "article.restore", `${row.name} (${row.$id})`); }
@@ -85,7 +93,7 @@ export async function archiveArticle(store: Store, ctx: Ctx, b: { id: string; ar
 
 /** Suppression : gérant ou propriétaire, et seulement si l'article n'a AUCUN historique commercial (ventes, réceptions, transferts, commandes). Sinon : archivage. */
 export async function deleteArticle(store: Store, ctx: Ctx, b: { id: string }) {
-  needModule(ctx, "stock"); need(ctx, "manager");
+  needModule(ctx, "stock"); await needFeature(store, ctx, "articles"); need(ctx, "manager");
   const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
   const moves = (await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id })).rows;
   const used = moves.some((m) => !(m.kind === "adjust" && m.refId === INITIAL));

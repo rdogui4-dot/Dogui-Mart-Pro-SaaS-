@@ -7,7 +7,7 @@ import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from
 import { consolidatedReport } from "./reports";
 import { assertQuota, platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
-import { archiveArticle, deleteArticle, saveArticle, setArticleImage } from "./articles";
+import { archiveArticle, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
@@ -28,7 +28,7 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
   const spec = ENTITIES[b.table]; if (!spec) throw new HttpError(400, "Table non autorisée");
   needModule(ctx, spec.module);
   if (b.table === "customers" && b.data.creditLimit !== undefined) need(ctx, "manager"); // plafond de crédit = manager
-  if (b.table === "products") return saveArticle(store, ctx, { id: b.id, data: b.data }); // un seul chemin d'écriture pour les articles
+  if (b.table === "products") return saveProduct(store, ctx, { id: b.id, data: b.data }); // un seul chemin d'écriture pour les articles
   const data: Record<string, unknown> = {};
   for (const f of spec.fields) if (f in b.data) data[f] = b.data[f];
   if (b.id) {

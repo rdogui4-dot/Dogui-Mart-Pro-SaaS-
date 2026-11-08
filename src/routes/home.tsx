@@ -6,6 +6,7 @@ import { isLow } from "@/domain/stock";
 import { Query } from "@/lib/appwrite";
 import { list, stockLevels, type Product } from "@/lib/data";
 import { can, useSession, type Perm } from "@/lib/session";
+import { planAllows } from "@/domain/features";
 import { stateLabel } from "@/domain/reminders";
 import { useSubscription } from "./subscription";
 
@@ -35,6 +36,7 @@ export function HomePage() {
   const total = paid.reduce((a, x) => a + x.total, 0);
   const low = (stock.data?.products ?? []).filter((p) => !p.archived && isLow(stock.data?.levels.get(p.$id) ?? 0, p.minStock ?? 0));
   const ent = sub.data?.entitlement;
+  const visible = (to: string) => to !== "/articles" || planAllows(ent?.plan.id, "articles"); // Articles : Business ou Pro uniquement
   const shopName = s.shops.find((x) => x.id === s.shopId)?.name;
   return (
     <div className="flex flex-col gap-4">
@@ -59,7 +61,7 @@ export function HomePage() {
         </Link>
       )}
       <section aria-label="Modules" className="grid grid-cols-2 gap-3">
-        {TILES.filter((t) => can(s, t.perm)).map(({ to, label, hint, icon: I }) => (
+        {TILES.filter((t) => can(s, t.perm) && visible(t.to)).map(({ to, label, hint, icon: I }) => (
           <Link key={to} to={to} className="tile"><I size={26} /><b>{label}</b><span className="text-xs text-white/50">{hint}</span></Link>
         ))}
       </section>
@@ -70,11 +72,12 @@ export function HomePage() {
 /** « Plus » : tous les modules accessibles, le compte et la déconnexion. */
 export function PlusPage() {
   const { session, logout } = useSession(); const s = session!;
+  const plan = useSubscription().data?.entitlement.plan.id;
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Plus</h1>
       <div className="card text-sm"><b>{s.name}</b><br /><span className="text-white/50">{s.role === "owner" ? "Gérant principal (propriétaire)" : s.role}</span></div>
-      {TILES.filter((t) => can(s, t.perm)).map(({ to, label, hint, icon: I }) => (
+      {TILES.filter((t) => can(s, t.perm) && (t.to !== "/articles" || planAllows(plan, "articles"))).map(({ to, label, hint, icon: I }) => (
         <Link key={to} to={to} className="card flex items-center gap-3"><I className="text-[var(--gold)]" /><span><b>{label}</b><br /><span className="text-xs text-white/50">{hint}</span></span></Link>
       ))}
       <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => void logout()}><LogOut size={18} />Se déconnecter</button>

@@ -64,10 +64,16 @@ describe("création", () => {
 describe("formules (droits d'abonnement ≠ rôles)", () => {
   it("Starter : fiche simple autorisée, fiche enrichie refusée (402), même pour le propriétaire", async () => {
     setPlan(T, "starter");
-    await ok(save("own", { name: "Sucre", price: 700, cost: 600, sku: "S1", minStock: 2 }));
-    const r: any = await save("own", { name: "Huile", price: 1500, description: "1 L" });
+    const simple = { table: "products", data: { name: "Sucre", price: 700, cost: 600, sku: "S1", minStock: 2 } };
+    const { id: sid } = await ok(call("own", "entity.save", simple));
+    expect((await save("own", { name: "Huile", price: 1500 })).status).toBe(402); // article.save : Business uniquement
+    const r: any = await call("own", "entity.save", { table: "products", data: { name: "Huile", price: 1500, description: "1 L" } });
     expect(r.status).toBe(402); expect(r.body.error).toContain("Business");
-    expect((await save("own", { name: "Lait", price: 500, unit: "l" })).status).toBe(402);
+    expect((await call("own", "entity.save", { table: "products", data: { name: "Lait", price: 500, unit: "l" } })).status).toBe(402);
+    for (const [a, p] of [["article.archive", { id: sid, archived: true }], ["article.delete", { id: sid }]] as const) expect((await call("own", a, p)).status, a).toBe(402);
+    // la fiche simple ne produit ni historique de prix ni journal d'article
+    await ok(call("own", "entity.save", { table: "products", id: sid, data: { price: 900 } }));
+    expect(st.rows("price_history")).toHaveLength(0); expect(st.rows("audit_log").filter((l) => String(l.action).startsWith("article."))).toHaveLength(0);
     expect((await call("own", "article.image", { id: st.rows("products")[0]!.$id, data: JPEG })).status).toBe(402);
   });
   it("Business et Pro : fiche complète", async () => { for (const p of ["business", "pro"]) { setPlan(T, p); await ok(save("own", { ...riz, sku: `R-${p}`, barcode: `B-${p}` })); } });
