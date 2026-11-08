@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Camera, ChevronLeft, Grid2x2, Image as ImageIcon, List, Lock, Pencil, Plus, ScanLine, Search, Trash2, Undo2, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { DATABASE_ID, tables } from "@/lib/appwrite";
 import { listAll, list, stockLevels, type Product, type Supplier } from "@/lib/data";
 import { compressImage, fetchArticles, fetchPriceHistory, useArticleImage, type ArticleRow, type Filters } from "@/lib/articles";
 import { can, useSession } from "@/lib/session";
@@ -148,7 +149,7 @@ function Confirm({ text, confirmLabel, danger, onYes, onNo }: { text: string; co
 
 function ArticleDetail({ a, qty, onClose, onEdit, onChanged }: { a: ArticleRow; qty: number; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
   const { session } = useSession(); const s = session!;
-  const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await list<Supplier>("suppliers", s, [], 200)).find((x) => x.$id === a.supplierId) });
+  const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
   const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState("");
   const m = marginOf(a.price, a.cost ?? 0); const loss = sellsAtLoss(a.price, a.cost ?? 0);

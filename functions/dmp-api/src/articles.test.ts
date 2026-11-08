@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MemoryStore } from "./memory-store";
 import { handle } from "./main";
 import { stockFor } from "./checkout";
+import { needFeature } from "./articles";
+import { FEATURES, type FeatureKey } from "../../../src/domain/features";
 
 const T = "tenantart001", T2 = "tenantart002";
 let st: MemoryStore; let A = "", B = "", A2 = "";
@@ -48,6 +50,16 @@ describe("création", () => {
     const b = await ok(save("own", riz, { requestId: "req-abc-123456", initialQty: 3 }));
     expect(b).toMatchObject({ id: a.id, duplicate: true }); expect(st.rows("products")).toHaveLength(1); expect(await stockFor(st, a.id)).toBe(3);
   });
+  it("reprise après coupure : le stock initial et l'historique manquants sont recréés, sans doublon", async () => {
+    const a = await ok(save("own", riz, { requestId: "req-crash-000001", initialQty: 7 }));
+    // simule une coupure juste après la création de la fiche
+    await st.remove("stock_moves", `${a.id}_init`); await st.remove("price_history", `${a.id}_p0`);
+    expect(await stockFor(st, a.id)).toBe(0);
+    await ok(save("own", riz, { requestId: "req-crash-000001", initialQty: 7 }));
+    await ok(save("own", riz, { requestId: "req-crash-000001", initialQty: 7 }));
+    expect(await stockFor(st, a.id)).toBe(7); expect(st.rows("price_history")).toHaveLength(1); expect(st.rows("products")).toHaveLength(1);
+    expect(st.rows("audit_log").filter((l) => l.action === "article.create")).toHaveLength(1);
+  });
   it("fournisseur principal : doit exister dans la boutique", async () => {
     const { id: sup } = await ok(call("own", "entity.save", { table: "suppliers", data: { name: "Grossiste" } }));
     expect((await save("own", { ...riz, supplierId: "inconnu" })).status).toBe(400);
@@ -86,6 +98,25 @@ describe("formules (droits d'abonnement ≠ rôles)", () => {
     setPlan(T, "starter");
     const { id } = await ok(call("own", "entity.save", { table: "products", data: { name: "Pain", price: 150, cost: 100, minStock: 5, archived: false } }));
     expect(st.rows("products").find((p) => p.$id === id)).toMatchObject({ name: "Pain", archived: false });
+  });
+});
+
+describe("droits par formule : tous les paliers", () => {
+  const keys = Object.keys(FEATURES) as FeatureKey[]; const ctx = () => ({ userId: "own", tenantId: T, shopId: A, roles: ["owner"] });
+  const allowedKeys = async () => { const out: string[] = []; for (const k of keys) { try { await needFeature(st, ctx(), k); out.push(k); } catch { /* verrouillé */ } } return out; };
+  it("Starter : rien ; Business : Articles seulement ; Pro : tout", async () => {
+    setPlan(T, "starter"); expect(await allowedKeys()).toEqual([]);
+    setPlan(T, "business"); expect(await allowedKeys()).toEqual(["articles"]);
+    setPlan(T, "pro"); expect(await allowedKeys()).toEqual(keys);
+  });
+  it("accès à vie (compte plateforme) : toutes les fonctions, présentes et futures", async () => {
+    Object.assign(st.rows("subscriptions").find((r) => r.$id === T)!, { plan: "pro", status: "lifetime", renewsAt: "9999-12-31T23:59:59.000Z" });
+    expect(await allowedKeys()).toEqual(keys);
+  });
+  it("retour de Pro à Business : les données avancées restent, l'usage se referme", async () => {
+    setPlan(T, "pro"); const { id } = await ok(save("own", riz, { initialQty: 4 }));
+    setPlan(T, "business"); expect((await allowedKeys())).toEqual(["articles"]);
+    expect(st.rows("products").find((p) => p.$id === id)).toBeTruthy(); expect(await stockFor(st, id)).toBe(4);
   });
 });
 

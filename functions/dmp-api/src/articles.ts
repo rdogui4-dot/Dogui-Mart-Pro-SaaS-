@@ -28,6 +28,14 @@ async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barcode", va
   if (dup) throw new HttpError(409, `${field === "sku" ? "Référence déjà utilisée" : "Code-barres déjà utilisé"} par « ${dup.name} »`);
 }
 
+/** Écritures qui suivent la création de la fiche (stock initial, premier prix, journal) : à identifiants fixes, donc rejouables sans doublon. */
+async function creationRows(store: Store, ctx: Ctx, id: string, a: Article, qty: number, business: boolean) {
+  if (qty > 0) await store.create("stock_moves", `${id}_init`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, qty, kind: "adjust", refId: INITIAL, userId: ctx.userId });
+  if (!business) return;
+  await store.create("price_history", `${id}_p0`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, oldPrice: 0, newPrice: Number(a.price), oldCost: 0, newCost: Number(a.cost ?? 0), userId: ctx.userId });
+  await store.create("audit_log", `${id}_ac`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "article.create", detail: `${a.name} (${id}) vente ${a.price} achat ${a.cost ?? 0} stock initial ${qty}`.slice(0, 1000) });
+}
+
 /** Création / modification d'un article (table `products`). Également appelée par entity.save pour les produits : un seul chemin d'écriture. */
 /** Action article.save : réservée à la formule Business (ou Pro). */
 export async function saveArticle(store: Store, ctx: Ctx, b: { id?: string; requestId?: string; data: Record<string, unknown>; initialQty?: number }) {
@@ -69,17 +77,19 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
   const a = full!;
   // Identifiant dérivé de la demande du client : un nouvel envoi après coupure réseau ne crée jamais de doublon.
   const id = b.requestId ? `a${String(b.requestId).replace(/[^A-Za-z0-9]/g, "").slice(0, 28)}` : newId();
+  const qty = Math.floor(Number(b.initialQty ?? 0));
+  if (b.initialQty !== undefined && !(qty >= 0 && qty <= 10_000_000)) throw new HttpError(400, "Quantité en stock invalide");
   const prior = await store.get("products", id);
-  if (prior) { if (mine(ctx, prior)) return { id, duplicate: true }; throw new HttpError(409, "Demande déjà utilisée"); }
+  if (prior) {
+    if (!mine(ctx, prior)) throw new HttpError(409, "Demande déjà utilisée");
+    await creationRows(store, ctx, id, prior as unknown as Article, qty, business); // reprise après coupure : complète ce qui manquerait, sans rien doubler
+    return { id, duplicate: true };
+  }
   await assertUnique(store, ctx, "sku", a.sku); await assertUnique(store, ctx, "barcode", a.barcode);
   await assertQuota(store, ctx.tenantId, "products");
   const created = await store.create("products", id, ctx.tenantId, { ...a, tenantId: ctx.tenantId, shopId: ctx.shopId });
   if (!created) { const ex = await store.get("products", id); if (mine(ctx, ex)) return { id, duplicate: true }; throw new HttpError(409, "Demande déjà utilisée"); }
-  const qty = Math.floor(Number(b.initialQty ?? 0));
-  if (b.initialQty !== undefined && !(qty >= 0 && qty <= 10_000_000)) throw new HttpError(400, "Quantité en stock invalide");
-  if (qty > 0) await store.create("stock_moves", `${id}_init`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, qty, kind: "adjust", refId: INITIAL, userId: ctx.userId });
-  if (business) await store.create("price_history", `${id}_p0`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, oldPrice: 0, newPrice: a.price, oldCost: 0, newCost: a.cost, userId: ctx.userId });
-  if (business) await audit(store, ctx, "article.create", `${a.name} (${id}) vente ${a.price} achat ${a.cost} stock initial ${qty}`);
+  await creationRows(store, ctx, id, a, qty, business);
   return { id };
 }
 

@@ -140,7 +140,7 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
     let target = (await store.list("products", { tenantId: ctx.tenantId, shopId: b.toShopId, originId: origin }, 1))[0];
     if (!target && src.barcode) target = (await store.list("products", { tenantId: ctx.tenantId, shopId: b.toShopId, barcode: String(src.barcode) }, 1))[0];
     const targetId = target?.$id ?? `${base}_p${i}`;
-    if (!target) await store.create("products", targetId, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, name: src.name, sku: src.sku ?? "", barcode: src.barcode ?? "", category: src.category ?? "", price: src.price, cost: src.cost ?? 0, minStock: src.minStock ?? 0, archived: false, originId: origin });
+    if (!target) await store.create("products", targetId, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, name: src.name, sku: src.sku ?? "", barcode: src.barcode ?? "", category: src.category ?? "", price: src.price, cost: src.cost ?? 0, minStock: src.minStock ?? 0, archived: false, originId: origin, description: src.description ?? "", unit: src.unit ?? "piece" });
     await store.create("stock_moves", `${base}_o${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, qty, kind: "transfer_out", refId: number, userId: ctx.userId });
     await store.create("stock_moves", `${base}_i${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, qty, kind: "transfer_in", refId: number, userId: ctx.userId });
   }

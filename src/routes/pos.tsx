@@ -28,7 +28,7 @@ export function PosPage() {
 
   const add = (p: { $id: string; name: string; price: number }) =>
     setCart((c) => c.some((l) => l.productId === p.$id) ? c.map((l) => l.productId === p.$id ? { ...l, qty: l.qty + 1 } : l) : [...c, { productId: p.$id, name: p.name, unitPrice: p.price, qty: 1 }]);
-  const byCode = (code: string) => { const p = products.data?.find((x) => x.barcode === code || x.sku === code); if (p) add(p); else setMsg(`Code inconnu : ${code}`); setScan(false); };
+  const byCode = (code: string) => { const p = products.data?.find((x) => !x.archived && (x.barcode === code || x.sku === code)); if (p) add(p); else setMsg(`Code inconnu : ${code}`); setScan(false); };
   const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 40), [products.data, q]);
   const customer = customers.data?.find((c) => c.$id === customerId);
 
