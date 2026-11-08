@@ -7,6 +7,7 @@ import { routerBasepath } from "@/lib/basepath";
 import { SessionProvider, can, useSession } from "@/lib/session";
 import { Layout } from "@/components/Layout";
 import { AuthPage } from "@/routes/auth";
+import { CreateTenantPage } from "@/routes/tenant-setup";
 import { PosPage } from "@/routes/pos";
 import { StockPage } from "@/routes/stock";
 import { ClientsPage } from "@/routes/simple";
@@ -18,6 +19,7 @@ function Guard({ perm, children }: { perm: Parameters<typeof can>[1]; children: 
   const { session, loading } = useSession();
   if (loading) return <p className="p-6 text-white/50">Chargement…</p>;
   if (!session) return <AuthPage />;
+  if (session.needsTenant) return <CreateTenantPage />;
   return can(session.role, perm) ? <>{children}</> : <Navigate to="/pos" />;
 }
 const root = createRootRoute({ component: () => <Guard perm="sell"><Layout /></Guard> });

@@ -10,6 +10,8 @@ export type Session = {
   userId: string; name: string; tenantId: string; shopId: string; role: Role; shops: ShopInfo[];
   /** Renseigné si la première boutique n'a pas pu être créée (service serveur indisponible) : l'utilisateur entre quand même et voit pourquoi. */
   setupError?: string;
+  /** Compte connecté mais sans commerce (inscription interrompue) : l'application propose de le créer. */
+  needsTenant?: boolean;
 };
 type Ctx = { session: Session | null; loading: boolean; refresh: () => Promise<void>; logout: () => Promise<void>; switchShop: (id: string) => void };
 const C = createContext<Ctx>(null as never);
@@ -28,7 +30,7 @@ async function load(): Promise<Session | null> {
   try {
     const me = await account.get();
     const team = (await teams.list()).teams[0];
-    if (!team) return null;
+    if (!team) return { userId: me.$id, name: me.name, tenantId: "", shopId: "", role: "owner", shops: [], needsTenant: true };
     const m = await teams.listMemberships({ teamId: team.$id });
     const mine = m.memberships.find((x) => x.userId === me.$id);
     const role = (mine?.roles.find((r) => r === "owner" || r === "manager" || r === "cashier") ?? "cashier") as Role;
