@@ -63,4 +63,6 @@ Opérations manuelles Appwrite : aucune pour l'instant ; chaque phase crée ses 
 
 - **Phase 1 — quantités et unités : faite** (serveur, tests, interface, schéma Appwrite appliqué et vérifié par écriture/relecture réelle d'un coefficient et d'un mouvement en sous-unités). Colonnes : `products.qtyScale`, `stock_moves.unit` / `unitQty` ; table `article_units`.
 - Décision appliquée : quantités en entiers de sous-unités ; `stock_moves.qty` reste un entier, ce qui laisse intactes toutes les anciennes données (échelle 0).
-- Restent : phases 2 à 7.
+- **Phase 2 — variantes : faite** (serveur, 29 tests de variantes, interface, schéma appliqué et vérifié par écriture/relecture réelle d'une variante et d'un mouvement portant `variantId`). Colonnes : `products.hasVariants`, `stock_moves.variantId`, `price_history.variantId` ; table `article_variants`.
+- Décision appliquée : après un retour à Business, les articles déjà déclinés restent **vendables** (arrêter la caisse serait une rupture d'activité) ; seule la gestion (création, modification, archivage, suppression) est refusée.
+- Restent : phases 3 à 7.

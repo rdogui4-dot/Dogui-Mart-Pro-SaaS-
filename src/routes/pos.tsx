@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ScanLine, Minus, Plus } from "lucide-react";
 import { cartTotal, formatFcfa, settle, isQrMethod, type CartLine, type Payment, type PaymentMethod } from "@/domain/money";
-import { getShop, list, qtyOf, stockLevels, type Product, type Customer, type UnitRow } from "@/lib/data";
+import { getShop, list, qtyOf, stockLevels, variantQty, type Product, type Customer, type UnitRow, type VariantRow } from "@/lib/data";
 import { Query } from "@/lib/appwrite";
 import { convertQty, formatQty, fromScaled, qtyFor, scaleOf, scaledInt } from "@/domain/quantity";
 import { unitLabel } from "@/domain/articles";
@@ -16,8 +16,8 @@ import { canExtendCredit } from "@/domain/credit";
 
 
 /** Ligne du panier : quantité de base (pour le prix et le stock) + unité vendue si un conditionnement est choisi. */
-type PosLine = CartLine & { key: string; scale: number; unit?: string; unitQty?: number; factor?: number };
-const keyOf = (productId: string, unit?: string) => `${productId}|${unit ?? ""}`;
+type PosLine = CartLine & { key: string; scale: number; unit?: string; unitQty?: number; factor?: number; variantId?: string };
+const keyOf = (productId: string, unit?: string, variantId?: string) => `${productId}|${unit ?? ""}|${variantId ?? ""}`;
 const plus = (a: number, b: number, scale: number) => fromScaled(scaledInt(a, scale) + scaledInt(b, scale), scale);
 
 export function PosPage() {
@@ -26,8 +26,11 @@ export function PosPage() {
   const stock = useQuery({ queryKey: ["stock"], queryFn: () => stockLevels(s) });
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => list<Customer>("customers", s, [], 500) });
   const unitsQ = useQuery({ queryKey: ["units-all", s.shopId], queryFn: () => list<UnitRow>("article_units", s, [Query.equal("active", true)], 500), staleTime: 60_000 });
+  const variantsQ = useQuery({ queryKey: ["variants-all", s.shopId], queryFn: () => list<VariantRow>("article_variants", s, [Query.equal("archived", false)], 500), staleTime: 60_000 });
+  const variantsOf = (id: string) => (variantsQ.data ?? []).filter((v) => v.productId === id);
+  const [pickVar, setPickVar] = useState<(Product & { $id: string }) | null>(null);
   const unitsOf = (id: string) => (unitsQ.data ?? []).filter((u) => u.productId === id);
-  const [cart, setCart] = useState<PosLine[]>([]); const [pick, setPick] = useState<Product & { $id: string } | null>(null);
+  const [cart, setCart] = useState<PosLine[]>([]); const [pick, setPick] = useState<{ p: Product & { $id: string }; v?: VariantRow } | null>(null);
   const [q, setQ] = useState(""); const [scan, setScan] = useState(false);
   const [pay, setPay] = useState<PaymentMethod>("cash"); const [given, setGiven] = useState("");
   const [customerId, setCustomerId] = useState(""); const [qr, setQr] = useState(false);
@@ -37,27 +40,32 @@ export function PosPage() {
   const total = cartTotal(cart);
 
   /** Ajoute `qty` (dans l'unité `unit`, base par défaut) au panier. Lève une Error lisible si la quantité n'est pas valable pour cet article. */
-  function addLine(p: Product & { $id: string }, qtyInput: string | number, unit = "") {
-    const scale = scaleOf(p); const key = keyOf(p.$id, unit);
+  function addLine(p: Product & { $id: string }, qtyInput: string | number, unit = "", v?: VariantRow) {
+    const scale = scaleOf(p); const key = keyOf(p.$id, unit, v?.$id);
     const u = unit ? unitsOf(p.$id).find((x) => x.unit === unit) : undefined; if (unit && !u) throw new Error("Unité inconnue");
     const entered = unit ? qtyFor(qtyInput, 3) : qtyFor(qtyInput, scale);
     setCart((c) => {
       const ex = c.find((l) => l.key === key);
       const unitQty = unit ? plus(ex?.unitQty ?? 0, entered, 3) : undefined;
       const qty = unit ? convertQty(unitQty!, u!.factor, scale) : plus(ex?.qty ?? 0, entered, scale);
-      const line: PosLine = { key, productId: p.$id, name: p.name, unitPrice: p.price, qty, scale, ...(unit ? { unit, unitQty, factor: u!.factor } : {}) };
+      const line: PosLine = { key, productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: v ? v.price : p.price, qty, scale, ...(v ? { variantId: v.$id } : {}), ...(unit ? { unit, unitQty, factor: u!.factor } : {}) };
       return ex ? c.map((l) => (l.key === key ? line : l)) : [...c, line];
     });
   }
   /** Article simple (entier, sans conditionnement) : ajout direct ; sinon on demande la quantité et l'unité. */
-  const add = (p: Product & { $id: string }) => { if (scaleOf(p) > 0 || unitsOf(p.$id).length) { setPick(p); return; } try { addLine(p, 1); } catch (e) { setMsg((e as Error).message); } };
+  const add = (p: Product & { $id: string }, v?: VariantRow) => { if (p.hasVariants && !v) { setPickVar(p); return; } if (scaleOf(p) > 0 || unitsOf(p.$id).length) { setPick({ p, v }); return; } try { addLine(p, 1, "", v); } catch (e) { setMsg((e as Error).message); } };
   const step = (key: string, d: 1 | -1) => setCart((c) => c.flatMap((l) => {
     if (l.key !== key) return [l];
     const next = l.unit ? plus(l.unitQty!, d, 3) : plus(l.qty, d, l.scale);
     if (!(next > 0)) return [];
     try { return [l.unit ? { ...l, unitQty: next, qty: convertQty(next, l.factor!, l.scale) } : { ...l, qty: next }]; } catch { return [l]; }
   }));
-  const byCode = (code: string) => { const p = products.data?.find((x) => !x.archived && (x.barcode === code || x.sku === code)); if (p) add(p as Product & { $id: string }); else setMsg(`Code inconnu : ${code}`); setScan(false); };
+  const byCode = (code: string) => {
+    const v = variantsQ.data?.find((x) => x.barcode === code || x.sku === code); const vp = v && products.data?.find((x) => x.$id === v.productId && !x.archived);
+    if (v && vp) add(vp as Product & { $id: string }, v);
+    else { const p = products.data?.find((x) => !x.archived && (x.barcode === code || x.sku === code)); if (p) add(p as Product & { $id: string }); else setMsg(`Code inconnu : ${code}`); }
+    setScan(false);
+  };
   const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 40), [products.data, q]);
   const customer = customers.data?.find((c) => c.$id === customerId);
 
@@ -74,7 +82,7 @@ export function PosPage() {
       if (!c.ok) return setMsg(c.error);
     }
     const clientId = crypto.randomUUID(); const soldAt = new Date().toISOString();
-    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: cart.map((l) => (l.unit ? { productId: l.productId, qty: l.unitQty!, unit: l.unit } : { productId: l.productId, qty: l.qty })), payments, session: s });
+    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: cart.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) })), payments, session: s });
     // Même formule de numéro que le serveur : le ticket imprimé hors ligne porte le bon numéro.
     setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total, change: r.change, lines: cart.map((l) => ({ name: l.unit ? `${l.name} (${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()})` : l.name, qty: l.qty, unitPrice: l.unitPrice })), payments: payments.map((p) => ({ method: p.method, amount: p.amount })) });
     setCart([]); setGiven(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
@@ -94,7 +102,7 @@ export function PosPage() {
           return (
             <button key={p.$id} onClick={() => add(p as Product & { $id: string })} className="card text-left active:scale-[.98]">
               <div className="font-medium leading-tight">{p.name}</div>
-              <div className="text-[var(--gold)]">{formatFcfa(p.price)}</div>
+              <div className="text-[var(--gold)]">{p.hasVariants ? `dès ${formatFcfa(Math.min(...(variantsOf(p.$id).length ? variantsOf(p.$id).map((v) => v.price) : [p.price])))}` : formatFcfa(p.price)}</div>{p.hasVariants && <div className="text-xs text-white/50">{variantsOf(p.$id).length} variantes</div>}
               <div className={`text-xs ${n <= (p.minStock ?? 0) ? "text-red-400" : "text-white/50"}`}>Stock {formatQty(n)}{(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}</div>
             </button>
           );
@@ -127,14 +135,15 @@ export function PosPage() {
       {msg && <p className="text-center text-amber-300">{msg}</p>}
       {last && cart.length === 0 && <button className="btn-ghost" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, customer?.name)).then((b) => deliverPdf(b, `${last.number}.pdf`))}>Ticket PDF / Partager</button>}
       {qr && isQrMethod(pay) && <QrPay session={s} provider={pay} amount={total} onPaid={(id) => void submit(id)} onCancel={() => setQr(false)} />}
-      {pick && <QtyDialog p={pick} units={unitsOf(pick.$id)} onClose={() => setPick(null)} onAdd={(q, unit) => { addLine(pick, q, unit); setPick(null); }} />}
+      {pickVar && <VariantDialog p={pickVar} variants={variantsOf(pickVar.$id)} levels={stock.data} onClose={() => setPickVar(null)} onPick={(v) => { const p = pickVar; setPickVar(null); add(p, v); }} />}
+      {pick && <QtyDialog p={pick.p} v={pick.v} units={unitsOf(pick.p.$id)} onClose={() => setPick(null)} onAdd={(q, unit) => { addLine(pick.p, q, unit, pick.v); setPick(null); }} />}
       {scan && <Scanner onCode={byCode} onClose={() => setScan(false)} />}
     </div>
   );
 }
 
 /** Quantité et unité d'un article décimal ou conditionné (kilo, litre, carton…). Le prix de la ligne est calculé par le même code que le serveur. */
-function QtyDialog({ p, units, onClose, onAdd }: { p: Product & { $id: string }; units: UnitRow[]; onClose: () => void; onAdd: (qty: string, unit: string) => void }) {
+function QtyDialog({ p, v, units, onClose, onAdd }: { p: Product & { $id: string }; v?: VariantRow; units: UnitRow[]; onClose: () => void; onAdd: (qty: string, unit: string) => void }) {
   const [unit, setUnit] = useState(""); const [qty, setQty] = useState(""); const [err, setErr] = useState("");
   const scale = scaleOf(p); const u = units.find((x) => x.unit === unit);
   let base = 0, ok = false;
@@ -142,13 +151,30 @@ function QtyDialog({ p, units, onClose, onAdd }: { p: Product & { $id: string };
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Quantité">
       <form className="card w-full max-w-sm flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); try { onAdd(qty, unit); } catch (x) { setErr((x as Error).message); } }}>
-        <b>{p.name}</b>
+        <b>{v ? `${p.name} — ${v.label}` : p.name}</b>
         {units.length > 0 && <div className="flex gap-2 flex-wrap">{[{ unit: "", label: unitLabel(p.unit) }, ...units.map((x) => ({ unit: x.unit, label: unitLabel(x.unit) }))].map((x) => <button type="button" key={x.unit} className="chip" aria-current={unit === x.unit} onClick={() => setUnit(x.unit)}>{x.label}</button>)}</div>}
         <input className="input" inputMode="decimal" autoFocus placeholder={`Quantité en ${unitLabel(unit ? unit : p.unit).toLowerCase()}`} value={qty} onChange={(e) => { setQty(e.target.value); setErr(""); }} />
-        {ok && <p className="text-sm text-white/60">{unit ? `= ${formatQty(base)} ${unitLabel(p.unit).toLowerCase()} · ` : ""}{formatFcfa(Math.round(p.price * base * 1e6) / 1e6)}</p>}
+        {ok && <p className="text-sm text-white/60">{unit ? `= ${formatQty(base)} ${unitLabel(p.unit).toLowerCase()} · ` : ""}{formatFcfa(Math.round((v ? v.price : p.price) * base * 1e6) / 1e6)}</p>}
         {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
         <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={onClose}>Annuler</button><button className="btn flex-1" disabled={!ok}>Ajouter</button></div>
       </form>
+    </div>
+  );
+}
+
+/** Choix de la variante d'un article décliné : prix et stock de chacune, les ruptures restent visibles mais non vendables. */
+function VariantDialog({ p, variants, levels, onClose, onPick }: { p: Product & { $id: string }; variants: VariantRow[]; levels?: Map<string, number>; onClose: () => void; onPick: (v: VariantRow) => void }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Variante">
+      <div className="card w-full max-w-sm flex flex-col gap-2 max-h-[80vh] overflow-y-auto">
+        <b>{p.name}</b><p className="text-sm text-white/60">Choisissez la variante :</p>
+        {variants.length === 0 && <p className="text-sm text-white/50">Aucune variante active.</p>}
+        {variants.map((v) => { const n = variantQty(levels, v, scaleOf(p)); return (
+          <button key={v.$id} className="btn-ghost flex justify-between items-center text-left !py-3 disabled:opacity-40" disabled={n <= 0} onClick={() => onPick(v)}>
+            <span><span className="block font-medium">{v.label}</span><span className="text-xs text-white/50">{n > 0 ? `${formatQty(n)} en stock` : "Rupture"}</span></span><span className="gold-text font-bold">{formatFcfa(v.price)}</span>
+          </button>); })}
+        <button className="btn-ghost" onClick={onClose}>Annuler</button>
+      </div>
     </div>
   );
 }

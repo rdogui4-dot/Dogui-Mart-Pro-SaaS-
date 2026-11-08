@@ -3,15 +3,17 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { AlertTriangle, Archive, Camera, ChevronLeft, Grid2x2, Image as ImageIcon, List, Lock, Pencil, Plus, ScanLine, Search, Trash2, Undo2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
-import { listAll, list, qtyOf, stockLevels, type Product, type Supplier, type UnitRow } from "@/lib/data";
+import { listAll, list, qtyOf, stockLevels, variantQty, type Product, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
+import { VariantsSheet } from "./variants";
 import { compressImage, fetchArticles, fetchPriceHistory, useArticleImage, type ArticleRow, type Filters } from "@/lib/articles";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
+import { Confirm, Sheet, Thumb } from "@/components/ui";
 import { formatFcfa } from "@/domain/money";
 import { UNITS, marginOf, sellsAtLoss, unitLabel } from "@/domain/articles";
 import { FEATURES, PRO_LOCKED, planAllows } from "@/domain/features";
 import { isLow } from "@/domain/stock";
-import { SCALES, formatQty, scaleLabel } from "@/domain/quantity";
+import { SCALES, formatQty, scaleLabel, scaleOf } from "@/domain/quantity";
 import { useSubscription } from "./subscription";
 
 const SORTS: [Filters["sort"], string][] = [["name_asc", "Nom A → Z"], ["name_desc", "Nom Z → A"], ["new", "Plus récents"], ["old", "Plus anciens"]];
@@ -52,14 +54,20 @@ function Catalogue() {
   // Statistiques calculées sur les données réelles : catégories, valeur du stock, alertes (journal de mouvements)
   const stats = useQuery({
     queryKey: ["articles-stats", s.shopId],
-    queryFn: async () => ({ all: await listAll<Product>("products", s), levels: await stockLevels(s) }),
+    queryFn: async () => ({ all: await listAll<Product>("products", s), levels: await stockLevels(s), variants: await listAll<VariantRow>("article_variants", s) }),
   });
   const levels = stats.data?.levels;
+  const variants = stats.data?.variants ?? [];
+  const liveVariants = variants.filter((v) => !v.archived);
   const all = (stats.data?.all ?? []);
   const active = all.filter((p) => !p.archived);
   const categories = [...new Set(all.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "fr"));
-  const value = active.reduce((a, p) => a + Math.max(qtyOf(levels, p), 0) * (p.cost ?? 0), 0);
-  const alerts = active.filter((p) => isLow(qtyOf(levels, p), p.minStock ?? 0)).length;
+  // Articles déclinés : valeur et alertes se calculent variante par variante (chacune a son stock, son coût et son seuil)
+  const simple = active.filter((p) => !p.hasVariants);
+  const scaleById = new Map(all.map((p) => [p.$id, scaleOf(p)]));
+  const activeVariants = liveVariants.filter((v) => active.some((p) => p.$id === v.productId && p.hasVariants));
+  const value = simple.reduce((a, p) => a + Math.max(qtyOf(levels, p), 0) * (p.cost ?? 0), 0) + activeVariants.reduce((a, v) => a + Math.max(variantQty(levels, v, scaleById.get(v.productId)), 0) * (v.cost ?? 0), 0);
+  const alerts = simple.filter((p) => isLow(qtyOf(levels, p), p.minStock ?? 0)).length + activeVariants.filter((v) => isLow(variantQty(levels, v, scaleById.get(v.productId)), v.minStock ?? 0)).length;
   const rows = page.data?.pages.flatMap((p) => p.rows) ?? [];
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["articles"] }); void qc.invalidateQueries({ queryKey: ["articles-stats"] }); void qc.invalidateQueries({ queryKey: ["products"] }); void qc.invalidateQueries({ queryKey: ["stock"] }); };
 
@@ -94,24 +102,19 @@ function Catalogue() {
         </div>
       )}
       <ul className={grid ? "grid grid-cols-2 gap-2" : "flex flex-col gap-2"}>
-        {rows.map((a) => <ArticleCard key={a.$id} a={a} qty={levels ? qtyOf(levels, a) : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
+        {rows.map((a) => <ArticleCard key={a.$id} a={a} nVariants={a.hasVariants ? liveVariants.filter((v) => v.productId === a.$id).length : 0} qty={levels ? qtyOf(levels, a) : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
       </ul>
       {page.hasNextPage && <button className="btn-ghost" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>{page.isFetchingNextPage ? "Chargement…" : "Voir plus d'articles"}</button>}
       <ProLocks />
 
-      {detail && <ArticleDetail a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} onClose={() => setDetail(null)} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
+      {detail && <ArticleDetail a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} variants={variants.filter((v) => v.productId === detail.$id)} levels={levels} onClose={() => setDetail(null)} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
       {form && <ArticleForm initial={form === "new" ? null : form} pro={pro} qty={form === "new" ? 0 : qtyOf(levels, form)} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
       {scan && <Scanner onCode={(c) => { setQInput(c); setScan(false); }} onClose={() => setScan(false)} />}
     </div>
   );
 }
 
-function Thumb({ id, size = 64, className = "" }: { id?: string; size?: number; className?: string }) {
-  const url = useArticleImage(id, size >= 120 ? 400 : 160);
-  return url ? <img src={url} alt="" className={`object-cover rounded-2xl ${className}`} style={{ width: size, height: size }} /> : <div className={`rounded-2xl bg-white/5 flex items-center justify-center text-white/30 ${className}`} style={{ width: size, height: size }}><ImageIcon size={size / 3} /></div>;
-}
-
-function ArticleCard({ a, qty, grid, onOpen }: { a: ArticleRow; qty?: number; grid: boolean; onOpen: () => void }) {
+function ArticleCard({ a, qty, grid, nVariants, onOpen }: { a: ArticleRow; qty?: number; grid: boolean; nVariants: number; onOpen: () => void }) {
   const low = qty !== undefined && isLow(qty, a.minStock ?? 0);
   return (
     <li>
@@ -119,7 +122,7 @@ function ArticleCard({ a, qty, grid, onOpen }: { a: ArticleRow; qty?: number; gr
         <Thumb id={a.imageFileId} size={grid ? 96 : 56} className={grid ? "self-center" : ""} />
         <div className="min-w-0 flex-1">
           <div className="font-semibold truncate">{a.name}</div>
-          <div className="text-xs text-white/50 truncate">{[a.sku, a.category].filter(Boolean).join(" · ") || "—"}</div>
+          <div className="text-xs text-white/50 truncate">{[a.sku, a.category, nVariants ? `${nVariants} variante${nVariants > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</div>
           <div className="flex items-center justify-between mt-1"><span className="gold-text font-bold">{formatFcfa(a.price)}</span>
             <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
           {a.archived && <span className="text-xs text-amber-300">Archivé</span>}
@@ -129,31 +132,13 @@ function ArticleCard({ a, qty, grid, onOpen }: { a: ArticleRow; qty?: number; gr
   );
 }
 
-function Sheet({ title, onClose, children, back }: { title: string; onClose: () => void; children: ReactNode; back?: boolean }) {
-  return (
-    <div className="fixed inset-0 z-40 bg-[var(--bg)] overflow-y-auto" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-3 bg-[var(--surface)] border-b border-[var(--line)]">
-        <button className="p-2" aria-label="Fermer" onClick={onClose}>{back ? <ChevronLeft /> : <X />}</button><h2 className="font-bold truncate">{title}</h2>
-      </div>
-      <div className="p-4 pb-28 flex flex-col gap-3 max-w-md mx-auto">{children}</div>
-    </div>
-  );
-}
-
-function Confirm({ text, confirmLabel, danger, onYes, onNo }: { text: string; confirmLabel: string; danger?: boolean; onYes: () => void; onNo: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4" role="alertdialog" aria-modal="true">
-      <div className="card w-full max-w-sm flex flex-col gap-3"><p>{text}</p>
-        <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={onNo}>Annuler</button><button className={`flex-1 ${danger ? "btn-ghost !border-red-400 !text-red-300" : "btn"}`} onClick={onYes}>{confirmLabel}</button></div></div>
-    </div>
-  );
-}
-
-function ArticleDetail({ a, qty, pro, onClose, onEdit, onChanged }: { a: ArticleRow; qty: number; pro: boolean; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
+function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChanged }: { a: ArticleRow; qty: number; pro: boolean; variants: VariantRow[]; levels?: Map<string, number>; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
-  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false);
+  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false);
+  const proVariants = planAllows(useSubscription().data?.entitlement.plan.id, "variants");
+  const live = variants.filter((v) => !v.archived); const prices = live.map((v) => v.price);
   const units = useQuery({ queryKey: ["units", a.$id], queryFn: async () => ((await tables.listRows({ databaseId: DATABASE_ID, tableId: "article_units", queries: [Query.equal("productId", a.$id), Query.equal("active", true), Query.limit(20)] })).rows as unknown as UnitRow[]) });
   const m = marginOf(a.price, a.cost ?? 0); const loss = sellsAtLoss(a.price, a.cost ?? 0);
   const act = useMutation({
@@ -174,17 +159,24 @@ function ArticleDetail({ a, qty, pro, onClose, onEdit, onChanged }: { a: Article
       <div className="card">
         {row("Référence", a.sku)}{row("Code-barres", a.barcode)}{row("Catégorie", a.category)}{row("Unité de vente", unitLabel(a.unit))}
         {row("Fournisseur principal", sup.data?.name ?? (a.supplierId && !can(s, "purchases") ? "Non visible avec vos accès" : ""))}
-        {row("Prix de vente", <b className="gold-text">{formatFcfa(a.price)}</b>)}{row("Prix d'achat", a.cost ? formatFcfa(a.cost) : "")}
-        {row("Marge brute indicative", a.cost ? `${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Prix d'achat non renseigné")}
+        {a.hasVariants ? row("Prix de vente", <b className="gold-text">{prices.length ? (Math.min(...prices) === Math.max(...prices) ? formatFcfa(prices[0]!) : `${formatFcfa(Math.min(...prices))} – ${formatFcfa(Math.max(...prices))}`) : "—"}</b>) : <>{row("Prix de vente", <b className="gold-text">{formatFcfa(a.price)}</b>)}{row("Prix d'achat", a.cost ? formatFcfa(a.cost) : "")}
+        {row("Marge brute indicative", a.cost ? `${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Prix d'achat non renseigné")}</>}
         {row("Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-red-400" : ""}>{formatQty(qty)} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Précision des quantités", scaleLabel(a.qtyScale ?? 0))}{row("Seuil d'alerte", a.minStock ?? 0)}
       </div>
-      {loss && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
+      {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
       {a.description && <div className="card text-sm whitespace-pre-line">{a.description}</div>}
       <div className="card"><h3 className="font-semibold mb-1">Historique des prix</h3>
         {hist.isLoading ? <p className="text-sm text-white/50">Chargement…</p> : hist.error ? <p className="text-sm text-red-400">{(hist.error as Error).message}</p> : !hist.data?.length ? <p className="text-sm text-white/50">Aucune modification enregistrée.</p> :
           <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>
             <span className="text-right">{h.oldPrice ? `${formatFcfa(h.oldPrice)} → ` : "Création : "}{formatFcfa(h.newPrice ?? 0)}<span className="text-white/40"> · achat {formatFcfa(h.newCost ?? 0)}</span></span></li>)}</ul>}
         <p className="text-xs text-white/40 mt-2">Les ventes déjà enregistrées gardent le prix du jour de la vente.</p></div>
+      {(proVariants || a.hasVariants) && (
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Variantes</h3><button className="text-sm text-[var(--gold)]" onClick={() => setVarsOpen(true)}>{proVariants ? "Gérer" : "Voir"}</button></div>
+          {!live.length ? <p className="text-sm text-white/50 mt-1">Aucune variante active.</p> :
+            <ul className="text-sm mt-1 flex flex-col gap-1">{live.slice(0, 5).map((v) => <li key={v.$id} className="flex justify-between gap-2"><span className="truncate">{v.label}</span><span className="text-white/60 whitespace-nowrap">{formatQty(variantQty(levels, v, scaleOf(a)))} · {formatFcfa(v.price)}</span></li>)}{live.length > 5 && <li className="text-white/40">+ {live.length - 5} autres…</li>}</ul>}
+          {!proVariants && <p className="text-xs text-amber-300 mt-2">Variantes en lecture seule (formule Business) : vos données sont conservées et la vente continue ; la gestion revient avec Pro.</p>}
+        </div>
+      )}
       {(pro || !!units.data?.length) && (
         <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Conditionnements</h3>{pro && <button className="text-sm text-[var(--gold)]" onClick={() => setUnitsOpen(true)}>Modifier</button>}</div>
           {!units.data?.length ? <p className="text-sm text-white/50 mt-1">Vendu uniquement en {unitLabel(a.unit).toLowerCase()}.</p> :
@@ -195,7 +187,7 @@ function ArticleDetail({ a, qty, pro, onClose, onEdit, onChanged }: { a: Article
       {err && <p className="text-red-400 text-sm">{err}</p>}
       <div className="grid grid-cols-2 gap-2">
         <button className="btn flex items-center justify-center gap-2" onClick={onEdit}><Pencil size={18} />Modifier</button>
-        <button className="btn-ghost" onClick={() => { setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>Compter le stock</button>
+        <button className="btn-ghost" onClick={() => { if (a.hasVariants) { setVarsOpen(true); return; } setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>{a.hasVariants ? "Stock par variante" : "Compter le stock"}</button>
         {a.archived ? <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("restore")}><Undo2 size={18} />Restaurer</button> : <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("archive")}><Archive size={18} />Archiver</button>}
         {canDelete && <button className="btn-ghost !text-red-300 flex items-center justify-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={18} />Supprimer</button>}
       </div>
@@ -209,6 +201,7 @@ function ArticleDetail({ a, qty, pro, onClose, onEdit, onChanged }: { a: Article
           <p className="text-xs text-white/50">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
           <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+([.,]\d{1,3})?$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
       )}
+      {varsOpen && <VariantsSheet a={a} variants={variants} levels={levels} canManage={proVariants} onClose={() => setVarsOpen(false)} onChanged={onChanged} />}
       {unitsOpen && <UnitsEditor a={a} current={units.data ?? []} onClose={() => setUnitsOpen(false)} onSaved={() => { void units.refetch(); onChanged(); }} />}
     </Sheet>
   );

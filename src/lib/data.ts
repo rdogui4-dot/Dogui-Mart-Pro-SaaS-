@@ -6,7 +6,7 @@ import { fromScaled } from "@/domain/quantity";
 import type { Session } from "./session";
 
 export type Row<T> = T & { $id: string; $createdAt: string };
-export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string };
+export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean };
 export type Customer = { name: string; phone?: string; creditLimit?: number; creditBalance?: number; points?: number; annualSpend?: number };
 export type Supplier = { name: string; phone?: string; email?: string; balance?: number };
 
@@ -32,9 +32,13 @@ export async function listAll<T>(table: string, s: Session, maxRows = 200_000): 
 }
 
 export async function stockLevels(s: Session): Promise<Map<string, number>> {
-  const moves = await listAll<{ productId: string; qty: number; kind: string }>("stock_moves", s);
+  const moves = await listAll<{ productId: string; variantId?: string; qty: number; kind: string }>("stock_moves", s);
   const m = new Map<string, number>();
-  for (const x of moves) m.set(x.productId, (m.get(x.productId) ?? 0) + delta({ productId: x.productId, qty: x.qty, kind: x.kind as never }));
+  for (const x of moves) {
+    const d = delta({ productId: x.productId, qty: x.qty, kind: x.kind as never });
+    m.set(x.productId, (m.get(x.productId) ?? 0) + d); // total de l'article (toutes variantes)
+    if (x.variantId) m.set(`v:${x.variantId}`, (m.get(`v:${x.variantId}`) ?? 0) + d); // stock propre à la variante
+  }
   return m;
 }
 
@@ -53,3 +57,6 @@ export async function listTenant<T>(table: string, s: Session, limit = 100): Pro
 /** Stock lisible d'un article : `stockLevels` renvoie des entiers de sous-unités, on les remet à l'échelle de l'article (kg, litre…). */
 export const qtyOf = (levels: Map<string, number> | undefined, p: { $id: string; qtyScale?: number }): number => fromScaled(levels?.get(p.$id) ?? 0, p.qtyScale ?? 0);
 export type UnitRow = Row<{ productId: string; unit: string; factor: number; active?: boolean }>;
+export type VariantRow = Row<{ productId: string; attributes: string; label: string; sku?: string; barcode?: string; price: number; cost?: number; minStock?: number; imageFileId?: string; archived?: boolean }>;
+/** Stock lisible d'une variante, à l'échelle de son article. */
+export const variantQty = (levels: Map<string, number> | undefined, v: { $id: string }, scale = 0): number => fromScaled(levels?.get(`v:${v.$id}`) ?? 0, scale);

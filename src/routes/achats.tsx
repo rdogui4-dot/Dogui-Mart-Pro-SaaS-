@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Query } from "@/lib/appwrite";
 import { api } from "@/lib/api";
-import { list, saveEntity, type Product, type Row, type Supplier } from "@/lib/data";
+import { list, saveEntity, type Product, type Row, type Supplier, type VariantRow } from "@/lib/data";
+import { lineKey } from "@/domain/variants";
 import { can, useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { purchaseOrderModel } from "@/domain/documents";
@@ -62,28 +63,32 @@ function Orders() {
   const pos = useQuery({ queryKey: ["pos"], queryFn: () => list<Po>("purchase_orders", s, [], 200) });
   const sups = useQuery({ queryKey: ["suppliers"], queryFn: () => list<Supplier>("suppliers", s, [], 500) });
   const prods = useQuery({ queryKey: ["products"], queryFn: () => list<Product>("products", s, [], 500) });
+  const vars = useQuery({ queryKey: ["variants-po"], queryFn: () => list<VariantRow>("article_variants", s, [Query.equal("archived", false)], 500) });
   const [creating, setCreating] = useState(false);
   const supName = (id: string) => sups.data?.find((x) => x.$id === id)?.name ?? "—";
   return (
     <>
       <button className="btn" onClick={() => setCreating(!creating)}>{creating ? "Fermer" : "Nouvelle commande"}</button>
-      {creating && <NewPo suppliers={sups.data ?? []} products={prods.data ?? []} onDone={() => { setCreating(false); refresh(); }} />}
+      {creating && <NewPo suppliers={sups.data ?? []} products={prods.data ?? []} variants={vars.data ?? []} onDone={() => { setCreating(false); refresh(); }} />}
       {(pos.data ?? []).map((po) => <PoCard key={po.$id} po={po} supplier={supName(po.supplierId)} onChange={refresh} />)}
       {pos.data?.length === 0 && <p className="text-center text-white/50 py-6">Aucune commande.</p>}
     </>
   );
 }
 
-function NewPo({ suppliers, products, onDone }: { suppliers: Row<Supplier>[]; products: Row<Product>[]; onDone: () => void }) {
+function NewPo({ suppliers, products, variants, onDone }: { suppliers: Row<Supplier>[]; products: Row<Product>[]; variants: VariantRow[]; onDone: () => void }) {
   const { session } = useSession(); const s = session!;
   const clientId = useRef(crypto.randomUUID()); // même identifiant en cas de nouvel essai : jamais deux commandes
   const [supplierId, setSupplierId] = useState("");
   const [rows, setRows] = useState<{ productId: string; qty: string; unitCost: string }[]>([{ productId: "", qty: "", unitCost: "" }]);
   const [err, setErr] = useState("");
+  // Un article décliné se commande variante par variante (chaque variante a son stock et son coût).
+  const options = products.filter((p) => !p.archived).flatMap((p) => p.hasVariants ? variants.filter((v) => v.productId === p.$id).map((v) => ({ value: `${p.$id}:${v.$id}`, label: `${p.name} — ${v.label}`, cost: v.cost })) : [{ value: p.$id, label: p.name, cost: p.cost }]);
+  const split = (key: string) => { const [productId, variantId] = key.split(":"); return { productId: productId!, ...(variantId ? { variantId } : {}) }; };
   const set = (i: number, patch: Partial<(typeof rows)[number]>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const total = rows.reduce((a, r) => a + Math.round((Number(r.qty.replace(",", ".")) || 0) * (Number(r.unitCost) || 0) * 1e6) / 1e6, 0);
   const submit = useMutation({
-    mutationFn: () => api(s, "po.create", { clientId: clientId.current, supplierId, lines: rows.filter((r) => r.productId).map((r) => ({ productId: r.productId, qty: r.qty, unitCost: Number(r.unitCost) })) }),
+    mutationFn: () => api(s, "po.create", { clientId: clientId.current, supplierId, lines: rows.filter((r) => r.productId).map((r) => ({ ...split(r.productId), qty: r.qty, unitCost: Number(r.unitCost) })) }),
     onSuccess: onDone, onError: (e) => setErr((e as Error).message),
   });
   return (
@@ -93,8 +98,8 @@ function NewPo({ suppliers, products, onDone }: { suppliers: Row<Supplier>[]; pr
       </select>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[1fr_4.5rem_6rem] gap-1">
-          <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value, unitCost: String(products.find((p) => p.$id === e.target.value)?.cost ?? "") })}>
-            <option value="">Produit…</option>{products.map((p) => <option key={p.$id} value={p.$id}>{p.name}</option>)}
+          <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value, unitCost: String(options.find((o) => o.value === e.target.value)?.cost ?? "") })}>
+            <option value="">Produit…</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <input className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
           <input className="input !px-2" inputMode="numeric" placeholder="Prix HT" value={r.unitCost} onChange={(e) => set(i, { unitCost: e.target.value })} />
@@ -120,20 +125,20 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
     setBusy(true); setErr("");
     try { await fn(); after?.(); onChange(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
-  const startReceive = () => { setQty(Object.fromEntries(ls.map((l) => [l.productId, String(toReceive(l))]))); setOpen(true); };
+  const startReceive = () => { setQty(Object.fromEntries(ls.map((l) => [lineKey(l), String(toReceive(l))]))); setOpen(true); };
   return (
     <div className="card flex flex-col gap-2">
       <div className="flex justify-between"><b>{po.number}</b><span className={`text-sm ${tone(po.status)}`}>{LABEL[po.status] ?? po.status}</span></div>
       <div className="text-sm text-white/60">{supplier} · {formatFcfa(po.total)} HT</div>
-      <ul className="text-sm">{ls.map((l) => <li key={l.productId} className="flex justify-between"><span>{l.name}</span><span className="text-white/60">{l.received}/{l.qty} reçus · {l.invoiced} facturés</span></li>)}</ul>
+      <ul className="text-sm">{ls.map((l) => <li key={lineKey(l)} className="flex justify-between"><span>{l.name}</span><span className="text-white/60">{l.received}/{l.qty} reçus · {l.invoiced} facturés</span></li>)}</ul>
       {open && (
         <div className="flex flex-col gap-1 border-t border-white/10 pt-2">
           {ls.filter((l) => toReceive(l) > 0).map((l) => (
-            <label key={l.productId} className="flex items-center justify-between gap-2 text-sm">{l.name} (reste {toReceive(l)})
-              <input className="input !w-20 !py-2" inputMode="decimal" value={qty[l.productId] ?? ""} onChange={(e) => setQty({ ...qty, [l.productId]: e.target.value })} /></label>
+            <label key={lineKey(l)} className="flex items-center justify-between gap-2 text-sm">{l.name} (reste {toReceive(l)})
+              <input className="input !w-20 !py-2" inputMode="decimal" value={qty[lineKey(l)] ?? ""} onChange={(e) => setQty({ ...qty, [lineKey(l)]: e.target.value })} /></label>
           ))}
           <button className="btn" disabled={busy} onClick={() => void run(
-            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, lines: Object.entries(qty).filter(([, v]) => Number(v.replace(",", ".")) > 0).map(([productId, v]) => ({ productId, qty: v })) }),
+            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, lines: Object.entries(qty).filter(([, v]) => Number(v.replace(",", ".")) > 0).map(([key, v]) => { const [productId, variantId] = key.split(":"); return { productId, ...(variantId ? { variantId } : {}), qty: v }; }) }),
             () => { setOpen(false); receiptId.current = crypto.randomUUID(); })}>Confirmer la réception</button>
         </div>
       )}

@@ -4,7 +4,7 @@ import { Tags, LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, User
 import { formatFcfa } from "@/domain/money";
 import { isLow } from "@/domain/stock";
 import { Query } from "@/lib/appwrite";
-import { list, qtyOf, stockLevels, type Product } from "@/lib/data";
+import { list, listAll, qtyOf, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
 import { can, useSession, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
 import { stateLabel } from "@/domain/reminders";
@@ -30,11 +30,16 @@ export function HomePage() {
   const sales = useQuery({ queryKey: ["home-sales", s.shopId], enabled: can(s, "pos"), queryFn: () => list<Sale>("sales", s, [Query.greaterThanEqual("soldAt", startOfToday())], 500) });
   const stock = useQuery({
     queryKey: ["home-stock", s.shopId], enabled: can(s, "stock"),
-    queryFn: async () => ({ products: await list<Product>("products", s, [], 500), levels: await stockLevels(s) }),
+    queryFn: async () => ({ products: await list<Product>("products", s, [], 500), levels: await stockLevels(s), variants: await listAll<VariantRow>("article_variants", s) }),
   });
   const paid = (sales.data ?? []).filter((x) => x.status === "paid");
   const total = paid.reduce((a, x) => a + x.total, 0);
-  const low = (stock.data?.products ?? []).filter((p) => !p.archived && isLow(qtyOf(stock.data?.levels, p), p.minStock ?? 0));
+  const prods = (stock.data?.products ?? []).filter((p) => !p.archived);
+  const lowNames = [
+    ...prods.filter((p) => !p.hasVariants && isLow(qtyOf(stock.data?.levels, p), p.minStock ?? 0)).map((p) => p.name),
+    ...(stock.data?.variants ?? []).filter((v) => !v.archived).flatMap((v) => { const p = prods.find((x) => x.$id === v.productId); return p?.hasVariants && isLow(variantQty(stock.data?.levels, v, p.qtyScale ?? 0), v.minStock ?? 0) ? [`${p.name} — ${v.label}`] : []; }),
+  ];
+  const low = lowNames;
   const ent = sub.data?.entitlement;
   const visible = (to: string) => to !== "/articles" || planAllows(ent?.plan.id, "articles"); // Articles : Business ou Pro uniquement
   const shopName = s.shops.find((x) => x.id === s.shopId)?.name;
@@ -57,7 +62,7 @@ export function HomePage() {
       )}
       {can(s, "stock") && low.length > 0 && (
         <Link to="/stock" className="card flex items-center gap-3 border-amber-400/30">
-          <AlertTriangle className="text-amber-300 shrink-0" /><span className="text-sm"><b>{low.length} produit(s) à réapprovisionner</b><br /><span className="text-white/50">{low.slice(0, 3).map((p) => p.name).join(", ")}{low.length > 3 ? "…" : ""}</span></span>
+          <AlertTriangle className="text-amber-300 shrink-0" /><span className="text-sm"><b>{low.length} produit(s) à réapprovisionner</b><br /><span className="text-white/50">{low.slice(0, 3).join(", ")}{low.length > 3 ? "…" : ""}</span></span>
         </Link>
       )}
       <section aria-label="Modules" className="grid grid-cols-2 gap-3">
