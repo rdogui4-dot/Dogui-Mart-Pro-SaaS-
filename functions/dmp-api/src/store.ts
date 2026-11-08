@@ -27,10 +27,18 @@ export interface Store {
   removeMember(tenantId: string, userId: string): Promise<void>;
 }
 /** shopId vaut "" pour les actions qui ne dépendent d'aucune boutique (équipe, création de boutique). */
-export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean };
+export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean; /** Accès effectifs (le propriétaire les a tous) : calculés par handle(), jamais fournis par le client. */ modules?: Module[] };
+import { MODULES, MODULE_LABEL, type Module } from "../../../src/domain/access";
 export type Role = "owner" | "manager" | "cashier";
 export const roleOf = (roles: string[]): Role => (roles.includes("owner") ? "owner" : roles.includes("manager") ? "manager" : "cashier");
 export const need = (ctx: Ctx, min: Role) => {
   const rank = { cashier: 0, manager: 1, owner: 2 } as const;
   if (rank[roleOf(ctx.roles)] < rank[min]) throw new HttpError(403, "Droits insuffisants");
 };
+
+/** Accès à un module : le propriétaire toujours ; un employé seulement si le module figure dans ses accès (préréglage de son rôle ou liste personnalisée). */
+export const needModule = (ctx: Ctx, m: Module): void => {
+  if (roleOf(ctx.roles) === "owner") return;
+  if (!ctx.modules?.includes(m)) throw new HttpError(403, `Accès « ${MODULE_LABEL[m]} » non attribué à votre compte`);
+};
+export { MODULES };

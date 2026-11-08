@@ -1,6 +1,6 @@
 import { aggregateSales, mergeAggregates, parsePeriod, type SaleRow, type SalesAggregate } from "../../../src/domain/reports";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
-import { HttpError, roleOf, type Ctx, type Store } from "./store";
+import { HttpError, roleOf, type Ctx, type Store, needModule } from "./store";
 
 const parse = <T,>(s: unknown, fb: T): T => { try { return JSON.parse(String(s)) as T; } catch { return fb; } };
 const MAX_SALES = 20_000;      // lignes de vente lues par boutique et par rapport
@@ -11,7 +11,7 @@ const MAX_MOVES = 100_000;     // mouvements de stock lus par boutique pour valo
  *  et le chiffre concerné n'est pas affiché plutôt que faux. */
 export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: string; to: string }) {
   const role = roleOf(ctx.roles);
-  if (role === "cashier") throw new HttpError(403, "Droits insuffisants");
+  needModule(ctx, "reports");
   const period = parsePeriod(b.from, b.to); if (!period.ok) throw new HttpError(400, period.error);
   const all = await store.list("shops", { tenantId: ctx.tenantId }, 100);
   let allowed = all;

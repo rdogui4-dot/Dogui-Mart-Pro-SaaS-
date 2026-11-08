@@ -1,7 +1,8 @@
 import { stockFor } from "./checkout";
-import { HttpError, need, type Ctx, type Store } from "./store";
+import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 import { assertQuota, getSub, grantLifetime } from "./subscriptions";
 import { labelsFor } from "./permissions";
+import { ROLE_PRESETS, STAFF_ROLES, isStaffRole, modulesFor, parseModules, type Module, type StaffRole } from "../../../src/domain/access";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const safeId = (s: unknown) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
@@ -44,13 +45,18 @@ async function ownShops(store: Store, ctx: Ctx, ids: unknown): Promise<string[]>
   return list;
 }
 const validPassword = (p: unknown): string => { const s = String(p ?? ""); if (s.length < 8) throw new HttpError(400, "Mot de passe : 8 caractères minimum"); if (s.length > 128) throw new HttpError(400, "Mot de passe trop long"); return s; };
-const validRole = (r: unknown): "manager" | "cashier" => { if (r !== "manager" && r !== "cashier") throw new HttpError(400, "Rôle invalide"); return r; };
+const validRole = (r: unknown): StaffRole => { if (!isStaffRole(r)) throw new HttpError(400, `Rôle invalide (attendu : ${STAFF_ROLES.join(", ")})`); return r; };
+/** Accès demandés par le propriétaire, ou préréglage du rôle à défaut. */
+const accessOf = (role: StaffRole, access: unknown): Module[] => {
+  if (access === undefined) return [...ROLE_PRESETS[role].modules];
+  const p = parseModules(access); if (!p.ok) throw new HttpError(400, p.error); return p.modules;
+};
 
 /** Création d'un compte employé par le propriétaire : identifiant (ou e-mail) + mot de passe initial. Rollback si une étape échoue. */
-export async function createStaff(store: Store, ctx: Ctx, b: { name: string; username?: string; email?: string; password: string; role: string; shopIds: string[] }) {
+export async function createStaff(store: Store, ctx: Ctx, b: { name: string; username?: string; email?: string; password: string; role: string; access?: unknown; shopIds: string[] }) {
   need(ctx, "owner");
   const name = String(b.name ?? "").trim().slice(0, 100); if (!name) throw new HttpError(400, "Nom requis");
-  const role = validRole(b.role); const password = validPassword(b.password);
+  const role = validRole(b.role); const password = validPassword(b.password); const modules = accessOf(role, b.access);
   const shopIds = await ownShops(store, ctx, b.shopIds);
   let email: string, username = "";
   if (b.email) { email = String(b.email).trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.endsWith(`@${STAFF_EMAIL_DOMAIN}`)) throw new HttpError(400, "E-mail invalide"); }
@@ -59,12 +65,12 @@ export async function createStaff(store: Store, ctx: Ctx, b: { name: string; use
   const userId = newId();
   await store.createUser({ userId, email, password, name }); // 409 si déjà pris
   try {
-    await store.setLabels(userId, labelsFor(role, shopIds, true)); // droits de lecture par boutique / rôle
+    await store.setLabels(userId, labelsFor(role, modules, shopIds, true)); // droits de lecture par boutique et par accès
     await store.addMember(ctx.tenantId, userId, [role], name);
-    try { await store.create("staff", userId, ctx.tenantId, { tenantId: ctx.tenantId, userId, name, username, email: username ? "" : email, role, shopIds: JSON.stringify(shopIds), active: true }); }
+    try { await store.create("staff", userId, ctx.tenantId, { tenantId: ctx.tenantId, userId, name, username, email: username ? "" : email, role, access: JSON.stringify(modules), shopIds: JSON.stringify(shopIds), active: true }); }
     catch (e) { await store.removeMember(ctx.tenantId, userId).catch(() => {}); throw e; }
   } catch (e) { await store.deleteUser(userId).catch(() => {}); throw e; }
-  await store.create("audit_log", `${userId}_a`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: shopIds[0]!, userId: ctx.userId, action: "staff.create", detail: `${name} (${role})` });
+  await store.create("audit_log", `${userId}_a`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: shopIds[0]!, userId: ctx.userId, action: "staff.create", detail: `${name} (${role} : ${modules.join(", ")})` });
   return { userId, login: username || email };
 }
 
@@ -74,18 +80,21 @@ async function ownStaff(store: Store, ctx: Ctx, userId: unknown) {
   return s;
 }
 
-export async function updateStaff(store: Store, ctx: Ctx, b: { userId: string; name?: string; role?: string; shopIds?: string[]; active?: boolean }) {
+export async function updateStaff(store: Store, ctx: Ctx, b: { userId: string; name?: string; role?: string; access?: unknown; shopIds?: string[]; active?: boolean }) {
   need(ctx, "owner");
   const s = await ownStaff(store, ctx, b.userId);
   const patch: Record<string, unknown> = {};
   if (b.name !== undefined) { const n = String(b.name).trim().slice(0, 100); if (!n) throw new HttpError(400, "Nom requis"); patch.name = n; }
   if (b.shopIds !== undefined) patch.shopIds = JSON.stringify(await ownShops(store, ctx, b.shopIds));
   if (b.role !== undefined) { const role = validRole(b.role); if (role !== s.role) { await store.setMemberRoles(ctx.tenantId, s.$id, [role]); patch.role = role; } }
+  // Accès : liste fournie > préréglage du nouveau rôle (si le rôle change) > accès actuels.
+  if (b.access !== undefined) patch.access = JSON.stringify(accessOf((patch.role ?? s.role) as StaffRole, b.access));
+  else if (patch.role) patch.access = JSON.stringify(ROLE_PRESETS[patch.role as StaffRole].modules);
   if (b.active !== undefined) { await store.setUserActive(s.$id, !!b.active); patch.active = !!b.active; }
   // Étiquettes recalculées à chaque changement de rôle, de boutiques ou d'état (un compte désactivé n'a plus aucune lecture).
-  if (b.role !== undefined || b.shopIds !== undefined || b.active !== undefined) {
-    const role = (patch.role ?? s.role) as "manager" | "cashier"; const shops = JSON.parse(String(patch.shopIds ?? s.shopIds ?? "[]")) as string[]; const active = (patch.active ?? s.active) !== false;
-    await store.setLabels(s.$id, labelsFor(role, shops, active));
+  if (b.role !== undefined || b.access !== undefined || b.shopIds !== undefined || b.active !== undefined) {
+    const role = (patch.role ?? s.role) as StaffRole; const shops = JSON.parse(String(patch.shopIds ?? s.shopIds ?? "[]")) as string[]; const active = (patch.active ?? s.active) !== false;
+    await store.setLabels(s.$id, labelsFor(role, modulesFor(role, patch.access ?? s.access), shops, active));
   }
   if (Object.keys(patch).length) await store.update("staff", s.$id, patch);
   await store.create("audit_log", `${newId()}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: parse<string[]>(s.shopIds, [])[0] ?? "", userId: ctx.userId, action: "staff.update", detail: `${s.name} ${Object.keys(patch).join(",")}` });
@@ -106,7 +115,7 @@ export const allowedIn = (ctx: Ctx, shopId: string): boolean => ctx.shopIds === 
 /** Transfert immédiat entre deux boutiques du même commerce. Les produits sont propres à chaque boutique : le produit de destination
  *  est retrouvé par code-barres ou par origine, sinon créé. Identifiants déterministes : une reprise complète les écritures manquantes. */
 export async function transferStock(store: Store, ctx: Ctx, b: { transferId: string; toShopId: string; lines: { productId: string; qty: number }[] }) {
-  need(ctx, "manager");
+  needModule(ctx, "stock");
   const tid = safeId(b.transferId); if (tid.length < 8) throw new HttpError(400, "transferId invalide");
   if (!allowedIn(ctx, b.toShopId)) throw new HttpError(403, "Vous n'avez pas accès à la boutique de destination");
   if (b.toShopId === ctx.shopId) throw new HttpError(400, "La destination doit être une autre boutique");

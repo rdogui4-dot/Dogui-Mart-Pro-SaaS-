@@ -2,7 +2,7 @@ import { buildPaymentUrl, isExpired, linkRef, type QrProvider } from "../../../s
 import { toFcfa } from "../../../src/domain/money";
 import { ACCOUNTS } from "../../../src/domain/accounting";
 import { checkout, stockFor, type CheckoutInput } from "./checkout";
-import { HttpError, need, type Ctx, type Store } from "./store";
+import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
 import { consolidatedReport } from "./reports";
 import { assertQuota, platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
@@ -18,14 +18,14 @@ const mine = (ctx: Ctx, r: Record<string, unknown> | null) => !!r && r.tenantId 
 export const LOCK_EXEMPT = new Set(["report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "payments.settings.get", "payment_link.status"]);
 
 const ENTITIES = {
-  products: { min: "manager", fields: ["sku", "barcode", "name", "category", "price", "cost", "minStock", "archived"] },
-  customers: { min: "cashier", fields: ["name", "phone", "creditLimit"] },
-  suppliers: { min: "manager", fields: ["name", "phone", "email"] },
+  products: { module: "stock", fields: ["sku", "barcode", "name", "category", "price", "cost", "minStock", "archived"] },
+  customers: { module: "customers", fields: ["name", "phone", "creditLimit"] },
+  suppliers: { module: "purchases", fields: ["name", "phone", "email"] },
 } as const;
 
 export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeof ENTITIES; id?: string; data: Record<string, unknown> }) {
   const spec = ENTITIES[b.table]; if (!spec) throw new HttpError(400, "Table non autorisée");
-  need(ctx, spec.min);
+  needModule(ctx, spec.module);
   if (b.table === "customers" && b.data.creditLimit !== undefined) need(ctx, "manager"); // plafond de crédit = manager
   const data: Record<string, unknown> = {};
   for (const f of spec.fields) if (f in b.data) data[f] = b.data[f];
@@ -45,7 +45,7 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
 
 /** Inventaire : écrit un mouvement d'ajustement égal à l'écart, jamais un écrasement du stock. */
 export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string; counted: number }) {
-  need(ctx, "manager");
+  needModule(ctx, "stock");
   const p = must(await store.get("products", b.productId), "Produit introuvable");
   if (!mine(ctx, p)) throw new HttpError(403, "Accès refusé");
   const counted = Math.floor(Number(b.counted)); if (!(counted >= 0)) throw new HttpError(400, "Quantité invalide");
@@ -55,7 +55,7 @@ export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string
 }
 
 export async function repayCredit(store: Store, ctx: Ctx, b: { customerId: string; amount: number; method: "cash" | "wave" | "orange" }) {
-  need(ctx, "cashier");
+  needModule(ctx, "pos");
   const c = must(await store.get("customers", b.customerId), "Client introuvable");
   if (!mine(ctx, c)) throw new HttpError(403, "Accès refusé");
   const amount = Math.min(toFcfa(b.amount), Number(c.creditBalance ?? 0));
@@ -86,13 +86,13 @@ export async function savePaymentSettings(store: Store, ctx: Ctx, b: { waveTempl
   return { ok: true };
 }
 export async function getPaymentSettings(store: Store, ctx: Ctx) {
-  need(ctx, "cashier");
+  needModule(ctx, "pos");
   const s = await store.get("payment_settings", ctx.shopId.slice(0, 36));
   return { wave: !!s?.waveTemplate, orange: !!s?.orangeTemplate, expiryMinutes: Number(s?.expiryMinutes ?? 15) };
 }
 
 export async function createPaymentLink(store: Store, ctx: Ctx, b: { provider: QrProvider; amount: number }) {
-  need(ctx, "cashier");
+  needModule(ctx, "pos");
   const amount = toFcfa(b.amount); if (!(amount > 0)) throw new HttpError(400, "Montant invalide");
   if (b.provider !== "wave" && b.provider !== "orange") throw new HttpError(400, "Opérateur invalide");
   const s = must(await store.get("payment_settings", ctx.shopId.slice(0, 36)), "Paiement QR non configuré", 409);
@@ -108,7 +108,7 @@ export async function createPaymentLink(store: Store, ctx: Ctx, b: { provider: Q
 /** Confirmation manuelle : l'opérateur saisit l'ID de transaction reçu par SMS/app Business.
  *  Unicité de l'ID par commerçant (anti-réutilisation) + journal d'audit. Sera remplacée par un webhook opérateur. */
 export async function confirmPaymentLink(store: Store, ctx: Ctx, b: { linkId: string; txRef: string }) {
-  need(ctx, "cashier");
+  needModule(ctx, "pos");
   const link = must(await store.get("payment_links", b.linkId), "Lien introuvable");
   if (!mine(ctx, link)) throw new HttpError(403, "Accès refusé");
   if (link.status === "paid") return { status: "paid" };
@@ -123,7 +123,7 @@ export async function confirmPaymentLink(store: Store, ctx: Ctx, b: { linkId: st
   return { status: "paid" };
 }
 export async function cancelPaymentLink(store: Store, ctx: Ctx, b: { linkId: string }) {
-  need(ctx, "cashier");
+  needModule(ctx, "pos");
   const link = must(await store.get("payment_links", b.linkId), "Lien introuvable");
   if (!mine(ctx, link)) throw new HttpError(403, "Accès refusé");
   if (link.status !== "pending") throw new HttpError(409, `Lien ${link.status}`);
@@ -131,7 +131,7 @@ export async function cancelPaymentLink(store: Store, ctx: Ctx, b: { linkId: str
   return { status: "cancelled" };
 }
 export async function paymentLinkStatus(store: Store, ctx: Ctx, b: { linkId: string }) {
-  need(ctx, "cashier");
+  needModule(ctx, "pos");
   const link = must(await store.get("payment_links", b.linkId), "Lien introuvable");
   if (!mine(ctx, link)) throw new HttpError(403, "Accès refusé");
   const status = link.status === "pending" && isExpired(String(link.expiresAt)) ? "expired" : link.status;

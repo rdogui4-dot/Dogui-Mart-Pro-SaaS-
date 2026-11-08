@@ -3,6 +3,7 @@ import { TABLES } from "../../../scripts/schema.mjs";
 import { MemoryStore } from "./memory-store";
 import { handle } from "./main";
 import { POLICY_TABLES, labelsFor, managerLabel, readRoles, staffLabel } from "./permissions";
+import { MODULES, modulesFor } from "../../../src/domain/access";
 
 const T = "tenantaaa111";
 let st: MemoryStore; let A = "", B = "";
@@ -44,7 +45,7 @@ describe("couverture de la politique", () => {
   it("refuse une table inconnue au lieu d'ouvrir la lecture", () => { expect(() => readRoles("nouvelle_table", T, {}, "x")).toThrow(/Aucune politique/); });
   it("refuse un identifiant de boutique incompatible avec une étiquette", () => {
     expect(() => staffLabel("a-b")).toThrow(); expect(() => managerLabel("x".repeat(40))).toThrow();
-    expect(labelsFor("manager", ["abc"], true)).toEqual(["sabc", "gabc"]); expect(labelsFor("cashier", ["abc"], true)).toEqual(["sabc"]); expect(labelsFor("manager", ["abc"], false)).toEqual([]);
+    expect(labelsFor("manager", [...MODULES], ["abc"], true)).toEqual(["sabc", "gabc", "kabc", "uabc", "iabc", "aabc"]); expect(labelsFor("cashier", modulesFor("cashier"), ["abc"], true)).toEqual(["sabc"]); expect(labelsFor("manager", [...MODULES], ["abc"], false)).toEqual([]);
   });
 });
 

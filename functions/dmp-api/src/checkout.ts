@@ -3,7 +3,7 @@ import { canExtendCredit } from "../../../src/domain/credit";
 import { DEFAULT_RULES, earnedPoints, redeemablePoints, tierFor } from "../../../src/domain/loyalty";
 import { saleJournal } from "../../../src/domain/accounting";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
-import { HttpError, need, type Ctx, type Store } from "./store";
+import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 
 export type CheckoutInput = {
   clientId: string; soldAt?: string; customerId?: string; redeemPoints?: number;
@@ -20,7 +20,7 @@ export async function stockFor(store: Store, productId: string): Promise<number>
 
 /** Vente atomique côté serveur : prix et stock lus en base, jamais fournis par le client. */
 export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
-  need(ctx, "cashier");
+  needModule(ctx, "pos");
   if (!input.clientId || !input.lines?.length) throw new HttpError(400, "Panier vide");
   const saleId = safeId(input.clientId);
   if (saleId.length < 8) throw new HttpError(400, "clientId invalide");

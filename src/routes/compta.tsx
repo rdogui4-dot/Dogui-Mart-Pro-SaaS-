@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Query } from "@/lib/appwrite";
 import { api } from "@/lib/api";
 import { getShop, list, type Customer, type Row } from "@/lib/data";
-import { useSession } from "@/lib/session";
+import { can, useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { dueOf, paidOf, type Payment } from "@/domain/purchasing";
 import { invoiceModel, reportModel, type InvoiceDoc } from "@/domain/documents";
@@ -15,14 +15,15 @@ type Inv = { number: string; partyId: string; total: number; paid: number; vat?:
 type Sale = { number: string; total: number; soldAt: string; customerId?: string; status: string };
 
 export function ComptaPage() {
-  const [tab, setTab] = useState<"invoices" | "journal" | "reports">("invoices");
+  const { session } = useSession();
+  const tabs = ([["invoices", "Factures", "invoices"], ["reports", "Rapports", "reports"], ["journal", "Journal", "accounting"]] as const).filter(([, , m]) => can(session, m));
+  const [pick, setTab] = useState<"invoices" | "journal" | "reports">(tabs[0]?.[0] ?? "invoices");
+  const tab = tabs.some(([k]) => k === pick) ? pick : tabs[0]?.[0] ?? "invoices";
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Compta & factures</h1>
-      <div className="grid grid-cols-3 gap-1 text-sm">
-        <button className={tab === "invoices" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("invoices")}>Factures</button>
-        <button className={tab === "reports" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("reports")}>Rapports</button>
-        <button className={tab === "journal" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("journal")}>Journal</button>
+      <div className="grid grid-flow-col auto-cols-fr gap-1 text-sm">
+        {tabs.map(([k, l]) => <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {tab === "invoices" ? <CustomerInvoices /> : tab === "reports" ? <Reports /> : <Journal />}
     </div>

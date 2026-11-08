@@ -2,12 +2,15 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { useQueryClient } from "@tanstack/react-query";
 import { DATABASE_ID, Query, account, tables, teams } from "./appwrite";
 import { api } from "./api";
+import { MODULES, modulesFor, type Module, type StaffRole } from "@/domain/access";
 
-export type Role = "owner" | "manager" | "cashier";
+export type Role = "owner" | StaffRole;
 export type ShopInfo = { id: string; name: string };
 /** shopId vaut "" tant qu'aucune boutique n'est affectée à l'employé. */
 export type Session = {
   userId: string; name: string; tenantId: string; shopId: string; role: Role; shops: ShopInfo[];
+  /** Accès effectifs (le propriétaire, gérant principal, a tout). */
+  modules: Module[];
   /** Renseigné si la première boutique n'a pas pu être créée (service serveur indisponible) : l'utilisateur entre quand même et voit pourquoi. */
   setupError?: string;
   /** Compte connecté mais sans commerce (inscription interrompue) : l'application propose de le créer. */
@@ -30,26 +33,30 @@ async function load(): Promise<Session | null> {
   try {
     const me = await account.get();
     const team = (await teams.list()).teams[0];
-    if (!team) return { userId: me.$id, name: me.name, tenantId: "", shopId: "", role: "owner", shops: [], needsTenant: true };
+    if (!team) return { userId: me.$id, name: me.name, tenantId: "", shopId: "", role: "owner", shops: [], modules: [...MODULES], needsTenant: true };
     const m = await teams.listMemberships({ teamId: team.$id });
     const mine = m.memberships.find((x) => x.userId === me.$id);
-    const role = (mine?.roles.find((r) => r === "owner" || r === "manager" || r === "cashier") ?? "cashier") as Role;
+    let role = (mine?.roles.includes("owner") ? "owner" : (mine?.roles.find((r) => r === "manager" || r === "cashier" || r === "stockkeeper" || r === "accountant") ?? "cashier")) as Role;
+    let modules: Module[] = [...MODULES];
     let shops = await listShops(team.$id);
     let setupError: string | undefined;
     if (role === "owner" && shops.length === 0) { // première connexion du propriétaire : le serveur crée la boutique principale
       try {
-        await api({ userId: me.$id, name: me.name, tenantId: team.$id, shopId: "", role, shops: [] }, "tenant.init", { name: team.name });
+        await api({ userId: me.$id, name: me.name, tenantId: team.$id, shopId: "", role, shops: [], modules }, "tenant.init", { name: team.name });
         shops = await listShops(team.$id);
       } catch (e) { setupError = (e as Error).message || "Service indisponible"; } // ne plus renvoyer silencieusement à l'écran de connexion
     }
     if (role !== "owner") { // un employé ne voit que les boutiques qui lui sont affectées
-      let ids: string[] = [];
-      try { const st = (await tables.getRow({ databaseId: DATABASE_ID, tableId: "staff", rowId: me.$id })) as unknown as { shopIds?: string; active?: boolean }; ids = st.active === false ? [] : JSON.parse(st.shopIds ?? "[]"); } catch { /* pas de fiche : aucun accès */ }
+      let ids: string[] = []; modules = [];
+      try {
+        const st = (await tables.getRow({ databaseId: DATABASE_ID, tableId: "staff", rowId: me.$id })) as unknown as { shopIds?: string; active?: boolean; role?: string; access?: string };
+        if (st.active !== false) { ids = JSON.parse(st.shopIds ?? "[]"); role = (st.role === "manager" || st.role === "cashier" || st.role === "stockkeeper" || st.role === "accountant" ? st.role : role) as Role; modules = modulesFor(role, st.access); }
+      } catch { /* pas de fiche : aucun accès */ }
       shops = shops.filter((s) => ids.includes(s.id));
     }
     const want = remembered(me.$id);
     const shopId = shops.find((s) => s.id === want)?.id ?? shops[0]?.id ?? "";
-    return { userId: me.$id, name: me.name, tenantId: team.$id, shopId, role, shops, setupError };
+    return { userId: me.$id, name: me.name, tenantId: team.$id, shopId, role, shops, modules, setupError };
   } catch { return null; }
 }
 
@@ -67,8 +74,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   return <C.Provider value={{ session, loading, refresh, logout, switchShop }}>{children}</C.Provider>;
 }
 
-export const can = (role: Role | undefined, action: "sell" | "stock" | "purchase" | "accounting" | "settings") => {
-  if (role === "owner") return true;
-  if (role === "manager") return action !== "settings";
-  return action === "sell";
+/** Droit d'accès : un module précis, « finance » (factures, compta ou rapports) ou « settings » (réservé au propriétaire). */
+export type Perm = Module | "finance" | "settings";
+export const can = (session: Pick<Session, "role" | "modules"> | null | undefined, perm: Perm): boolean => {
+  if (!session) return false;
+  if (session.role === "owner") return true;
+  if (perm === "settings") return false;
+  if (perm === "finance") return session.modules.some((m) => m === "invoices" || m === "accounting" || m === "reports");
+  return session.modules.includes(perm);
 };
+/** Première page utilisable par ce compte (après connexion ou accès refusé). */
+export const homePath = (session: Pick<Session, "role" | "modules"> | null | undefined): string =>
+  can(session, "pos") ? "/pos" : can(session, "stock") ? "/stock" : can(session, "customers") ? "/clients" : can(session, "purchases") ? "/achats" : can(session, "finance") ? "/compta" : "/reglages";

@@ -2,7 +2,7 @@ import { ACCOUNTS, purchaseJournal } from "../../../src/domain/accounting";
 import { toFcfa } from "../../../src/domain/money";
 import { invoiceStatus, invoiceTtc, lineHt, paidOf, poStatus, toInvoice, toReceive, validateQuantities, weightedCost, type Payment, type PoLine } from "../../../src/domain/purchasing";
 import { stockFor } from "./checkout";
-import { HttpError, need, type Ctx, type Row, type Store } from "./store";
+import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
 const safeId = (s: string) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 const must = <T,>(v: T | null | undefined, msg: string, status = 404): T => { if (v == null) throw new HttpError(status, msg); return v; };
@@ -18,7 +18,7 @@ async function loadPo(store: Store, ctx: Ctx, poId: string) {
 }
 
 export async function createPo(store: Store, ctx: Ctx, b: { clientId: string; supplierId: string; lines: { productId: string; qty: number; unitCost: number }[] }) {
-  need(ctx, "manager");
+  needModule(ctx, "purchases");
   const id = safeId(b.clientId); if (id.length < 8) throw new HttpError(400, "clientId invalide");
   const existing = await store.get("purchase_orders", id);
   if (existing) { if (!mine(ctx, existing)) throw new HttpError(409, "Identifiant déjà utilisé"); return { id, number: existing.number, duplicate: true }; }
@@ -44,7 +44,7 @@ export async function createPo(store: Store, ctx: Ctx, b: { clientId: string; su
 }
 
 export async function cancelPo(store: Store, ctx: Ctx, b: { poId: string }) {
-  need(ctx, "manager");
+  needModule(ctx, "purchases");
   const { po, lines } = await loadPo(store, ctx, b.poId);
   if (lines.some((l) => l.received > 0)) throw new HttpError(409, "Commande déjà réceptionnée");
   if (po.status === "cancelled") return { status: "cancelled" };
@@ -55,7 +55,7 @@ export async function cancelPo(store: Store, ctx: Ctx, b: { poId: string }) {
 /** Réception (totale ou partielle) : mouvements de stock + coût moyen pondéré.
  *  Ordre sûr en cas de reprise : la commande est mise à jour d'abord (receiptId mémorisé), puis les mouvements sont écrits avec des identifiants déterministes. */
 export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; receiptId: string; lines: { productId: string; qty: number }[] }) {
-  need(ctx, "manager");
+  needModule(ctx, "purchases");
   const rid = safeId(b.receiptId); if (rid.length < 8) throw new HttpError(400, "receiptId invalide");
   const { po, lines, receipts } = await loadPo(store, ctx, b.poId);
   if (po.status === "cancelled") throw new HttpError(409, "Commande annulée");
@@ -82,7 +82,7 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
 
 /** Facture fournisseur sur les quantités reçues et non encore facturées. Écritures SYSCOHADA : 601 + 4452 / 401. */
 export async function invoicePo(store: Store, ctx: Ctx, b: { poId: string; invoiceId: string; supplierRef?: string; dueAt?: string; lines?: { productId: string; qty: number }[] }) {
-  need(ctx, "manager");
+  needModule(ctx, "accounting");
   const iid = safeId(b.invoiceId); if (iid.length < 8) throw new HttpError(400, "invoiceId invalide");
   const { po, lines, invoicedIds } = await loadPo(store, ctx, b.poId);
   if (po.status === "cancelled") throw new HttpError(409, "Commande annulée");
@@ -116,7 +116,7 @@ const TREASURY = { cash: ACCOUNTS.cash, wave: ACCOUNTS.wave, orange: ACCOUNTS.or
 
 /** Règlement (total ou partiel) d'une facture fournisseur. Idempotent par paymentId. */
 export async function payInvoice(store: Store, ctx: Ctx, b: { invoiceId: string; paymentId: string; amount: number; method: Payment["method"] }) {
-  need(ctx, "manager");
+  needModule(ctx, "accounting");
   const pid = safeId(b.paymentId); if (pid.length < 8) throw new HttpError(400, "paymentId invalide");
   const inv = must(await store.get("invoices", b.invoiceId), "Facture introuvable");
   if (!mine(ctx, inv) || inv.kind !== "supplier") throw new HttpError(403, "Accès refusé");

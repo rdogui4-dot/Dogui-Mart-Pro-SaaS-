@@ -34,7 +34,7 @@ export function StockPage() {
         <div className="card"><div className="text-white/50 text-xs">Valeur du stock</div><div className="font-semibold">{formatFcfa(value)}</div></div>
         <div className="card"><div className="text-white/50 text-xs">Ruptures / alertes</div><div className="font-semibold text-red-400">{low.length}</div></div>
       </div>
-      {can(s.role, "stock") && (
+      {can(s, "stock") && (
         <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
           <h2 className="font-semibold">Nouveau produit</h2>
           <input className="input" placeholder="Nom" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
@@ -52,7 +52,7 @@ export function StockPage() {
           {add.error && <p className="text-red-400 text-sm">{(add.error as Error).message}</p>}
         </form>
       )}
-      {s.shops.length > 1 && can(s.role, "stock") && <Transfer products={products.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
+      {s.shops.length > 1 && can(s, "stock") && <Transfer products={products.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">
         {(products.data ?? []).map((p) => {
           const n = levels.data?.get(p.$id) ?? 0;
@@ -63,7 +63,7 @@ export function StockPage() {
                 <div className="text-xs text-white/50">{formatFcfa(p.price)} · seuil {p.minStock ?? 0}{isLow(n, p.minStock ?? 0) && ` · à commander : ${reorderQty(n, 0, 14) || "à voir"}`}</div>
               </div>
               <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{n}</div>
-              {can(s.role, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v))) adjust.mutate({ id: p.$id, counted: Number(v) }); }}>Compter</button>}
+              {can(s, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v))) adjust.mutate({ id: p.$id, counted: Number(v) }); }}>Compter</button>}
             </li>
           );
         })}

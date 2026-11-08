@@ -2,6 +2,7 @@ import { ACTIONS, LOCK_EXEMPT, TENANT_LEVEL } from "./handlers";
 import { assertWritable } from "./subscriptions";
 import { appwriteStore } from "./appwrite-store";
 import { HttpError, roleOf, type Ctx, type Store } from "./store";
+import { MODULES, modulesFor } from "../../../src/domain/access";
 
 type Req = { method: string; headers: Record<string, string>; bodyJson?: any };
 type Res = { json(body: unknown, status?: number): unknown };
@@ -22,17 +23,21 @@ export async function handle(store: Store, userId: string | undefined, body: any
     const m = await store.membership(tenantId, userId);
     if (!m) throw new HttpError(403, "Vous n'appartenez pas à ce commerce");
     const ctx: Ctx = { userId, tenantId, shopId: tenantLevel ? "" : shopId, roles: m.roles, admin };
+    // Accès : le propriétaire a tout ; un employé actif a les modules de sa fiche (préréglage de son rôle ou liste personnalisée), sinon rien.
+    let ids: string[] = [];
+    if (roleOf(m.roles) === "owner") ctx.modules = [...MODULES];
+    else {
+      const staff = await store.get("staff", userId);
+      const active = !!staff && staff.tenantId === tenantId && staff.active !== false;
+      ids = active ? JSON.parse(String(staff!.shopIds || "[]")) : [];
+      ctx.modules = active ? modulesFor(staff!.role ?? m.roles[0], staff!.access) : [];
+    }
     if (!tenantLevel) {
       // La boutique doit exister dans CE commerce, et l'employé doit y être affecté (le propriétaire a accès à toutes).
       const shop = await store.get("shops", shopId);
       if (!shop || shop.tenantId !== tenantId) throw new HttpError(404, "Boutique introuvable");
       if (roleOf(m.roles) === "owner") ctx.shopIds = "all";
-      else {
-        const staff = await store.get("staff", userId);
-        const ids: string[] = staff && staff.tenantId === tenantId && staff.active ? JSON.parse(String(staff.shopIds || "[]")) : [];
-        if (!ids.includes(shopId)) throw new HttpError(403, "Vous n'êtes pas affecté à cette boutique");
-        ctx.shopIds = ids;
-      }
+      else { if (!ids.includes(shopId)) throw new HttpError(403, "Vous n'êtes pas affecté à cette boutique"); ctx.shopIds = ids; }
     }
     if (!LOCK_EXEMPT.has(action)) await assertWritable(store, tenantId); // abonnement expiré (hors délai de grâce) : plus aucune écriture ; l'interface suspend l'accès
     return { status: 200, body: { ok: true, data: await fn(store, ctx, payload ?? {}) } };

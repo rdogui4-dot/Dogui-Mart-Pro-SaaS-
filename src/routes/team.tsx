@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { listTenant, type Row } from "@/lib/data";
 import { useSession } from "@/lib/session";
+import { MODULES, MODULE_HELP, MODULE_LABEL, ROLE_PRESETS, STAFF_ROLES, isCustomAccess, modulesFor, type Module, type StaffRole } from "@/domain/access";
 
-type StaffRow = { userId: string; name: string; username?: string; email?: string; role: "manager" | "cashier"; shopIds?: string; active?: boolean };
+type StaffRow = { userId: string; name: string; username?: string; email?: string; role: StaffRole; shopIds?: string; access?: string; active?: boolean };
 type ShopRow = { name: string; city?: string; phone?: string };
-const ROLE = { manager: "Gérant", cashier: "Caissier" } as const;
 const ids = (s?: string): string[] => { try { return JSON.parse(s ?? "[]"); } catch { return []; } };
 
 export function ShopsSection() {
@@ -46,6 +46,7 @@ export function StaffSection() {
   const refresh = () => void qc.invalidateQueries({ queryKey: ["staff"] });
   return (
     <>
+      <div className="card flex justify-between items-center"><span><b>{s.name}</b><br /><span className="text-xs text-white/50">Propriétaire · tous les accès, boutiques, équipe et abonnement</span></span><span className="text-xs text-[var(--gold)]">Gérant principal</span></div>
       <NewStaff onDone={refresh} />
       {(staff.data ?? []).map((m) => <StaffCard key={m.$id} m={m} onChange={refresh} />)}
       {staff.data?.length === 0 && <p className="text-center text-white/50 py-4">Aucun employé pour le moment.</p>}
@@ -66,13 +67,36 @@ function ShopChecks({ value, onChange }: { value: string[]; onChange: (v: string
   );
 }
 
+/** Rôle (préréglage) + accès par module : le propriétaire peut partir d'un rôle puis cocher/décocher les modules. */
+function AccessPicker({ role, modules, onChange }: { role: StaffRole; modules: Module[]; onChange: (role: StaffRole, modules: Module[]) => void }) {
+  const custom = isCustomAccess(role, modules);
+  return (
+    <div className="flex flex-col gap-2">
+      <select className="input" aria-label="Rôle" value={role} onChange={(e) => { const r = e.target.value as StaffRole; onChange(r, modulesFor(r)); }}>
+        {STAFF_ROLES.map((r) => <option key={r} value={r}>{ROLE_PRESETS[r].label}</option>)}
+      </select>
+      <p className="text-xs text-white/50">{ROLE_PRESETS[role].description}{custom && " Accès personnalisés ci-dessous."}</p>
+      <fieldset className="flex flex-col gap-1">
+        <legend className="text-sm text-white/70 mb-1">Accès attribués</legend>
+        {MODULES.map((m) => (
+          <label key={m} className="flex gap-2 items-start text-sm">
+            <input type="checkbox" className="mt-1" checked={modules.includes(m)} onChange={(e) => onChange(role, MODULES.filter((x) => (x === m ? e.target.checked : modules.includes(x))))} />
+            <span><b>{MODULE_LABEL[m]}</b><br /><span className="text-xs text-white/50">{MODULE_HELP[m]}</span></span>
+          </label>
+        ))}
+      </fieldset>
+    </div>
+  );
+}
+
 function NewStaff({ onDone }: { onDone: () => void }) {
   const { session } = useSession(); const s = session!;
-  const [f, setF] = useState({ name: "", username: "", password: "", role: "cashier" as "cashier" | "manager" });
+  const [f, setF] = useState({ name: "", username: "", password: "", role: "cashier" as StaffRole });
+  const [modules, setModules] = useState<Module[]>(modulesFor("cashier"));
   const [shopIds, setShopIds] = useState<string[]>([s.shopId].filter(Boolean)); const [err, setErr] = useState(""); const [created, setCreated] = useState("");
   const add = useMutation({
-    mutationFn: () => api<{ login: string }>(s, "staff.create", { ...f, shopIds }),
-    onSuccess: (r) => { setCreated(r.login); setErr(""); setF({ name: "", username: "", password: "", role: "cashier" }); onDone(); },
+    mutationFn: () => api<{ login: string }>(s, "staff.create", { ...f, shopIds, access: modules }),
+    onSuccess: (r) => { setCreated(r.login); setErr(""); setF({ name: "", username: "", password: "", role: "cashier" }); setModules(modulesFor("cashier")); onDone(); },
     onError: (e) => { setCreated(""); setErr((e as Error).message); },
   });
   return (
@@ -81,11 +105,9 @@ function NewStaff({ onDone }: { onDone: () => void }) {
       <input className="input" placeholder="Nom complet" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
       <input className="input" autoCapitalize="none" placeholder="Identifiant de connexion (ex. awa.ndiaye)" required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} />
       <input className="input" type="text" autoComplete="off" placeholder="Mot de passe initial (8 caractères min.)" required minLength={8} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
-      <select className="input" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as "cashier" | "manager" })}>
-        <option value="cashier">Caissier (caisse, clients)</option><option value="manager">Gérant (stock, achats, factures, compta)</option>
-      </select>
+      <AccessPicker role={f.role} modules={modules} onChange={(r, m) => { setF({ ...f, role: r }); setModules(m); }} />
       <ShopChecks value={shopIds} onChange={setShopIds} />
-      <button className="btn" disabled={add.isPending || !shopIds.length}>Créer le compte</button>
+      <button className="btn" disabled={add.isPending || !shopIds.length || !modules.length}>Créer le compte</button>
       {created && <p className="text-sm text-emerald-400">Compte créé. Identifiant : <b>{created}</b>. Communiquez-lui le mot de passe en personne.</p>}
       {err && <p className="text-red-400 text-sm">{err}</p>}
     </form>
@@ -94,23 +116,23 @@ function NewStaff({ onDone }: { onDone: () => void }) {
 
 function StaffCard({ m, onChange }: { m: Row<StaffRow>; onChange: () => void }) {
   const { session } = useSession(); const s = session!;
-  const [edit, setEdit] = useState(false); const [role, setRole] = useState(m.role); const [shopIds, setShopIds] = useState(ids(m.shopIds));
+  const [edit, setEdit] = useState(false); const [role, setRole] = useState<StaffRole>(m.role); const [shopIds, setShopIds] = useState(ids(m.shopIds)); const [modules, setModules] = useState<Module[]>(modulesFor(m.role, m.access));
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const run = async (fn: () => Promise<unknown>, after?: () => void) => { setBusy(true); setErr(""); try { await fn(); after?.(); onChange(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
   const shopNames = ids(m.shopIds).map((id) => s.shops.find((x) => x.id === id)?.name ?? "?").join(", ");
   return (
     <div className={`card flex flex-col gap-2 ${m.active === false ? "opacity-60" : ""}`}>
-      <div className="flex justify-between"><b>{m.name}</b><span className="text-sm text-white/60">{ROLE[m.role]}{m.active === false && " · désactivé"}</span></div>
-      <div className="text-sm text-white/60">Connexion : {m.username || m.email} · {shopNames || "aucune boutique"}</div>
+      <div className="flex justify-between"><b>{m.name}</b><span className="text-sm text-white/60">{ROLE_PRESETS[m.role]?.label ?? m.role}{isCustomAccess(m.role, modulesFor(m.role, m.access)) && " (personnalisé)"}{m.active === false && " · désactivé"}</span></div>
+      <div className="text-sm text-white/60">Connexion : {m.username || m.email} · {shopNames || "aucune boutique"}<br />Accès : {modulesFor(m.role, m.access).map((x) => MODULE_LABEL[x]).join(", ")}</div>
       {edit && (
         <div className="flex flex-col gap-2 border-t border-white/10 pt-2">
-          <select className="input" value={role} onChange={(e) => setRole(e.target.value as "manager" | "cashier")}><option value="cashier">Caissier</option><option value="manager">Gérant</option></select>
+          <AccessPicker role={role} modules={modules} onChange={(r, mm) => { setRole(r); setModules(mm); }} />
           <ShopChecks value={shopIds} onChange={setShopIds} />
-          <button className="btn" disabled={busy || !shopIds.length} onClick={() => void run(() => api(s, "staff.update", { userId: m.userId, role, shopIds }), () => setEdit(false))}>Enregistrer</button>
+          <button className="btn" disabled={busy || !shopIds.length || !modules.length} onClick={() => void run(() => api(s, "staff.update", { userId: m.userId, role, shopIds, access: modules }), () => setEdit(false))}>Enregistrer</button>
         </div>
       )}
       <div className="flex gap-2 flex-wrap">
-        <button className="btn-ghost !py-2" onClick={() => setEdit(!edit)}>{edit ? "Fermer" : "Rôle & boutiques"}</button>
+        <button className="btn-ghost !py-2" onClick={() => setEdit(!edit)}>{edit ? "Fermer" : "Rôle, accès & boutiques"}</button>
         <button className="btn-ghost !py-2" disabled={busy} onClick={() => { const p = prompt(`Nouveau mot de passe pour ${m.name} (8 caractères min.)`); if (p) void run(() => api(s, "staff.resetPassword", { userId: m.userId, password: p })); }}>Mot de passe</button>
         <button className="btn-ghost !py-2" disabled={busy} onClick={() => confirm(m.active === false ? `Réactiver ${m.name} ?` : `Désactiver ${m.name} ? Il ne pourra plus se connecter.`) && void run(() => api(s, "staff.update", { userId: m.userId, active: m.active === false }))}>{m.active === false ? "Réactiver" : "Désactiver"}</button>
       </div>

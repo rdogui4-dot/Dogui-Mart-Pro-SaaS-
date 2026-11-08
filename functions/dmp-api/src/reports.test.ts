@@ -37,9 +37,9 @@ describe("accès", () => {
     expect((await ok(report("own"))).shops.map((s: any) => s.name).sort()).toEqual(["Dakar", "Thiès"]);
     expect((await handle(st, "ownerX", { action: "report.consolidated", tenantId: T, payload: { from: ymd(7), to: ymd(0) } })).status).toBe(403);
   });
-  it("un gérant désactivé ne voit plus rien", async () => {
+  it("un gérant désactivé est refusé (plus aucun accès)", async () => {
     await ok(call("own", "staff.update", { userId: mgrA, active: false }));
-    expect((await ok(report(mgrA))).shops).toEqual([]);
+    const r: any = await report(mgrA); expect(r.status).toBe(403); expect(r.body.error).toMatch(/non attribué/);
   });
   it("reste consultable quand l'abonnement est expiré (écritures refusées)", async () => {
     st.tables.get("subscriptions")!.set(T, { $id: T, tenantId: T, plan: "business", period: "month", status: "paid", renewsAt: day(30) });

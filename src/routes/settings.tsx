@@ -38,7 +38,7 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Réglages</h1>
-      {can(s.role, "settings") && (
+      {can(s, "settings") && (
         <div className="flex flex-wrap gap-1 text-sm [&>button]:flex-1">
           {([["general", "Général"], ["shops", "Boutiques"], ["staff", "Équipe"], ["subscription", "Abonnement"], ...(me.data?.admin ? [["platform", "Plateforme"] as const] : [])] as const).map(([k, l]) => <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>)}
         </div>
@@ -49,8 +49,8 @@ export function SettingsPage() {
       {tab === "platform" && me.data?.admin && <PlatformSection />}
       {tab === "general" && <>
       {s.setupError && <div className="card text-sm text-amber-300">La première boutique n'a pas pu être créée ({s.setupError}). Les fonctions de gestion seront disponibles dès que le service sera prêt.</div>}
-      <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>
-      {can(s.role, "settings") && (
+      <div className="card text-sm">Connecté : <b>{s.name}</b> · {s.role === "owner" ? "gérant principal" : s.role}<br />Boutique : {s.shopId}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>
+      {can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={saveShop}>
           <h2 className="font-semibold">Ma boutique (en-tête des factures et tickets)</h2>
           <input className="input" placeholder="Nom commercial" required value={sh.name} onChange={(e) => setSh({ ...sh, name: e.target.value })} />
@@ -65,7 +65,7 @@ export function SettingsPage() {
           {shMsg && <p className="text-sm text-amber-300">{shMsg}</p>}
         </form>
       )}
-      {can(s.role, "settings") && (
+      {can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={save}>
           <h2 className="font-semibold">Paiement par QR code</h2>
           <p className="text-xs text-white/50">Collez le modèle de lien de votre compte Wave Business / Orange Business. Variables : <code>{"{amount}"}</code> (obligatoire) et <code>{"{ref}"}</code>. Les modèles déjà enregistrés ne sont jamais réaffichés ; un champ laissé vide reste inchangé.</p>

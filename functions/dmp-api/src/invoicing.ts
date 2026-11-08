@@ -1,7 +1,7 @@
 import { ACCOUNTS, saleJournal } from "../../../src/domain/accounting";
 import { toFcfa } from "../../../src/domain/money";
 import { invoiceStatus, invoiceTtc, paidOf, type Payment } from "../../../src/domain/purchasing";
-import { HttpError, need, type Ctx, type Store } from "./store";
+import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 
 const safeId = (s: unknown) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 const must = <T,>(v: T | null | undefined, msg: string, status = 404): T => { if (v == null) throw new HttpError(status, msg); return v; };
@@ -26,7 +26,7 @@ export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; addre
 /** Facture à partir d'une vente existante : simple document, aucune écriture comptable (la vente les a déjà passées).
  *  Le crédit accordé à la vente reste dû ; il se règle avec `invoice.customer.pay`. Une seule facture par vente. */
 export async function invoiceFromSale(store: Store, ctx: Ctx, b: { saleId: string }) {
-  need(ctx, "manager");
+  needModule(ctx, "invoices");
   const sale = must(await store.get("sales", String(b.saleId)), "Vente introuvable");
   if (!mine(ctx, sale)) throw new HttpError(403, "Accès refusé");
   if (sale.status !== "paid") throw new HttpError(409, "Vente non finalisée");
@@ -54,7 +54,7 @@ export async function invoiceFromSale(store: Store, ctx: Ctx, b: { saleId: strin
 
 /** Facture libre (prestation, vente à un professionnel…) : prix HT, TVA de la boutique, créance client (411) / ventes (701) / TVA (4431). */
 export async function createFreeInvoice(store: Store, ctx: Ctx, b: { invoiceId: string; customerId: string; dueAt?: string; note?: string; lines: { description: string; qty: number; unitPrice: number }[] }) {
-  need(ctx, "manager");
+  needModule(ctx, "invoices");
   const id = safeId(b.invoiceId); if (id.length < 8) throw new HttpError(400, "invoiceId invalide");
   const customer = must(await store.get("customers", b.customerId), "Client introuvable");
   if (!mine(ctx, customer)) throw new HttpError(403, "Accès refusé");
@@ -86,7 +86,7 @@ export async function createFreeInvoice(store: Store, ctx: Ctx, b: { invoiceId: 
 
 /** Encaissement d'une facture client (idempotent par paymentId). Pour une facture issue d'une vente à crédit, le crédit du client baisse d'autant. */
 export async function payCustomerInvoice(store: Store, ctx: Ctx, b: { invoiceId: string; paymentId: string; amount: number; method: Payment["method"] }) {
-  need(ctx, "manager");
+  needModule(ctx, "invoices");
   const pid = safeId(b.paymentId); if (pid.length < 8) throw new HttpError(400, "paymentId invalide");
   const inv = must(await store.get("invoices", b.invoiceId), "Facture introuvable");
   if (!mine(ctx, inv) || inv.kind !== "customer") throw new HttpError(403, "Accès refusé");

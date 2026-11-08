@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Query } from "@/lib/appwrite";
 import { api } from "@/lib/api";
 import { list, saveEntity, type Product, type Row, type Supplier } from "@/lib/data";
-import { useSession } from "@/lib/session";
+import { can, useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { purchaseOrderModel } from "@/domain/documents";
 import { deliverPdf, pdfBlob } from "@/lib/pdf";
@@ -17,12 +17,13 @@ const LABEL: Record<string, string> = { ordered: "Commandé", partial: "Reçu en
 const tone = (s: string) => (s === "received" || s === "paid" ? "text-emerald-400" : s === "cancelled" ? "text-white/40" : "text-amber-300");
 
 export function AchatsPage() {
+  const { session } = useSession();
   const [tab, setTab] = useState<"orders" | "invoices" | "suppliers">("orders");
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Achats</h1>
-      <div className="grid grid-cols-3 gap-1 text-sm">
-        {([["orders", "Commandes"], ["invoices", "Factures"], ["suppliers", "Fournisseurs"]] as const).map(([k, l]) => (
+      <div className="grid grid-flow-col auto-cols-fr gap-1 text-sm">
+        {([["orders", "Commandes"], ["invoices", "Factures"], ["suppliers", "Fournisseurs"]] as const).filter(([k]) => k !== "invoices" || can(session, "accounting")).map(([k, l]) => (
           <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
