@@ -1,6 +1,11 @@
 {
-  "name": "Dogui Mart Pro", "short_name": "DMP", "lang": "fr", "start_url": ".", "scope": ".",
+  "name": "Dogui Mart Pro", "short_name": "Dogui Mart", "description": "Gestion de commerce : caisse, stock, achats, clients, compta.", "lang": "fr", "start_url": ".", "scope": ".",
   "display": "standalone", "orientation": "portrait", "background_color": "#0b0b0c", "theme_color": "#0b0b0c",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
-  "shortcuts": [{ "name": "Caisse", "url": "pos" }, { "name": "Stock", "url": "stock" }]
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [{ "name": "Caisse", "url": "pos", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }, { "name": "Stock", "url": "stock", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }]
 }

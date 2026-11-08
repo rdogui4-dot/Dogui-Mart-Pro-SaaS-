@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 300" role="img" aria-label="Dogui Mart Pro"><defs>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F7DE8A"/><stop offset=".5" stop-color="#D4AF37"/><stop offset="1" stop-color="#9A7414"/></linearGradient>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#17171A"/><stop offset="1" stop-color="#070708"/></linearGradient>
+</defs>
+<g transform="translate(10 10) scale(.56)">
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="url(#g)" stroke-opacity=".55" stroke-width="4"/>
+<g transform="translate(26 30) scale(.9)"><g fill="none" stroke="url(#g)" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M64 150 H122 L176 330 H408" stroke-width="28"/>
+  <polyline points="196 128 262 86 306 112 402 44" stroke-width="22"/>
+  <polyline points="352 40 408 36 404 94" stroke-width="22"/>
+</g>
+<path d="M146 176 H452 L412 308 H182 Z" fill="url(#g)"/>
+<path d="M282 204 V282 H306 C344 282 362 262 362 243 C362 224 344 204 306 204 Z" fill="none" stroke="#0B0B0C" stroke-width="20" stroke-linejoin="round"/>
+<circle cx="214" cy="378" r="30" fill="url(#g)"/><circle cx="378" cy="378" r="30" fill="url(#g)"/></g></g>
+<text x="330" y="150" font-family="Poppins, 'Segoe UI', Arial, sans-serif" font-size="108" font-weight="800" letter-spacing="3" fill="url(#g)">DOGUI MART</text>
+<text x="334" y="232" font-family="Poppins, 'Segoe UI', Arial, sans-serif" font-size="70" font-weight="600" letter-spacing="26" fill="#F4F1E8">PRO</text>
+<text x="640" y="232" font-family="Arial, sans-serif" font-size="32" letter-spacing="2" fill="#F4F1E8" fill-opacity=".6">Gestion de commerce</text></svg>
