@@ -1,19 +1,14 @@
-import { MAX_RULES_PER_ARTICLE, normalizeRule, type PriceRule } from "../../../src/domain/pricing";
+import { MAX_RULES_PER_ARTICLE, normalizeRule, ruleFromRow, type PriceRule } from "../../../src/domain/pricing";
 import { unitRowId } from "../../../src/domain/quantity";
 import { needFeature } from "./articles";
 import { HttpError, needModule, type Ctx, type Row, type Store } from "./store";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const mine = (ctx: Ctx, r: Row | null): r is Row => !!r && r.tenantId === ctx.tenantId && r.shopId === ctx.shopId;
-const iso = (v: unknown): string | undefined => { if (!v) return undefined; const ms = Date.parse(String(v)); return Number.isNaN(ms) ? undefined : new Date(ms).toISOString(); };
-
 /** Règles d'un article (ou d'une variante) lues en base, au format du moteur de prix. Les dates Appwrite sont normalisées en ISO « Z » pour la comparaison. */
 export async function loadRules(store: Store, ctx: Ctx, productId: string, variantId = ""): Promise<PriceRule[]> {
   const rows = await store.list("article_price_rules", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId }, MAX_RULES_PER_ARTICLE * 6);
-  return rows.filter((r) => String(r.variantId ?? "") === variantId && r.active !== false).map((r) => ({
-    id: r.$id, kind: r.kind, price: Number(r.price), unit: r.unit || undefined, minQty: Number(r.minQty) > 0 ? Number(r.minQty) : undefined,
-    customerCategory: r.customerCategory || undefined, startsAt: iso(r.startsAt), endsAt: iso(r.endsAt), priority: Number(r.priority ?? 0), active: true, createdAt: iso(r.$createdAt) ?? "", label: r.label,
-  }));
+  return rows.filter((r) => String(r.variantId ?? "") === variantId && r.active !== false).map(ruleFromRow);
 }
 
 export type RuleInput = { productId: string; variantId?: string; id?: string; requestId?: string } & Record<string, unknown>;

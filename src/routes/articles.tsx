@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
 import { listAll, list, qtyOf, stockLevels, variantQty, type Product, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
 import { VariantsSheet } from "./variants";
+import { PricingSheet, useRules } from "./pricing";
 import { compressImage, fetchArticles, fetchPriceHistory, useArticleImage, type ArticleRow, type Filters } from "@/lib/articles";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
@@ -136,7 +137,8 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
-  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false);
+  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false);
+  const proPricing = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing"); const rules = useRules(a.$id);
   const proVariants = planAllows(useSubscription().data?.entitlement.plan.id, "variants");
   const live = variants.filter((v) => !v.archived); const prices = live.map((v) => v.price);
   const units = useQuery({ queryKey: ["units", a.$id], queryFn: async () => ((await tables.listRows({ databaseId: DATABASE_ID, tableId: "article_units", queries: [Query.equal("productId", a.$id), Query.equal("active", true), Query.limit(20)] })).rows as unknown as UnitRow[]) });
@@ -170,6 +172,12 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
           <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>
             <span className="text-right">{h.oldPrice ? `${formatFcfa(h.oldPrice)} → ` : "Création : "}{formatFcfa(h.newPrice ?? 0)}<span className="text-white/40"> · achat {formatFcfa(h.newCost ?? 0)}</span></span></li>)}</ul>}
         <p className="text-xs text-white/40 mt-2">Les ventes déjà enregistrées gardent le prix du jour de la vente.</p></div>
+      {(proPricing || !!rules.data?.length) && (
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Tarifs spéciaux</h3><button className="text-sm text-[var(--gold)]" onClick={() => setPriceOpen(true)}>{proPricing ? "Gérer" : "Voir"}</button></div>
+          <p className="text-sm text-white/50 mt-1">{rules.data?.length ? `${rules.data.length} tarif${rules.data.length > 1 ? "s" : ""} : promotions, prix de gros, paliers de quantité.` : "Aucun : le prix de base s'applique à tous."}</p>
+          {!proPricing && !!rules.data?.length && <p className="text-xs text-amber-300 mt-2">Tarifs désactivés (formule Business) : le prix de base s'applique ; vos tarifs sont conservés.</p>}
+        </div>
+      )}
       {(proVariants || a.hasVariants) && (
         <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Variantes</h3><button className="text-sm text-[var(--gold)]" onClick={() => setVarsOpen(true)}>{proVariants ? "Gérer" : "Voir"}</button></div>
           {!live.length ? <p className="text-sm text-white/50 mt-1">Aucune variante active.</p> :
@@ -201,6 +209,7 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
           <p className="text-xs text-white/50">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
           <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+([.,]\d{1,3})?$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
       )}
+      {priceOpen && <PricingSheet a={a} variants={variants} units={units.data ?? []} canManage={proPricing} onClose={() => setPriceOpen(false)} onChanged={() => { void rules.refetch(); onChanged(); }} />}
       {varsOpen && <VariantsSheet a={a} variants={variants} levels={levels} canManage={proVariants} onClose={() => setVarsOpen(false)} onChanged={onChanged} />}
       {unitsOpen && <UnitsEditor a={a} current={units.data ?? []} onClose={() => setUnitsOpen(false)} onSaved={() => { void units.refetch(); onChanged(); }} />}
     </Sheet>

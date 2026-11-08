@@ -65,4 +65,6 @@ Opérations manuelles Appwrite : aucune pour l'instant ; chaque phase crée ses 
 - Décision appliquée : quantités en entiers de sous-unités ; `stock_moves.qty` reste un entier, ce qui laisse intactes toutes les anciennes données (échelle 0).
 - **Phase 2 — variantes : faite** (serveur, 29 tests de variantes, interface, schéma appliqué et vérifié par écriture/relecture réelle d'une variante et d'un mouvement portant `variantId`). Colonnes : `products.hasVariants`, `stock_moves.variantId`, `price_history.variantId` ; table `article_variants`.
 - Décision appliquée : après un retour à Business, les articles déjà déclinés restent **vendables** (arrêter la caisse serait une rupture d'activité) ; seule la gestion (création, modification, archivage, suppression) est refusée.
-- Restent : phases 3 à 7.
+- **Phase 3 — tarification : faite** (moteur de prix partagé, 20 tests serveur + 14 tests du moteur, interface, schéma appliqué et vérifié en réel : format des dates Appwrite `+00:00`, effacement d'une période par `null`). Colonnes : `customers.category` ; table `article_price_rules`.
+- Choix appliqués : un tarif est un prix **absolu** (sur un article décliné il vise une variante) ; une règle en unité de base s'applique aussi à une vente en carton (prix par pièce × quantité) tant qu'aucune règle propre au carton ne gagne ; après retour à Business les tarifs ne sont plus appliqués (le prix de base existe toujours, contrairement à une variante sans laquelle on ne peut pas vendre).
+- Restent : phases 4 à 7.

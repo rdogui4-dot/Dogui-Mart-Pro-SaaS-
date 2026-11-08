@@ -2,10 +2,13 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ScanLine, Minus, Plus } from "lucide-react";
 import { cartTotal, formatFcfa, settle, isQrMethod, type CartLine, type Payment, type PaymentMethod } from "@/domain/money";
-import { getShop, list, qtyOf, stockLevels, variantQty, type Product, type Customer, type UnitRow, type VariantRow } from "@/lib/data";
+import { getShop, list, qtyOf, stockLevels, variantQty, type Product, type Customer, type UnitRow, type VariantRow, type RuleRow } from "@/lib/data";
 import { Query } from "@/lib/appwrite";
 import { convertQty, formatQty, fromScaled, qtyFor, scaleOf, scaledInt } from "@/domain/quantity";
 import { unitLabel } from "@/domain/articles";
+import { planAllows } from "@/domain/features";
+import { resolvePrice, ruleFromRow, categoryLabel, KIND_LABEL } from "@/domain/pricing";
+import { useSubscription } from "./subscription";
 import { queueSale, syncPending } from "@/lib/offline";
 import { useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
@@ -16,7 +19,7 @@ import { canExtendCredit } from "@/domain/credit";
 
 
 /** Ligne du panier : quantité de base (pour le prix et le stock) + unité vendue si un conditionnement est choisi. */
-type PosLine = CartLine & { key: string; scale: number; unit?: string; unitQty?: number; factor?: number; variantId?: string };
+type PosLine = CartLine & { key: string; scale: number; basePrice: number; unit?: string; unitQty?: number; factor?: number; variantId?: string };
 const keyOf = (productId: string, unit?: string, variantId?: string) => `${productId}|${unit ?? ""}|${variantId ?? ""}`;
 const plus = (a: number, b: number, scale: number) => fromScaled(scaledInt(a, scale) + scaledInt(b, scale), scale);
 
@@ -37,7 +40,6 @@ export function PosPage() {
   const [msg, setMsg] = useState("");
   const [last, setLast] = useState<ReceiptSale | null>(null);
   const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s), staleTime: 300_000 });
-  const total = cartTotal(cart);
 
   /** Ajoute `qty` (dans l'unité `unit`, base par défaut) au panier. Lève une Error lisible si la quantité n'est pas valable pour cet article. */
   function addLine(p: Product & { $id: string }, qtyInput: string | number, unit = "", v?: VariantRow) {
@@ -48,7 +50,7 @@ export function PosPage() {
       const ex = c.find((l) => l.key === key);
       const unitQty = unit ? plus(ex?.unitQty ?? 0, entered, 3) : undefined;
       const qty = unit ? convertQty(unitQty!, u!.factor, scale) : plus(ex?.qty ?? 0, entered, scale);
-      const line: PosLine = { key, productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: v ? v.price : p.price, qty, scale, ...(v ? { variantId: v.$id } : {}), ...(unit ? { unit, unitQty, factor: u!.factor } : {}) };
+      const line: PosLine = { key, productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: v ? v.price : p.price, basePrice: v ? v.price : p.price, qty, scale, ...(v ? { variantId: v.$id } : {}), ...(unit ? { unit, unitQty, factor: u!.factor } : {}) };
       return ex ? c.map((l) => (l.key === key ? line : l)) : [...c, line];
     });
   }
@@ -68,23 +70,34 @@ export function PosPage() {
   };
   const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 40), [products.data, q]);
   const customer = customers.data?.find((c) => c.$id === customerId);
+  // Tarifs avancés (Pro) : mêmes règles et même moteur que le serveur, évalués à l'instant de la vente. Le serveur recalcule et fait foi.
+  const tiered = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing");
+  const rulesQ = useQuery({ queryKey: ["rules-all", s.shopId], enabled: tiered, queryFn: () => list<RuleRow>("article_price_rules", s, [], 500), staleTime: 60_000 });
+  const pricedAt = (at: string) => cart.map((l) => {
+    const rules = tiered ? (rulesQ.data ?? []).filter((r) => r.productId === l.productId && (r.variantId ?? "") === (l.variantId ?? "")).map((r) => ruleFromRow(r as never)) : [];
+    const res = resolvePrice(rules, { basePrice: l.basePrice, unit: l.unit ?? "", factor: l.factor, qty: l.unit ? l.unitQty! : l.qty, baseQty: l.qty, customerCategory: customer?.category ?? "", at });
+    return { ...l, unitPrice: res.unitPrice, amount: res.amount, source: res.source };
+  });
+  const priced = pricedAt(new Date().toISOString());
+  const total = cartTotal(priced);
 
   /** linkId : lien QR déjà confirmé. Le serveur revérifie prix, stock, plafond de crédit et lien. */
   async function submit(linkId?: string) {
     setMsg("");
-    const amount = pay === "cash" ? Number(given) || total : total;
+    const clientId = crypto.randomUUID(); const soldAt = new Date().toISOString();
+    const linesAt = pricedAt(soldAt); const tot = cartTotal(linesAt); // prix évalués à la date de la vente envoyée au serveur
+    const amount = pay === "cash" ? Number(given) || tot : tot;
     const payments: (Payment & { linkId?: string })[] = [{ method: pay, amount, linkId }];
-    const r = settle(total, payments);
+    const r = settle(tot, payments);
     if (!r.ok) return setMsg(r.error);
     if (pay === "credit") {
       if (!customer) return setMsg("Choisissez un client pour la vente à crédit");
-      const c = canExtendCredit({ balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 }, total);
+      const c = canExtendCredit({ balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 }, tot);
       if (!c.ok) return setMsg(c.error);
     }
-    const clientId = crypto.randomUUID(); const soldAt = new Date().toISOString();
     await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: cart.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) })), payments, session: s });
     // Même formule de numéro que le serveur : le ticket imprimé hors ligne porte le bon numéro.
-    setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total, change: r.change, lines: cart.map((l) => ({ name: l.unit ? `${l.name} (${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()})` : l.name, qty: l.qty, unitPrice: l.unitPrice })), payments: payments.map((p) => ({ method: p.method, amount: p.amount })) });
+    setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total: tot, change: r.change, lines: linesAt.map((l) => ({ name: l.unit ? `${l.name} (${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()})` : l.name, qty: l.qty, unitPrice: l.unitPrice, amount: l.amount })), payments: payments.map((p) => ({ method: p.method, amount: p.amount })) });
     setCart([]); setGiven(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
     void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); } });
   }
@@ -111,9 +124,9 @@ export function PosPage() {
       </div>
       {cart.length > 0 && (
         <section className="card flex flex-col gap-2">
-          {cart.map((l) => (
+          {priced.map((l) => (
             <div key={l.key} className="flex items-center justify-between gap-2">
-              <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span>{l.unit && <span className="text-xs text-white/50">{formatQty(l.unitQty!)} {unitLabel(l.unit).toLowerCase()} = {formatQty(l.qty)}</span>}</span>
+              <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-white/50">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{formatFcfa(l.amount)}{l.source !== "base" && <b className="ml-1 text-emerald-300">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
               <button className="btn-ghost !p-2" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
               <button className="btn-ghost !p-2" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>

@@ -7,7 +7,7 @@ import type { Session } from "./session";
 
 export type Row<T> = T & { $id: string; $createdAt: string };
 export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean };
-export type Customer = { name: string; phone?: string; creditLimit?: number; creditBalance?: number; points?: number; annualSpend?: number };
+export type Customer = { name: string; phone?: string; creditLimit?: number; creditBalance?: number; points?: number; annualSpend?: number; category?: string };
 export type Supplier = { name: string; phone?: string; email?: string; balance?: number };
 
 const scope = (s: Session) => [Query.equal("tenantId", s.tenantId), Query.equal("shopId", s.shopId)];
@@ -60,3 +60,4 @@ export type UnitRow = Row<{ productId: string; unit: string; factor: number; act
 export type VariantRow = Row<{ productId: string; attributes: string; label: string; sku?: string; barcode?: string; price: number; cost?: number; minStock?: number; imageFileId?: string; archived?: boolean }>;
 /** Stock lisible d'une variante, à l'échelle de son article. */
 export const variantQty = (levels: Map<string, number> | undefined, v: { $id: string }, scale = 0): number => fromScaled(levels?.get(`v:${v.$id}`) ?? 0, scale);
+export type RuleRow = Row<{ productId: string; variantId?: string; kind: string; price: number; unit?: string; minQty?: number; customerCategory?: string; startsAt?: string; endsAt?: string; priority?: number; active?: boolean; label?: string }>;

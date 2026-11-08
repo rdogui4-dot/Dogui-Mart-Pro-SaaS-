@@ -89,3 +89,13 @@ export function normalizeRule(raw: Record<string, unknown>): Omit<PriceRule, "id
   const label = String(raw.label ?? "").trim().replace(/\s+/g, " ").slice(0, 60);
   return { kind: kind as RuleKind, price, unit: unit || undefined, minQty, customerCategory: customerCategory || undefined, startsAt, endsAt, priority, active: raw.active !== false, label };
 }
+
+const isoOf = (v: unknown): string | undefined => { if (!v) return undefined; const ms = Date.parse(String(v)); return Number.isNaN(ms) ? undefined : new Date(ms).toISOString(); };
+/** Ligne de la table `article_price_rules` → règle du moteur (dates Appwrite « +00:00 » normalisées en ISO « Z » pour la comparaison). */
+export function ruleFromRow(r: Record<string, unknown> & { $id: string }): PriceRule {
+  return {
+    id: r.$id, kind: r.kind as RuleKind, price: Number(r.price), unit: (r.unit as string) || undefined, minQty: Number(r.minQty) > 0 ? Number(r.minQty) : undefined,
+    customerCategory: (r.customerCategory as string) || undefined, startsAt: isoOf(r.startsAt), endsAt: isoOf(r.endsAt), priority: Number(r.priority ?? 0),
+    active: r.active !== false, createdAt: isoOf(r.$createdAt) ?? "", label: r.label as string | undefined,
+  };
+}
