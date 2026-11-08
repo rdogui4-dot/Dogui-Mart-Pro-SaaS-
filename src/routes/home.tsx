@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, Users, AlertTriangle, TrendingUp, ShoppingBag } from "lucide-react";
+import { Tags, LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, Users, AlertTriangle, TrendingUp, ShoppingBag } from "lucide-react";
 import { formatFcfa } from "@/domain/money";
 import { isLow } from "@/domain/stock";
 import { Query } from "@/lib/appwrite";
@@ -15,6 +15,7 @@ const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); retur
 
 const TILES: { to: string; label: string; hint: string; icon: typeof ScanLine; perm: Perm }[] = [
   { to: "/pos", label: "Caisse", hint: "Encaisser une vente", icon: ScanLine, perm: "pos" },
+  { to: "/articles", label: "Articles", hint: "Catalogue, photos & prix", icon: Tags, perm: "stock" },
   { to: "/stock", label: "Stock", hint: "Produits & inventaire", icon: Boxes, perm: "stock" },
   { to: "/clients", label: "Clients", hint: "Fidélité & crédit", icon: Users, perm: "customers" },
   { to: "/achats", label: "Achats", hint: "Commandes & fournisseurs", icon: Receipt, perm: "purchases" },
