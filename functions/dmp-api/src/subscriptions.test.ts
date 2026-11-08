@@ -280,3 +280,48 @@ describe("attribution manuelle & configuration", () => {
     expect((await call("own", "subscription.get")).status).toBe(200);
   });
 });
+
+describe("relances d'expiration (plateforme)", () => {
+  const list = (within?: number, user = "root") => plat("platform.renewals.list", within ? { withinDays: within } : {}, user);
+  beforeEach(async () => { st.ownerNames.set("own", "Awa Ndiaye"); await st.update("shops", S, { phone: "+221 77 123 45 67" }); });
+
+  it("réservé à l'administrateur", async () => {
+    expect((await list(undefined, "own")).status).toBe(403);
+    expect((await plat("platform.renewals.markReminded", { tenantId: T }, "own")).status).toBe(403);
+  });
+  it("liste les échéances proches ET dépassées, pas les lointaines ; triées de la plus urgente à la moins urgente", async () => {
+    setSub(T, "business", "month", days(2)); setSub("t2", "starter", "month", days(-10)); setSub("t3", "pro", "year", days(200));
+    const r = (await ok(list())).renewals;
+    expect(r.map((x: any) => x.tenantId)).toEqual(["t2", T]);
+    expect(r[0]).toMatchObject({ state: "locked", level: "locked", shopName: "Chez Bob" });
+    expect(r[1]).toMatchObject({ state: "expiring", level: "warning", plan: "business", shopName: "Chez Awa", phone: "+221 77 123 45 67", owner: { name: "Awa Ndiaye" } });
+  });
+  it("la fenêtre est réglable et bornée ; un essai est inclus", async () => {
+    setSub(T, "business", "day", days(20), "trial");
+    expect((await ok(list())).renewals).toHaveLength(0);
+    const r = (await ok(list(30))).renewals; expect(r).toHaveLength(1); expect(r[0]).toMatchObject({ trial: true, state: "active" });
+    setSub("t2", "pro", "year", days(500)); expect((await ok(list(9999))).renewals).toHaveLength(1); // plafonné à 90 jours
+  });
+  it("prépare le message de relance, et signale un paiement déjà en attente de validation", async () => {
+    setSub(T, "business", "month", days(2));
+    let r = (await ok(list())).renewals[0];
+    expect(r.message).toMatch(/^Bonjour Awa Ndiaye,/); expect(r.message).toMatch(/Business, mensuel\) se termine dans 2 jour\(s\)/); expect(r.pendingPayment).toBe(false);
+    await ok(plat("platform.settings.save", TPL));
+    const pay = await ok(call("own", "subscription.checkout", { requestId: "request-0001", plan: "business", period: "month" }, T, ""));
+    await ok(call("own", "subscription.submitProof", { paymentId: pay.id, txRef: "TX123456", payerEmail: "awa@exemple.sn" }, T, ""));
+    r = (await ok(list())).renewals[0]; expect(r.pendingPayment).toBe(true);
+  });
+  it("mémorise la relance envoyée ; commerce inconnu refusé", async () => {
+    setSub(T, "business", "month", days(2));
+    expect((await ok(list())).renewals[0].remindedAt).toBeNull();
+    const m = await ok(plat("platform.renewals.markReminded", { tenantId: T }));
+    expect((await ok(list())).renewals[0].remindedAt).toBe(m.remindedAt);
+    expect((await plat("platform.renewals.markReminded", { tenantId: "inconnu" })).status).toBe(404);
+    expect(st.rows("audit_log").some((a) => a.action === "subscription.reminded")).toBe(true);
+  });
+  it("un abonnement renouvelé sort de la liste", async () => {
+    setSub(T, "business", "month", days(2));
+    await ok(plat("platform.subscription.grant", { grantId: "grant-00009", tenantId: T, plan: "business", period: "month", count: 1 }));
+    expect((await ok(list())).renewals).toHaveLength(0);
+  });
+});

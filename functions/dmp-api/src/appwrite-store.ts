@@ -37,6 +37,10 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       catch (e: any) { if (e?.code === 409) throw new HttpError(409, "Identifiant déjà utilisé"); throw e; }
     },
     async deleteUser(userId) { await users.delete({ userId }); },
+    async listOwners(tenantId) {
+      const r = await teams.listMemberships({ teamId: tenantId, queries: [Query.limit(100)] });
+      return r.memberships.filter((m) => m.roles.includes("owner")).map((m) => ({ userId: m.userId, name: m.userName, email: m.userEmail }));
+    },
     async setLabels(userId, labels) { await users.updateLabels({ userId, labels }); },
     async setUserActive(userId, active) { await users.updateStatus({ userId, status: active }); },
     async setPassword(userId, password) { await users.updatePassword({ userId, password }); },

@@ -1,4 +1,5 @@
 import { linkRef } from "../../../src/domain/payment-links";
+import { reminderLevel, renewalMessage } from "../../../src/domain/reminders";
 import { isEmail, linkKey, mergeSelarLinks, parseLinks } from "../../../src/domain/selar";
 import {
   MAX_COUNT, PERIODS, PERIOD_LABEL, TRIAL, addPeriod, canAdd, entitlement, mergePlans, planById, priceFor, renewal, validCount,
@@ -126,6 +127,40 @@ async function applySubscription(store: Store, tenantId: string, plan: PlanId, p
 }
 const audit = (store: Store, ctx: Ctx, tenantId: string, action: string, detail: string) =>
   store.create("audit_log", newId(), tenantId, { tenantId, shopId: "platform", userId: ctx.userId, action, detail: detail.slice(0, 500) });
+
+/** Abonnements à relancer : échéance dans `withinDays` jours ou déjà dépassée (délai de grâce, lecture seule), essais compris.
+ *  La plateforme envoie elle-même la relance (WhatsApp, e-mail) avec le message préparé : aucun envoi automatique. */
+export async function platformRenewals(store: Store, ctx: Ctx, b: { withinDays?: number }) {
+  adminOnly(ctx);
+  const within = Math.min(Math.max(Number(b.withinDays) || 7, 1), 90);
+  const now = new Date(); const plans = await loadPlans(store);
+  const due = (await store.list("subscriptions", {}, 500))
+    .map((r) => ({ r, e: entitlement(toSub(r), plans, now) }))
+    .filter(({ e }) => (new Date(e.endsAt).getTime() - now.getTime()) / 86_400_000 <= within)
+    .sort((a, b) => new Date(a.e.endsAt).getTime() - new Date(b.e.endsAt).getTime())
+    .slice(0, 100); // borne de coût : chaque commerce coûte quelques lectures
+  const renewals = [];
+  for (const { r, e } of due) {
+    const tenantId = String(r.tenantId ?? r.$id);
+    const shop = (await store.list("shops", { tenantId }, 1))[0];
+    const owner = (await store.listOwners(tenantId))[0];
+    const pending = (await store.list("subscription_payments", { tenantId }, 50)).some((p) => p.status === "pending_review");
+    const info = { shopName: String(shop?.name ?? tenantId), ownerName: owner?.name, planName: e.plan.name, period: e.period, trial: e.trial, state: e.state, endsAt: e.endsAt };
+    renewals.push({ tenantId, shopName: info.shopName, phone: String(shop?.phone ?? ""), owner: owner ? { name: owner.name, email: owner.email } : null, plan: e.plan.id, planName: e.plan.name, period: e.period, trial: e.trial, state: e.state, level: reminderLevel(e, now), endsAt: e.endsAt, daysLeft: Math.round(((new Date(e.endsAt).getTime() - now.getTime()) / 86_400_000) * 10) / 10, remindedAt: r.remindedAt ? String(r.remindedAt) : null, pendingPayment: pending, message: renewalMessage(info, now) });
+  }
+  return { renewals, truncated: due.length === 100 };
+}
+
+/** Mémorise qu'une relance vient d'être envoyée (évite de relancer deux fois la même personne). */
+export async function platformMarkReminded(store: Store, ctx: Ctx, b: { tenantId: string }) {
+  adminOnly(ctx);
+  const tenantId = String(b.tenantId ?? "");
+  must(await store.get("subscriptions", tenantId), "Abonnement introuvable");
+  const at = new Date().toISOString();
+  await store.update("subscriptions", tenantId, { remindedAt: at });
+  await audit(store, ctx, tenantId, "subscription.reminded", "relance envoyée");
+  return { remindedAt: at };
+}
 
 export async function platformMe(_s: Store, ctx: Ctx) { return { admin: !!ctx.admin }; }
 const adminOnly = (ctx: Ctx) => { if (!ctx.admin) throw new HttpError(403, "Réservé à l'administrateur de la plateforme"); };

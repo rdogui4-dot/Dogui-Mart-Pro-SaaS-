@@ -13,6 +13,8 @@ export interface Store {
   // Annuaire des comptes (Appwrite Users + Teams). Réservé aux actions « équipe » du propriétaire.
   createUser(a: { userId: string; email: string; password: string; name: string }): Promise<void>; // 409 si l'identifiant existe déjà
   deleteUser(userId: string): Promise<void>;
+  /** Propriétaires d'un commerce (nom et e-mail du compte), pour les relances de la plateforme. */
+  listOwners(tenantId: string): Promise<{ userId: string; name: string; email: string }[]>;
   /** Étiquettes du compte : elles donnent la lecture des lignes d'une boutique (voir permissions.ts). */
   setLabels(userId: string, labels: string[]): Promise<void>;
   setUserActive(userId: string, active: boolean): Promise<void>;

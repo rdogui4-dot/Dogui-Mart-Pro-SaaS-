@@ -6,6 +6,7 @@ import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { PERIODS, PERIOD_LABEL, priceFor, type Entitlement, type Period, type Plan } from "@/domain/subscriptions";
 import { linkKey } from "@/domain/selar";
+import { bannerMessage, stateLabel, whatsappNumber, type ReminderLevel } from "@/domain/reminders";
 
 export type SubInfo = {
   entitlement: Entitlement; plans: Plan[]; usage: { shops: number; users: number; products: number };
@@ -24,15 +25,28 @@ const PAY_LABEL: Record<string, string> = { awaiting_payment: "À payer", pendin
 const lim = (n: number) => (n < 0 ? "illimité" : String(n));
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 
-/** Bandeau d'état de l'abonnement, affiché sous l'en-tête. */
+const BANNER_TONE: Record<ReminderLevel, string> = { none: "", info: "bg-sky-600 text-white", warning: "bg-amber-500 text-black", urgent: "bg-orange-500 text-black", grace: "bg-orange-600 text-white", locked: "bg-red-600 text-white" };
+const dismissKey = (tenantId: string, level: string) => `dmp.remind.${tenantId}.${level}.${new Date().toISOString().slice(0, 10)}`;
+const wasDismissed = (k: string) => { try { return localStorage.getItem(k) === "1"; } catch { return false; } };
+
+/** Relance d'expiration affichée dans l'application. Les rappels d'information et d'avertissement se masquent pour la journée ;
+ *  les rappels urgents, de grâce et de lecture seule restent visibles. Le message dépend de la période (un abonnement « jour » est relancé dans ses dernières heures). */
 export function SubscriptionBanner() {
+  const { session } = useSession();
   const { data } = useSubscription();
-  if (!data || data.entitlement.state === "active") return null;
-  const e = data.entitlement;
-  const msg = e.state === "expiring" ? `${e.trial ? "Votre essai gratuit" : "Votre abonnement"} se termine dans ${e.daysLeft} jour(s).`
-    : e.state === "grace" ? "Abonnement expiré : renouvelez-le avant la fin du délai de grâce."
-      : "Abonnement expiré : l'application est en lecture seule.";
-  return <div className={`text-center text-sm py-1 ${e.state === "locked" ? "bg-red-600 text-white" : "bg-amber-500/90 text-black"}`}>{msg}</div>;
+  const [, force] = useState(0);
+  if (!data || !session) return null;
+  const m = bannerMessage(data.entitlement, session.role === "owner");
+  if (!m) return null;
+  const key = dismissKey(session.tenantId, m.level);
+  const dismissible = m.level === "info" || m.level === "warning";
+  if (dismissible && wasDismissed(key)) return null;
+  return (
+    <div role="status" className={`text-sm py-1.5 px-3 flex items-center justify-center gap-3 ${BANNER_TONE[m.level]}`}>
+      <span className="text-center">{m.text}</span>
+      {dismissible && <button aria-label="Masquer pour aujourd'hui" className="font-bold px-1" onClick={() => { try { localStorage.setItem(key, "1"); } catch { /* navigation privée */ } force((n) => n + 1); }}>×</button>}
+    </div>
+  );
 }
 
 export function SubscriptionSection() {
@@ -133,6 +147,7 @@ type PlatPayment = { id: string; tenantId: string; tenantName: string; plan: str
 export function PlatformSection() {
   const { session } = useSession(); const s = session!;
   const qc = useQueryClient();
+  const [view, setView] = useState<"payments" | "renewals">("payments");
   const [status, setStatus] = useState<"pending_review" | "approved" | "rejected">("pending_review");
   const list = useQuery({ queryKey: ["platform-payments", status], queryFn: () => api<{ payments: PlatPayment[] }>(s, "platform.payments.list", { status }) });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState("");
@@ -144,6 +159,11 @@ export function PlatformSection() {
   }
   return (
     <>
+      <div className="grid grid-cols-2 gap-1 text-sm">
+        <button className={view === "payments" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setView("payments")}>Paiements</button>
+        <button className={view === "renewals" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setView("renewals")}>Relances</button>
+      </div>
+      {view === "renewals" ? <Renewals /> : <>
       <div className="grid grid-cols-3 gap-1 text-xs">
         {([["pending_review", "À valider"], ["approved", "Validés"], ["rejected", "Refusés"]] as const).map(([k, l]) => <button key={k} className={status === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setStatus(k)}>{l}</button>)}
       </div>
@@ -160,6 +180,54 @@ export function PlatformSection() {
       {list.data?.payments.length === 0 && <p className="text-center text-white/50 py-4">Rien dans cette liste.</p>}
       <PlatformSettingsForm />
       <GrantForm />
+      </>}
+    </>
+  );
+}
+
+type Renewal = { tenantId: string; shopName: string; phone: string; owner: { name: string; email: string } | null; plan: string; planName: string; period: Period; trial: boolean; state: Entitlement["state"]; level: ReminderLevel; endsAt: string; daysLeft: number; remindedAt: string | null; pendingPayment: boolean; message: string };
+const LEVEL_TONE: Record<ReminderLevel, string> = { none: "text-white/60", info: "text-sky-300", warning: "text-amber-300", urgent: "text-orange-400", grace: "text-orange-400", locked: "text-red-400" };
+
+/** Liste des abonnements à relancer, avec message prêt à envoyer. Aucun envoi automatique : l'administrateur envoie lui-même (WhatsApp, e-mail). */
+function Renewals() {
+  const { session } = useSession(); const s = session!;
+  const qc = useQueryClient();
+  const [within, setWithin] = useState(7);
+  const [dial, setDial] = useState(() => { try { return localStorage.getItem("dmp.dial") ?? ""; } catch { return ""; } });
+  const list = useQuery({ queryKey: ["renewals", within], queryFn: () => api<{ renewals: Renewal[]; truncated: boolean }>(s, "platform.renewals.list", { withinDays: within }) });
+  const [msg, setMsg] = useState("");
+  const setDialCode = (v: string) => { setDial(v); try { localStorage.setItem("dmp.dial", v); } catch { /* navigation privée */ } };
+  async function mark(r: Renewal) { try { await api(s, "platform.renewals.markReminded", { tenantId: r.tenantId }); await qc.invalidateQueries({ queryKey: ["renewals"] }); } catch (e) { setMsg((e as Error).message); } }
+  async function copy(r: Renewal) { try { await navigator.clipboard.writeText(r.message); setMsg("Message copié"); } catch { setMsg("Copie impossible : sélectionnez le texte du message"); } }
+  return (
+    <>
+      <div className="card flex flex-col gap-2">
+        <div className="grid grid-cols-4 gap-1 text-xs">{[7, 14, 30, 90].map((d) => <button key={d} className={within === d ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setWithin(d)}>{d} j</button>)}</div>
+        <label className="text-xs text-white/60 flex items-center gap-2">Indicatif par défaut (ex. 221)<input className="input !w-24 !py-1" inputMode="numeric" value={dial} onChange={(e) => setDialCode(e.target.value)} /></label>
+        <p className="text-xs text-white/50">Abonnements qui se terminent d'ici {within} jours ou déjà échus. Les messages sont préparés mais envoyés par vous : aucun envoi automatique (pas d'API).</p>
+      </div>
+      {msg && <p className="text-sm text-amber-300">{msg}</p>}
+      {(list.data?.renewals ?? []).map((r) => {
+        const wa = whatsappNumber(r.phone, dial);
+        return (
+          <div key={r.tenantId} className="card flex flex-col gap-1 text-sm">
+            <div className="flex justify-between gap-2"><b>{r.shopName}</b><span className={LEVEL_TONE[r.level]}>{r.trial ? "Essai" : r.planName} · {stateLabel[r.state]}</span></div>
+            <div className="text-white/60">{r.trial ? "Essai" : `${r.planName} ${PERIOD_LABEL[r.period].toLowerCase()}`} · {r.daysLeft >= 0 ? `fin dans ${r.daysLeft} j` : `échu depuis ${Math.abs(r.daysLeft)} j`} ({new Date(r.endsAt).toLocaleDateString("fr-FR")})</div>
+            <div className="text-white/60">{r.owner ? `${r.owner.name} · ${r.owner.email}` : "Propriétaire inconnu"} · {r.phone || "pas de téléphone"}</div>
+            {r.pendingPayment && <div className="text-emerald-400">Un paiement est en attente de validation : validez-le avant de relancer.</div>}
+            {r.remindedAt && <div className="text-white/50">Relancé le {new Date(r.remindedAt).toLocaleDateString("fr-FR")}</div>}
+            <details><summary className="text-white/50 cursor-pointer">Message</summary><pre className="whitespace-pre-wrap text-xs text-white/70 mt-1">{r.message}</pre></details>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {wa ? <a className="btn-ghost !py-2 !px-3" target="_blank" rel="noreferrer noopener" href={`https://wa.me/${wa}?text=${encodeURIComponent(r.message)}`}>WhatsApp</a> : <span className="text-xs text-white/40 self-center">WhatsApp : numéro sans indicatif</span>}
+              {r.owner?.email && !r.owner.email.endsWith("@staff.invalid") && <a className="btn-ghost !py-2 !px-3" href={`mailto:${r.owner.email}?subject=${encodeURIComponent("Votre abonnement Dogui Mart Pro")}&body=${encodeURIComponent(r.message)}`}>E-mail</a>}
+              <button className="btn-ghost !py-2 !px-3" onClick={() => void copy(r)}>Copier</button>
+              <button className="btn-ghost !py-2 !px-3" onClick={() => void mark(r)}>Marquer relancé</button>
+            </div>
+          </div>
+        );
+      })}
+      {list.data?.renewals.length === 0 && <p className="text-center text-white/50 py-4">Aucun abonnement à relancer.</p>}
+      {list.data?.truncated && <p className="text-xs text-amber-300">Liste limitée aux 100 échéances les plus proches.</p>}
     </>
   );
 }

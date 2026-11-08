@@ -39,6 +39,11 @@ export class MemoryStore implements Store {
     this.users.set(a.userId, { email: a.email, password: a.password, active: true, name: a.name });
   }
   async deleteUser(userId: string) { this.users.delete(userId); }
+  ownerNames = new Map<string, string>();
+  async listOwners(tenantId: string) {
+    return [...this.members].filter(([k, roles]) => k.startsWith(`${tenantId}:`) && roles.includes("owner"))
+      .map(([k]) => { const userId = k.slice(tenantId.length + 1); return { userId, name: this.ownerNames.get(userId) ?? userId, email: `${userId}@example.test` }; });
+  }
   async setUserActive(userId: string, active: boolean) { const u = this.users.get(userId); if (u) u.active = active; }
   async setPassword(userId: string, password: string) { const u = this.users.get(userId); if (u) u.password = password; }
   failAddMember = false;

@@ -4,7 +4,7 @@ import { ACCOUNTS } from "../../../src/domain/accounting";
 import { checkout, stockFor, type CheckoutInput } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
 import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
-import { assertQuota, platformGrant, platformMe, platformPayments, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
+import { assertQuota, platformGrant, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
@@ -149,6 +149,6 @@ export const ACTIONS = {
   "shop.save": saveShop, "invoice.customer.fromSale": invoiceFromSale, "invoice.customer.create": createFreeInvoice, "invoice.customer.pay": payCustomerInvoice,
   "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "stock.transfer": transferStock,
   "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof,
-  "platform.me": platformMe, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
+  "platform.me": platformMe, "platform.renewals.list": platformRenewals, "platform.renewals.markReminded": platformMarkReminded, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,
 } as const;
