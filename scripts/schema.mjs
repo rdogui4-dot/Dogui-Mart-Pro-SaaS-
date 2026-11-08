@@ -18,10 +18,12 @@ export const TABLES = {
   article_units: { cols: [...base, s("productId", 64, true), s("unit", 16, true), f("factor", true), b("active")], idx: [["product", ["productId"]]] },
   // Variantes d'un article (taille, couleur…) : SKU, prix, seuil et stock propres (stock = mouvements portant ce variantId).
   article_variants: { cols: [...base, s("productId", 64, true), t("attributes", true), s("attrKey", 255, true), s("label", 255, true), s("sku", 64), s("barcode", 64), i("price", true), i("cost"), i("minStock"), s("imageFileId", 64), b("archived")], idx: [["product", ["productId"]], ["sku", ["sku"]], ["barcode", ["barcode"]], ["shop", ["tenantId", "shopId"]]] },
+  // Tarifs avancés (Pro) : promotion, prix par catégorie de clients, prix par quantité. Un prix par règle ; variantId vide = article sans variantes.
+  article_price_rules: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("kind", 16, true), i("price", true), s("unit", 16), f("minQty"), s("customerCategory", 16), d("startsAt"), d("endsAt"), i("priority"), b("active"), s("label", 60)], idx: [["product", ["productId"]], ["shop", ["tenantId", "shopId"]]] },
   price_history: { cols: [...base, s("productId", 64, true), i("oldPrice"), i("newPrice"), i("oldCost"), i("newCost"), s("userId", 64), s("variantId", 64)], idx: [["product", ["productId"]]] },
   // Journal immuable de mouvements : le stock est la somme des mouvements.
   stock_moves: { cols: [...base, s("productId", 64, true), i("qty", true), s("kind", 24, true), s("refId", 64), s("userId", 64), s("unit", 16), f("unitQty"), s("variantId", 64)], idx: [["prod", ["productId"]], ["variant", ["variantId"]]] },
-  customers: { cols: [...base, s("name", 160, true), s("phone", 32), i("creditLimit"), i("creditBalance"), i("points"), i("annualSpend")], idx: [["shop", ["tenantId", "shopId"]], ["phone", ["phone"]]] },
+  customers: { cols: [...base, s("name", 160, true), s("phone", 32), i("creditLimit"), i("creditBalance"), i("points"), i("annualSpend"), s("category", 16)], idx: [["shop", ["tenantId", "shopId"]], ["phone", ["phone"]]] },
   suppliers: { cols: [...base, s("name", 160, true), s("phone", 32), s("email", 160), i("balance")], idx: [["shop", ["tenantId", "shopId"]]] },
   sales: { cols: [...base, s("number", 32, true), i("total", true), i("vat"), s("customerId", 64), s("cashierId", 64), t("payments"), t("lines"), s("status", 16), s("clientId", 64, true), d("soldAt")], idx: [["shop", ["tenantId", "shopId"]], ["status", ["status"]]] },
   purchase_orders: { cols: [...base, s("number", 32, true), s("supplierId", 64, true), t("lines"), i("total"), s("status", 16), t("receipts"), t("invoicedIds")], idx: [["shop", ["tenantId", "shopId"]]] },

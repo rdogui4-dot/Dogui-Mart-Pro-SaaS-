@@ -1,7 +1,7 @@
 import { lineTotal, toFcfa } from "./money";
 
 /** Rapports de ventes : agrégation pure d'une liste de ventes (partagée serveur / tests). */
-export type SaleLineRow = { productId: string; name: string; qty: number; unitPrice: number; discountPct?: number; unitCost?: number };
+export type SaleLineRow = { productId: string; name: string; qty: number; unitPrice: number; discountPct?: number; unitCost?: number; amount?: number };
 export type SaleRow = { total: number; vat: number; soldAt: string; status: string; payments: { method: string; amount: number }[]; lines: SaleLineRow[] };
 export type ProductSales = { key: string; name: string; qty: number; revenueTtc: number };
 export type SalesAggregate = {
@@ -39,11 +39,11 @@ export function aggregateSales(rows: SaleRow[], range: { from: string; to: strin
     for (const [m, a] of Object.entries(methodsOf(s))) byMethod[m] = (byMethod[m] ?? 0) + a;
     const htRatio = s.total > 0 ? (s.total - s.vat) / s.total : 1;
     for (const l of s.lines) {
-      const lt = lineTotal({ productId: l.productId, name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct });
+      const lt = lineTotal({ productId: l.productId, name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct, amount: l.amount });
       lineTtc += lt;
       if (typeof l.unitCost === "number") { cogs += l.qty * l.unitCost; costedTtc += lt; indicative += lt * htRatio - l.qty * l.unitCost; } else costKnown = false;
       const key = productKey(l.name, barcodes[l.productId]); const p = prod.get(key) ?? { key, name: l.name, qty: 0, revenueTtc: 0 };
-      p.qty += l.qty; p.revenueTtc += lineTotal({ productId: l.productId, name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct }); prod.set(key, p);
+      p.qty += l.qty; p.revenueTtc += lineTotal({ productId: l.productId, name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct, amount: l.amount }); prod.set(key, p);
     }
   }
   const revenueHt = revenueTtc - vat;

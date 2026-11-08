@@ -41,7 +41,7 @@ export class MemoryStore implements Store {
     return this.rows(table).filter((row) => (this.perms.get(`${table}/${row.$id}`) ?? []).some((p) => mine.has(p)));
   }
   async update(table: string, id: string, data: Record<string, unknown>) {
-    const r = this.t(table).get(id); if (!r) throw new Error("introuvable"); Object.assign(r, data);
+    const r = this.t(table).get(id); if (!r) throw new Error("introuvable"); Object.assign(r, Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined))); // comme Appwrite : une clé absente (undefined) ne modifie pas la colonne
   }
   users = new Map<string, { email: string; password: string; active: boolean; name: string }>();
   async createUser(a: { userId: string; email: string; password: string; name: string }) {

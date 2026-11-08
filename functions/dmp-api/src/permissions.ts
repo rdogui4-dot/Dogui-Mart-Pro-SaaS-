@@ -40,6 +40,7 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   // Historique des prix : module Stock de la boutique
   price_history: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
   // Conditionnements : lisibles par les employés de la boutique (la caisse en a besoin)
+  article_price_rules: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_variants: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_units: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   stock_moves: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],

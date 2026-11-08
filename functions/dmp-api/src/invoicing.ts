@@ -43,7 +43,7 @@ export async function invoiceFromSale(store: Store, ctx: Ctx, b: { saleId: strin
     payments.push({ id: `${id.slice(0, 30)}_p${i}`, amount, method: p.method as Payment["method"], date: soldAt });
   }
   const paid = paidOf(payments);
-  const lines = parse<{ name: string; qty: number; unitPrice: number; discountPct?: number }[]>(sale.lines, []).map((l) => ({ description: l.name, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct }));
+  const lines = parse<{ name: string; qty: number; unitPrice: number; discountPct?: number; amount?: number }[]>(sale.lines, []).map((l) => ({ description: l.name, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, ...(l.amount !== undefined ? { amount: l.amount } : {}) }));
   const number = `FC-${ymd(soldAt)}-${String(sale.$id).slice(0, 6).toUpperCase()}`;
   await store.create("invoices", id, ctx.tenantId, {
     tenantId: ctx.tenantId, shopId: ctx.shopId, number, kind: "customer", partyId: String(sale.customerId ?? ""), total, paid, vat: Number(sale.vat ?? 0), status: invoiceStatus(total, paid),

@@ -6,6 +6,8 @@ import { stockOf, type StockMove } from "../../../src/domain/stock";
 import { convertQty, fromScaled, qtyFor, scaleOf, scaledInt, unitRowId } from "../../../src/domain/quantity";
 import { planAllows } from "../../../src/domain/features";
 import { entitlementOf } from "./subscriptions";
+import { resolvePrice } from "../../../src/domain/pricing";
+import { loadRules } from "./pricing";
 import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 
 export type CheckoutInput = {
@@ -43,8 +45,22 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   if (existing && existing.status === "paid") return { saleId, number: existing.number, duplicate: true };
   if (existing && (existing.tenantId !== ctx.tenantId || existing.shopId !== ctx.shopId)) throw new HttpError(409, "Identifiant déjà utilisé");
 
+  // La date vient du téléphone (vente faite hors ligne) : on la borne pour qu'elle ne puisse fausser ni les rapports ni la comptabilité.
+  const nowMs = Date.now();
+  let soldAt = existing?.soldAt ? new Date(String(existing.soldAt)).toISOString() : new Date(nowMs).toISOString(); // reprise : on garde la date d'origine (les tarifs en dépendent)
+  if (input.soldAt && !existing) {
+    const ms = Date.parse(input.soldAt);
+    if (Number.isNaN(ms) || ms > nowMs + MAX_FUTURE_MS || ms < nowMs - MAX_AGE_MS) throw new HttpError(400, "Date de vente invalide (ni dans le futur, ni de plus de 45 jours)");
+    soldAt = new Date(ms).toISOString();
+  }
+  // Client (catégorie tarifaire) : lu avant les lignes, car le prix d'une ligne en dépend
+  const customer = input.customerId ? await store.get("customers", input.customerId) : null;
+  if (input.customerId && (!customer || customer.tenantId !== ctx.tenantId || customer.shopId !== ctx.shopId)) throw new HttpError(404, "Client introuvable");
+  const category = String(customer?.category ?? "");
+  let tiered: boolean | undefined; // tarifs avancés : fonction Pro (retour en Business : on repasse au prix de base)
+
   // 1) Prix et stock vérifiés en base
-  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string })[] = [];
+  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number })[] = [];
   const scales = new Map<string, number>(); const seenKeys = new Set<string>();
   let packagingOk: boolean | undefined;
   for (const l of input.lines) {
@@ -84,13 +100,15 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     // Le coût du moment est figé sur la vente (la marge d'un rapport ne bouge pas quand le coût moyen change plus tard).
     // Un coût non renseigné (0) n'est PAS figé : sinon la marge afficherait 100 % sur ce produit.
     const cost = Number((v ?? p).cost ?? 0);
-    lines.push({ productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: Number((v ?? p).price), qty, ...(v ? { variantId: v.$id } : {}), discountPct, ...(cost > 0 ? { unitCost: cost } : {}), ...(soldUnit ? { unit: soldUnit, unitQty, factor } : {}) });
+    // Prix : base de l'article/variante, ou règle de tarification gagnante. Le prix retenu et sa source sont figés dans la ligne.
+    tiered ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "tieredPricing");
+    const rules = tiered ? await loadRules(store, ctx, p.$id, v?.$id ?? "") : [];
+    const price = resolvePrice(rules, { basePrice: Number((v ?? p).price), unit: soldUnit, factor, qty: soldUnit ? unitQty! : qty, baseQty: qty, customerCategory: category, at: soldAt });
+    lines.push({ productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: price.unitPrice, amount: price.amount, qty, ...(v ? { variantId: v.$id } : {}), discountPct, ...(cost > 0 ? { unitCost: cost } : {}), ...(soldUnit ? { unit: soldUnit, unitQty, factor } : {}), ...(price.source !== "base" ? { priceSource: price.source, priceRuleId: price.ruleId, basePrice: Number((v ?? p).price) } : {}) });
   }
   let total = cartTotal(lines);
 
   // 2) Client, points
-  const customer = input.customerId ? await store.get("customers", input.customerId) : null;
-  if (input.customerId && (!customer || customer.tenantId !== ctx.tenantId || customer.shopId !== ctx.shopId)) throw new HttpError(404, "Client introuvable");
   let redeem = 0;
   if (input.redeemPoints && customer) {
     redeem = Math.min(Math.floor(input.redeemPoints), redeemablePoints(Number(customer.points ?? 0), total));
@@ -122,14 +140,6 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   // 4) Écritures idempotentes : la vente passe "pending" -> "posted" -> "paid"
   const shop = await store.get("shops", ctx.shopId);
   const vatRatePct = Number(shop?.vatRatePct ?? 18);
-  // La date vient du téléphone (vente faite hors ligne) : on la borne pour qu'elle ne puisse fausser ni les rapports ni la comptabilité.
-  const nowMs = Date.now();
-  let soldAt = new Date(nowMs).toISOString();
-  if (input.soldAt) {
-    const ms = Date.parse(input.soldAt);
-    if (Number.isNaN(ms) || ms > nowMs + MAX_FUTURE_MS || ms < nowMs - MAX_AGE_MS) throw new HttpError(400, "Date de vente invalide (ni dans le futur, ni de plus de 45 jours)");
-    soldAt = new Date(ms).toISOString();
-  }
   const number = existing?.number ?? `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${saleId.slice(0, 6).toUpperCase()}`;
   const vat = total - Math.round(total / (1 + vatRatePct / 100));
   await store.create("sales", saleId, ctx.tenantId, {

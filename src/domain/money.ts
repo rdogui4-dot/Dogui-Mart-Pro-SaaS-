@@ -4,11 +4,12 @@ export const toFcfa = (n: number): number => Math.round(Number.isFinite(n) ? n :
 export const formatFcfa = (n: number): string =>
   new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(toFcfa(n)) + " FCFA";
 
-export type CartLine = { productId: string; name: string; unitPrice: number; qty: number; discountPct?: number };
+/** `amount` : total exact de la ligne en FCFA, avant remise (prix issu d'une règle de tarification, d'un carton…). Absent : prix unitaire × quantité. */
+export type CartLine = { productId: string; name: string; unitPrice: number; qty: number; discountPct?: number; amount?: number };
 
 /** Les quantités ont au plus 3 décimales : on arrondit le brut à 1e-6 avant d'appliquer la remise pour qu'un « .5 » exact ne dérive jamais (166,5 et non 166,49999…). */
 export const lineTotal = (l: CartLine): number =>
-  toFcfa(Math.round(l.unitPrice * l.qty * 1e6) / 1e6 * (1 - Math.min(Math.max(l.discountPct ?? 0, 0), 100) / 100));
+  toFcfa((l.amount ?? Math.round(l.unitPrice * l.qty * 1e6) / 1e6) * (1 - Math.min(Math.max(l.discountPct ?? 0, 0), 100) / 100));
 
 export const cartTotal = (lines: CartLine[]): number => lines.reduce((s, l) => s + lineTotal(l), 0);
 

@@ -27,7 +27,7 @@ const dateFr = (iso: string) => new Date(iso).toLocaleDateString("fr-FR");
 
 export type InvoiceDoc = {
   number: string; total: number; vat?: number; paid?: number; dueAt?: string; createdAt: string;
-  saleId?: string; lines: { description: string; qty: number; unitPrice: number; discountPct?: number }[];
+  saleId?: string; lines: { description: string; qty: number; unitPrice: number; discountPct?: number; amount?: number }[];
   payments: Payment[];
 };
 
@@ -35,7 +35,7 @@ export type InvoiceDoc = {
 export function invoiceModel(inv: InvoiceDoc, shop: Shop | null, customer: { name: string; phone?: string } | null): DocModel {
   const rows: DocRow[] = inv.lines.map((l) => ({
     label: l.description, qty: l.qty, unit: l.unitPrice,
-    total: lineTotal({ productId: "", name: l.description, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct }),
+    total: lineTotal({ productId: "", name: l.description, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct, amount: l.amount }),
   }));
   const vat = toFcfa(inv.vat ?? 0);
   const paid = paidOf(inv.payments);
@@ -67,7 +67,7 @@ export function purchaseOrderModel(po: { number: string; createdAt: string; line
 
 export type ReceiptSale = {
   number: string; soldAt: string; total: number; change?: number;
-  lines: { name: string; qty: number; unitPrice: number; discountPct?: number }[];
+  lines: { name: string; qty: number; unitPrice: number; discountPct?: number; amount?: number }[];
   payments: { method: string; amount: number }[];
 };
 const METHOD: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "Crédit" };
@@ -78,7 +78,7 @@ export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: st
   return {
     kind: "receipt", title: "TICKET DE CAISSE", number: sale.number, date: new Date(sale.soldAt).toLocaleString("fr-FR"),
     issuer: issuerOf(shop), partyLabel: "Client", party: { name: customer || "Client comptoir" },
-    rows: sale.lines.map((l) => ({ label: l.name, qty: l.qty, unit: l.unitPrice, total: lineTotal({ productId: "", name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct }) })),
+    rows: sale.lines.map((l) => ({ label: l.name, qty: l.qty, unit: l.unitPrice, total: lineTotal({ productId: "", name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct, amount: l.amount }) })),
     totals, footer: ["Merci de votre visite !"],
   };
 }

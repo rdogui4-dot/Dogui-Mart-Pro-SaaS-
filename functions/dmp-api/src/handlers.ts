@@ -9,8 +9,10 @@ import { consolidatedReport } from "./reports";
 import { assertQuota, platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
 import { saveUnits } from "./units";
+import { deletePriceRule, savePriceRule } from "./pricing";
 import { archiveVariant, deleteVariant, saveVariant } from "./variants";
-import { archiveArticle, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
+import { isCategory } from "../../../src/domain/pricing";
+import { archiveArticle, needFeature, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
@@ -23,7 +25,7 @@ export const LOCK_EXEMPT = new Set(["report.consolidated", "subscription.get", "
 
 const ENTITIES = {
   products: { module: "stock", fields: [] }, // géré par articles.ts
-  customers: { module: "customers", fields: ["name", "phone", "creditLimit"] },
+  customers: { module: "customers", fields: ["name", "phone", "creditLimit", "category"] },
   suppliers: { module: "purchases", fields: ["name", "phone", "email"] },
 } as const;
 
@@ -31,6 +33,11 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
   const spec = ENTITIES[b.table]; if (!spec) throw new HttpError(400, "Table non autorisée");
   needModule(ctx, spec.module);
   if (b.table === "customers" && b.data.creditLimit !== undefined) need(ctx, "manager"); // plafond de crédit = manager
+  if (b.table === "customers" && b.data.category !== undefined) { // catégorie tarifaire (gros, revendeur) : décision de gérant, fonction Pro pour en attribuer une
+    need(ctx, "manager");
+    if (!isCategory(b.data.category)) throw new HttpError(400, "Catégorie de clients inconnue");
+    if (b.data.category) await needFeature(store, ctx, "tieredPricing");
+  }
   if (b.table === "products") return saveProduct(store, ctx, { id: b.id, data: b.data }); // un seul chemin d'écriture pour les articles
   const data: Record<string, unknown> = {};
   for (const f of spec.fields) if (f in b.data) data[f] = b.data[f];
@@ -154,7 +161,7 @@ export const TENANT_LEVEL = new Set(["report.consolidated", "subscription.get", 
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
-  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
+  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "price.rule.save": savePriceRule, "price.rule.delete": deletePriceRule, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
