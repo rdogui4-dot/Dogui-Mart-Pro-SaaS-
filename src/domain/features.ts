@@ -5,6 +5,7 @@ const RANK: Record<PlanId, number> = { starter: 0, business: 1, pro: 2 };
 export const FEATURES = {
   articles: { label: "Catalogue d'articles", min: "business", help: "Fiches complètes, photos, catégories, historique des prix." },
   // Fonctions avancées réservées à Pro (verrouillées et proposées en mise à niveau ; non développées dans cette version)
+  costing: { label: "Fournisseurs multiples, frais et valorisation du stock", min: "pro", help: "Comparer vos fournisseurs, intégrer les frais d'approvisionnement au coût, choisir la méthode de valorisation." },
   variants: { label: "Variantes (taille, couleur…)", min: "pro", help: "Un article, plusieurs déclinaisons avec leur propre stock." },
   packaging: { label: "Multi-conditionnement et quantités décimales", min: "pro", help: "Vendre à la pièce, au carton, au kilo ou au litre (1,5 kg), avec conversions automatiques." },
   tieredPricing: { label: "Tarifs par client ou quantité", min: "pro", help: "Prix de gros, remises par palier, tarifs clients." },

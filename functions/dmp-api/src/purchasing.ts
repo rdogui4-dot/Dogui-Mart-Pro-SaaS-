@@ -1,8 +1,14 @@
 import { ACCOUNTS, purchaseJournal } from "../../../src/domain/accounting";
 import { toFcfa } from "../../../src/domain/money";
-import { invoiceStatus, invoiceTtc, lineHt, paidOf, poStatus, toInvoice, toReceive, validateQuantities, weightedCost, type Payment, type PoLine } from "../../../src/domain/purchasing";
+import { invoiceStatus, invoiceTtc, lineHt, paidOf, poStatus, toInvoice, toReceive, validateQuantities, type Payment, type PoLine } from "../../../src/domain/purchasing";
 import { stockFor, stockScaledVariant } from "./checkout";
 import { qtyFor, scaleOf, scaledInt, fromScaled } from "../../../src/domain/quantity";
+import { allocateFees, isCostMethod, landedUnitCost, nextCost, type CostMethod } from "../../../src/domain/costing";
+import { planAllows } from "../../../src/domain/features";
+import { MAX_AMOUNT } from "../../../src/domain/articles";
+import { needFeature } from "./articles";
+import { entitlementOf } from "./subscriptions";
+import { linkId } from "./costing";
 import { lineKey } from "../../../src/domain/variants";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
@@ -59,7 +65,7 @@ export async function cancelPo(store: Store, ctx: Ctx, b: { poId: string }) {
 
 /** Réception (totale ou partielle) : mouvements de stock + coût moyen pondéré.
  *  Ordre sûr en cas de reprise : la commande est mise à jour d'abord (receiptId mémorisé), puis les mouvements sont écrits avec des identifiants déterministes. */
-export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; receiptId: string; lines: { productId: string; variantId?: string; qty: number }[] }) {
+export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; receiptId: string; fees?: number | string; lines: { productId: string; variantId?: string; qty: number }[] }) {
   needModule(ctx, "purchases");
   const rid = safeId(b.receiptId); if (rid.length < 8) throw new HttpError(400, "receiptId invalide");
   const { po, lines, receipts } = await loadPo(store, ctx, b.poId);
@@ -70,18 +76,38 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
   for (const w of wanted) scales.set(w.productId, scaleOf(await store.get("products", w.productId)));
   if (!duplicate) {
     const v = validateQuantities(lines, wanted, toReceive, (id) => scales.get(id) ?? 0); if (!v.ok) throw new HttpError(409, v.error);
-    // coûts moyens calculés avant que le stock ne bouge (par variante pour un article décliné)
-    const costs = new Map<string, { table: string; id: string; cost: number }>();
-    for (const w of wanted) {
+    // Coût de revient de chaque ligne = prix payé + frais proportionnels du fournisseur + part des frais de la réception (transport, douane…), puis méthode de valorisation de la boutique.
+    const fees = b.fees === undefined || String(b.fees).trim() === "" ? 0 : Number(String(b.fees).replace(/\s/g, ""));
+    if (!Number.isInteger(fees) || fees < 0 || fees > MAX_AMOUNT) throw new HttpError(400, "Frais d'approvisionnement invalides : montant entier en FCFA");
+    if (fees > 0) await needFeature(store, ctx, "costing");
+    const pro = planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "costing");
+    const shop = await store.get("shops", ctx.shopId); const method: CostMethod = isCostMethod(shop?.costMethod) ? shop!.costMethod : "cmup";
+    const values = wanted.map((w) => lineHt(w.qty, lines.find((l) => lineKey(l) === lineKey(w))!.unitCost));
+    const alloc = allocateFees(values, fees);
+    const costs = new Map<string, { table: string; id: string; cost: number }>(); const events: Record<string, unknown>[] = []; const links: { id: string; price: number; supplierId: string; productId: string; variantId: string }[] = [];
+    for (const [i, w] of wanted.entries()) {
       const line = lines.find((l) => lineKey(l) === lineKey(w))!;
       const p = must(await store.get("products", w.productId), "Produit introuvable");
       const v = w.variantId ? must(await store.get("article_variants", w.variantId), "Variante introuvable") : null;
       const stock = v ? fromScaled(await stockScaledVariant(store, v.$id), scales.get(w.productId) ?? 0) : await stockFor(store, w.productId, scales.get(w.productId));
-      costs.set(lineKey(w), { table: v ? "article_variants" : "products", id: v ? v.$id : p.$id, cost: weightedCost(stock, Number((v ?? p).cost ?? 0), w.qty, line.unitCost) });
+      const link = pro ? await store.get("article_suppliers", linkId(w.productId, w.variantId ?? "", String(po.supplierId))) : null;
+      const pct = link && link.status !== "inactive" ? Math.round(values[i]! * Number(link.feePct ?? 0) / 100) : 0;
+      const landed = pct + alloc[i]! === 0 ? line.unitCost : landedUnitCost(values[i]!, w.qty, pct, alloc[i]!);
+      const before = Number((v ?? p).cost ?? 0), after = nextCost(method, stock, before, w.qty, landed);
+      costs.set(lineKey(w), { table: v ? "article_variants" : "products", id: v ? v.$id : p.$id, cost: after });
+      events.push({ productId: p.$id, variantId: w.variantId ?? "", supplierId: String(po.supplierId), kind: "receipt", unitCost: line.unitCost, landedCost: landed, qty: w.qty, costBefore: before, costAfter: after, method, ref: String(po.number) });
+      if (pro) links.push({ id: link?.$id ?? linkId(w.productId, w.variantId ?? "", String(po.supplierId)), price: line.unitCost, supplierId: String(po.supplierId), productId: w.productId, variantId: w.variantId ?? "" });
       line.received = Math.round((line.received + w.qty) * 1e6) / 1e6;
     }
+    // Historique du coût écrit AVANT la commande (identifiants fixes) : une reprise après coupure le retrouve et ne le double jamais.
+    for (const [i, ev] of events.entries()) await store.create("article_cost_events", `${rid.slice(0, 28)}_c${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, ...ev });
     await store.update("purchase_orders", po.$id, { lines: JSON.stringify(lines), receipts: JSON.stringify([...receipts, rid]), status: poStatus(lines) });
     for (const c of costs.values()) await store.update(c.table, c.id, { cost: c.cost });
+    // Fournisseur de la commande : dernier prix payé retenu sur la fiche (créée si elle n'existait pas, Pro).
+    for (const l of links) {
+      const when = new Date().toISOString();
+      if (!(await store.create("article_suppliers", l.id, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, variantId: l.variantId, supplierId: l.supplierId, supplierRef: "", price: l.price, leadDays: 0, minQty: 0, feePct: 0, lastPrice: l.price, lastPurchaseAt: when, status: "active" }))) await store.update("article_suppliers", l.id, { lastPrice: l.price, lastPurchaseAt: when });
+    }
   }
   const base = rid.slice(0, 28);
   for (const [i, w] of wanted.entries())

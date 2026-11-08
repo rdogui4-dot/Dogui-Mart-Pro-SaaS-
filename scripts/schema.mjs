@@ -11,7 +11,7 @@ const d = (key) => ({ key, type: "d", required: false });
 const base = [s("tenantId", 64, true), s("shopId", 64, true)];
 
 export const TABLES = {
-  shops: { cols: [s("tenantId", 64, true), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
+  shops: { cols: [s("tenantId", 64, true), s("costMethod", 16), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
   products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64), t("description"), s("unit", 16), s("supplierId", 64), s("imageFileId", 64), i("qtyScale"), b("hasVariants")], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]], ["name_ft", ["name"], "fulltext"], ["sku", ["sku"]], ["category", ["tenantId", "shopId", "category"]]] },
   // Historique des modifications de prix d'un article (les ventes gardent leur propre prix figé).
   // Conditionnements d'un article (1 unité = `factor` unités de base). Une ligne par (article, unité) ; retirée = active:false.
@@ -20,6 +20,10 @@ export const TABLES = {
   article_variants: { cols: [...base, s("productId", 64, true), t("attributes", true), s("attrKey", 255, true), s("label", 255, true), s("sku", 64), s("barcode", 64), i("price", true), i("cost"), i("minStock"), s("imageFileId", 64), b("archived")], idx: [["product", ["productId"]], ["sku", ["sku"]], ["barcode", ["barcode"]], ["shop", ["tenantId", "shopId"]]] },
   // Tarifs avancés (Pro) : promotion, prix par catégorie de clients, prix par quantité. Un prix par règle ; variantId vide = article sans variantes.
   article_price_rules: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("kind", 16, true), i("price", true), s("unit", 16), f("minQty"), s("customerCategory", 16), d("startsAt"), d("endsAt"), i("priority"), b("active"), s("label", 60)], idx: [["product", ["productId"]], ["shop", ["tenantId", "shopId"]]] },
+  // Conditions d'approvisionnement : un fournisseur par (article, variante). lastPrice = dernier prix réellement payé (mis à jour à la réception).
+  article_suppliers: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("supplierId", 64, true), s("supplierRef", 64), i("price", true), i("leadDays"), f("minQty"), f("feePct"), i("lastPrice"), d("lastPurchaseAt"), s("status", 16)], idx: [["product", ["productId"]], ["supplier", ["supplierId"]]] },
+  // Évolution des coûts d'achat : une ligne par article reçu (prix payé, coût de revient avec frais, coût du stock avant/après).
+  article_cost_events: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("supplierId", 64), s("kind", 16, true), i("unitCost"), i("landedCost"), f("qty"), i("costBefore"), i("costAfter"), s("method", 16), s("ref", 64)], idx: [["product", ["productId"]]] },
   price_history: { cols: [...base, s("productId", 64, true), i("oldPrice"), i("newPrice"), i("oldCost"), i("newCost"), s("userId", 64), s("variantId", 64)], idx: [["product", ["productId"]]] },
   // Journal immuable de mouvements : le stock est la somme des mouvements.
   stock_moves: { cols: [...base, s("productId", 64, true), i("qty", true), s("kind", 24, true), s("refId", 64), s("userId", 64), s("unit", 16), f("unitQty"), s("variantId", 64)], idx: [["prod", ["productId"]], ["variant", ["variantId"]]] },
