@@ -14,7 +14,7 @@ describe("money", () => {
   it("refuse un paiement insuffisant et rend la monnaie en espèces seulement", () => {
     expect(settle(1000, [{ method: "cash", amount: 500 }]).ok).toBe(false);
     expect(settle(1000, [{ method: "cash", amount: 2000 }])).toMatchObject({ ok: true, change: 1000 });
-    expect(settle(1000, [{ method: "momo", amount: 1500 }]).ok).toBe(false);
+    expect(settle(1000, [{ method: "wave", amount: 1500 }]).ok).toBe(false);
   });
 });
 describe("loyalty", () => {
@@ -51,5 +51,20 @@ describe("mobile money", () => {
   it("échoue sans configuration (fail closed)", async () => {
     await expect(gatewayFor(undefined).requestToPay({ provider: "mtn", phone: "770000000", amount: 1, saleId: "s", idempotencyKey: "k" })).rejects.toThrow();
     expect(isValidPhone("+221 77 123 45 67")).toBe(true);
+  });
+});
+
+import { buildPaymentUrl, isExpired, linkRef } from "./payment-links";
+describe("payment links", () => {
+  it("construit le lien à partir du modèle du commerçant", () => {
+    expect(buildPaymentUrl("https://pay.example.com/m/X?amount={amount}&ref={ref}", { amount: 1500.4, ref: "DMP 1" })).toBe("https://pay.example.com/m/X?amount=1500&ref=DMP%201");
+  });
+  it("refuse http et les modèles sans montant", () => {
+    expect(() => buildPaymentUrl("http://x.com/?a={amount}", { amount: 1, ref: "r" })).toThrow();
+    expect(() => buildPaymentUrl("https://x.com/", { amount: 1, ref: "r" })).toThrow();
+  });
+  it("expiration et référence", () => {
+    expect(isExpired("2020-01-01T00:00:00Z")).toBe(true);
+    expect(linkRef("abc-12345678xyz")).toMatch(/^DMP-[A-Z0-9]{8}$/);
   });
 });

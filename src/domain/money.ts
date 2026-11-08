@@ -11,7 +11,9 @@ export const lineTotal = (l: CartLine): number =>
 
 export const cartTotal = (lines: CartLine[]): number => lines.reduce((s, l) => s + lineTotal(l), 0);
 
-export type PaymentMethod = "cash" | "momo" | "card" | "credit";
+export type PaymentMethod = "cash" | "wave" | "orange" | "card" | "credit";
+/** Paiements QR (Wave / Orange Business) : doivent être adossés à un lien de paiement confirmé. */
+export const isQrMethod = (m: PaymentMethod): m is "wave" | "orange" => m === "wave" || m === "orange";
 export type Payment = { method: PaymentMethod; amount: number };
 
 /** Valide un encaissement : la somme doit couvrir le total ; la monnaie n'est rendue qu'en espèces. */

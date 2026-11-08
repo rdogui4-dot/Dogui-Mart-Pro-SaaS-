@@ -18,6 +18,7 @@ for (const [tableId, { cols, idx }] of Object.entries(TABLES)) {
     for (const c of cols) {
       const p = { databaseId, tableId, key: c.key, required: !!c.required };
       if (c.type === "s") await db.createStringColumn({ ...p, size: c.size });
+      if (c.type === "t") await db.createTextColumn(p);
       if (c.type === "i") await db.createIntegerColumn(p);
       if (c.type === "f") await db.createFloatColumn(p);
       if (c.type === "b") await db.createBooleanColumn(p);

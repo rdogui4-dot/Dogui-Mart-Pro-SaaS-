@@ -1,4 +1,5 @@
-import { DATABASE_ID, ID, Query, rowPerms, tables } from "./appwrite";
+import { DATABASE_ID, Query, tables } from "./appwrite";
+import { api } from "./api";
 import { delta } from "@/domain/stock";
 import type { Session } from "./session";
 
@@ -9,20 +10,15 @@ export type Supplier = { name: string; phone?: string; email?: string; balance?:
 
 const scope = (s: Session) => [Query.equal("tenantId", s.tenantId), Query.equal("shopId", s.shopId)];
 
+/** Lecture directe (droits de lecture de la Team) ; l'écriture, elle, passe uniquement par la fonction serveur. */
 export async function list<T>(table: string, s: Session, extra: string[] = [], limit = 200): Promise<Row<T>[]> {
   const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [...scope(s), Query.limit(limit), Query.orderDesc("$createdAt"), ...extra] });
   return r.rows as unknown as Row<T>[];
 }
 
-export async function create<T extends object>(table: string, s: Session, data: T, rowId: string = ID.unique()) {
-  return tables.createRow({
-    databaseId: DATABASE_ID, tableId: table, rowId,
-    data: { ...data, tenantId: s.tenantId, shopId: s.shopId },
-    permissions: rowPerms(s.tenantId),
-  });
-}
+export const saveEntity = (s: Session, table: "products" | "customers" | "suppliers", data: object, id?: string) =>
+  api<{ id: string }>(s, "entity.save", { table, id, data });
 
-/** Les ventes sont immuables côté caissier : lecture équipe, aucune écriture ultérieure sauf owner/manager. */
 export async function stockLevels(s: Session): Promise<Map<string, number>> {
   const moves = await list<{ productId: string; qty: number; kind: string }>("stock_moves", s, [], 5000);
   const m = new Map<string, number>();

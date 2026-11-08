@@ -6,5 +6,5 @@ import path from "node:path";
 export default defineConfig({
   plugins: [react(), tailwind()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
-  test: { environment: "node", include: ["src/**/*.test.ts"] },
+  test: { environment: "node", include: ["src/**/*.test.ts", "functions/**/*.test.ts"] },
 });

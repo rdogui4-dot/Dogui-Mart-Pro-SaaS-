@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ScanLine, Minus, Plus } from "lucide-react";
-import { cartTotal, formatFcfa, settle, type CartLine, type Payment, type PaymentMethod } from "@/domain/money";
+import { cartTotal, formatFcfa, settle, isQrMethod, type CartLine, type Payment, type PaymentMethod } from "@/domain/money";
 import { list, stockLevels, type Product, type Customer } from "@/lib/data";
 import { queueSale, syncPending } from "@/lib/offline";
 import { useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
+import { QrPay } from "@/components/QrPay";
 import { canExtendCredit } from "@/domain/credit";
-import { gatewayFor, isValidPhone } from "@/domain/mobile-money";
+
 
 export function PosPage() {
   const { session } = useSession(); const s = session!;
@@ -17,7 +18,7 @@ export function PosPage() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [q, setQ] = useState(""); const [scan, setScan] = useState(false);
   const [pay, setPay] = useState<PaymentMethod>("cash"); const [given, setGiven] = useState("");
-  const [customerId, setCustomerId] = useState(""); const [phone, setPhone] = useState("");
+  const [customerId, setCustomerId] = useState(""); const [qr, setQr] = useState(false);
   const [msg, setMsg] = useState("");
   const total = cartTotal(cart);
 
@@ -27,10 +28,11 @@ export function PosPage() {
   const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 40), [products.data, q]);
   const customer = customers.data?.find((c) => c.$id === customerId);
 
-  async function checkout() {
+  /** linkId : lien QR déjà confirmé. Le serveur revérifie prix, stock, plafond de crédit et lien. */
+  async function submit(linkId?: string) {
     setMsg("");
     const amount = pay === "cash" ? Number(given) || total : total;
-    const payments: Payment[] = [{ method: pay, amount }];
+    const payments: (Payment & { linkId?: string })[] = [{ method: pay, amount, linkId }];
     const r = settle(total, payments);
     if (!r.ok) return setMsg(r.error);
     if (pay === "credit") {
@@ -38,20 +40,11 @@ export function PosPage() {
       const c = canExtendCredit({ balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 }, total);
       if (!c.ok) return setMsg(c.error);
     }
-    const clientId = crypto.randomUUID();
-    if (pay === "momo") {
-      if (!isValidPhone(phone)) return setMsg("Numéro Mobile Money invalide");
-      if (!navigator.onLine) return setMsg("Mobile Money nécessite une connexion");
-      try {
-        // Sans passerelle configurée, le paiement est refusé : aucune vente "payée" sans confirmation.
-        const r = await gatewayFor(import.meta.env.VITE_MOMO_MODE).requestToPay({ provider: "mtn", phone, amount: total, saleId: clientId, idempotencyKey: clientId });
-        if (r.status === "FAILED") return setMsg("Paiement Mobile Money refusé");
-      } catch (e) { return setMsg((e as Error).message); }
-    }
-    await queueSale({ clientId, total, vatRatePct: 18, lines: cart, payments, customerId: customerId || undefined, soldAt: new Date().toISOString(), session: s });
-    setCart([]); setGiven(""); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
-    void syncPending().then(() => stock.refetch());
+    await queueSale({ clientId: crypto.randomUUID(), soldAt: new Date().toISOString(), customerId: customerId || undefined, lines: cart.map((l) => ({ productId: l.productId, qty: l.qty })), payments, session: s });
+    setCart([]); setGiven(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
+    void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); } });
   }
+  const checkout = () => (isQrMethod(pay) ? (navigator.onLine ? setQr(true) : setMsg("Le paiement QR nécessite une connexion")) : void submit());
 
   return (
     <div className="flex flex-col gap-3">
@@ -87,16 +80,16 @@ export function PosPage() {
             {customers.data?.map((c) => <option key={c.$id} value={c.$id}>{c.name}</option>)}
           </select>
           <div className="grid grid-cols-4 gap-1 text-sm">
-            {(["cash", "momo", "card", "credit"] as const).map((m) => (
-              <button key={m} onClick={() => setPay(m)} className={pay === m ? "btn !py-2" : "btn-ghost !py-2"}>{{ cash: "Espèces", momo: "MoMo", card: "Carte", credit: "Crédit" }[m]}</button>
+            {(["cash", "wave", "orange", "credit"] as const).map((m) => (
+              <button key={m} onClick={() => setPay(m)} className={pay === m ? "btn !py-2" : "btn-ghost !py-2"}>{{ cash: "Espèces", wave: "Wave", orange: "Orange", card: "Carte", credit: "Crédit" }[m]}</button>
             ))}
           </div>
           {pay === "cash" && <input className="input" inputMode="numeric" placeholder="Montant reçu" value={given} onChange={(e) => setGiven(e.target.value)} />}
-          {pay === "momo" && <input className="input" inputMode="tel" placeholder="N° Mobile Money" value={phone} onChange={(e) => setPhone(e.target.value)} />}
           <button className="btn text-lg" onClick={checkout}>Encaisser {formatFcfa(total)}</button>
         </section>
       )}
       {msg && <p className="text-center text-amber-300">{msg}</p>}
+      {qr && isQrMethod(pay) && <QrPay session={s} provider={pay} amount={total} onPaid={(id) => void submit(id)} onCancel={() => setQr(false)} />}
       {scan && <Scanner onCode={byCode} onClose={() => setScan(false)} />}
     </div>
   );

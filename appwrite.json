@@ -1,0 +1,21 @@
+{
+  "projectId": "6ae9d6010001952ea399",
+  "projectName": "PRO HRI CENTER",
+  "functions": [
+    {
+      "$id": "dmp-api",
+      "name": "DMP API",
+      "runtime": "node-22",
+      "execute": ["users"],
+      "timeout": 30,
+      "enabled": true,
+      "logging": true,
+      "entrypoint": "dist/main.js",
+      "commands": "",
+      "path": "functions/dmp-api",
+      "ignore": ["src"],
+      "scopes": ["users.read", "teams.read", "databases.read", "databases.write", "tables.read", "tables.write", "rows.read", "rows.write"],
+      "variables": { "DATABASE_ID": "dmp" }
+    }
+  ]
+}

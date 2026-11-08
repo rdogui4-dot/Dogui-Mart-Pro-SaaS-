@@ -5,5 +5,5 @@
     "skipLibCheck": true, "noEmit": true, "types": ["vite/client"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "scripts/*.d.ts", "vite.config.ts"]
+  "include": ["src", "functions", "scripts/*.d.ts", "vite.config.ts"]
 }

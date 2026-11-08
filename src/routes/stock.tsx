@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
 import { isLow, reorderQty } from "@/domain/stock";
-import { create, list, stockLevels, type Product } from "@/lib/data";
+import { list, saveEntity, stockLevels, type Product } from "@/lib/data";
+import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
 
@@ -14,13 +15,13 @@ export function StockPage() {
   const [scan, setScan] = useState(false);
   const add = useMutation({
     mutationFn: async () => {
-      const p = await create("products", s, { name: f.name, barcode: f.barcode || undefined, price: Number(f.price), cost: Number(f.cost) || 0, minStock: Number(f.minStock) || 0, archived: false });
-      if (Number(f.qty) > 0) await create("stock_moves", s, { productId: p.$id, qty: Number(f.qty), kind: "purchase", refId: "initial", userId: s.userId });
+      const p = await saveEntity(s, "products", { name: f.name, barcode: f.barcode || undefined, price: Number(f.price), cost: Number(f.cost) || 0, minStock: Number(f.minStock) || 0, archived: false });
+      if (Number(f.qty) > 0) await api(s, "stock.adjust", { productId: p.id, counted: Number(f.qty) });
     },
     onSuccess: () => { setF({ name: "", barcode: "", price: "", cost: "", minStock: "5", qty: "" }); void qc.invalidateQueries(); },
   });
   const adjust = useMutation({
-    mutationFn: ({ id, qty }: { id: string; qty: number }) => create("stock_moves", s, { productId: id, qty, kind: "adjust", refId: "inventaire", userId: s.userId }),
+    mutationFn: ({ id, counted }: { id: string; counted: number }) => api(s, "stock.adjust", { productId: id, counted }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["stock"] }),
   });
   const low = (products.data ?? []).filter((p) => isLow(levels.data?.get(p.$id) ?? 0, p.minStock ?? 0));
@@ -60,7 +61,7 @@ export function StockPage() {
                 <div className="text-xs text-white/50">{formatFcfa(p.price)} · seuil {p.minStock ?? 0}{isLow(n, p.minStock ?? 0) && ` · à commander : ${reorderQty(n, 0, 14) || "à voir"}`}</div>
               </div>
               <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{n}</div>
-              {can(s.role, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v))) adjust.mutate({ id: p.$id, qty: Number(v) - n }); }}>Compter</button>}
+              {can(s.role, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v))) adjust.mutate({ id: p.$id, counted: Number(v) }); }}>Compter</button>}
             </li>
           );
         })}

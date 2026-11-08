@@ -12,3 +12,4 @@ jobs:
       - run: npm test
       - run: npm run build
         env: { VITE_APPWRITE_ENDPOINT: "https://example.com/v1", VITE_APPWRITE_PROJECT_ID: ci }
+      - run: npm run functions:build

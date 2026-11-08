@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
-import { create, list, type Customer, type Supplier } from "@/lib/data";
+import { list, saveEntity, type Customer, type Supplier } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { tierFor } from "@/domain/loyalty";
 
@@ -14,7 +14,7 @@ export function ClientsPage() {
   const rows = useQuery({ queryKey: ["customers"], queryFn: () => list<Customer>("customers", s, [], 500) });
   const [f, setF] = useState({ name: "", phone: "", creditLimit: "" });
   const add = useMutation({
-    mutationFn: () => create("customers", s, { name: f.name, phone: f.phone, creditLimit: Number(f.creditLimit) || 0, creditBalance: 0, points: 0, annualSpend: 0 }),
+    mutationFn: () => saveEntity(s, "customers", { name: f.name, phone: f.phone, ...(f.creditLimit ? { creditLimit: Number(f.creditLimit) } : {}) }),
     onSuccess: () => { setF({ name: "", phone: "", creditLimit: "" }); void qc.invalidateQueries({ queryKey: ["customers"] }); },
   });
   const owing = (rows.data ?? []).reduce((a, c) => a + (c.creditBalance ?? 0), 0);
@@ -42,7 +42,7 @@ export function AchatsPage() {
   const rows = useQuery({ queryKey: ["suppliers"], queryFn: () => list<Supplier>("suppliers", s, [], 500) });
   const [f, setF] = useState({ name: "", phone: "" });
   const add = useMutation({
-    mutationFn: () => create("suppliers", s, { name: f.name, phone: f.phone, balance: 0 }),
+    mutationFn: () => saveEntity(s, "suppliers", { name: f.name, phone: f.phone }),
     onSuccess: () => { setF({ name: "", phone: "" }); void qc.invalidateQueries({ queryKey: ["suppliers"] }); },
   });
   return (
