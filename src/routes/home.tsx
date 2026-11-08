@@ -4,7 +4,7 @@ import { Tags, LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, User
 import { formatFcfa } from "@/domain/money";
 import { isLow } from "@/domain/stock";
 import { Query } from "@/lib/appwrite";
-import { list, stockLevels, type Product } from "@/lib/data";
+import { list, qtyOf, stockLevels, type Product } from "@/lib/data";
 import { can, useSession, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
 import { stateLabel } from "@/domain/reminders";
@@ -34,7 +34,7 @@ export function HomePage() {
   });
   const paid = (sales.data ?? []).filter((x) => x.status === "paid");
   const total = paid.reduce((a, x) => a + x.total, 0);
-  const low = (stock.data?.products ?? []).filter((p) => !p.archived && isLow(stock.data?.levels.get(p.$id) ?? 0, p.minStock ?? 0));
+  const low = (stock.data?.products ?? []).filter((p) => !p.archived && isLow(qtyOf(stock.data?.levels, p), p.minStock ?? 0));
   const ent = sub.data?.entitlement;
   const visible = (to: string) => to !== "/articles" || planAllows(ent?.plan.id, "articles"); // Articles : Business ou Pro uniquement
   const shopName = s.shops.find((x) => x.id === s.shopId)?.name;

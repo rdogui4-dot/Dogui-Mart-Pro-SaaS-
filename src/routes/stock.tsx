@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
+import { formatQty } from "@/domain/quantity";
 import { isLow, reorderQty } from "@/domain/stock";
-import { list, saveEntity, stockLevels, type Product } from "@/lib/data";
+import { list, qtyOf, saveEntity, stockLevels, type Product } from "@/lib/data";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
@@ -22,11 +23,11 @@ export function StockPage() {
     onSuccess: () => { setF({ name: "", barcode: "", price: "", cost: "", minStock: "5", qty: "" }); void qc.invalidateQueries(); },
   });
   const adjust = useMutation({
-    mutationFn: ({ id, counted }: { id: string; counted: number }) => api(s, "stock.adjust", { productId: id, counted }),
+    mutationFn: ({ id, counted }: { id: string; counted: string }) => api(s, "stock.adjust", { productId: id, counted }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["stock"] }),
   });
-  const low = (products.data ?? []).filter((p) => isLow(levels.data?.get(p.$id) ?? 0, p.minStock ?? 0));
-  const value = (products.data ?? []).reduce((a, p) => a + (levels.data?.get(p.$id) ?? 0) * (p.cost ?? 0), 0);
+  const low = (products.data ?? []).filter((p) => isLow(qtyOf(levels.data, p), p.minStock ?? 0));
+  const value = (products.data ?? []).reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -55,15 +56,15 @@ export function StockPage() {
       {s.shops.length > 1 && can(s, "stock") && <Transfer products={products.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">
         {(products.data ?? []).map((p) => {
-          const n = levels.data?.get(p.$id) ?? 0;
+          const n = qtyOf(levels.data, p);
           return (
             <li key={p.$id} className="card flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate font-medium">{p.name}</div>
                 <div className="text-xs text-white/50">{formatFcfa(p.price)} · seuil {p.minStock ?? 0}{isLow(n, p.minStock ?? 0) && ` · à commander : ${reorderQty(n, 0, 14) || "à voir"}`}</div>
               </div>
-              <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{n}</div>
-              {can(s, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v))) adjust.mutate({ id: p.$id, counted: Number(v) }); }}>Compter</button>}
+              <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{formatQty(n)}</div>
+              {can(s, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v.replace(",", ".")))) adjust.mutate({ id: p.$id, counted: v }); }}>Compter</button>}
             </li>
           );
         })}
@@ -73,7 +74,7 @@ export function StockPage() {
   );
 }
 
-function Transfer({ products, levels, onDone }: { products: { $id: string; name: string }[]; levels?: Map<string, number>; onDone: () => void }) {
+function Transfer({ products, levels, onDone }: { products: { $id: string; name: string; qtyScale?: number }[]; levels?: Map<string, number>; onDone: () => void }) {
   const { session } = useSession(); const s = session!;
   const transferId = useRef(crypto.randomUUID()); // même identifiant à chaque nouvel essai : jamais deux transferts
   const [open, setOpen] = useState(false); const [to, setTo] = useState("");
@@ -83,7 +84,7 @@ function Transfer({ products, levels, onDone }: { products: { $id: string; name:
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setMsg("");
     try {
-      const r = await api<{ number: string }>(s, "stock.transfer", { transferId: transferId.current, toShopId: to, lines: rows.filter((x) => x.productId).map((x) => ({ productId: x.productId, qty: Number(x.qty) })) });
+      const r = await api<{ number: string }>(s, "stock.transfer", { transferId: transferId.current, toShopId: to, lines: rows.filter((x) => x.productId).map((x) => ({ productId: x.productId, qty: x.qty })) });
       transferId.current = crypto.randomUUID(); setRows([{ productId: "", qty: "" }]); setMsg(`Transfert ${r.number} effectué`); onDone();
     } catch (x) { setMsg((x as Error).message); } finally { setBusy(false); }
   }
@@ -95,8 +96,8 @@ function Transfer({ products, levels, onDone }: { products: { $id: string; name:
           <select className="input" required value={to} onChange={(e) => setTo(e.target.value)}><option value="">Boutique de destination…</option>{targets.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
           {rows.map((r, i) => (
             <div key={i} className="grid grid-cols-[1fr_5rem] gap-1">
-              <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value })}><option value="">Produit…</option>{products.map((p) => <option key={p.$id} value={p.$id}>{p.name} ({levels?.get(p.$id) ?? 0})</option>)}</select>
-              <input className="input !px-2" inputMode="numeric" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+              <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value })}><option value="">Produit…</option>{products.map((p) => <option key={p.$id} value={p.$id}>{p.name} ({formatQty(qtyOf(levels, p))})</option>)}</select>
+              <input className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
             </div>
           ))}
           <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { productId: "", qty: "" }])}>+ Ligne</button>

@@ -58,3 +58,9 @@ Extensions de l'existant : `stock_moves` gagne `variantId`, `lotId`, `serial`, `
 7. **Tableau de bord Articles Pro et alertes**.
 
 Opérations manuelles Appwrite : aucune pour l'instant ; chaque phase crée ses colonnes et index (script `schema.mjs` + application sur le projet) et le dira.
+
+## 5. Avancement
+
+- **Phase 1 — quantités et unités : faite** (serveur, tests, interface, schéma Appwrite appliqué et vérifié par écriture/relecture réelle d'un coefficient et d'un mouvement en sous-unités). Colonnes : `products.qtyScale`, `stock_moves.unit` / `unitQty` ; table `article_units`.
+- Décision appliquée : quantités en entiers de sous-unités ; `stock_moves.qty` reste un entier, ce qui laisse intactes toutes les anciennes données (échelle 0).
+- Restent : phases 2 à 7.

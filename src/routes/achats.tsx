@@ -81,9 +81,9 @@ function NewPo({ suppliers, products, onDone }: { suppliers: Row<Supplier>[]; pr
   const [rows, setRows] = useState<{ productId: string; qty: string; unitCost: string }[]>([{ productId: "", qty: "", unitCost: "" }]);
   const [err, setErr] = useState("");
   const set = (i: number, patch: Partial<(typeof rows)[number]>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
-  const total = rows.reduce((a, r) => a + (Number(r.qty) || 0) * (Number(r.unitCost) || 0), 0);
+  const total = rows.reduce((a, r) => a + Math.round((Number(r.qty.replace(",", ".")) || 0) * (Number(r.unitCost) || 0) * 1e6) / 1e6, 0);
   const submit = useMutation({
-    mutationFn: () => api(s, "po.create", { clientId: clientId.current, supplierId, lines: rows.filter((r) => r.productId).map((r) => ({ productId: r.productId, qty: Number(r.qty), unitCost: Number(r.unitCost) })) }),
+    mutationFn: () => api(s, "po.create", { clientId: clientId.current, supplierId, lines: rows.filter((r) => r.productId).map((r) => ({ productId: r.productId, qty: r.qty, unitCost: Number(r.unitCost) })) }),
     onSuccess: onDone, onError: (e) => setErr((e as Error).message),
   });
   return (
@@ -96,7 +96,7 @@ function NewPo({ suppliers, products, onDone }: { suppliers: Row<Supplier>[]; pr
           <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value, unitCost: String(products.find((p) => p.$id === e.target.value)?.cost ?? "") })}>
             <option value="">Produit…</option>{products.map((p) => <option key={p.$id} value={p.$id}>{p.name}</option>)}
           </select>
-          <input className="input !px-2" inputMode="numeric" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+          <input className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
           <input className="input !px-2" inputMode="numeric" placeholder="Prix HT" value={r.unitCost} onChange={(e) => set(i, { unitCost: e.target.value })} />
         </div>
       ))}
@@ -130,10 +130,10 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
         <div className="flex flex-col gap-1 border-t border-white/10 pt-2">
           {ls.filter((l) => toReceive(l) > 0).map((l) => (
             <label key={l.productId} className="flex items-center justify-between gap-2 text-sm">{l.name} (reste {toReceive(l)})
-              <input className="input !w-20 !py-2" inputMode="numeric" value={qty[l.productId] ?? ""} onChange={(e) => setQty({ ...qty, [l.productId]: e.target.value })} /></label>
+              <input className="input !w-20 !py-2" inputMode="decimal" value={qty[l.productId] ?? ""} onChange={(e) => setQty({ ...qty, [l.productId]: e.target.value })} /></label>
           ))}
           <button className="btn" disabled={busy} onClick={() => void run(
-            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, lines: Object.entries(qty).filter(([, v]) => Number(v) > 0).map(([productId, v]) => ({ productId, qty: Number(v) })) }),
+            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, lines: Object.entries(qty).filter(([, v]) => Number(v.replace(",", ".")) > 0).map(([productId, v]) => ({ productId, qty: v })) }),
             () => { setOpen(false); receiptId.current = crypto.randomUUID(); })}>Confirmer la réception</button>
         </div>
       )}

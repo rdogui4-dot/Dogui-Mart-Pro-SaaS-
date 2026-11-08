@@ -2,10 +2,11 @@ import { DATABASE_ID, Query, tables } from "./appwrite";
 import type { Shop } from "@/domain/documents";
 import { api } from "./api";
 import { delta } from "@/domain/stock";
+import { fromScaled } from "@/domain/quantity";
 import type { Session } from "./session";
 
 export type Row<T> = T & { $id: string; $createdAt: string };
-export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean };
+export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string };
 export type Customer = { name: string; phone?: string; creditLimit?: number; creditBalance?: number; points?: number; annualSpend?: number };
 export type Supplier = { name: string; phone?: string; email?: string; balance?: number };
 
@@ -48,3 +49,7 @@ export async function listTenant<T>(table: string, s: Session, limit = 100): Pro
   const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [Query.equal("tenantId", s.tenantId), Query.limit(limit)] });
   return r.rows as unknown as Row<T>[];
 }
+
+/** Stock lisible d'un article : `stockLevels` renvoie des entiers de sous-unités, on les remet à l'échelle de l'article (kg, litre…). */
+export const qtyOf = (levels: Map<string, number> | undefined, p: { $id: string; qtyScale?: number }): number => fromScaled(levels?.get(p.$id) ?? 0, p.qtyScale ?? 0);
+export type UnitRow = Row<{ productId: string; unit: string; factor: number; active?: boolean }>;

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Camera, ChevronLeft, Grid2x2, Image as ImageIcon, List, Lock, Pencil, Plus, ScanLine, Search, Trash2, Undo2, X } from "lucide-react";
 import { api } from "@/lib/api";
-import { DATABASE_ID, tables } from "@/lib/appwrite";
-import { listAll, list, stockLevels, type Product, type Supplier } from "@/lib/data";
+import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
+import { listAll, list, qtyOf, stockLevels, type Product, type Supplier, type UnitRow } from "@/lib/data";
 import { compressImage, fetchArticles, fetchPriceHistory, useArticleImage, type ArticleRow, type Filters } from "@/lib/articles";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
@@ -11,6 +11,7 @@ import { formatFcfa } from "@/domain/money";
 import { UNITS, marginOf, sellsAtLoss, unitLabel } from "@/domain/articles";
 import { FEATURES, PRO_LOCKED, planAllows } from "@/domain/features";
 import { isLow } from "@/domain/stock";
+import { SCALES, formatQty, scaleLabel } from "@/domain/quantity";
 import { useSubscription } from "./subscription";
 
 const SORTS: [Filters["sort"], string][] = [["name_asc", "Nom A → Z"], ["name_desc", "Nom Z → A"], ["new", "Plus récents"], ["old", "Plus anciens"]];
@@ -38,6 +39,7 @@ function Upsell() {
 
 function Catalogue() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
+  const sub = useSubscription(); const pro = planAllows(sub.data?.entitlement.plan.id, "packaging");
   const [f, setF] = useState<Filters>({ q: "", status: "active", category: "", sort: "name_asc" });
   const [qInput, setQInput] = useState(""); const [grid, setGrid] = useState(false);
   const [form, setForm] = useState<ArticleRow | "new" | null>(null); const [detail, setDetail] = useState<ArticleRow | null>(null); const [scan, setScan] = useState(false);
@@ -56,8 +58,8 @@ function Catalogue() {
   const all = (stats.data?.all ?? []);
   const active = all.filter((p) => !p.archived);
   const categories = [...new Set(all.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "fr"));
-  const value = active.reduce((a, p) => a + Math.max(levels?.get(p.$id) ?? 0, 0) * (p.cost ?? 0), 0);
-  const alerts = active.filter((p) => isLow(levels?.get(p.$id) ?? 0, p.minStock ?? 0)).length;
+  const value = active.reduce((a, p) => a + Math.max(qtyOf(levels, p), 0) * (p.cost ?? 0), 0);
+  const alerts = active.filter((p) => isLow(qtyOf(levels, p), p.minStock ?? 0)).length;
   const rows = page.data?.pages.flatMap((p) => p.rows) ?? [];
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["articles"] }); void qc.invalidateQueries({ queryKey: ["articles-stats"] }); void qc.invalidateQueries({ queryKey: ["products"] }); void qc.invalidateQueries({ queryKey: ["stock"] }); };
 
@@ -92,13 +94,13 @@ function Catalogue() {
         </div>
       )}
       <ul className={grid ? "grid grid-cols-2 gap-2" : "flex flex-col gap-2"}>
-        {rows.map((a) => <ArticleCard key={a.$id} a={a} qty={levels ? levels.get(a.$id) ?? 0 : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
+        {rows.map((a) => <ArticleCard key={a.$id} a={a} qty={levels ? qtyOf(levels, a) : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
       </ul>
       {page.hasNextPage && <button className="btn-ghost" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>{page.isFetchingNextPage ? "Chargement…" : "Voir plus d'articles"}</button>}
       <ProLocks />
 
-      {detail && <ArticleDetail a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={levels?.get(detail.$id) ?? 0} onClose={() => setDetail(null)} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
-      {form && <ArticleForm initial={form === "new" ? null : form} qty={form === "new" ? 0 : levels?.get(form.$id) ?? 0} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
+      {detail && <ArticleDetail a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} onClose={() => setDetail(null)} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
+      {form && <ArticleForm initial={form === "new" ? null : form} pro={pro} qty={form === "new" ? 0 : qtyOf(levels, form)} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
       {scan && <Scanner onCode={(c) => { setQInput(c); setScan(false); }} onClose={() => setScan(false)} />}
     </div>
   );
@@ -119,7 +121,7 @@ function ArticleCard({ a, qty, grid, onOpen }: { a: ArticleRow; qty?: number; gr
           <div className="font-semibold truncate">{a.name}</div>
           <div className="text-xs text-white/50 truncate">{[a.sku, a.category].filter(Boolean).join(" · ") || "—"}</div>
           <div className="flex items-center justify-between mt-1"><span className="gold-text font-bold">{formatFcfa(a.price)}</span>
-            <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{qty === undefined ? "…" : `${qty} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
+            <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
           {a.archived && <span className="text-xs text-amber-300">Archivé</span>}
         </div>
       </button>
@@ -147,11 +149,12 @@ function Confirm({ text, confirmLabel, danger, onYes, onNo }: { text: string; co
   );
 }
 
-function ArticleDetail({ a, qty, onClose, onEdit, onChanged }: { a: ArticleRow; qty: number; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
+function ArticleDetail({ a, qty, pro, onClose, onEdit, onChanged }: { a: ArticleRow; qty: number; pro: boolean; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
-  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState("");
+  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false);
+  const units = useQuery({ queryKey: ["units", a.$id], queryFn: async () => ((await tables.listRows({ databaseId: DATABASE_ID, tableId: "article_units", queries: [Query.equal("productId", a.$id), Query.equal("active", true), Query.limit(20)] })).rows as unknown as UnitRow[]) });
   const m = marginOf(a.price, a.cost ?? 0); const loss = sellsAtLoss(a.price, a.cost ?? 0);
   const act = useMutation({
     mutationFn: async (kind: "archive" | "restore" | "delete" | "count") => {
@@ -173,7 +176,7 @@ function ArticleDetail({ a, qty, onClose, onEdit, onChanged }: { a: ArticleRow; 
         {row("Fournisseur principal", sup.data?.name ?? (a.supplierId && !can(s, "purchases") ? "Non visible avec vos accès" : ""))}
         {row("Prix de vente", <b className="gold-text">{formatFcfa(a.price)}</b>)}{row("Prix d'achat", a.cost ? formatFcfa(a.cost) : "")}
         {row("Marge brute indicative", a.cost ? `${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Prix d'achat non renseigné")}
-        {row("Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-red-400" : ""}>{qty} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Seuil d'alerte", a.minStock ?? 0)}
+        {row("Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-red-400" : ""}>{formatQty(qty)} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Précision des quantités", scaleLabel(a.qtyScale ?? 0))}{row("Seuil d'alerte", a.minStock ?? 0)}
       </div>
       {loss && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
       {a.description && <div className="card text-sm whitespace-pre-line">{a.description}</div>}
@@ -182,10 +185,17 @@ function ArticleDetail({ a, qty, onClose, onEdit, onChanged }: { a: ArticleRow; 
           <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>
             <span className="text-right">{h.oldPrice ? `${formatFcfa(h.oldPrice)} → ` : "Création : "}{formatFcfa(h.newPrice ?? 0)}<span className="text-white/40"> · achat {formatFcfa(h.newCost ?? 0)}</span></span></li>)}</ul>}
         <p className="text-xs text-white/40 mt-2">Les ventes déjà enregistrées gardent le prix du jour de la vente.</p></div>
+      {(pro || !!units.data?.length) && (
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Conditionnements</h3>{pro && <button className="text-sm text-[var(--gold)]" onClick={() => setUnitsOpen(true)}>Modifier</button>}</div>
+          {!units.data?.length ? <p className="text-sm text-white/50 mt-1">Vendu uniquement en {unitLabel(a.unit).toLowerCase()}.</p> :
+            <ul className="text-sm mt-1 flex flex-col gap-1">{units.data.map((u) => <li key={u.$id} className="flex justify-between"><span>1 {unitLabel(u.unit).toLowerCase()} = {formatQty(u.factor)} {unitLabel(a.unit).toLowerCase()}</span><span className="gold-text font-semibold">{formatFcfa(Math.round(a.price * u.factor * 1e6) / 1e6)}</span></li>)}</ul>}
+          {!pro && <p className="text-xs text-amber-300 mt-2">Conditionnements désactivés (formule Business) : vos données sont conservées, la vente se fait en {unitLabel(a.unit).toLowerCase()}.</p>}
+        </div>
+      )}
       {err && <p className="text-red-400 text-sm">{err}</p>}
       <div className="grid grid-cols-2 gap-2">
         <button className="btn flex items-center justify-center gap-2" onClick={onEdit}><Pencil size={18} />Modifier</button>
-        <button className="btn-ghost" onClick={() => { setCounted(String(qty)); setAsk("count"); }}>Compter le stock</button>
+        <button className="btn-ghost" onClick={() => { setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>Compter le stock</button>
         {a.archived ? <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("restore")}><Undo2 size={18} />Restaurer</button> : <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("archive")}><Archive size={18} />Archiver</button>}
         {canDelete && <button className="btn-ghost !text-red-300 flex items-center justify-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={18} />Supprimer</button>}
       </div>
@@ -195,20 +205,55 @@ function ArticleDetail({ a, qty, onClose, onEdit, onChanged }: { a: ArticleRow; 
       {ask === "count" && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4"><div className="card w-full max-w-sm flex flex-col gap-3">
           <p>Inventaire de « {a.name} » : quantité réellement comptée ?</p>
-          <input className="input" inputMode="numeric" autoFocus value={counted} onChange={(e) => setCounted(e.target.value)} />
-          <p className="text-xs text-white/50">Stock enregistré : {qty}. L'écart sera tracé comme mouvement d'inventaire.</p>
-          <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
+          <input className="input" inputMode="decimal" autoFocus value={counted} onChange={(e) => setCounted(e.target.value)} />
+          <p className="text-xs text-white/50">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
+          <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+([.,]\d{1,3})?$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
       )}
+      {unitsOpen && <UnitsEditor a={a} current={units.data ?? []} onClose={() => setUnitsOpen(false)} onSaved={() => { void units.refetch(); onChanged(); }} />}
     </Sheet>
   );
 }
 
-function ArticleForm({ initial, qty, onClose, onSaved }: { initial: ArticleRow | null; qty: number; onClose: () => void; onSaved: () => void }) {
+/** Conditionnements : « 1 carton = 12 pièces ». Le prix équivalent est calculé à partir du prix de l'unité de base. */
+function UnitsEditor({ a, current, onClose, onSaved }: { a: ArticleRow; current: UnitRow[]; onClose: () => void; onSaved: () => void }) {
+  const { session } = useSession(); const s = session!;
+  const base = a.unit || "piece"; const scale = a.qtyScale ?? 0;
+  const [rows, setRows] = useState<{ unit: string; factor: string }[]>(current.map((u) => ({ unit: u.unit, factor: String(u.factor).replace(".", ",") })));
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [done, setDone] = useState("");
+  const choices = UNITS.filter((u) => u.id !== base);
+  const set = (i: number, p: Partial<(typeof rows)[number]>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  const factorOk = (v: string) => { const n = Number(v.replace(",", ".")); const d = (v.split(/[.,]/)[1] ?? "").length; return n > 0 && d <= scale; };
+  async function save() {
+    setBusy(true); setErr(""); setDone("");
+    try { await api(s, "article.units.save", { productId: a.$id, units: rows.map((r) => ({ unit: r.unit, factor: r.factor.replace(",", ".") })) }); setDone("Conditionnements enregistrés."); onSaved(); setTimeout(onClose, 600); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <Sheet title={`Conditionnements · ${a.name}`} onClose={onClose} back>
+      <p className="text-sm text-white/60">Unité de base : <b>{unitLabel(base)}</b>. Indiquez combien d'unités de base contient chaque conditionnement.{scale === 0 ? " Cet article se vend à l'unité entière : coefficients entiers." : ` Jusqu'à ${scale} décimale${scale > 1 ? "s" : ""}.`}</p>
+      {rows.map((r, i) => (
+        <div key={i} className="card flex flex-col gap-2">
+          <div className="grid grid-cols-[1fr_6rem_auto] gap-2 items-center">
+            <select className="input !px-2" aria-label="Unité" value={r.unit} onChange={(e) => set(i, { unit: e.target.value })}>{choices.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}</select>
+            <input className="input !px-2" aria-label="Coefficient" inputMode="decimal" placeholder="Coef." value={r.factor} onChange={(e) => set(i, { factor: e.target.value })} />
+            <button type="button" className="p-2 text-red-300" aria-label="Retirer" onClick={() => setRows(rows.filter((_, j) => j !== i))}><X size={18} /></button>
+          </div>
+          <p className={`text-xs ${r.factor && !factorOk(r.factor) ? "text-red-300" : "text-white/50"}`}>{r.factor && factorOk(r.factor) ? `1 ${unitLabel(r.unit).toLowerCase()} = ${r.factor} ${unitLabel(base).toLowerCase()} · ${formatFcfa(Math.round(a.price * Number(r.factor.replace(",", ".")) * 1e6) / 1e6)}` : "Coefficient positif, dans la précision de l'article"}</p>
+        </div>
+      ))}
+      {rows.length < 8 && <button className="btn-ghost" onClick={() => setRows([...rows, { unit: choices.find((u) => !rows.some((r) => r.unit === u.id))?.id ?? choices[0]!.id, factor: "" }])}>+ Ajouter un conditionnement</button>}
+      {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}{done && <p className="text-emerald-400 text-sm" role="status">{done}</p>}
+      <button className="btn" disabled={busy || rows.some((r) => !factorOk(r.factor))} onClick={() => void save()}>{busy ? "Enregistrement…" : "Enregistrer"}</button>
+    </Sheet>
+  );
+}
+
+function ArticleForm({ initial, qty, pro, onClose, onSaved }: { initial: ArticleRow | null; qty: number; pro: boolean; onClose: () => void; onSaved: () => void }) {
   const { session } = useSession(); const s = session!;
   const edit = !!initial; const requestId = useRef(crypto.randomUUID());
   const [f, setF] = useState({
     name: initial?.name ?? "", sku: initial?.sku ?? "", barcode: initial?.barcode ?? "", category: initial?.category ?? "", description: initial?.description ?? "",
-    price: initial ? String(initial.price) : "", cost: initial?.cost ? String(initial.cost) : "", unit: initial?.unit ?? "piece", minStock: String(initial?.minStock ?? 5), supplierId: initial?.supplierId ?? "", qty: "",
+    price: initial ? String(initial.price) : "", cost: initial?.cost ? String(initial.cost) : "", unit: initial?.unit ?? "piece", minStock: String(initial?.minStock ?? 5), supplierId: initial?.supplierId ?? "", qty: "", qtyScale: String(initial?.qtyScale ?? 0),
   });
   const [photo, setPhoto] = useState<File | null>(null); const [removePhoto, setRemovePhoto] = useState(false); const [preview, setPreview] = useState<string | null>(null);
   const [scan, setScan] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [done, setDone] = useState("");
@@ -219,15 +264,16 @@ function ArticleForm({ initial, qty, onClose, onSaved }: { initial: ArticleRow |
   const price = Number(f.price) || 0, cost = Number(f.cost) || 0; const m = marginOf(price, cost);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   const numeric = (v: string) => v === "" || /^\d+$/.test(v.replace(/\s/g, ""));
-  const valid = f.name.trim() && f.price !== "" && numeric(f.price) && numeric(f.cost) && numeric(f.minStock) && (edit || numeric(f.qty));
+  const decimal = (v: string) => v === "" || (/^\d+([.,]\d{1,3})?$/.test(v.trim()) && (v.split(/[.,]/)[1] ?? "").length <= Number(f.qtyScale));
+  const valid = f.name.trim() && f.price !== "" && numeric(f.price) && numeric(f.cost) && numeric(f.minStock) && (edit || decimal(f.qty));
   const existingPhoto = useArticleImage(initial?.imageFileId, 400);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr(""); setDone("");
     let id = initial?.$id ?? "";
     try {
-      const data = { name: f.name, sku: f.sku, barcode: f.barcode, category: f.category, description: f.description, price: f.price.replace(/\s/g, ""), cost: f.cost.replace(/\s/g, ""), unit: f.unit, minStock: f.minStock, supplierId: f.supplierId };
-      const r = await api<{ id: string }>(s, "article.save", edit ? { id, data } : { requestId: requestId.current, data, initialQty: f.qty ? Number(f.qty) : 0 });
+      const data = { name: f.name, sku: f.sku, barcode: f.barcode, category: f.category, description: f.description, price: f.price.replace(/\s/g, ""), cost: f.cost.replace(/\s/g, ""), unit: f.unit, minStock: f.minStock, supplierId: f.supplierId, ...(pro || Number(f.qtyScale) !== (initial?.qtyScale ?? 0) ? { qtyScale: Number(f.qtyScale) } : {}) };
+      const r = await api<{ id: string }>(s, "article.save", edit ? { id, data } : { requestId: requestId.current, data, initialQty: f.qty ? f.qty.trim() : 0 });
       id = r.id; onSaved();
     } catch (x) { setErr((x as Error).message); setBusy(false); return; }
     try { // la photo n'est confirmée qu'après réponse positive du serveur
@@ -266,7 +312,9 @@ function ArticleForm({ initial, qty, onClose, onSaved }: { initial: ArticleRow |
           {lbl("Unité de vente", <select className="input" value={f.unit} onChange={set("unit")}>{UNITS.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}</select>)}
           {lbl("Seuil d'alerte", <input className="input" inputMode="numeric" value={f.minStock} onChange={set("minStock")} />)}
         </div>
-        {edit ? <p className="text-sm text-white/50">Stock actuel : <b>{qty}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="numeric" value={f.qty} onChange={set("qty")} />)}
+        {pro && lbl("Précision des quantités", <select className="input" value={f.qtyScale} onChange={set("qtyScale")}>{SCALES.map((x) => <option key={x} value={x}>{scaleLabel(x)}</option>)}</select>)}
+        {pro && <p className="text-xs text-white/40 -mt-2">Pour vendre au kilo ou au litre. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
+        {edit ? <p className="text-sm text-white/50">Stock actuel : <b>{formatQty(qty)}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="decimal" value={f.qty} onChange={set("qty")} />)}
         {can(s, "purchases") && lbl("Fournisseur principal (facultatif)", <select className="input" value={f.supplierId} onChange={set("supplierId")}><option value="">Aucun</option>{(suppliers.data ?? []).map((x) => <option key={x.$id} value={x.$id}>{x.name}</option>)}</select>)}
         {lbl("Description", <textarea className="input" rows={3} maxLength={1000} value={f.description} onChange={set("description")} />)}
         {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}

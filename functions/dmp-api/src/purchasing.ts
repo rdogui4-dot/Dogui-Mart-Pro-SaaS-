@@ -61,7 +61,7 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
   const { po, lines, receipts } = await loadPo(store, ctx, b.poId);
   if (po.status === "cancelled") throw new HttpError(409, "Commande annulée");
   const duplicate = receipts.includes(rid);
-  const wanted = (b.lines ?? []).map((w) => ({ productId: w.productId, qty: Number(w.qty) }));
+  const wanted = (b.lines ?? []).map((w) => ({ productId: w.productId, qty: Number(String(w.qty).replace(",", ".")) }));
   const scales = new Map<string, number>();
   for (const w of wanted) scales.set(w.productId, scaleOf(await store.get("products", w.productId)));
   if (!duplicate) {
