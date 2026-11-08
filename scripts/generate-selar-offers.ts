@@ -1,11 +1,12 @@
 // Génère docs/offres-selar.pdf et docs/offres-selar.md depuis le catalogue de l'application.
-// Usage : npm run docs:offers
+// Usage : npm run docs:offers [-- https://app.exemple.com]   (sans domaine, les URL de redirection portent le marqueur VOTRE-DOMAINE)
 import { mkdirSync, writeFileSync } from "node:fs";
 import { buildOffers, offersMarkdown } from "../src/domain/selar-offers";
 import { buildOffersPdf } from "../src/lib/offers-pdf";
 
 mkdirSync("docs", { recursive: true });
 const now = new Date();
-writeFileSync("docs/offres-selar.pdf", Buffer.from((await buildOffersPdf(now)).output("arraybuffer")));
-writeFileSync("docs/offres-selar.md", offersMarkdown(buildOffers(), now));
+const base = process.argv[2] || process.env.APP_URL || undefined;
+writeFileSync("docs/offres-selar.pdf", Buffer.from((await buildOffersPdf(now, undefined, base)).output("arraybuffer")));
+writeFileSync("docs/offres-selar.md", offersMarkdown(buildOffers(undefined, base), now));
 console.log("docs/offres-selar.pdf et docs/offres-selar.md générés");

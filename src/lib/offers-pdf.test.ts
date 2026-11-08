@@ -4,6 +4,8 @@ import { buildOffersPdf } from "./offers-pdf";
 describe("PDF des offres Selar", () => {
   it("document valide : couverture, consignes, tarifs, une page par offre (15), procédures", async () => {
     const doc = await buildOffersPdf(new Date("2026-11-08T10:00:00Z"));
+    const withDomain = await buildOffersPdf(new Date("2026-11-08T10:00:00Z"), undefined, "https://app.exemple.com");
+    expect(withDomain.getNumberOfPages()).toBe(19); // un domaine plus long ne doit pas faire déborder une fiche
     // 1 couverture + 1 consignes + 1 tarifs/récapitulatif + 15 fiches + 1 procédures. Si une fiche débordait, le total changerait.
     expect(doc.getNumberOfPages()).toBe(19);
     const bytes = new Uint8Array(doc.output("arraybuffer"));

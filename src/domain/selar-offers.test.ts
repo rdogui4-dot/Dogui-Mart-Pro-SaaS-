@@ -51,8 +51,15 @@ describe("offres Selar", () => {
     for (const o of offers) for (const s of [o.name, o.shortDescription, o.longDescription, o.postPurchase]) expect(PRINTABLE.test(s), `${o.key}: ${s.match(/[^ -ÿ\n]/)?.[0]}`).toBe(true);
     for (const s of [...COMMON_FEATURES, ...NOT_AVAILABLE]) expect(PRINTABLE.test(s)).toBe(true);
   });
+  it("chaque offre a son URL de redirection, avec le domaine fourni ou le marqueur explicite", () => {
+    expect(new Set(offers.map((o) => o.redirectUrl)).size).toBe(15);
+    for (const o of offers) { expect(o.redirectUrl).toBe(`https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=${o.plan}&periode=${o.period}`); }
+    const real = buildOffers(undefined, "https://app.exemple.com");
+    expect(real.find((o) => o.key === "pro:year")!.redirectUrl).toBe("https://app.exemple.com/reglages?onglet=abonnement&formule=pro&periode=year");
+    expect(() => buildOffers(undefined, "http://app.exemple.com")).toThrow();
+  });
   it("la version Markdown contient les 15 offres", () => {
     const md = offersMarkdown(offers, new Date("2026-11-08T10:00:00Z"));
-    expect(md.match(/^## \d+\. /gm)).toHaveLength(15); expect(md).toContain("`starter:day`"); expect(md).toContain("08/11/2026");
+    expect(md.match(/^## \d+\. /gm)).toHaveLength(15); expect(md).toContain("`starter:day`"); expect(md.match(/URL de redirection après paiement/g)).toHaveLength(15); expect(md).toContain("08/11/2026");
   });
 });

@@ -2,6 +2,7 @@
  *  prix, durées et limites ne peuvent donc pas diverger de ce que l'application applique. Ne décrit que des fonctions existantes. */
 import { DEFAULT_PLANS, GRACE_DAYS, PERIODS, PERIOD_DAYS, PERIOD_LABEL, TRIAL, type Period, type Plan, type PlanId } from "./subscriptions";
 import { linkKey } from "./selar";
+import { redirectUrl } from "./redirects";
 
 const nbsp = (s: string) => s.replace(/[  ]/g, " ");
 export const fcfa = (n: number): string => nbsp(`${n.toLocaleString("fr-FR")} FCFA`);
@@ -42,6 +43,8 @@ export type Offer = {
   name: string; shortDescription: string; longDescription: string;
   priceFcfa: number; durationDays: number; perDayFcfa: number; savingsPct: number | null; savingsVs: string | null;
   postPurchase: string; limits: string[];
+  /** URL à saisir comme redirection après paiement (domaine de l'application, ou marqueur VOTRE-DOMAINE tant qu'il est inconnu). */
+  redirectUrl: string;
 };
 
 /** Économie par rapport à la période immédiatement plus courte payée en répétition (jour→semaine→mois→trimestre→année). */
@@ -64,7 +67,7 @@ export const postPurchaseMessage = (planName: string, periodLabel: string): stri
   `Notre équipe vérifie votre paiement puis active votre abonnement [délai à préciser, par exemple : sous 24 h ouvrées].\n` +
   `Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].`;
 
-export function buildOffers(plans: Plan[] = DEFAULT_PLANS): Offer[] {
+export function buildOffers(plans: Plan[] = DEFAULT_PLANS, appBase?: string): Offer[] {
   const out: Offer[] = [];
   for (const plan of plans) for (const period of PERIODS) {
     const days = PERIOD_DAYS[period], price = plan.prices[period], sv = savings(plan, period);
@@ -82,7 +85,7 @@ export function buildOffers(plans: Plan[] = DEFAULT_PLANS): Offer[] {
       `Essai gratuit de ${TRIAL.days} jours à l'inscription dans l'application, sans paiement.`,
       sv ? `ÉCONOMIE : ${sv.pct} % moins cher que ${sv.vs}.` : "",
     ].filter(Boolean).join("\n\n");
-    out.push({ key: linkKey(plan.id, period), plan: plan.id, period, planName: plan.name, periodLabel, name, shortDescription, longDescription: long, priceFcfa: price, durationDays: days, perDayFcfa: Math.round(price / days), savingsPct: sv?.pct ?? null, savingsVs: sv?.vs ?? null, postPurchase: postPurchaseMessage(plan.name, periodLabel), limits });
+    out.push({ key: linkKey(plan.id, period), plan: plan.id, period, planName: plan.name, periodLabel, name, shortDescription, longDescription: long, priceFcfa: price, durationDays: days, perDayFcfa: Math.round(price / days), savingsPct: sv?.pct ?? null, savingsVs: sv?.vs ?? null, postPurchase: postPurchaseMessage(plan.name, periodLabel), limits, redirectUrl: redirectUrl(plan.id, period, appBase) });
   }
   return out;
 }
@@ -90,5 +93,6 @@ export function buildOffers(plans: Plan[] = DEFAULT_PLANS): Offer[] {
 /** Version texte (Markdown) pour copier-coller champ par champ dans Selar. */
 export function offersMarkdown(offers: Offer[], now: Date = new Date()): string {
   const head = `# Offres d'abonnement Dogui Mart Pro - fiches Selar\n\nGénéré le ${now.toLocaleDateString("fr-FR")} depuis le catalogue de l'application. ${offers.length} offres à créer.\n`;
-  return head + offers.map((o, i) => `\n---\n\n## ${i + 1}. ${o.name}\n\n- **Clé de l'application** : \`${o.key}\`\n- **Prix** : ${o.priceFcfa} FCFA (${fcfa(o.priceFcfa)})\n- **Durée** : ${o.durationDays} jour(s)\n\n**Description courte**\n\n${o.shortDescription}\n\n**Description détaillée**\n\n${o.longDescription}\n\n**Message après achat**\n\n${o.postPurchase}\n`).join("");
+  return head + offers.map((o, i) => `\n---\n\n## ${i + 1}. ${o.name}\n\n- **Clé de l'application** : \`${o.key}\`\n- **Prix** : ${o.priceFcfa} FCFA (${fcfa(o.priceFcfa)})\n- **Durée** : ${o.durationDays} jour(s)
+- **URL de redirection après paiement** : ${o.redirectUrl}\n\n**Description courte**\n\n${o.shortDescription}\n\n**Description détaillée**\n\n${o.longDescription}\n\n**Message après achat**\n\n${o.postPurchase}\n`).join("");
 }

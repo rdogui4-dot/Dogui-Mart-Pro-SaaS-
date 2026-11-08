@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
-import { PERIODS, PERIOD_LABEL, priceFor, type Entitlement, type Period, type Plan } from "@/domain/subscriptions";
+import { PERIODS, PERIOD_LABEL, priceFor, type Entitlement, type Period, type Plan, type PlanId } from "@/domain/subscriptions";
 import { linkKey } from "@/domain/selar";
 import { bannerMessage, stateLabel, whatsappNumber, type ReminderLevel } from "@/domain/reminders";
 
@@ -49,11 +49,14 @@ export function SubscriptionBanner() {
   );
 }
 
-export function SubscriptionSection() {
+export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; period: Period } }) {
   const { session } = useSession(); const s = session!;
+  const picked = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const { data, isLoading, error } = useSubscription();
-  const [period, setPeriod] = useState<Period>("month");
+  const [period, setPeriod] = useState<Period>(initial?.period ?? "month");
+  const [cameFrom] = useState(initial); // offre indiquée par l'URL de redirection de Selar
+  useEffect(() => { picked.current?.scrollIntoView({ block: "center" }); }, [!!cameFrom]);
   const [pay, setPay] = useState<Plan | null>(null);
   if (isLoading) return <p className="text-white/50">Chargement…</p>;
   if (error || !data) return <p className="text-red-400 text-sm">{(error as Error)?.message ?? "Erreur"}</p>;
@@ -73,11 +76,12 @@ export function SubscriptionSection() {
 
       <div className="card flex flex-col gap-2">
         <h2 className="font-semibold">Choisir une formule</h2>
+        {cameFrom && <p className="text-sm rounded-lg bg-white/5 p-2">Vous revenez de Selar ? Votre offre est en surbrillance. Touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
         <div className="grid grid-cols-5 gap-1 text-xs">
           {PERIODS.map((p) => <button key={p} className={period === p ? "btn !py-2 !px-1 !text-xs" : "btn-ghost !py-2 !px-1 !text-xs"} onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</button>)}
         </div>
         {data.plans.map((p) => (
-          <div key={p.id} className={`rounded-xl border p-3 flex flex-col gap-1 ${p.id === e.plan.id ? "border-[var(--gold)]" : "border-white/10"}`}>
+          <div key={p.id} ref={cameFrom?.plan === p.id && cameFrom.period === period ? picked : undefined} className={`rounded-xl border p-3 flex flex-col gap-1 ${cameFrom?.plan === p.id && cameFrom.period === period ? "border-[var(--gold)] ring-2 ring-[var(--gold)]/40" : p.id === e.plan.id ? "border-[var(--gold)]" : "border-white/10"}`}>
             <div className="flex justify-between"><b>{p.name}</b><span className="text-[var(--gold)] font-semibold">{formatFcfa(priceFor(p, period, 1))}</span></div>
             <div className="text-xs text-white/60">{lim(p.limits.maxShops)} boutique(s) · {lim(p.limits.maxUsers)} utilisateur(s) · {lim(p.limits.maxProducts)} produits</div>
             {p.id !== e.plan.id && !e.trial && e.state !== "locked" && <div className="text-xs text-amber-300">Changer de formule démarre la nouvelle période maintenant : le temps restant de l'actuelle n'est pas reporté.</div>}

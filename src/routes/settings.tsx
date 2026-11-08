@@ -5,12 +5,16 @@ import { getShop } from "@/lib/data";
 import { can, useSession } from "@/lib/session";
 import { ShopsSection, StaffSection } from "./team";
 import { PlatformSection, SubscriptionSection, useSubscription } from "./subscription";
+import { parseDeepLink } from "@/domain/redirects";
+import { DEFAULT_PLANS } from "@/domain/subscriptions";
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
   const [f, setF] = useState({ waveTemplate: "", orangeTemplate: "", expiryMinutes: "15" });
   const [msg, setMsg] = useState("");
-  const [tab, setTab] = useState<"general" | "shops" | "staff" | "subscription" | "platform">("general");
+  // Arrivée depuis Selar (URL de redirection) : on ouvre l'onglet Abonnement sur l'offre indiquée. Lu une seule fois.
+  const [deep] = useState(() => parseDeepLink(window.location.search, DEFAULT_PLANS.map((p) => p.id)));
+  const [tab, setTab] = useState<"general" | "shops" | "staff" | "subscription" | "platform">(deep.tab === "subscription" ? "subscription" : "general");
   const sub = useSubscription();
   const me = useQuery({ queryKey: ["platform-me"], queryFn: () => api<{ admin: boolean }>(s, "platform.me", {}), staleTime: 300_000 });
   const [opened, setOpened] = useState(false);
@@ -41,7 +45,7 @@ export function SettingsPage() {
       )}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
-      {tab === "subscription" && <SubscriptionSection />}
+      {tab === "subscription" && <SubscriptionSection initial={deep.plan && deep.period ? { plan: deep.plan, period: deep.period } : undefined} />}
       {tab === "platform" && me.data?.admin && <PlatformSection />}
       {tab === "general" && <>
       <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>

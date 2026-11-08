@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { account, ID, teams } from "@/lib/appwrite";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
@@ -8,7 +7,7 @@ export function AuthPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [f, setF] = useState({ name: "", shop: "", email: "", password: "" });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  const { refresh } = useSession(); const nav = useNavigate();
+  const { refresh } = useSession();
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr("");
@@ -22,7 +21,8 @@ export function AuthPage() {
         const team = await teams.create({ teamId: ID.unique(), name: f.shop || f.name, roles: ["owner"] });
         await api({ userId: "", name: f.name, tenantId: team.$id, shopId: "", role: "owner", shops: [] }, "tenant.init", { name: f.shop || f.name });
       } else await account.createEmailPasswordSession({ email: login, password: f.password });
-      await refresh(); void nav({ to: "/pos" });
+      // Pas de redirection forcée : la page demandée (par exemple le retour de Selar) s'affiche dès que la session est chargée.
+      await refresh();
     } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
   }
   return (

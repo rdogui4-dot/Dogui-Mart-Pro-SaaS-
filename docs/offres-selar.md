@@ -9,6 +9,7 @@ Généré le 08/11/2026 depuis le catalogue de l'application. 15 offres à crée
 - **Clé de l'application** : `starter:day`
 - **Prix** : 500 FCFA (500 FCFA)
 - **Durée** : 1 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=starter&periode=day
 
 **Description courte**
 
@@ -63,6 +64,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `starter:week`
 - **Prix** : 2500 FCFA (2 500 FCFA)
 - **Durée** : 7 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=starter&periode=week
 
 **Description courte**
 
@@ -119,6 +121,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `starter:month`
 - **Prix** : 7500 FCFA (7 500 FCFA)
 - **Durée** : 30 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=starter&periode=month
 
 **Description courte**
 
@@ -175,6 +178,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `starter:quarter`
 - **Prix** : 20000 FCFA (20 000 FCFA)
 - **Durée** : 90 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=starter&periode=quarter
 
 **Description courte**
 
@@ -231,6 +235,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `starter:year`
 - **Prix** : 70000 FCFA (70 000 FCFA)
 - **Durée** : 365 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=starter&periode=year
 
 **Description courte**
 
@@ -287,6 +292,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `business:day`
 - **Prix** : 1000 FCFA (1 000 FCFA)
 - **Durée** : 1 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=business&periode=day
 
 **Description courte**
 
@@ -341,6 +347,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `business:week`
 - **Prix** : 5000 FCFA (5 000 FCFA)
 - **Durée** : 7 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=business&periode=week
 
 **Description courte**
 
@@ -397,6 +404,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `business:month`
 - **Prix** : 15000 FCFA (15 000 FCFA)
 - **Durée** : 30 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=business&periode=month
 
 **Description courte**
 
@@ -453,6 +461,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `business:quarter`
 - **Prix** : 40000 FCFA (40 000 FCFA)
 - **Durée** : 90 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=business&periode=quarter
 
 **Description courte**
 
@@ -509,6 +518,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `business:year`
 - **Prix** : 140000 FCFA (140 000 FCFA)
 - **Durée** : 365 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=business&periode=year
 
 **Description courte**
 
@@ -565,6 +575,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `pro:day`
 - **Prix** : 2500 FCFA (2 500 FCFA)
 - **Durée** : 1 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=pro&periode=day
 
 **Description courte**
 
@@ -619,6 +630,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `pro:week`
 - **Prix** : 12500 FCFA (12 500 FCFA)
 - **Durée** : 7 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=pro&periode=week
 
 **Description courte**
 
@@ -675,6 +687,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `pro:month`
 - **Prix** : 40000 FCFA (40 000 FCFA)
 - **Durée** : 30 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=pro&periode=month
 
 **Description courte**
 
@@ -731,6 +744,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `pro:quarter`
 - **Prix** : 105000 FCFA (105 000 FCFA)
 - **Durée** : 90 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=pro&periode=quarter
 
 **Description courte**
 
@@ -787,6 +801,7 @@ Besoin d'aide ? [contact à compléter : numéro WhatsApp ou e-mail].
 - **Clé de l'application** : `pro:year`
 - **Prix** : 380000 FCFA (380 000 FCFA)
 - **Durée** : 365 jour(s)
+- **URL de redirection après paiement** : https://VOTRE-DOMAINE/reglages?onglet=abonnement&formule=pro&periode=year
 
 **Description courte**
 

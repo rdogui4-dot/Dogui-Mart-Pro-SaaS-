@@ -69,7 +69,7 @@ function cover(w: Writer, now: Date) {
   w.doc.addPage(); w.y = TOP;
 }
 
-function checklist(w: Writer) {
+function checklist(w: Writer, appBase?: string) {
   w.h1("Avant de créer les offres");
   w.box("À vérifier en premier : la devise", ["Les prix de l'application sont en FCFA. Je n'ai pas pu vérifier que Selar accepte le FCFA pour votre compte. Si ce n'est pas le cas, les prix payés sur Selar ne correspondront plus à ceux de l'application et la validation des paiements deviendra ambiguë : ne créez pas les 15 offres avant d'avoir levé ce point."], "warn");
   w.bullets([
@@ -79,6 +79,7 @@ function checklist(w: Writer) {
     "Copiez le nom, la description courte, la description détaillée et le message après achat de chaque fiche. Le nom exact des champs dans Selar peut différer : je n'ai pas pu consulter l'interface actuelle de Selar.",
     "Dans le message après achat, complétez les deux passages entre crochets : le délai d'activation que vous vous engagez à tenir et votre contact d'aide.",
     "Politique de remboursement : non couverte par ce document, à définir et à ajouter vous-même si besoin.",
+    appBase ? `URL de redirection : chaque fiche donne l'adresse à saisir comme « redirection après paiement » (domaine de l'application : ${appBase}). Elle ramène le client sur l'écran Abonnement, offre déjà en surbrillance.` : "URL de redirection : chaque fiche donne l'adresse à saisir comme « redirection après paiement ». Le domaine de l'application n'est pas encore connu : remplacez VOTRE-DOMAINE par le domaine réel une fois l'application publiée (ou régénérez ce document avec le domaine).",
     "Après création, copiez le lien public de chaque offre et envoyez-le avec sa clé (colonne « Clé » du tableau final).",
   ]);
   w.gap(2);
@@ -113,6 +114,7 @@ function offerSheet(w: Writer, o: Offer, i: number) {
   w.doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(INK); w.doc.text(`Offre ${i + 1} sur 15  -  ${o.planName} / ${o.periodLabel}`, M + 3, w.y + 1.2); w.y += 11;
   w.h3("Nom de l'offre"); w.p(o.name, { bold: true, size: 10.5 });
   w.table([{ label: "Prix", w: 50 }, { label: "Durée d'accès", w: 50 }, { label: "Clé de l'application", w: 78 }], [[fcfa(o.priceFcfa), `${o.durationDays} jour${o.durationDays > 1 ? "s" : ""}`, o.key]], 9);
+  w.h3("URL de redirection après paiement"); w.p(o.redirectUrl, { size: 8.6, bold: true });
   w.h3("Description courte"); w.p(o.shortDescription);
   w.h3("Description détaillée"); w.p(o.longDescription, { size: 8.5 });
   w.h3("Message après achat"); w.p(o.postPurchase, { size: 8.5 });
@@ -139,10 +141,10 @@ function internal(w: Writer, offers: Offer[]) {
 }
 
 /** Construit le PDF complet des fiches d'offres Selar. */
-export async function buildOffersPdf(now: Date = new Date(), plans: Plan[] = DEFAULT_PLANS): Promise<jsPDF> {
+export async function buildOffersPdf(now: Date = new Date(), plans: Plan[] = DEFAULT_PLANS, appBase?: string): Promise<jsPDF> {
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: "a4" }); const w = new Writer(doc); const offers = buildOffers(plans);
-  cover(w, now); checklist(w); w.doc.addPage(); w.y = TOP; plansTable(w, plans); w.gap(4); summary(w, offers);
+  const doc = new jsPDF({ unit: "mm", format: "a4" }); const w = new Writer(doc); const offers = buildOffers(plans, appBase);
+  cover(w, now); checklist(w, appBase); w.doc.addPage(); w.y = TOP; plansTable(w, plans); w.gap(4); summary(w, offers);
   offers.forEach((o, i) => offerSheet(w, o, i)); internal(w, offers);
   const n = doc.getNumberOfPages();
   for (let p = 2; p <= n; p++) { doc.setPage(p); doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(150); doc.text(`Dogui Mart Pro - Offres Selar - page ${p - 1}/${n - 1}`, W / 2, 289, { align: "center" }); }
