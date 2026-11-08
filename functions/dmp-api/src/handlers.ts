@@ -3,6 +3,7 @@ import { toFcfa } from "../../../src/domain/money";
 import { ACCOUNTS } from "../../../src/domain/accounting";
 import { checkout, stockFor, type CheckoutInput } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
+import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
@@ -136,5 +137,6 @@ export const ACTIONS = {
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
+  "shop.save": saveShop, "invoice.customer.fromSale": invoiceFromSale, "invoice.customer.create": createFreeInvoice, "invoice.customer.pay": payCustomerInvoice,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,
 } as const;

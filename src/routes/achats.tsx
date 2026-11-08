@@ -5,6 +5,9 @@ import { api } from "@/lib/api";
 import { list, saveEntity, type Product, type Row, type Supplier } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
+import { purchaseOrderModel } from "@/domain/documents";
+import { deliverPdf, pdfBlob } from "@/lib/pdf";
+import { getShop } from "@/lib/data";
 import { dueOf, paidOf, toInvoice, toReceive, type Payment, type PoLine } from "@/domain/purchasing";
 
 type Po = { number: string; supplierId: string; lines: string; total: number; status: string };
@@ -105,6 +108,7 @@ function NewPo({ suppliers, products, onDone }: { suppliers: Row<Supplier>[]; pr
 
 function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onChange: () => void }) {
   const { session } = useSession(); const s = session!;
+  const sharePdf = async () => deliverPdf(await pdfBlob(purchaseOrderModel({ number: po.number, createdAt: po.$createdAt, lines: lines(po) }, await getShop(s), { name: supplier })), `${po.number}.pdf`);
   const ls = lines(po);
   const [open, setOpen] = useState(false); const [qty, setQty] = useState<Record<string, string>>({});
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
@@ -138,6 +142,7 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
           const ref = prompt("N° de la facture du fournisseur (optionnel)") ?? undefined;
           void run(() => api(s, "invoice.supplier.create", { poId: po.$id, invoiceId: invoiceId.current, supplierRef: ref }), () => { invoiceId.current = crypto.randomUUID(); });
         }}>Enregistrer la facture</button>}
+        <button className="btn-ghost !py-2" disabled={busy} onClick={() => void run(sharePdf)}>PDF / Partager</button>
         {po.status === "ordered" && <button className="btn-ghost !py-2" disabled={busy} onClick={() => confirm("Annuler cette commande ?") && void run(() => api(s, "po.cancel", { poId: po.$id }))}>Annuler</button>}
       </div>
       {err && <p className="text-red-400 text-sm">{err}</p>}

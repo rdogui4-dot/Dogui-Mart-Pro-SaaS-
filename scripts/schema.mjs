@@ -11,15 +11,15 @@ const d = (key) => ({ key, type: "d", required: false });
 const base = [s("tenantId", 64, true), s("shopId", 64, true)];
 
 export const TABLES = {
-  shops: { cols: [s("tenantId", 64, true), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct")], idx: [["tenant", ["tenantId"]]] },
+  shops: { cols: [s("tenantId", 64, true), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
   products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived")], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]]] },
   // Journal immuable de mouvements : le stock est la somme des mouvements.
   stock_moves: { cols: [...base, s("productId", 64, true), i("qty", true), s("kind", 24, true), s("refId", 64), s("userId", 64)], idx: [["prod", ["productId"]]] },
   customers: { cols: [...base, s("name", 160, true), s("phone", 32), i("creditLimit"), i("creditBalance"), i("points"), i("annualSpend")], idx: [["shop", ["tenantId", "shopId"]], ["phone", ["phone"]]] },
   suppliers: { cols: [...base, s("name", 160, true), s("phone", 32), s("email", 160), i("balance")], idx: [["shop", ["tenantId", "shopId"]]] },
-  sales: { cols: [...base, s("number", 32, true), i("total", true), i("vat"), s("customerId", 64), s("cashierId", 64), t("payments"), t("lines"), s("status", 16), s("clientId", 64, true), d("soldAt")], idx: [["shop", ["tenantId", "shopId"]]] },
+  sales: { cols: [...base, s("number", 32, true), i("total", true), i("vat"), s("customerId", 64), s("cashierId", 64), t("payments"), t("lines"), s("status", 16), s("clientId", 64, true), d("soldAt")], idx: [["shop", ["tenantId", "shopId"]], ["status", ["status"]]] },
   purchase_orders: { cols: [...base, s("number", 32, true), s("supplierId", 64, true), t("lines"), i("total"), s("status", 16), t("receipts"), t("invoicedIds")], idx: [["shop", ["tenantId", "shopId"]]] },
-  invoices: { cols: [...base, s("number", 32, true), s("kind", 16, true), s("partyId", 64), i("total", true), i("paid"), s("status", 16), d("dueAt"), s("poId", 64), s("ref", 64), i("vat"), t("payments")], idx: [["shop", ["tenantId", "shopId"]], ["kind", ["kind"]]] },
+  invoices: { cols: [...base, s("number", 32, true), s("kind", 16, true), s("partyId", 64), i("total", true), i("paid"), s("status", 16), d("dueAt"), s("poId", 64), s("ref", 64), i("vat"), t("payments"), s("saleId", 64), t("lines")], idx: [["shop", ["tenantId", "shopId"]], ["kind", ["kind"]]] },
   journal_entries: { cols: [...base, s("ref", 64, true), s("account", 16, true), i("debit"), i("credit"), s("label", 200), d("date")], idx: [["shop", ["tenantId", "shopId"]], ["ref", ["ref"]]] },
   payment_settings: { cols: [...base, t("waveTemplate"), t("orangeTemplate"), i("expiryMinutes")], idx: [] },
   // Liens de paiement Wave/Orange Business (le QR est dessiné côté client depuis `url`).

@@ -99,3 +99,24 @@ describe("purchasing", () => {
     expect(invoiceStatus(11_800, 11_800)).toBe("paid");
   });
 });
+
+import { invoiceModel, purchaseOrderModel, receiptModel } from "./documents";
+describe("documents", () => {
+  const shop = { name: "Chez Awa", city: "Dakar", phone: "770000000", vatRatePct: 18 };
+  it("facture : HT = TTC − TVA, reste à payer", () => {
+    const m = invoiceModel({ number: "FC-1", total: 11_800, vat: 1_800, createdAt: "2026-01-02T10:00:00Z", lines: [{ description: "Conseil", qty: 2, unitPrice: 5000 }], payments: [{ id: "a", amount: 4000, method: "cash", date: "" }] }, shop, { name: "Moussa" });
+    expect(m.totals.map((t) => t.value)).toEqual([10_000, 1_800, 11_800, 4_000, 7_800]);
+    expect(m.rows[0]!.total).toBe(10_000);
+    expect(m.issuer.lines).toContain("Tél. 770000000");
+  });
+  it("facture soldée et client comptoir", () => {
+    const m = invoiceModel({ number: "FC-2", total: 1000, createdAt: "2026-01-02T10:00:00Z", lines: [], payments: [{ id: "a", amount: 1000, method: "cash", date: "" }] }, null, null);
+    expect(m.party.name).toBe("Client comptoir"); expect(m.footer[0]).toMatch(/acquittée/); expect(m.issuer.name).toBe("Mon commerce");
+  });
+  it("bon de commande et ticket", () => {
+    const po = purchaseOrderModel({ number: "BC-1", createdAt: "2026-01-02T10:00:00Z", lines: [{ productId: "p", name: "Riz", qty: 10, unitCost: 600, received: 0, invoiced: 0 }] }, shop, { name: "Grossiste" });
+    expect(po.totals[0]!.value).toBe(6000);
+    const r = receiptModel({ number: "V-1", soldAt: "2026-01-02T10:00:00Z", total: 2000, change: 500, lines: [{ name: "Riz", qty: 2, unitPrice: 1000 }], payments: [{ method: "cash", amount: 2500 }] }, shop);
+    expect(r.totals.map((t) => t.label)).toEqual(["TOTAL", "Espèces", "Monnaie rendue"]);
+  });
+});

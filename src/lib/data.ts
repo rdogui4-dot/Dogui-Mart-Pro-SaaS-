@@ -1,4 +1,5 @@
 import { DATABASE_ID, Query, tables } from "./appwrite";
+import type { Shop } from "@/domain/documents";
 import { api } from "./api";
 import { delta } from "@/domain/stock";
 import type { Session } from "./session";
@@ -24,4 +25,10 @@ export async function stockLevels(s: Session): Promise<Map<string, number>> {
   const m = new Map<string, number>();
   for (const x of moves) m.set(x.productId, (m.get(x.productId) ?? 0) + delta({ productId: x.productId, qty: x.qty, kind: x.kind as never }));
   return m;
+}
+
+/** Fiche boutique (en-tête des documents). Absente tant que le propriétaire ne l'a pas renseignée. */
+export async function getShop(s: Session): Promise<Shop | null> {
+  try { return (await tables.getRow({ databaseId: DATABASE_ID, tableId: "shops", rowId: s.shopId.slice(0, 36) })) as unknown as Shop; }
+  catch { return null; }
 }

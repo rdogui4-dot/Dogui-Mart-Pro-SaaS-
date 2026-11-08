@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { getShop } from "@/lib/data";
 import { can, useSession } from "@/lib/session";
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
   const [f, setF] = useState({ waveTemplate: "", orangeTemplate: "", expiryMinutes: "15" });
   const [msg, setMsg] = useState("");
+  const qc = useQueryClient();
+  const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) });
+  const [sh, setSh] = useState({ name: "", address: "", city: "", phone: "", legal: "", vatRatePct: "18" });
+  const [shMsg, setShMsg] = useState("");
+  useEffect(() => { if (shop.data) setSh({ name: shop.data.name ?? "", address: shop.data.address ?? "", city: shop.data.city ?? "", phone: shop.data.phone ?? "", legal: shop.data.legal ?? "", vatRatePct: String(shop.data.vatRatePct ?? 18) }); }, [shop.data]);
+  async function saveShop(e: React.FormEvent) {
+    e.preventDefault(); setShMsg("");
+    try { await api(s, "shop.save", { ...sh, vatRatePct: Number(sh.vatRatePct) }); setShMsg("Enregistré"); void qc.invalidateQueries({ queryKey: ["shop"] }); }
+    catch (x) { setShMsg((x as Error).message); }
+  }
   useEffect(() => { void api<{ expiryMinutes: number }>(s, "payments.settings.get").then((r) => setF((x) => ({ ...x, expiryMinutes: String(r.expiryMinutes) }))).catch(() => {}); }, [s]);
   async function save(e: React.FormEvent) {
     e.preventDefault(); setMsg("");
@@ -16,6 +28,21 @@ export function SettingsPage() {
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Réglages</h1>
       <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}</div>
+      {can(s.role, "settings") && (
+        <form className="card flex flex-col gap-2" onSubmit={saveShop}>
+          <h2 className="font-semibold">Ma boutique (en-tête des factures et tickets)</h2>
+          <input className="input" placeholder="Nom commercial" required value={sh.name} onChange={(e) => setSh({ ...sh, name: e.target.value })} />
+          <input className="input" placeholder="Adresse" value={sh.address} onChange={(e) => setSh({ ...sh, address: e.target.value })} />
+          <div className="grid grid-cols-2 gap-2">
+            <input className="input" placeholder="Ville" value={sh.city} onChange={(e) => setSh({ ...sh, city: e.target.value })} />
+            <input className="input" inputMode="tel" placeholder="Téléphone" value={sh.phone} onChange={(e) => setSh({ ...sh, phone: e.target.value })} />
+          </div>
+          <input className="input" placeholder="NINEA / RCCM (mentions légales)" value={sh.legal} onChange={(e) => setSh({ ...sh, legal: e.target.value })} />
+          <input className="input" inputMode="numeric" placeholder="TVA (%)" value={sh.vatRatePct} onChange={(e) => setSh({ ...sh, vatRatePct: e.target.value })} />
+          <button className="btn">Enregistrer</button>
+          {shMsg && <p className="text-sm text-amber-300">{shMsg}</p>}
+        </form>
+      )}
       {can(s.role, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={save}>
           <h2 className="font-semibold">Paiement par QR code</h2>

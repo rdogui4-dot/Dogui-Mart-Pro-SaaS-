@@ -2,11 +2,13 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ScanLine, Minus, Plus } from "lucide-react";
 import { cartTotal, formatFcfa, settle, isQrMethod, type CartLine, type Payment, type PaymentMethod } from "@/domain/money";
-import { list, stockLevels, type Product, type Customer } from "@/lib/data";
+import { getShop, list, stockLevels, type Product, type Customer } from "@/lib/data";
 import { queueSale, syncPending } from "@/lib/offline";
 import { useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
 import { QrPay } from "@/components/QrPay";
+import { receiptModel, type ReceiptSale } from "@/domain/documents";
+import { deliverPdf, pdfBlob } from "@/lib/pdf";
 import { canExtendCredit } from "@/domain/credit";
 
 
@@ -20,6 +22,8 @@ export function PosPage() {
   const [pay, setPay] = useState<PaymentMethod>("cash"); const [given, setGiven] = useState("");
   const [customerId, setCustomerId] = useState(""); const [qr, setQr] = useState(false);
   const [msg, setMsg] = useState("");
+  const [last, setLast] = useState<ReceiptSale | null>(null);
+  const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s), staleTime: 300_000 });
   const total = cartTotal(cart);
 
   const add = (p: { $id: string; name: string; price: number }) =>
@@ -40,7 +44,10 @@ export function PosPage() {
       const c = canExtendCredit({ balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 }, total);
       if (!c.ok) return setMsg(c.error);
     }
-    await queueSale({ clientId: crypto.randomUUID(), soldAt: new Date().toISOString(), customerId: customerId || undefined, lines: cart.map((l) => ({ productId: l.productId, qty: l.qty })), payments, session: s });
+    const clientId = crypto.randomUUID(); const soldAt = new Date().toISOString();
+    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: cart.map((l) => ({ productId: l.productId, qty: l.qty })), payments, session: s });
+    // Même formule de numéro que le serveur : le ticket imprimé hors ligne porte le bon numéro.
+    setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total, change: r.change, lines: cart.map((l) => ({ name: l.name, qty: l.qty, unitPrice: l.unitPrice })), payments: payments.map((p) => ({ method: p.method, amount: p.amount })) });
     setCart([]); setGiven(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
     void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); } });
   }
@@ -89,6 +96,7 @@ export function PosPage() {
         </section>
       )}
       {msg && <p className="text-center text-amber-300">{msg}</p>}
+      {last && cart.length === 0 && <button className="btn-ghost" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, customer?.name)).then((b) => deliverPdf(b, `${last.number}.pdf`))}>Ticket PDF / Partager</button>}
       {qr && isQrMethod(pay) && <QrPay session={s} provider={pay} amount={total} onPaid={(id) => void submit(id)} onCancel={() => setQr(false)} />}
       {scan && <Scanner onCode={byCode} onClose={() => setScan(false)} />}
     </div>
