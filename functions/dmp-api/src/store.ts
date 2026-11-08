@@ -13,6 +13,11 @@ export interface Store {
   /** Crée la ligne ; renvoie false si l'identifiant existe déjà (idempotence). Les droits de lecture viennent de permissions.ts (par boutique / rôle). */
   create(table: string, id: string, tenantId: string, data: Record<string, unknown>): Promise<boolean>;
   update(table: string, id: string, data: Record<string, unknown>): Promise<void>;
+  /** Supprime une ligne (absente : sans effet). Réservé aux cas où l'historique n'est pas compromis (voir articles.ts). */
+  remove(table: string, id: string): Promise<void>;
+  /** Fichiers (photos d'articles) : créés par la fonction uniquement, avec les mêmes droits de lecture que la ligne qui les porte. */
+  putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]): Promise<void>;
+  deleteFile(fileId: string): Promise<void>;
   // Annuaire des comptes (Appwrite Users + Teams). Réservé aux actions « équipe » du propriétaire.
   createUser(a: { userId: string; email: string; password: string; name: string }): Promise<void>; // 409 si l'identifiant existe déjà
   deleteUser(userId: string): Promise<void>;

@@ -14,7 +14,7 @@
       "commands": "",
       "path": "functions/dmp-api",
       "ignore": ["src"],
-      "scopes": ["users.read", "teams.read", "databases.read", "databases.write", "tables.read", "tables.write", "rows.read", "rows.write"],
+      "scopes": ["users.read", "teams.read", "databases.read", "databases.write", "tables.read", "tables.write", "rows.read", "rows.write", "buckets.read", "files.read", "files.write", "users.write", "teams.write"],
       "variables": { "DATABASE_ID": "dmp" }
     }
   ]

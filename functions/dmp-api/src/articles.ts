@@ -1,0 +1,132 @@
+import { BUSINESS_FIELDS, normalizeArticle, normalizePatch, type Article } from "../../../src/domain/articles";
+import { FEATURES, planAllows, type FeatureKey } from "../../../src/domain/features";
+import { stockFor } from "./checkout";
+import { readRoles } from "./permissions";
+import { assertQuota, entitlementOf } from "./subscriptions";
+import { HttpError, need, needModule, type Ctx, type Row, type Store } from "./store";
+
+const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
+const mine = (ctx: Ctx, r: Row | null): r is Row => !!r && r.tenantId === ctx.tenantId && r.shopId === ctx.shopId;
+const must = (r: Row | null, msg = "Article introuvable"): Row => { if (!r) throw new HttpError(404, msg); return r; };
+const INITIAL = "stock-initial";
+/** Champs que le client peut envoyer. imageFileId n'en fait pas partie : la photo passe uniquement par article.image. */
+const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId"] as const;
+const MAX_IMAGE_BYTES = 450_000;
+
+/** Droit lié à la FORMULE (distinct du rôle de l'employé). 402 = « passez à l'offre supérieure ». */
+export async function needFeature(store: Store, ctx: Ctx, key: FeatureKey): Promise<void> {
+  const e = await entitlementOf(store, ctx.tenantId);
+  if (!planAllows(e.plan.id, key)) throw new HttpError(402, `« ${FEATURES[key].label} » est réservé à la formule ${FEATURES[key].min === "pro" ? "Pro" : "Business"} ou supérieure.`);
+}
+
+const audit = (store: Store, ctx: Ctx, action: string, detail: string) =>
+  store.create("audit_log", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action, detail: detail.slice(0, 1000) });
+
+async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barcode", value: string, selfId?: string) {
+  if (!value) return;
+  const dup = (await store.list("products", { tenantId: ctx.tenantId, shopId: ctx.shopId, [field]: value }, 5)).find((r) => r.$id !== selfId);
+  if (dup) throw new HttpError(409, `${field === "sku" ? "Référence déjà utilisée" : "Code-barres déjà utilisé"} par « ${dup.name} »`);
+}
+
+/** Création / modification d'un article (table `products`). Également appelée par entity.save pour les produits : un seul chemin d'écriture. */
+export async function saveArticle(store: Store, ctx: Ctx, b: { id?: string; requestId?: string; data: Record<string, unknown>; initialQty?: number }) {
+  needModule(ctx, "stock");
+  const input: Record<string, unknown> = {};
+  for (const f of FIELDS) if (b.data && f in b.data) input[f] = b.data[f];
+  let patch: Partial<Article>, full: Article | null = null;
+  try {
+    if (b.id) patch = normalizePatch(input);
+    else { full = normalizeArticle(input); patch = full; }
+  } catch (e) { throw new HttpError(400, (e as Error).message); }
+  // Fiche enrichie (description, unité, fournisseur) : formule Business. La fiche simple reste ouverte à toutes les formules.
+  const rich = (["description", "unit", "supplierId"] as const).some((k) => k in patch && (b.id ? true : patch[k] !== (k === "unit" ? "piece" : "")));
+  if (rich) await needFeature(store, ctx, "articles");
+  if (patch.supplierId) {
+    const sup = await store.get("suppliers", patch.supplierId);
+    if (!mine(ctx, sup)) throw new HttpError(400, "Fournisseur introuvable dans cette boutique");
+  }
+  if (b.id) {
+    const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+    if (patch.sku !== undefined) await assertUnique(store, ctx, "sku", patch.sku, row.$id);
+    if (patch.barcode !== undefined) await assertUnique(store, ctx, "barcode", patch.barcode, row.$id);
+    if (!Object.keys(patch).length) return { id: row.$id };
+    await store.update("products", row.$id, patch);
+    const priceChanged = patch.price !== undefined && patch.price !== Number(row.price), costChanged = patch.cost !== undefined && patch.cost !== Number(row.cost ?? 0);
+    if (priceChanged || costChanged) {
+      await store.create("price_history", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id, oldPrice: Number(row.price), newPrice: patch.price ?? Number(row.price), oldCost: Number(row.cost ?? 0), newCost: patch.cost ?? Number(row.cost ?? 0), userId: ctx.userId });
+      await audit(store, ctx, "article.price", `${row.name} : vente ${row.price}→${patch.price ?? row.price}, achat ${row.cost ?? 0}→${patch.cost ?? row.cost ?? 0}`);
+    }
+    return { id: row.$id };
+  }
+  const a = full!;
+  // Identifiant dérivé de la demande du client : un nouvel envoi après coupure réseau ne crée jamais de doublon.
+  const id = b.requestId ? `a${String(b.requestId).replace(/[^A-Za-z0-9]/g, "").slice(0, 28)}` : newId();
+  const prior = await store.get("products", id);
+  if (prior) { if (mine(ctx, prior)) return { id, duplicate: true }; throw new HttpError(409, "Demande déjà utilisée"); }
+  await assertUnique(store, ctx, "sku", a.sku); await assertUnique(store, ctx, "barcode", a.barcode);
+  await assertQuota(store, ctx.tenantId, "products");
+  const created = await store.create("products", id, ctx.tenantId, { ...a, tenantId: ctx.tenantId, shopId: ctx.shopId });
+  if (!created) { const ex = await store.get("products", id); if (mine(ctx, ex)) return { id, duplicate: true }; throw new HttpError(409, "Demande déjà utilisée"); }
+  const qty = Math.floor(Number(b.initialQty ?? 0));
+  if (b.initialQty !== undefined && !(qty >= 0 && qty <= 10_000_000)) throw new HttpError(400, "Quantité en stock invalide");
+  if (qty > 0) await store.create("stock_moves", `${id}_init`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, qty, kind: "adjust", refId: INITIAL, userId: ctx.userId });
+  await store.create("price_history", `${id}_p0`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, oldPrice: 0, newPrice: a.price, oldCost: 0, newCost: a.cost, userId: ctx.userId });
+  await audit(store, ctx, "article.create", `${a.name} (${id}) vente ${a.price} achat ${a.cost} stock initial ${qty}`);
+  return { id };
+}
+
+export async function archiveArticle(store: Store, ctx: Ctx, b: { id: string; archived: boolean }) {
+  needModule(ctx, "stock");
+  const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+  const archived = b.archived === true;
+  if (!!row.archived !== archived) { await store.update("products", row.$id, { archived }); await audit(store, ctx, archived ? "article.archive" : "article.restore", `${row.name} (${row.$id})`); }
+  return { id: row.$id, archived };
+}
+
+/** Suppression : gérant ou propriétaire, et seulement si l'article n'a AUCUN historique commercial (ventes, réceptions, transferts, commandes). Sinon : archivage. */
+export async function deleteArticle(store: Store, ctx: Ctx, b: { id: string }) {
+  needModule(ctx, "stock"); need(ctx, "manager");
+  const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+  const moves = (await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id })).rows;
+  const used = moves.some((m) => !(m.kind === "adjust" && m.refId === INITIAL));
+  const inOrders = (await store.scan("purchase_orders", { tenantId: ctx.tenantId, shopId: ctx.shopId })).rows.some((po) => { try { return (JSON.parse(String(po.lines)) as { productId?: string }[]).some((l) => l.productId === row.$id); } catch { return false; } });
+  if (used || inOrders) throw new HttpError(409, "Cet article a un historique (ventes, mouvements ou commandes) : archivez-le plutôt que de le supprimer.");
+  for (const m of moves) await store.remove("stock_moves", m.$id);
+  for (const h of (await store.scan("price_history", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id })).rows) await store.remove("price_history", h.$id);
+  if (row.imageFileId) await store.deleteFile(String(row.imageFileId));
+  await store.remove("products", row.$id);
+  await audit(store, ctx, "article.delete", `${row.name} (${row.$id})`);
+  return { id: row.$id };
+}
+
+const MAGIC: { mime: string; ext: string; ok: (b: Uint8Array) => boolean }[] = [
+  { mime: "image/jpeg", ext: "jpg", ok: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { mime: "image/png", ext: "png", ok: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
+  { mime: "image/webp", ext: "webp", ok: (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50 },
+];
+
+/** Photo d'un article : `data` = image compressée en base64 (le client la réduit avant l'envoi) ; `data: null` retire la photo.
+ *  Le fichier reçoit les mêmes droits de lecture que la ligne de l'article (propriétaire + employés de la boutique). */
+export async function setArticleImage(store: Store, ctx: Ctx, b: { id: string; mime?: string; data: string | null }) {
+  needModule(ctx, "stock"); await needFeature(store, ctx, "articles");
+  const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+  const old = row.imageFileId ? String(row.imageFileId) : "";
+  if (b.data === null) {
+    await store.update("products", row.$id, { imageFileId: "" }); if (old) await store.deleteFile(old);
+    await audit(store, ctx, "article.image.remove", `${row.name} (${row.$id})`); return { fileId: "" };
+  }
+  if (typeof b.data !== "string" || !/^[A-Za-z0-9+/]+=*$/.test(b.data)) throw new HttpError(400, "Image invalide");
+  const bytes = new Uint8Array(Buffer.from(b.data, "base64"));
+  if (bytes.length < 100) throw new HttpError(400, "Image invalide");
+  if (bytes.length > MAX_IMAGE_BYTES) throw new HttpError(413, "Image trop lourde (450 Ko maximum après compression)");
+  const kind = MAGIC.find((m) => m.ok(bytes)); // le contenu fait foi, pas le type annoncé par le client
+  if (!kind) throw new HttpError(400, "Format d'image non pris en charge (JPEG, PNG ou WebP)");
+  const fileId = newId();
+  await store.putFile(fileId, bytes, `${row.$id}.${kind.ext}`, kind.mime, readRoles("products", ctx.tenantId, row as Record<string, unknown>, row.$id));
+  await store.update("products", row.$id, { imageFileId: fileId });
+  if (old) await store.deleteFile(old);
+  await audit(store, ctx, "article.image", `${row.name} (${row.$id})`);
+  return { fileId };
+}
+
+export { stockFor, BUSINESS_FIELDS };

@@ -1,10 +1,11 @@
-import { Client, Permission, Query, TablesDB, Teams, Users } from "node-appwrite";
+import { Client, Permission, Query, Storage, TablesDB, Teams, Users } from "node-appwrite";
+import { InputFile } from "node-appwrite/file";
 import { HttpError, type Row, type Store } from "./store";
 import { readRoles } from "./permissions";
 
 export function appwriteStore(endpoint: string, project: string, key: string, databaseId: string): Store {
   const client = new Client().setEndpoint(endpoint).setProject(project).setKey(key);
-  const db = new TablesDB(client); const teams = new Teams(client); const users = new Users(client);
+  const db = new TablesDB(client); const storage = new Storage(client); const teams = new Teams(client); const users = new Users(client);
   const membershipId = async (tenantId: string, userId: string) => {
     const r = await teams.listMemberships({ teamId: tenantId, queries: [Query.equal("userId", userId), Query.limit(1)] });
     return r.memberships[0]?.$id ?? null;
@@ -44,6 +45,12 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       } catch (e: any) { if (e?.code === 409) return false; throw e; }
     },
     async update(tableId, rowId, data) { await db.updateRow({ databaseId, tableId, rowId, data }); },
+    async remove(tableId, rowId) { try { await db.deleteRow({ databaseId, tableId, rowId }); } catch (e: any) { if (e?.code !== 404) throw e; } },
+    async putFile(fileId, data, name, mime, readRoles) {
+      void mime; // le type est déduit par Appwrite de l'extension et du contenu
+      await storage.createFile({ bucketId: "articles", fileId, file: InputFile.fromBuffer(Buffer.from(data), name), permissions: readRoles.map((r) => Permission.read(r)) });
+    },
+    async deleteFile(fileId) { try { await storage.deleteFile({ bucketId: "articles", fileId }); } catch (e: any) { if (e?.code !== 404) throw e; } },
     async createUser(a) {
       try { await users.create({ userId: a.userId, email: a.email, password: a.password, name: a.name }); }
       catch (e: any) { if (e?.code === 409) throw new HttpError(409, "Identifiant déjà utilisé"); throw e; }

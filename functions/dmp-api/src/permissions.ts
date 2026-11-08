@@ -37,6 +37,8 @@ const shopOf = (d: Row) => String(d.shopId ?? "");
 const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | null> = {
   // Données d'une boutique, lisibles par tous ses employés
   products: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
+  // Historique des prix : module Stock de la boutique
+  price_history: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
   stock_moves: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   customers: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   sales: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],

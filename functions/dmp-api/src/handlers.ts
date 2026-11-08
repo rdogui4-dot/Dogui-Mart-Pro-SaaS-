@@ -7,6 +7,7 @@ import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from
 import { consolidatedReport } from "./reports";
 import { assertQuota, platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
+import { archiveArticle, deleteArticle, saveArticle, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
@@ -18,7 +19,7 @@ const mine = (ctx: Ctx, r: Record<string, unknown> | null) => !!r && r.tenantId 
 export const LOCK_EXEMPT = new Set(["report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "payments.settings.get", "payment_link.status"]);
 
 const ENTITIES = {
-  products: { module: "stock", fields: ["sku", "barcode", "name", "category", "price", "cost", "minStock", "archived"] },
+  products: { module: "stock", fields: [] }, // géré par articles.ts
   customers: { module: "customers", fields: ["name", "phone", "creditLimit"] },
   suppliers: { module: "purchases", fields: ["name", "phone", "email"] },
 } as const;
@@ -27,6 +28,7 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
   const spec = ENTITIES[b.table]; if (!spec) throw new HttpError(400, "Table non autorisée");
   needModule(ctx, spec.module);
   if (b.table === "customers" && b.data.creditLimit !== undefined) need(ctx, "manager"); // plafond de crédit = manager
+  if (b.table === "products") return saveArticle(store, ctx, { id: b.id, data: b.data }); // un seul chemin d'écriture pour les articles
   const data: Record<string, unknown> = {};
   for (const f of spec.fields) if (f in b.data) data[f] = b.data[f];
   if (b.id) {
@@ -35,10 +37,8 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
     await store.update(b.table, b.id, data);
     return { id: b.id };
   }
-  if (b.table === "products") await assertQuota(store, ctx.tenantId, "products");
-  if (b.table === "products" && (typeof data.name !== "string" || !(Number(data.price) >= 0))) throw new HttpError(400, "Nom et prix requis");
   const id = newId();
-  const init = b.table === "customers" ? { creditBalance: 0, points: 0, annualSpend: 0 } : b.table === "suppliers" ? { balance: 0 } : {};
+  const init = b.table === "customers" ? { creditBalance: 0, points: 0, annualSpend: 0 } : { balance: 0 };
   await store.create(b.table, id, ctx.tenantId, { ...init, ...data, tenantId: ctx.tenantId, shopId: ctx.shopId });
   return { id };
 }
@@ -143,7 +143,7 @@ export const TENANT_LEVEL = new Set(["report.consolidated", "subscription.get", 
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
-  "entity.save": saveEntity, "stock.adjust": adjustStock, "credit.repay": repayCredit,
+  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "stock.adjust": adjustStock, "credit.repay": repayCredit,
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,

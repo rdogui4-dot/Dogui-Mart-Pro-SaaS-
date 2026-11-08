@@ -12,7 +12,9 @@ const base = [s("tenantId", 64, true), s("shopId", 64, true)];
 
 export const TABLES = {
   shops: { cols: [s("tenantId", 64, true), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
-  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]]] },
+  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64), t("description"), s("unit", 16), s("supplierId", 64), s("imageFileId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]], ["name_ft", ["name"], "fulltext"], ["sku", ["sku"]], ["category", ["tenantId", "shopId", "category"]]] },
+  // Historique des modifications de prix d'un article (les ventes gardent leur propre prix figé).
+  price_history: { cols: [...base, s("productId", 64, true), i("oldPrice"), i("newPrice"), i("oldCost"), i("newCost"), s("userId", 64)], idx: [["product", ["productId"]]] },
   // Journal immuable de mouvements : le stock est la somme des mouvements.
   stock_moves: { cols: [...base, s("productId", 64, true), i("qty", true), s("kind", 24, true), s("refId", 64), s("userId", 64)], idx: [["prod", ["productId"]]] },
   customers: { cols: [...base, s("name", 160, true), s("phone", 32), i("creditLimit"), i("creditBalance"), i("points"), i("annualSpend")], idx: [["shop", ["tenantId", "shopId"]], ["phone", ["phone"]]] },

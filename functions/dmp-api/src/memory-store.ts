@@ -23,6 +23,10 @@ export class MemoryStore implements Store {
     this.perms.set(`${table}/${id}`, readRoles(table, tenantId, data, id));
     this.t(table).set(id, { ...data, $id: id }); return true;
   }
+  async remove(table: string, id: string) { this.t(table).delete(id); this.perms.delete(`${table}/${id}`); }
+  files = new Map<string, { data: Uint8Array; name: string; mime: string; readRoles: string[] }>();
+  async putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]) { this.files.set(fileId, { data, name, mime, readRoles }); }
+  async deleteFile(fileId: string) { this.files.delete(fileId); }
   labels = new Map<string, string[]>();
   async setLabels(userId: string, labels: string[]) { this.labels.set(userId, labels); }
   /** Rôles d'authentification d'un utilisateur, comme Appwrite les calcule : compte, rôles d'équipe, étiquettes. */
