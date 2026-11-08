@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Navigate, RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { routerBasepath } from "@/lib/basepath";
 import { SessionProvider, can, useSession } from "@/lib/session";
 import { Layout } from "@/components/Layout";
 import { AuthPage } from "@/routes/auth";
@@ -27,10 +28,10 @@ const tree = root.addChildren([
   r("/pos", "sell", PosPage), r("/stock", "stock", StockPage), r("/clients", "sell", ClientsPage),
   r("/achats", "purchase", AchatsPage), r("/compta", "accounting", ComptaPage), r("/reglages", "settings", SettingsPage),
 ]);
-const router = createRouter({ routeTree: tree });
+const router = createRouter({ routeTree: tree, basepath: routerBasepath(import.meta.env.BASE_URL) });
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }
 
-if ("serviceWorker" in navigator && import.meta.env.PROD) void navigator.serviceWorker.register("/sw.js");
+if ("serviceWorker" in navigator && import.meta.env.PROD) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
 createRoot(document.getElementById("root")!).render(
   <StrictMode><QueryClientProvider client={new QueryClient()}><SessionProvider><RouterProvider router={router} /></SessionProvider></QueryClientProvider></StrictMode>,
 );

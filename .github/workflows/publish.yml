@@ -1,0 +1,70 @@
+name: Publier
+# Site : GitHub Pages (https://<compte>.github.io/<dépôt>/). Fonction serveur : Appwrite (nécessite le secret APPWRITE_API_KEY).
+on:
+  push:
+    branches: [ccr-360cd683-uvf925, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: publier
+  cancel-in-progress: true
+env:
+  # Valeurs publiques (identifiants du projet Appwrite, visibles dans le navigateur) : pas des secrets.
+  VITE_APPWRITE_ENDPOINT: https://fra.cloud.appwrite.io/v1
+  VITE_APPWRITE_PROJECT_ID: 6ae9d6010001952ea399
+  VITE_APPWRITE_DATABASE_ID: dmp
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Construire le site (sous-chemin du dépôt)
+        run: npm run build
+        env:
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+      - name: Repli SPA et désactivation de Jekyll
+        run: |
+          # GitHub Pages sert 404.html pour toute adresse inconnue : c'est ce qui permet d'ouvrir /<dépôt>/reglages?... directement.
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: dist }
+
+  deploy-site:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  deploy-function:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      APPWRITE_API_KEY: ${{ secrets.APPWRITE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run functions:build
+      - name: Déployer la fonction sur Appwrite
+        run: |
+          if [ -z "$APPWRITE_API_KEY" ]; then
+            echo "::warning::Secret APPWRITE_API_KEY absent : la fonction serveur n'a PAS été déployée."
+            exit 0
+          fi
+          node scripts/deploy-function.mjs

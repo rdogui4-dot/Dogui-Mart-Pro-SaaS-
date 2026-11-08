@@ -6,17 +6,18 @@ export const REDIRECT_PATH = "/reglages";
 /** Valeur affichée tant que le domaine de l'application n'est pas connu : à remplacer avant publication. */
 export const PLACEHOLDER_ORIGIN = "https://VOTRE-DOMAINE";
 
-/** Origine (https) de l'application. Refuse http, les identifiants dans l'adresse et tout chemin : le routeur n'a pas de préfixe. */
-export function normalizeAppOrigin(base: string): string {
+/** Adresse de base (https) de l'application : un domaine, ou un domaine + sous-chemin (GitHub Pages : https://compte.github.io/depot).
+ *  Refuse http, les identifiants, la requête et le fragment. Le résultat n'a pas de barre finale. */
+export function normalizeAppBase(base: string): string {
   let u: URL; try { u = new URL(base.trim()); } catch { throw new Error("Adresse de l'application invalide"); }
   if (u.protocol !== "https:") throw new Error("L'adresse de l'application doit être en https");
   if (u.username || u.password) throw new Error("L'adresse ne doit pas contenir d'identifiants");
-  if (u.pathname !== "/" || u.search || u.hash) throw new Error("Indiquez seulement le domaine (sans chemin), par exemple https://app.exemple.com");
-  return u.origin;
+  if (u.search || u.hash) throw new Error("L'adresse ne doit contenir ni « ? » ni « # » (exemple : https://compte.github.io/depot)");
+  return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
 }
 
 export function redirectUrl(plan: PlanId, period: Period, base?: string): string {
-  const origin = base ? normalizeAppOrigin(base) : PLACEHOLDER_ORIGIN;
+  const origin = base ? normalizeAppBase(base) : PLACEHOLDER_ORIGIN;
   return `${origin}${REDIRECT_PATH}?onglet=abonnement&formule=${plan}&periode=${period}`;
 }
 
