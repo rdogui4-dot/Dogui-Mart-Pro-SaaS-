@@ -1,4 +1,5 @@
 import { HttpError, type Row, type Store } from "./store";
+import { readRoles } from "./permissions";
 /** Store en mémoire pour les tests. */
 export class MemoryStore implements Store {
   tables = new Map<string, Map<string, Row>>();
@@ -9,9 +10,25 @@ export class MemoryStore implements Store {
   async list(table: string, where: Record<string, string | number>, limit = 100) {
     return [...this.t(table).values()].filter((r) => Object.entries(where).every(([k, v]) => r[k] === v)).slice(0, limit).map((r) => ({ ...r }));
   }
-  async create(table: string, id: string, _tenantId: string, data: Record<string, unknown>) {
+  /** Rôles autorisés à lire chaque ligne, calculés par la même politique que la production. */
+  perms = new Map<string, string[]>();
+  async create(table: string, id: string, tenantId: string, data: Record<string, unknown>) {
     if (this.t(table).has(id)) return false;
+    this.perms.set(`${table}/${id}`, readRoles(table, tenantId, data, id));
     this.t(table).set(id, { ...data, $id: id }); return true;
+  }
+  labels = new Map<string, string[]>();
+  async setLabels(userId: string, labels: string[]) { this.labels.set(userId, labels); }
+  /** Rôles d'authentification d'un utilisateur, comme Appwrite les calcule : compte, rôles d'équipe, étiquettes. */
+  rolesOf(userId: string): string[] {
+    const r = [`user:${userId}`, ...(this.labels.get(userId) ?? []).map((l) => `label:${l}`)];
+    for (const [k, roles] of this.members) { const [tenant, uid] = k.split(":"); if (uid === userId) r.push(`team:${tenant}`, ...roles.map((x) => `team:${tenant}/${x}`)); }
+    return r;
+  }
+  /** Lignes d'une table que cet utilisateur pourrait lire en interrogeant directement l'API (aucune écriture possible). */
+  readableBy(userId: string, table: string): Row[] {
+    const mine = new Set(this.rolesOf(userId));
+    return this.rows(table).filter((row) => (this.perms.get(`${table}/${row.$id}`) ?? []).some((p) => mine.has(p)));
   }
   async update(table: string, id: string, data: Record<string, unknown>) {
     const r = this.t(table).get(id); if (!r) throw new Error("introuvable"); Object.assign(r, data);

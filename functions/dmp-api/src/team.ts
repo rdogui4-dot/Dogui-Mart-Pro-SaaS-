@@ -1,6 +1,7 @@
 import { stockFor } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
 import { assertQuota, getSub } from "./subscriptions";
+import { labelsFor } from "./permissions";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const safeId = (s: unknown) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
@@ -57,6 +58,7 @@ export async function createStaff(store: Store, ctx: Ctx, b: { name: string; use
   const userId = newId();
   await store.createUser({ userId, email, password, name }); // 409 si déjà pris
   try {
+    await store.setLabels(userId, labelsFor(role, shopIds, true)); // droits de lecture par boutique / rôle
     await store.addMember(ctx.tenantId, userId, [role], name);
     try { await store.create("staff", userId, ctx.tenantId, { tenantId: ctx.tenantId, userId, name, username, email: username ? "" : email, role, shopIds: JSON.stringify(shopIds), active: true }); }
     catch (e) { await store.removeMember(ctx.tenantId, userId).catch(() => {}); throw e; }
@@ -79,6 +81,11 @@ export async function updateStaff(store: Store, ctx: Ctx, b: { userId: string; n
   if (b.shopIds !== undefined) patch.shopIds = JSON.stringify(await ownShops(store, ctx, b.shopIds));
   if (b.role !== undefined) { const role = validRole(b.role); if (role !== s.role) { await store.setMemberRoles(ctx.tenantId, s.$id, [role]); patch.role = role; } }
   if (b.active !== undefined) { await store.setUserActive(s.$id, !!b.active); patch.active = !!b.active; }
+  // Étiquettes recalculées à chaque changement de rôle, de boutiques ou d'état (un compte désactivé n'a plus aucune lecture).
+  if (b.role !== undefined || b.shopIds !== undefined || b.active !== undefined) {
+    const role = (patch.role ?? s.role) as "manager" | "cashier"; const shops = JSON.parse(String(patch.shopIds ?? s.shopIds ?? "[]")) as string[]; const active = (patch.active ?? s.active) !== false;
+    await store.setLabels(s.$id, labelsFor(role, shops, active));
+  }
   if (Object.keys(patch).length) await store.update("staff", s.$id, patch);
   await store.create("audit_log", `${newId()}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: parse<string[]>(s.shopIds, [])[0] ?? "", userId: ctx.userId, action: "staff.update", detail: `${s.name} ${Object.keys(patch).join(",")}` });
   return { ok: true };

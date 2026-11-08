@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "appwrite:setup": "node scripts/setup-appwrite.mjs",
-    "functions:build": "node scripts/build-functions.mjs"
+    "functions:build": "node scripts/build-functions.mjs",
+    "verify:isolation": "node scripts/verify-isolation.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",

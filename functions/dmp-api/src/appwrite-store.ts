@@ -1,5 +1,6 @@
-import { Client, Permission, Query, Role, TablesDB, Teams, Users } from "node-appwrite";
+import { Client, Permission, Query, TablesDB, Teams, Users } from "node-appwrite";
 import { HttpError, type Row, type Store } from "./store";
+import { readRoles } from "./permissions";
 
 export function appwriteStore(endpoint: string, project: string, key: string, databaseId: string): Store {
   const client = new Client().setEndpoint(endpoint).setProject(project).setKey(key);
@@ -25,8 +26,8 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
     async create(tableId, rowId, tenantId, data) {
       try {
         // Lecture pour l'équipe ; aucune écriture client : tout passe par cette fonction.
-        // tenantId vide = donnée de plateforme : aucune lecture client (accessible seulement via la clé serveur).
-        await db.createRow({ databaseId, tableId, rowId, data, permissions: tenantId ? [Permission.read(Role.team(tenantId))] : [] });
+        // Lecture limitée à la boutique / au rôle concerné (permissions.ts) ; jamais d'écriture client.
+        await db.createRow({ databaseId, tableId, rowId, data, permissions: readRoles(tableId, tenantId, data, rowId).map((r) => Permission.read(r)) });
         return true;
       } catch (e: any) { if (e?.code === 409) return false; throw e; }
     },
@@ -36,6 +37,7 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       catch (e: any) { if (e?.code === 409) throw new HttpError(409, "Identifiant déjà utilisé"); throw e; }
     },
     async deleteUser(userId) { await users.delete({ userId }); },
+    async setLabels(userId, labels) { await users.updateLabels({ userId, labels }); },
     async setUserActive(userId, active) { await users.updateStatus({ userId, status: active }); },
     async setPassword(userId, password) { await users.updatePassword({ userId, password }); },
     // Création serveur avec userId : le membre est ajouté et actif immédiatement (pas d'e-mail d'invitation).
