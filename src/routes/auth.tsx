@@ -19,7 +19,8 @@ export function AuthPage() {
         await account.createEmailPasswordSession({ email: login, password: f.password });
         // Un commerçant = une Team (tenant) ; le créateur en est "owner".
         const team = await teams.create({ teamId: ID.unique(), name: f.shop || f.name, roles: ["owner"] });
-        await api({ userId: "", name: f.name, tenantId: team.$id, shopId: "", role: "owner", shops: [] }, "tenant.init", { name: f.shop || f.name });
+        // Si le serveur est momentanément indisponible, l'inscription aboutit quand même : la première boutique sera recréée à la connexion.
+        await api({ userId: "", name: f.name, tenantId: team.$id, shopId: "", role: "owner", shops: [] }, "tenant.init", { name: f.shop || f.name }).catch(() => undefined);
       } else await account.createEmailPasswordSession({ email: login, password: f.password });
       // Pas de redirection forcée : la page demandée (par exemple le retour de Selar) s'affiche dès que la session est chargée.
       await refresh();

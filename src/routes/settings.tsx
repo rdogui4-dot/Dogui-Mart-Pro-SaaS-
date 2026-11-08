@@ -48,6 +48,7 @@ export function SettingsPage() {
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}
       {tab === "platform" && me.data?.admin && <PlatformSection />}
       {tab === "general" && <>
+      {s.setupError && <div className="card text-sm text-amber-300">La première boutique n'a pas pu être créée ({s.setupError}). Les fonctions de gestion seront disponibles dès que le service sera prêt.</div>}
       <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>
       {can(s.role, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={saveShop}>

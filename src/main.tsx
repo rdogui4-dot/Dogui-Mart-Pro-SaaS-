@@ -2,7 +2,7 @@ import "./index.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Navigate, RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { Navigate, RouterProvider, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { routerBasepath } from "@/lib/basepath";
 import { SessionProvider, can, useSession } from "@/lib/session";
 import { Layout } from "@/components/Layout";
@@ -24,7 +24,8 @@ const root = createRootRoute({ component: () => <Guard perm="sell"><Layout /></G
 const r = (path: string, perm: Parameters<typeof can>[1], C: () => React.JSX.Element) =>
   createRoute({ getParentRoute: () => root, path, component: () => <Guard perm={perm}><C /></Guard> });
 const tree = root.addChildren([
-  createRoute({ getParentRoute: () => root, path: "/", component: () => <Navigate to="/pos" /> }),
+  // Redirection du routeur (et non d'un composant) : un composant d'accueil se monterait brièvement pendant un changement de page et renverrait à la caisse.
+  createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/pos" }); } }),
   r("/pos", "sell", PosPage), r("/stock", "stock", StockPage), r("/clients", "sell", ClientsPage),
   r("/achats", "purchase", AchatsPage), r("/compta", "accounting", ComptaPage), r("/reglages", "settings", SettingsPage),
 ]);
