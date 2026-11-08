@@ -14,7 +14,7 @@ export function SettingsPage() {
   const [msg, setMsg] = useState("");
   // Arrivée depuis Selar (URL de redirection) : on ouvre l'onglet Abonnement sur l'offre indiquée. Lu une seule fois.
   const [deep] = useState(() => parseDeepLink(window.location.search, DEFAULT_PLANS.map((p) => p.id)));
-  const [tab, setTab] = useState<"general" | "shops" | "staff" | "subscription" | "platform">(deep.tab === "subscription" ? "subscription" : "general");
+  const [tab, setTab] = useState<"shop" | "shops" | "staff" | "payments" | "subscription" | "platform">(deep.tab === "subscription" ? "subscription" : "shop");
   const sub = useSubscription();
   const me = useQuery({ queryKey: ["platform-me"], queryFn: () => api<{ admin: boolean }>(s, "platform.me", {}), staleTime: 300_000 });
   const [opened, setOpened] = useState(false);
@@ -37,20 +37,20 @@ export function SettingsPage() {
   }
   return (
     <div className="flex flex-col gap-3">
-      <h1 className="text-xl font-bold">Réglages</h1>
+      <h1 className="text-2xl font-bold">Réglages</h1>
       {can(s, "settings") && (
-        <div className="flex flex-wrap gap-1 text-sm [&>button]:flex-1">
-          {([["general", "Général"], ["shops", "Boutiques"], ["staff", "Équipe"], ["subscription", "Abonnement"], ...(me.data?.admin ? [["platform", "Plateforme"] as const] : [])] as const).map(([k, l]) => <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>)}
-        </div>
+        <nav aria-label="Sections des réglages" className="scroll-x">
+          {([["shop", "Commerce"], ["shops", "Boutiques"], ["staff", "Équipe & accès"], ["payments", "Paiements QR"], ["subscription", "Abonnement"], ...(me.data?.admin ? [["platform", "Plateforme"] as const] : [])] as const).map(([k, l]) => <button key={k} className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}
+        </nav>
       )}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}
       {tab === "platform" && me.data?.admin && <PlatformSection />}
-      {tab === "general" && <>
+      {(tab === "shop" || tab === "payments") && <>
       {s.setupError && <div className="card text-sm text-amber-300">La première boutique n'a pas pu être créée ({s.setupError}). Les fonctions de gestion seront disponibles dès que le service sera prêt.</div>}
-      <div className="card text-sm">Connecté : <b>{s.name}</b> · {s.role === "owner" ? "gérant principal" : s.role}<br />Boutique : {s.shopId}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>
-      {can(s, "settings") && (
+      {tab === "shop" && <div className="card text-sm">Connecté : <b>{s.name}</b> · {s.role === "owner" ? "gérant principal" : s.role}<br />Boutique : {s.shops.find((x) => x.id === s.shopId)?.name ?? "—"}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>}
+      {tab === "shop" && can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={saveShop}>
           <h2 className="font-semibold">Ma boutique (en-tête des factures et tickets)</h2>
           <input className="input" placeholder="Nom commercial" required value={sh.name} onChange={(e) => setSh({ ...sh, name: e.target.value })} />
@@ -65,7 +65,7 @@ export function SettingsPage() {
           {shMsg && <p className="text-sm text-amber-300">{shMsg}</p>}
         </form>
       )}
-      {can(s, "settings") && (
+      {tab === "payments" && can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={save}>
           <h2 className="font-semibold">Paiement par QR code</h2>
           <p className="text-xs text-white/50">Collez le modèle de lien de votre compte Wave Business / Orange Business. Variables : <code>{"{amount}"}</code> (obligatoire) et <code>{"{ref}"}</code>. Les modèles déjà enregistrés ne sont jamais réaffichés ; un champ laissé vide reste inchangé.</p>
@@ -76,7 +76,7 @@ export function SettingsPage() {
           {msg && <p className="text-sm text-amber-300">{msg}</p>}
         </form>
       )}
-      <button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button>
+      {tab === "shop" && <button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button>}
       </>}
     </div>
   );

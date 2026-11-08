@@ -1,8 +1,26 @@
 @import "tailwindcss";
-:root { --gold: #c9a227; color-scheme: dark; }
+/* Charte Dogui Mart Pro : noir profond + or. Toutes les couleurs passent par ces variables. */
+:root {
+  --gold: #d4af37; --gold-soft: #f1d77a; --gold-deep: #9a7414;
+  --bg: #0b0b0c; --surface: #141416; --surface-2: #1c1c1f; --line: rgba(255, 255, 255, .09);
+  --ok: #34d399; --warn: #fbbf24; --bad: #f87171;
+  color-scheme: dark;
+}
 html, body, #root { height: 100%; }
-body { background: #0b0b0c; color: #f4f1e8; font-family: system-ui, sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
-.btn { @apply rounded-xl px-4 py-3 text-base font-semibold active:scale-[.98] transition disabled:opacity-40; background: var(--gold); color: #111; }
-.btn-ghost { @apply rounded-xl px-4 py-3 text-base font-medium border border-white/15 active:scale-[.98]; }
-.input { @apply w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-base outline-none focus:border-[var(--gold)]; }
-.card { @apply rounded-2xl bg-white/5 border border-white/10 p-4; }
+body { background: var(--bg); color: #f4f1e8; font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+h1, h2 { letter-spacing: -.01em; }
+.btn { @apply rounded-2xl px-4 py-3 text-base font-semibold active:scale-[.98] transition disabled:opacity-40 shadow-lg shadow-black/30; background: linear-gradient(135deg, var(--gold-soft), var(--gold) 55%, var(--gold-deep)); color: #15110a; }
+.btn-ghost { @apply rounded-2xl px-4 py-3 text-base font-medium border active:scale-[.98] transition disabled:opacity-40; border-color: var(--line); background: var(--surface); }
+.input { @apply w-full rounded-2xl px-4 py-3 text-base outline-none border; background: var(--surface); border-color: var(--line); }
+.input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212, 175, 55, .15); }
+.card { @apply rounded-3xl p-4 border; background: var(--surface); border-color: var(--line); }
+.kpi { @apply rounded-3xl p-4 border flex flex-col gap-1; background: linear-gradient(160deg, var(--surface-2), var(--surface)); border-color: var(--line); }
+.kpi b { @apply text-xl font-bold tracking-tight; }
+.kpi span { @apply text-xs uppercase tracking-wide text-white/50; }
+.chip { @apply whitespace-nowrap rounded-full px-4 py-2 text-sm border transition; border-color: var(--line); background: var(--surface); color: rgba(255, 255, 255, .7); }
+.chip[aria-current="true"] { background: linear-gradient(135deg, var(--gold-soft), var(--gold)); color: #15110a; border-color: transparent; font-weight: 600; }
+.tile { @apply rounded-3xl p-4 border flex flex-col gap-2 active:scale-[.97] transition; background: var(--surface); border-color: var(--line); }
+.tile svg { color: var(--gold); }
+.gold-text { background: linear-gradient(135deg, var(--gold-soft), var(--gold) 60%, var(--gold-deep)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.scroll-x { @apply flex gap-2 overflow-x-auto pb-1; scrollbar-width: none; }
+.scroll-x::-webkit-scrollbar { display: none; }

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { account, ID, teams } from "@/lib/appwrite";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
+import { Logo } from "@/components/Logo";
+import { ScanLine, Boxes, WifiOff } from "lucide-react";
 
 export function AuthPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -27,20 +29,30 @@ export function AuthPage() {
     } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
   }
   return (
-    <form onSubmit={submit} className="min-h-full flex flex-col justify-center gap-3 p-6 max-w-sm mx-auto">
-      <h1 className="text-3xl font-bold text-[var(--gold)]">Dogui Mart Pro</h1>
-      <p className="text-white/60 mb-2">Gestion de commerce, partout, même hors ligne.</p>
-      {mode === "signup" && <>
-        <input className="input" placeholder="Votre nom" value={f.name} onChange={set("name")} required />
-        <input className="input" placeholder="Nom de la boutique" value={f.shop} onChange={set("shop")} required />
-      </>}
-      <input className="input" type={mode === "signup" ? "email" : "text"} autoCapitalize="none" placeholder={mode === "signup" ? "E-mail" : "E-mail ou identifiant"} value={f.email} onChange={set("email")} required />
-      <input className="input" type="password" placeholder="Mot de passe (8+)" minLength={8} value={f.password} onChange={set("password")} required />
-      {err && <p className="text-red-400 text-sm">{err}</p>}
-      <button className="btn" disabled={busy}>{mode === "login" ? "Se connecter" : "Créer mon commerce"}</button>
-      <button type="button" className="btn-ghost" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
-        {mode === "login" ? "Nouveau commerçant ?" : "J'ai déjà un compte"}
-      </button>
-    </form>
+    <div className="min-h-full flex flex-col justify-center gap-6 p-6 max-w-sm mx-auto" style={{ background: "radial-gradient(120% 60% at 50% 0%, rgba(212,175,55,.14), transparent 60%)" }}>
+      <div className="flex flex-col items-center gap-3 text-center pt-4">
+        <Logo size={64} />
+        <p className="text-white/60 text-sm">Caisse, stock, achats, clients et compta dans votre poche.</p>
+        <ul className="flex gap-4 text-xs text-white/50">
+          <li className="flex items-center gap-1"><ScanLine size={14} className="text-[var(--gold)]" />Caisse</li>
+          <li className="flex items-center gap-1"><Boxes size={14} className="text-[var(--gold)]" />Multi-boutiques</li>
+          <li className="flex items-center gap-1"><WifiOff size={14} className="text-[var(--gold)]" />Hors ligne</li>
+        </ul>
+      </div>
+      <form onSubmit={submit} className="card flex flex-col gap-3">
+        <h1 className="text-lg font-bold">{mode === "login" ? "Connexion" : "Créer mon commerce"}</h1>
+        {mode === "signup" && <>
+          <input className="input" placeholder="Votre nom" value={f.name} onChange={set("name")} required />
+          <input className="input" placeholder="Nom de la boutique" value={f.shop} onChange={set("shop")} required />
+        </>}
+        <input className="input" type={mode === "signup" ? "email" : "text"} autoCapitalize="none" placeholder={mode === "signup" ? "E-mail" : "E-mail ou identifiant"} value={f.email} onChange={set("email")} required />
+        <input className="input" type="password" placeholder="Mot de passe (8+)" minLength={8} value={f.password} onChange={set("password")} required />
+        {err && <p className="text-red-400 text-sm">{err}</p>}
+        <button className="btn" disabled={busy}>{mode === "login" ? "Se connecter" : "Créer mon commerce"}</button>
+        <button type="button" className="btn-ghost" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+          {mode === "login" ? "Nouveau commerçant ?" : "J'ai déjà un compte"}
+        </button>
+      </form>
+    </div>
   );
 }

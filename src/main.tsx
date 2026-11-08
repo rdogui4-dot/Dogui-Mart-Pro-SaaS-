@@ -14,6 +14,7 @@ import { ClientsPage } from "@/routes/simple";
 import { AchatsPage } from "@/routes/achats";
 import { ComptaPage } from "@/routes/compta";
 import { SettingsPage } from "@/routes/settings";
+import { HomePage, PlusPage } from "@/routes/home";
 
 function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNode }) {
   const { session, loading } = useSession();
@@ -27,7 +28,8 @@ const r = (path: string, perm: Perm | null, C: () => React.JSX.Element) =>
   createRoute({ getParentRoute: () => root, path, component: () => <Guard perm={perm}><C /></Guard> });
 const tree = root.addChildren([
   // Redirection du routeur (et non d'un composant) : un composant d'accueil se monterait brièvement pendant un changement de page et renverrait à la caisse.
-  createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/pos" }); } }),
+  createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
+  r("/accueil", null, HomePage), r("/plus", null, PlusPage),
   r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/clients", "customers", ClientsPage),
   r("/achats", "purchases", AchatsPage), r("/compta", "finance", ComptaPage), r("/reglages", "settings", SettingsPage),
 ]);
