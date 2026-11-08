@@ -1,0 +1,8 @@
+@import "tailwindcss";
+:root { --gold: #c9a227; color-scheme: dark; }
+html, body, #root { height: 100%; }
+body { background: #0b0b0c; color: #f4f1e8; font-family: system-ui, sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+.btn { @apply rounded-xl px-4 py-3 text-base font-semibold active:scale-[.98] transition disabled:opacity-40; background: var(--gold); color: #111; }
+.btn-ghost { @apply rounded-xl px-4 py-3 text-base font-medium border border-white/15 active:scale-[.98]; }
+.input { @apply w-full rounded-xl bg-white/5 border border-white/15 px-4 py-3 text-base outline-none focus:border-[var(--gold)]; }
+.card { @apply rounded-2xl bg-white/5 border border-white/10 p-4; }
