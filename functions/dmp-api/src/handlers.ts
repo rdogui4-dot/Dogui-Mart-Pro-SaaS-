@@ -1,4 +1,4 @@
-import { buildPaymentUrl, isExpired, linkRef, type QrProvider } from "../../../src/domain/payment-links";
+import { buildPaymentUrl, isExpired, linkRef, normalizeTemplate, type QrProvider } from "../../../src/domain/payment-links";
 import { toFcfa } from "../../../src/domain/money";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { ACCOUNTS } from "../../../src/domain/accounting";
@@ -92,17 +92,23 @@ export async function repayCredit(store: Store, ctx: Ctx, b: { customerId: strin
 // ---------- Paiements par lien / QR code (Wave Business, Orange Business) ----------
 export async function savePaymentSettings(store: Store, ctx: Ctx, b: { waveTemplate?: string; orangeTemplate?: string; expiryMinutes?: number }) {
   need(ctx, "owner");
-  for (const t of [b.waveTemplate, b.orangeTemplate]) if (t) buildPaymentUrl(t, { amount: 1, ref: "TEST" }); // valide https + {amount}
+  // Faute de saisie = réponse 400 claire (jamais « Erreur interne »). Un modèle accepté est testé avec un montant et une référence d'essai.
+  const norm: { waveTemplate?: string; orangeTemplate?: string } = {}; const converted: string[] = [];
+  for (const [key, provider, label] of [["waveTemplate", "wave", "Wave Business"], ["orangeTemplate", "orange", "Orange Business"]] as const) {
+    const raw = b[key]; if (!raw) continue;
+    try { const n = normalizeTemplate(raw, provider); buildPaymentUrl(n.template, { amount: 1, ref: "TEST" }); norm[key] = n.template; if (n.converted) converted.push(provider); }
+    catch (e) { throw new HttpError(400, `Lien ${label} : ${(e as Error).message}`); }
+  }
   const id = ctx.shopId.slice(0, 36);
   const prev = await store.get("payment_settings", id);
   // Un champ absent conserve la valeur existante ; une chaîne vide désactive l'opérateur.
   const data = {
     tenantId: ctx.tenantId, shopId: ctx.shopId,
-    waveTemplate: b.waveTemplate ?? prev?.waveTemplate ?? "", orangeTemplate: b.orangeTemplate ?? prev?.orangeTemplate ?? "",
+    waveTemplate: norm.waveTemplate ?? (b.waveTemplate === "" ? "" : prev?.waveTemplate ?? ""), orangeTemplate: norm.orangeTemplate ?? (b.orangeTemplate === "" ? "" : prev?.orangeTemplate ?? ""),
     expiryMinutes: Math.min(Math.max(Number(b.expiryMinutes) || Number(prev?.expiryMinutes) || 15, 1), 1440),
   };
   if (!(await store.create("payment_settings", id, ctx.tenantId, data))) await store.update("payment_settings", id, data);
-  return { ok: true };
+  return { ok: true, converted };
 }
 export async function getPaymentSettings(store: Store, ctx: Ctx) {
   needModule(ctx, "pos");
@@ -118,7 +124,7 @@ export async function createPaymentLink(store: Store, ctx: Ctx, b: { provider: Q
   const template = b.provider === "wave" ? s.waveTemplate : s.orangeTemplate;
   if (!template) throw new HttpError(409, `Lien ${b.provider} non configuré dans les réglages`);
   const id = newId(), reference = linkRef(id);
-  const url = buildPaymentUrl(template, { amount, ref: reference });
+  let url: string; try { url = buildPaymentUrl(template, { amount, ref: reference }); } catch { throw new HttpError(409, "Le lien enregistré pour cet opérateur est invalide : corrigez-le dans Réglages → Paiements QR."); }
   const expiresAt = new Date(Date.now() + Number(s.expiryMinutes ?? 15) * 60_000).toISOString();
   await store.create("payment_links", id, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, provider: b.provider, amount, reference, url, status: "pending", saleId: "", txRef: "", expiresAt, createdBy: ctx.userId, confirmedBy: "" });
   return { id, url, reference, amount, expiresAt }; // le QR est dessiné côté client à partir de l'URL
