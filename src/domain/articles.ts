@@ -6,17 +6,20 @@ export const UNITS = [
 export type UnitId = (typeof UNITS)[number]["id"];
 export const unitLabel = (id?: string): string => UNITS.find((u) => u.id === id)?.label ?? "Pièce";
 
+import { isScale, type Scale } from "./quantity";
 export const MAX_AMOUNT = 100_000_000; // 100 millions de FCFA : borne anti-saisie aberrante
 
 export type ArticleInput = {
   name?: unknown; sku?: unknown; barcode?: unknown; category?: unknown; description?: unknown;
-  price?: unknown; cost?: unknown; unit?: unknown; minStock?: unknown; supplierId?: unknown; archived?: unknown;
+  price?: unknown; cost?: unknown; unit?: unknown; minStock?: unknown; supplierId?: unknown; archived?: unknown; qtyScale?: unknown;
 };
 export type Article = {
   name: string; sku: string; barcode: string; category: string; description: string;
-  price: number; cost: number; unit: UnitId; minStock: number; supplierId: string; archived: boolean;
+  price: number; cost: number; unit: UnitId; minStock: number; supplierId: string; archived: boolean; qtyScale: Scale;
 };
 /** Champs réservés à la formule Business (la fiche simple : nom, code, catégorie, prix, seuil, reste ouverte à toutes les formules). */
+/** Champs réservés à la formule Pro. */
+export const PRO_FIELDS = ["qtyScale"] as const;
 export const BUSINESS_FIELDS = ["description", "unit", "supplierId", "imageFileId"] as const;
 
 const text = (v: unknown, max: number, label: string): string => {
@@ -43,11 +46,13 @@ export function normalizeArticle(raw: ArticleInput): Article {
   const price = amount(raw.price, "Prix de vente"); const cost = amount(raw.cost, "Prix d'achat");
   const unit = raw.unit === undefined || raw.unit === "" ? "piece" : String(raw.unit);
   if (!UNITS.some((u) => u.id === unit)) throw new Error("Unité inconnue");
+  const qtyScale = raw.qtyScale === undefined || raw.qtyScale === "" ? 0 : Number(raw.qtyScale);
+  if (!isScale(qtyScale)) throw new Error("Précision de quantité invalide (0 à 3 décimales)");
   const minStock = raw.minStock === undefined || raw.minStock === "" ? 0 : Number(raw.minStock);
   if (!Number.isInteger(minStock) || minStock < 0 || minStock > 1_000_000) throw new Error("Seuil d'alerte invalide (entier positif)");
   return {
     name, sku: text(raw.sku, 64, "Référence"), barcode, category: text(raw.category, 80, "Catégorie"), description: text(raw.description, 1000, "Description"),
-    price, cost, unit: unit as UnitId, minStock, supplierId: text(raw.supplierId, 64, "Fournisseur"), archived: raw.archived === true,
+    price, cost, unit: unit as UnitId, minStock, qtyScale, supplierId: text(raw.supplierId, 64, "Fournisseur"), archived: raw.archived === true,
   };
 }
 

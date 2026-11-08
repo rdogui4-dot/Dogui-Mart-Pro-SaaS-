@@ -1,15 +1,17 @@
 import { toFcfa } from "./money";
+import { qtyFor } from "./quantity";
 
 export type PoLine = { productId: string; name: string; qty: number; unitCost: number; received: number; invoiced: number };
 export type PoStatus = "ordered" | "partial" | "received" | "cancelled";
 export type InvoiceStatus = "unpaid" | "partial" | "paid";
 export type Payment = { id: string; amount: number; method: "cash" | "wave" | "orange" | "card"; date: string };
 
-export const lineHt = (qty: number, unitCost: number): number => toFcfa(qty * unitCost);
+export const lineHt = (qty: number, unitCost: number): number => toFcfa(Math.round(qty * unitCost * 1e6) / 1e6);
 export const poTotalHt = (lines: PoLine[]): number => lines.reduce((s, l) => s + lineHt(l.qty, l.unitCost), 0);
-export const toReceive = (l: PoLine): number => Math.max(0, l.qty - l.received);
+const r6 = (n: number): number => Math.round(n * 1e6) / 1e6; // quantités à 3 décimales : pas de bruit de virgule flottante
+export const toReceive = (l: PoLine): number => Math.max(0, r6(l.qty - l.received));
 /** Quantités reçues mais pas encore facturées. */
-export const toInvoice = (l: PoLine): number => Math.max(0, l.received - l.invoiced);
+export const toInvoice = (l: PoLine): number => Math.max(0, r6(l.received - l.invoiced));
 
 export function poStatus(lines: PoLine[], cancelled = false): PoStatus {
   if (cancelled) return "cancelled";
@@ -32,7 +34,7 @@ export const dueOf = (total: number, payments: Payment[]): number => Math.max(0,
 
 /** Valide une saisie de réception/facturation : quantités entières > 0, pas au-delà du restant. */
 export function validateQuantities(
-  lines: PoLine[], wanted: { productId: string; qty: number }[], remaining: (l: PoLine) => number,
+  lines: PoLine[], wanted: { productId: string; qty: number }[], remaining: (l: PoLine) => number, scaleOf: (productId: string) => number = () => 0,
 ): { ok: true } | { ok: false; error: string } {
   if (!wanted.length) return { ok: false, error: "Aucune ligne" };
   const seen = new Set<string>();
@@ -41,7 +43,7 @@ export function validateQuantities(
     if (!line) return { ok: false, error: "Produit hors commande" };
     if (seen.has(w.productId)) return { ok: false, error: "Ligne en double" };
     seen.add(w.productId);
-    if (!Number.isInteger(w.qty) || w.qty <= 0) return { ok: false, error: "Quantité invalide" };
+    try { qtyFor(w.qty, scaleOf(w.productId)); } catch { return { ok: false, error: "Quantité invalide" }; }
     if (w.qty > remaining(line)) return { ok: false, error: `Quantité supérieure au restant : ${line.name}` };
   }
   return { ok: true };

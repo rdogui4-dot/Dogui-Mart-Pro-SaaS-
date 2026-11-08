@@ -39,6 +39,8 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   products: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   // Historique des prix : module Stock de la boutique
   price_history: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
+  // Conditionnements : lisibles par les employés de la boutique (la caisse en a besoin)
+  article_units: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   stock_moves: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   customers: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   sales: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],

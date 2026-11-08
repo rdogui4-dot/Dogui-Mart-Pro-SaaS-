@@ -6,7 +6,7 @@ export const FEATURES = {
   articles: { label: "Catalogue d'articles", min: "business", help: "Fiches complètes, photos, catégories, historique des prix." },
   // Fonctions avancées réservées à Pro (verrouillées et proposées en mise à niveau ; non développées dans cette version)
   variants: { label: "Variantes (taille, couleur…)", min: "pro", help: "Un article, plusieurs déclinaisons avec leur propre stock." },
-  packaging: { label: "Multi-conditionnement", min: "pro", help: "Vendre à la pièce, au carton, avec conversions automatiques." },
+  packaging: { label: "Multi-conditionnement et quantités décimales", min: "pro", help: "Vendre à la pièce, au carton, au kilo ou au litre (1,5 kg), avec conversions automatiques." },
   tieredPricing: { label: "Tarifs par client ou quantité", min: "pro", help: "Prix de gros, remises par palier, tarifs clients." },
   lots: { label: "Lots et dates d'expiration", min: "pro", help: "Traçabilité des lots et alertes de péremption." },
   serials: { label: "Numéros de série", min: "pro", help: "Suivi unitaire des articles sensibles." },

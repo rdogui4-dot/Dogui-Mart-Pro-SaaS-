@@ -3,19 +3,28 @@ import { canExtendCredit } from "../../../src/domain/credit";
 import { DEFAULT_RULES, earnedPoints, redeemablePoints, tierFor } from "../../../src/domain/loyalty";
 import { saleJournal } from "../../../src/domain/accounting";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
+import { convertQty, fromScaled, qtyFor, scaleOf, scaledInt, unitRowId } from "../../../src/domain/quantity";
+import { planAllows } from "../../../src/domain/features";
+import { entitlementOf } from "./subscriptions";
 import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 
 export type CheckoutInput = {
   clientId: string; soldAt?: string; customerId?: string; redeemPoints?: number;
-  lines: { productId: string; qty: number; discountPct?: number }[];
+  lines: { productId: string; qty: number | string; unit?: string; discountPct?: number }[];
   payments: (Payment & { linkId?: string })[];
 };
 const MAX_FUTURE_MS = 10 * 60_000, MAX_AGE_MS = 45 * 86_400_000;
 const safeId = (s: string) => s.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 
-export async function stockFor(store: Store, productId: string): Promise<number> {
+/** Somme brute des mouvements : entiers à l'échelle de l'article (sous-unités). */
+export async function stockScaled(store: Store, productId: string): Promise<number> {
   const { rows: moves } = await store.scan("stock_moves", { productId }, { maxRows: 200_000 }); // lecture paginée : jamais tronquée en silence
   return stockOf(moves.map((m) => ({ productId, qty: Number(m.qty), kind: m.kind as StockMove["kind"] })));
+}
+/** Stock lisible (décimal) d'un article. `scale` évite une lecture si l'appelant a déjà la fiche. */
+export async function stockFor(store: Store, productId: string, scale?: number): Promise<number> {
+  const sc = scale ?? scaleOf(await store.get("products", productId));
+  return fromScaled(await stockScaled(store, productId), sc);
 }
 
 /** Vente atomique côté serveur : prix et stock lus en base, jamais fournis par le client. */
@@ -30,15 +39,31 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   if (existing && (existing.tenantId !== ctx.tenantId || existing.shopId !== ctx.shopId)) throw new HttpError(409, "Identifiant déjà utilisé");
 
   // 1) Prix et stock vérifiés en base
-  const lines: (CartLine & { unitCost?: number })[] = [];
+  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number })[] = [];
+  const scales = new Map<string, number>(); const seenKeys = new Set<string>();
+  let packagingOk: boolean | undefined;
   for (const l of input.lines) {
-    const qty = Math.floor(Number(l.qty));
-    if (!(qty > 0)) throw new HttpError(400, "Quantité invalide");
     const p = await store.get("products", l.productId);
     if (!p || p.tenantId !== ctx.tenantId || p.shopId !== ctx.shopId || p.archived) throw new HttpError(404, "Produit introuvable");
+    const scale = scaleOf(p); scales.set(p.$id, scale);
+    // Quantité : dans l'unité de vente choisie (l'unité de base par défaut) ; convertie en unité de base, sans reste.
+    const soldUnit = l.unit && l.unit !== (p.unit || "piece") ? String(l.unit) : "";
+    let qty: number, unitQty: number | undefined, factor: number | undefined;
+    try {
+      if (soldUnit) {
+        // Conditionnements : fonction Pro. Après un retour à Business, la vente à l'unité de base reste possible, pas les conversions.
+        packagingOk ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "packaging");
+        if (!packagingOk) throw new HttpError(402, "Les conditionnements (carton, paquet…) sont réservés à la formule Pro.");
+        const u = await store.get("article_units", unitRowId(p.$id, soldUnit));
+        if (!u || u.productId !== p.$id || u.active === false) throw new HttpError(400, `Unité « ${soldUnit} » non définie pour ${p.name}`);
+        unitQty = qtyFor(l.qty, 3); factor = Number(u.factor); qty = convertQty(unitQty, factor, scale);
+      } else qty = qtyFor(l.qty, scale);
+    } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
+    const key = `${p.$id}|${soldUnit}`; if (seenKeys.has(key)) throw new HttpError(400, `Ligne en double : ${p.name}`); seenKeys.add(key);
     if (!existing) { // le stock a déjà été décrémenté lors d'une reprise
-      const have = await stockFor(store, p.$id);
-      if (have < qty) throw new HttpError(409, `Stock insuffisant : ${p.name} (${have})`);
+      const have = await stockFor(store, p.$id, scale);
+      const already = lines.filter((x) => x.productId === p.$id).reduce((a, x) => a + x.qty, 0); // deux unités du même article : cumul
+      if (have < already + qty) throw new HttpError(409, `Stock insuffisant : ${p.name} (${have})`);
     }
     // Remise > 0 réservée aux managers
     const discountPct = Number(l.discountPct ?? 0);
@@ -46,7 +71,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     // Le coût du moment est figé sur la vente (la marge d'un rapport ne bouge pas quand le coût moyen change plus tard).
     // Un coût non renseigné (0) n'est PAS figé : sinon la marge afficherait 100 % sur ce produit.
     const cost = Number(p.cost ?? 0);
-    lines.push({ productId: p.$id, name: p.name, unitPrice: Number(p.price), qty, discountPct, ...(cost > 0 ? { unitCost: cost } : {}) });
+    lines.push({ productId: p.$id, name: p.name, unitPrice: Number(p.price), qty, discountPct, ...(cost > 0 ? { unitCost: cost } : {}), ...(soldUnit ? { unit: soldUnit, unitQty, factor } : {}) });
   }
   let total = cartTotal(lines);
 
@@ -99,8 +124,8 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     payments: JSON.stringify(payments), lines: JSON.stringify(lines), status: "pending", clientId: saleId, soldAt,
   });
   const base = saleId.slice(0, 28);
-  for (const [i, l] of lines.entries())
-    await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, qty: l.qty, kind: "sale", refId: number, userId: ctx.userId });
+  for (const [i, l] of lines.entries()) // mouvements en entiers de sous-unités ; l'unité vendue est tracée sur le mouvement
+    await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, qty: scaledInt(l.qty, scales.get(l.productId) ?? 0), kind: "sale", refId: number, userId: ctx.userId, ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) });
   const j = saleJournal({ ref: number, date: soldAt, totalTtc: total, vatRatePct, payments });
   for (const [i, e] of j.entries.entries())
     await store.create("journal_entries", `${base}_j${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, ref: number, account: e.account, debit: e.debit, credit: e.credit, label: e.label, date: soldAt });

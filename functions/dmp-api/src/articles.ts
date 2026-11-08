@@ -1,6 +1,6 @@
 import { BUSINESS_FIELDS, normalizeArticle, normalizePatch, type Article } from "../../../src/domain/articles";
 import { FEATURES, planAllows, type FeatureKey } from "../../../src/domain/features";
-import { stockFor } from "./checkout";
+import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { readRoles } from "./permissions";
 import { assertQuota, entitlementOf } from "./subscriptions";
 import { HttpError, need, needModule, type Ctx, type Row, type Store } from "./store";
@@ -10,7 +10,7 @@ const mine = (ctx: Ctx, r: Row | null): r is Row => !!r && r.tenantId === ctx.te
 const must = (r: Row | null, msg = "Article introuvable"): Row => { if (!r) throw new HttpError(404, msg); return r; };
 const INITIAL = "stock-initial";
 /** Champs que le client peut envoyer. imageFileId n'en fait pas partie : la photo passe uniquement par article.image. */
-const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId"] as const;
+const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId", "qtyScale"] as const;
 const MAX_IMAGE_BYTES = 450_000;
 
 /** Droit lié à la FORMULE (distinct du rôle de l'employé). 402 = « passez à l'offre supérieure ». */
@@ -33,7 +33,7 @@ async function creationRows(store: Store, ctx: Ctx, id: string, a: Article, qty:
   if (qty > 0) await store.create("stock_moves", `${id}_init`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, qty, kind: "adjust", refId: INITIAL, userId: ctx.userId });
   if (!business) return;
   await store.create("price_history", `${id}_p0`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, oldPrice: 0, newPrice: Number(a.price), oldCost: 0, newCost: Number(a.cost ?? 0), userId: ctx.userId });
-  await store.create("audit_log", `${id}_ac`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "article.create", detail: `${a.name} (${id}) vente ${a.price} achat ${a.cost ?? 0} stock initial ${qty}`.slice(0, 1000) });
+  await store.create("audit_log", `${id}_ac`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "article.create", detail: `${a.name} (${id}) vente ${a.price} achat ${a.cost ?? 0} stock initial ${fromScaled(qty, scaleOf(a))}`.slice(0, 1000) });
 }
 
 /** Création / modification d'un article (table `products`). Également appelée par entity.save pour les produits : un seul chemin d'écriture. */
@@ -63,6 +63,12 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
   }
   if (b.id) {
     const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+    if (patch.qtyScale !== undefined && patch.qtyScale !== scaleOf(row)) {
+      await needFeature(store, ctx, "packaging"); // quantités décimales : Pro
+      // Les mouvements existants sont des entiers à l'ancienne échelle : on ne change la précision que sur un article sans aucun mouvement.
+      if ((await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id }, { maxRows: 1 })).rows.length) throw new HttpError(409, "La précision des quantités ne peut plus changer : cet article a déjà des mouvements de stock.");
+      if ((await store.list("article_units", { productId: row.$id, active: true }, 1)).length) throw new HttpError(409, "Retirez d'abord les conditionnements de cet article.");
+    }
     if (patch.sku !== undefined) await assertUnique(store, ctx, "sku", patch.sku, row.$id);
     if (patch.barcode !== undefined) await assertUnique(store, ctx, "barcode", patch.barcode, row.$id);
     if (!Object.keys(patch).length) return { id: row.$id };
@@ -77,8 +83,11 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
   const a = full!;
   // Identifiant dérivé de la demande du client : un nouvel envoi après coupure réseau ne crée jamais de doublon.
   const id = b.requestId ? `a${String(b.requestId).replace(/[^A-Za-z0-9]/g, "").slice(0, 28)}` : newId();
-  const qty = Math.floor(Number(b.initialQty ?? 0));
-  if (b.initialQty !== undefined && !(qty >= 0 && qty <= 10_000_000)) throw new HttpError(400, "Quantité en stock invalide");
+  if (a.qtyScale !== 0) await needFeature(store, ctx, "packaging");
+  let qty = 0; // stock initial en entiers de sous-unités
+  if (b.initialQty !== undefined && String(b.initialQty).trim() !== "" && Number(b.initialQty) !== 0) {
+    try { qty = scaledInt(qtyFor(b.initialQty, a.qtyScale), a.qtyScale); } catch (e) { throw new HttpError(400, `Quantité en stock : ${(e as Error).message}`); }
+  }
   const prior = await store.get("products", id);
   if (prior) {
     if (!mine(ctx, prior)) throw new HttpError(409, "Demande déjà utilisée");
@@ -147,4 +156,4 @@ export async function setArticleImage(store: Store, ctx: Ctx, b: { id: string; m
   return { fileId };
 }
 
-export { stockFor, BUSINESS_FIELDS };
+export { BUSINESS_FIELDS };

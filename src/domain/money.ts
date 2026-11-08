@@ -6,8 +6,9 @@ export const formatFcfa = (n: number): string =>
 
 export type CartLine = { productId: string; name: string; unitPrice: number; qty: number; discountPct?: number };
 
+/** Les quantités ont au plus 3 décimales : on arrondit le brut à 1e-6 avant d'appliquer la remise pour qu'un « .5 » exact ne dérive jamais (166,5 et non 166,49999…). */
 export const lineTotal = (l: CartLine): number =>
-  toFcfa(l.unitPrice * l.qty * (1 - Math.min(Math.max(l.discountPct ?? 0, 0), 100) / 100));
+  toFcfa(Math.round(l.unitPrice * l.qty * 1e6) / 1e6 * (1 - Math.min(Math.max(l.discountPct ?? 0, 0), 100) / 100));
 
 export const cartTotal = (lines: CartLine[]): number => lines.reduce((s, l) => s + lineTotal(l), 0);
 

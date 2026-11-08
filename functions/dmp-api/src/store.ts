@@ -6,10 +6,10 @@ export class HttpError extends Error {
 export interface Store {
   membership(tenantId: string, userId: string): Promise<{ roles: string[] } | null>;
   get(table: string, id: string): Promise<Row | null>;
-  list(table: string, where: Record<string, string | number>, limit?: number): Promise<Row[]>;
+  list(table: string, where: Record<string, string | number | boolean>, limit?: number): Promise<Row[]>;
   /** Lecture paginée de toutes les lignes correspondantes (bornée par maxRows) : ne dépend d'aucune limite de page de la base.
    *  `range` borne un champ (date ISO) : from inclus, to exclu. `truncated` vaut true si maxRows a été atteint. */
-  scan(table: string, where: Record<string, string | number>, opts?: { range?: { field: string; from?: string; to?: string }; maxRows?: number }): Promise<{ rows: Row[]; truncated: boolean }>;
+  scan(table: string, where: Record<string, string | number | boolean>, opts?: { range?: { field: string; from?: string; to?: string }; maxRows?: number }): Promise<{ rows: Row[]; truncated: boolean }>;
   /** Crée la ligne ; renvoie false si l'identifiant existe déjà (idempotence). Les droits de lecture viennent de permissions.ts (par boutique / rôle). */
   create(table: string, id: string, tenantId: string, data: Record<string, unknown>): Promise<boolean>;
   update(table: string, id: string, data: Record<string, unknown>): Promise<void>;

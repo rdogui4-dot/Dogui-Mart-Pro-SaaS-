@@ -1,3 +1,4 @@
+import { qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { stockFor } from "./checkout";
 import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 import { assertQuota, getSub, grantLifetime } from "./subscriptions";
@@ -127,11 +128,11 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
   const resumed = !!(await store.get("stock_moves", `${base}_o0`));
   const seen = new Set<string>(); const items: { src: any; qty: number }[] = [];
   for (const l of b.lines) {
-    const qty = Number(l.qty); if (!Number.isInteger(qty) || qty <= 0) throw new HttpError(400, "Quantité invalide");
     if (seen.has(l.productId)) throw new HttpError(400, "Produit en double"); seen.add(l.productId);
     const src = await store.get("products", l.productId);
     if (!src || src.tenantId !== ctx.tenantId || src.shopId !== ctx.shopId) throw new HttpError(404, "Produit introuvable");
-    if (!resumed) { const have = await stockFor(store, src.$id); if (have < qty) throw new HttpError(409, `Stock insuffisant : ${src.name} (${have})`); }
+    let qty: number; try { qty = qtyFor(l.qty, scaleOf(src)); } catch (e) { throw new HttpError(400, `${src.name} : ${(e as Error).message}`); }
+    if (!resumed) { const have = await stockFor(store, src.$id, scaleOf(src)); if (have < qty) throw new HttpError(409, `Stock insuffisant : ${src.name} (${have})`); }
     items.push({ src, qty });
   }
   const number = `TR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${tid.slice(0, 6).toUpperCase()}`;
@@ -140,9 +141,10 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
     let target = (await store.list("products", { tenantId: ctx.tenantId, shopId: b.toShopId, originId: origin }, 1))[0];
     if (!target && src.barcode) target = (await store.list("products", { tenantId: ctx.tenantId, shopId: b.toShopId, barcode: String(src.barcode) }, 1))[0];
     const targetId = target?.$id ?? `${base}_p${i}`;
-    if (!target) await store.create("products", targetId, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, name: src.name, sku: src.sku ?? "", barcode: src.barcode ?? "", category: src.category ?? "", price: src.price, cost: src.cost ?? 0, minStock: src.minStock ?? 0, archived: false, originId: origin, description: src.description ?? "", unit: src.unit ?? "piece" });
-    await store.create("stock_moves", `${base}_o${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, qty, kind: "transfer_out", refId: number, userId: ctx.userId });
-    await store.create("stock_moves", `${base}_i${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, qty, kind: "transfer_in", refId: number, userId: ctx.userId });
+    if (target && scaleOf(target) !== scaleOf(src)) throw new HttpError(409, `${src.name} : la précision des quantités diffère entre les deux boutiques`);
+    if (!target) await store.create("products", targetId, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, name: src.name, sku: src.sku ?? "", barcode: src.barcode ?? "", category: src.category ?? "", price: src.price, cost: src.cost ?? 0, minStock: src.minStock ?? 0, archived: false, originId: origin, description: src.description ?? "", unit: src.unit ?? "piece", qtyScale: scaleOf(src) });
+    await store.create("stock_moves", `${base}_o${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, qty: scaledInt(qty, scaleOf(src)), kind: "transfer_out", refId: number, userId: ctx.userId });
+    await store.create("stock_moves", `${base}_i${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, qty: scaledInt(qty, scaleOf(src)), kind: "transfer_in", refId: number, userId: ctx.userId });
   }
   await store.create("transfers", tid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, toShopId: b.toShopId, number, lines: JSON.stringify(items.map((x) => ({ productId: x.src.$id, name: x.src.name, qty: x.qty }))), userId: ctx.userId });
   return { number, duplicate: false };

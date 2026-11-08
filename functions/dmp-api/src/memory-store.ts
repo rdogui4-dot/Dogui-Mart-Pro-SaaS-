@@ -7,10 +7,10 @@ export class MemoryStore implements Store {
   private t(n: string) { if (!this.tables.has(n)) this.tables.set(n, new Map()); return this.tables.get(n)!; }
   async membership(tenantId: string, userId: string) { const r = this.members.get(`${tenantId}:${userId}`); return r ? { roles: r } : null; }
   async get(table: string, id: string) { const r = this.t(table).get(id); return r ? { ...r } : null; }
-  async list(table: string, where: Record<string, string | number>, limit = 100) {
+  async list(table: string, where: Record<string, string | number | boolean>, limit = 100) {
     return [...this.t(table).values()].filter((r) => Object.entries(where).every(([k, v]) => r[k] === v)).slice(0, limit).map((r) => ({ ...r }));
   }
-  async scan(table: string, where: Record<string, string | number>, opts: { range?: { field: string; from?: string; to?: string }; maxRows?: number } = {}) {
+  async scan(table: string, where: Record<string, string | number | boolean>, opts: { range?: { field: string; from?: string; to?: string }; maxRows?: number } = {}) {
     const max = opts.maxRows ?? 10_000; const r = opts.range;
     const all = [...this.t(table).values()].filter((x) => Object.entries(where).every(([k, v]) => x[k] === v)
       && (!r || ((r.from === undefined || String(x[r.field] ?? "") >= r.from) && (r.to === undefined || String(x[r.field] ?? "") < r.to))));

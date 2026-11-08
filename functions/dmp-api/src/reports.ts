@@ -1,5 +1,6 @@
 import { aggregateSales, mergeAggregates, parsePeriod, type SaleRow, type SalesAggregate } from "../../../src/domain/reports";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
+import { fromScaled, scaleOf } from "../../../src/domain/quantity";
 import { HttpError, roleOf, type Ctx, type Store, needModule } from "./store";
 
 const parse = <T,>(s: unknown, fb: T): T => { try { return JSON.parse(String(s)) as T; } catch { return fb; } };
@@ -38,7 +39,7 @@ export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: stri
       for (const m of moves.rows) { const k = String(m.productId); (byProduct.get(k) ?? byProduct.set(k, []).get(k)!).push({ productId: k, qty: Number(m.qty), kind: m.kind as StockMove["kind"] }); }
       stockValue = 0; stockouts = 0;
       for (const p of products.rows.filter((x) => !x.archived)) {
-        const n = stockOf(byProduct.get(String(p.$id)) ?? []);
+        const n = fromScaled(stockOf(byProduct.get(String(p.$id)) ?? []), scaleOf(p)); // décimal pour les articles au kilo / au litre
         stockValue += Math.max(0, n) * Number(p.cost ?? 0);
         if (n <= Number(p.minStock ?? 0)) stockouts++;
       }

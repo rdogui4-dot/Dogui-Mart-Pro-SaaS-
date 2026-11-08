@@ -1,12 +1,14 @@
 import { buildPaymentUrl, isExpired, linkRef, type QrProvider } from "../../../src/domain/payment-links";
 import { toFcfa } from "../../../src/domain/money";
+import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { ACCOUNTS } from "../../../src/domain/accounting";
-import { checkout, stockFor, type CheckoutInput } from "./checkout";
+import { checkout, stockScaled, type CheckoutInput } from "./checkout";
 import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
 import { consolidatedReport } from "./reports";
 import { assertQuota, platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
+import { saveUnits } from "./units";
 import { archiveArticle, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
@@ -44,14 +46,16 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
 }
 
 /** Inventaire : écrit un mouvement d'ajustement égal à l'écart, jamais un écrasement du stock. */
-export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string; counted: number }) {
+export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string; counted: number | string }) {
   needModule(ctx, "stock");
   const p = must(await store.get("products", b.productId), "Produit introuvable");
   if (!mine(ctx, p)) throw new HttpError(403, "Accès refusé");
-  const counted = Math.floor(Number(b.counted)); if (!(counted >= 0)) throw new HttpError(400, "Quantité invalide");
-  const diff = counted - (await stockFor(store, p.$id));
+  const scale = scaleOf(p);
+  let counted: number;
+  try { counted = String(b.counted).trim() === "0" ? 0 : qtyFor(b.counted, scale); } catch (e) { throw new HttpError(400, (e as Error).message); }
+  const diff = scaledInt(counted, scale) - (await stockScaled(store, p.$id)); // écart en sous-unités : jamais un écrasement du stock
   if (diff !== 0) await store.create("stock_moves", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, qty: diff, kind: "adjust", refId: "inventaire", userId: ctx.userId });
-  return { diff };
+  return { diff: fromScaled(diff, scale) };
 }
 
 export async function repayCredit(store: Store, ctx: Ctx, b: { customerId: string; amount: number; method: "cash" | "wave" | "orange" }) {
@@ -143,7 +147,7 @@ export const TENANT_LEVEL = new Set(["report.consolidated", "subscription.get", 
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
-  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "stock.adjust": adjustStock, "credit.repay": repayCredit,
+  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "stock.adjust": adjustStock, "credit.repay": repayCredit,
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
