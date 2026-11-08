@@ -34,7 +34,7 @@ export async function handle(store: Store, userId: string | undefined, body: any
         ctx.shopIds = ids;
       }
     }
-    if (!LOCK_EXEMPT.has(action)) await assertWritable(store, tenantId); // abonnement expiré (hors délai de grâce) = lecture seule
+    if (!LOCK_EXEMPT.has(action)) await assertWritable(store, tenantId); // abonnement expiré (hors délai de grâce) : plus aucune écriture ; l'interface suspend l'accès
     return { status: 200, body: { ok: true, data: await fn(store, ctx, payload ?? {}) } };
   } catch (e) {
     if (e instanceof HttpError) return { status: e.status, body: { ok: false, error: e.message } };

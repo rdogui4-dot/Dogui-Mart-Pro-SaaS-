@@ -11,7 +11,8 @@
     "test": "vitest run",
     "appwrite:setup": "node scripts/setup-appwrite.mjs",
     "functions:build": "node scripts/build-functions.mjs",
-    "verify:isolation": "node scripts/verify-isolation.mjs"
+    "verify:isolation": "node scripts/verify-isolation.mjs",
+    "docs:offers": "vite-node scripts/generate-selar-offers.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",
@@ -39,6 +40,7 @@
     "node-appwrite": "^31.1.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.6",
+    "vite-node": "^6.0.0",
     "vitest": "^5.1.0"
   }
 }

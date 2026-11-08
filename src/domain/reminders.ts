@@ -36,8 +36,8 @@ export function bannerMessage(e: Pick<Entitlement, "state" | "endsAt" | "period"
   if (level === "none") return null;
   const what = e.trial ? "Votre essai gratuit" : "Votre abonnement";
   const todo = isOwner ? " Renouvelez dans Réglages → Abonnement." : " Prévenez le propriétaire du commerce.";
-  const text = level === "locked" ? `${what} est terminé : l'application est en lecture seule.${todo}`
-    : level === "grace" ? `${what} est terminé depuis le ${dateFr(e.endsAt)}. Il reste un court délai de grâce avant le passage en lecture seule.${todo}`
+  const text = level === "locked" ? `${what} est terminé : l'accès à l'application est suspendu, vos données sont conservées.${todo}`
+    : level === "grace" ? `${what} est terminé depuis le ${dateFr(e.endsAt)}. Il reste un court délai de grâce avant la suspension de l'accès.${todo}`
       : `${what} se termine dans ${timeLeftLabel(msLeft(e, now))} (le ${dateFr(e.endsAt)}).${todo}`;
   return { level, text };
 }
@@ -48,13 +48,13 @@ export type RenewalInfo = { shopName: string; ownerName?: string; planName: stri
 export function renewalMessage(i: RenewalInfo, now: Date = new Date()): string {
   const hello = `Bonjour${i.ownerName ? ` ${i.ownerName}` : ""},`;
   const sub = i.trial ? "votre essai gratuit de Dogui Mart Pro" : `votre abonnement Dogui Mart Pro (${i.planName}, ${PERIOD_LABEL[i.period].toLowerCase()})`;
-  const when = i.state === "locked" ? `est terminé depuis le ${dateFr(i.endsAt)} et ${i.shopName} est en lecture seule`
+  const when = i.state === "locked" ? `est terminé depuis le ${dateFr(i.endsAt)} et l'accès de ${i.shopName} est suspendu (ses données sont conservées)`
     : i.state === "grace" ? `est terminé depuis le ${dateFr(i.endsAt)} (délai de grâce en cours pour ${i.shopName})`
       : `se termine dans ${timeLeftLabel(msLeft(i, now))}, le ${dateFr(i.endsAt)}`;
   return `${hello}\n${sub[0]!.toUpperCase()}${sub.slice(1)} ${when}.\nPour continuer sans interruption, renouvelez-le dans l'application : Réglages → Abonnement (paiement sécurisé par Selar).\nMerci de votre confiance !`;
 }
 
-export const stateLabel: Record<Entitlement["state"], string> = { active: "Actif", expiring: "Bientôt expiré", grace: "Délai de grâce", locked: "Lecture seule" };
+export const stateLabel: Record<Entitlement["state"], string> = { active: "Actif", expiring: "Bientôt expiré", grace: "Délai de grâce", locked: "Accès suspendu" };
 
 /** Numéro utilisable pour un lien WhatsApp (chiffres, indicatif inclus) ; null si on ne peut pas être sûr de l'indicatif. */
 export function whatsappNumber(phone: string | undefined, defaultDialCode?: string): string | null {

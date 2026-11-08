@@ -41,7 +41,7 @@ describe("accès", () => {
     await ok(call("own", "staff.update", { userId: mgrA, active: false }));
     expect((await ok(report(mgrA))).shops).toEqual([]);
   });
-  it("reste consultable quand l'abonnement est expiré (lecture seule)", async () => {
+  it("reste consultable quand l'abonnement est expiré (écritures refusées)", async () => {
     st.tables.get("subscriptions")!.set(T, { $id: T, tenantId: T, plan: "business", period: "month", status: "paid", renewsAt: day(30) });
     expect((await report("own")).status).toBe(200);
     expect((await call("own", "entity.save", { table: "customers", data: { name: "C" } }, A)).status).toBe(402);

@@ -20,7 +20,7 @@ describe("paliers de relance selon la période", () => {
   it("un essai est relancé comme un mensuel (conversion)", () => {
     expect(reminderLevel(ent("day", 6, "trial"), NOW)).toBe("info"); expect(reminderLevel(ent("day", 20, "trial"), NOW)).toBe("none");
   });
-  it("échu : délai de grâce puis lecture seule", () => {
+  it("échu : délai de grâce puis accès suspendu", () => {
     expect(reminderLevel(ent("month", -1), NOW)).toBe("grace"); expect(reminderLevel(ent("month", -10), NOW)).toBe("locked"); expect(reminderLevel(ent("day", -0.1), NOW)).toBe("locked");
   });
 });
@@ -32,10 +32,10 @@ describe("message dans l'application", () => {
     expect(bannerMessage(ent("month", 2), false, NOW)!.text).toMatch(/Prévenez le propriétaire/);
     expect(bannerMessage(ent("month", 2), false, NOW)!.text).not.toMatch(/Réglages/);
   });
-  it("heures restantes pour un abonnement jour, essai nommé comme tel, lecture seule", () => {
+  it("heures restantes pour un abonnement jour, essai nommé comme tel, accès suspendu", () => {
     expect(bannerMessage(ent("day", 0.2), true, NOW)!.text).toMatch(/dans 5 h/);
     expect(bannerMessage(ent("day", 5, "trial"), true, NOW)!.text).toMatch(/^Votre essai gratuit/);
-    const l = bannerMessage(ent("month", -10), true, NOW)!; expect(l.level).toBe("locked"); expect(l.text).toMatch(/lecture seule/);
+    const l = bannerMessage(ent("month", -10), true, NOW)!; expect(l.level).toBe("locked"); expect(l.text).toMatch(/accès à l'application est suspendu/);
     expect(timeLeftLabel(-5)).toBe("expiré"); expect(timeLeftLabel(36 * 3_600_000)).toBe("2 jour(s)");
   });
 });
@@ -45,7 +45,7 @@ describe("message de relance pour la plateforme", () => {
   it("rédige selon l'état", () => {
     const soon = renewalMessage({ ...base, state: "expiring", endsAt: at(2) }, NOW);
     expect(soon).toMatch(/^Bonjour Awa,/); expect(soon).toMatch(/Dogui Mart Pro \(Business, mensuel\) se termine dans 2 jour\(s\)/); expect(soon).toMatch(/Selar/);
-    expect(renewalMessage({ ...base, state: "locked", endsAt: at(-10) }, NOW)).toMatch(/Chez Awa est en lecture seule/);
+    expect(renewalMessage({ ...base, state: "locked", endsAt: at(-10) }, NOW)).toMatch(/l'accès de Chez Awa est suspendu/);
     expect(renewalMessage({ ...base, trial: true, state: "grace", endsAt: at(-1) }, NOW)).toMatch(/Votre essai gratuit de Dogui Mart Pro est terminé.*délai de grâce/);
     expect(renewalMessage({ ...base, ownerName: undefined, state: "expiring", endsAt: at(1) }, NOW)).toMatch(/^Bonjour,/);
   });

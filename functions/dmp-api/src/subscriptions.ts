@@ -128,7 +128,7 @@ async function applySubscription(store: Store, tenantId: string, plan: PlanId, p
 const audit = (store: Store, ctx: Ctx, tenantId: string, action: string, detail: string) =>
   store.create("audit_log", newId(), tenantId, { tenantId, shopId: "platform", userId: ctx.userId, action, detail: detail.slice(0, 500) });
 
-/** Abonnements à relancer : échéance dans `withinDays` jours ou déjà dépassée (délai de grâce, lecture seule), essais compris.
+/** Abonnements à relancer : échéance dans `withinDays` jours ou déjà dépassée (délai de grâce, accès suspendu), essais compris.
  *  La plateforme envoie elle-même la relance (WhatsApp, e-mail) avec le message préparé : aucun envoi automatique. */
 export async function platformRenewals(store: Store, ctx: Ctx, b: { withinDays?: number }) {
   adminOnly(ctx);

@@ -19,7 +19,7 @@ export const useSubscription = () => {
   return useQuery({ queryKey: ["subscription", s.tenantId], queryFn: () => api<SubInfo>(s, "subscription.get"), staleTime: 60_000, enabled: !!s });
 };
 
-const STATE_LABEL = { active: "Actif", expiring: "Bientôt expiré", grace: "Expiré — délai de grâce", locked: "Expiré — lecture seule" } as const;
+const STATE_LABEL = { active: "Actif", expiring: "Bientôt expiré", grace: "Expiré — délai de grâce", locked: "Expiré — accès suspendu" } as const;
 const STATE_TONE = { active: "text-emerald-400", expiring: "text-amber-300", grace: "text-orange-400", locked: "text-red-400" } as const;
 const PAY_LABEL: Record<string, string> = { awaiting_payment: "À payer", pending_review: "En attente de validation", approved: "Validé", rejected: "Refusé" };
 const lim = (n: number) => (n < 0 ? "illimité" : String(n));
@@ -30,7 +30,7 @@ const dismissKey = (tenantId: string, level: string) => `dmp.remind.${tenantId}.
 const wasDismissed = (k: string) => { try { return localStorage.getItem(k) === "1"; } catch { return false; } };
 
 /** Relance d'expiration affichée dans l'application. Les rappels d'information et d'avertissement se masquent pour la journée ;
- *  les rappels urgents, de grâce et de lecture seule restent visibles. Le message dépend de la période (un abonnement « jour » est relancé dans ses dernières heures). */
+ *  les rappels urgents, de grâce et d'accès suspendu restent visibles. Le message dépend de la période (un abonnement « jour » est relancé dans ses dernières heures). */
 export function SubscriptionBanner() {
   const { session } = useSession();
   const { data } = useSubscription();
