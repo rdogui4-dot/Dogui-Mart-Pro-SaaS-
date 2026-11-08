@@ -1,3 +1,4 @@
+import { Check, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +23,10 @@ export const useSubscription = () => {
 const STATE_LABEL = { active: "Actif", expiring: "Bientôt expiré", grace: "Expiré — délai de grâce", locked: "Expiré — accès suspendu" } as const;
 const STATE_TONE = { active: "text-emerald-400", expiring: "text-amber-300", grace: "text-orange-400", locked: "text-red-400" } as const;
 const PAY_LABEL: Record<string, string> = { awaiting_payment: "À payer", pending_review: "En attente de validation", approved: "Validé", rejected: "Refusé" };
+const PER_LABEL: Record<Period, string> = { day: "jour", week: "semaine", month: "mois", quarter: "trimestre", year: "an" };
+const DAYS: Record<Period, number> = { day: 1, week: 7, month: 30, quarter: 90, year: 365 };
+/** Économie par rapport au tarif « jour » ramené à la même durée. */
+const savingPct = (p: Plan, period: Period) => (period === "day" || !p.prices.day ? 0 : Math.max(0, Math.round((1 - priceFor(p, period, 1) / (p.prices.day * DAYS[period])) * 100)));
 const lim = (n: number) => (n < 0 ? "illimité" : String(n));
 const dateFr = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 
@@ -82,23 +87,40 @@ export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; per
         </div>
       )}
 
-      {!e.lifetime && <div className="card flex flex-col gap-2">
-        <h2 className="font-semibold">Choisir une formule</h2>
-        {cameFrom && <p className="text-sm rounded-lg bg-white/5 p-2">Vous revenez de Selar ? Votre formule est en surbrillance. Sélectionnez ci-dessus la période que vous avez payée, touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
-        <div className="grid grid-cols-5 gap-1 text-xs">
-          {PERIODS.map((p) => <button key={p} className={period === p ? "btn !py-2 !px-1 !text-xs" : "btn-ghost !py-2 !px-1 !text-xs"} onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</button>)}
+      {!e.lifetime && <section aria-label="Formules" className="flex flex-col gap-4">
+        <div className="text-center flex flex-col gap-1">
+          <h2 className="text-xl font-bold">Choisissez votre formule</h2>
+          <p className="text-sm text-white/60">Toutes les fonctions dans chaque formule. Seules les limites changent. Sans engagement : vous payez la durée choisie.</p>
         </div>
-        {data.plans.map((p) => (
-          <div key={p.id} ref={cameFrom?.plan === p.id ? picked : undefined} className={`rounded-xl border p-3 flex flex-col gap-1 ${cameFrom?.plan === p.id ? "border-[var(--gold)] ring-2 ring-[var(--gold)]/40" : p.id === e.plan.id ? "border-[var(--gold)]" : "border-white/10"}`}>
-            <div className="flex justify-between"><b>{p.name}</b><span className="text-[var(--gold)] font-semibold">{formatFcfa(priceFor(p, period, 1))}</span></div>
-            <div className="text-xs text-white/60">{lim(p.limits.maxShops)} boutique(s) · {lim(p.limits.maxUsers)} utilisateur(s) · {lim(p.limits.maxProducts)} produits</div>
-            {p.id !== e.plan.id && !e.trial && e.state !== "locked" && <div className="text-xs text-amber-300">Changer de formule démarre la nouvelle période maintenant : le temps restant de l'actuelle n'est pas reporté.</div>}
-            <button className="btn-ghost !py-2 mt-1" disabled={!data.available[p.id]} onClick={() => setPay(p)}>{data.available[p.id] ? `Payer sur Selar · ${PERIOD_LABEL[period]}` : "Paiement bientôt disponible"}</button>
-          </div>
-        ))}
-        {!Object.keys(data.available).length && <p className="text-xs text-amber-300">Le paiement en ligne n'est pas encore activé par la plateforme.</p>}
-        <p className="text-xs text-white/50">Sur la page Selar, vous choisissez la période dans la liste « Choisir un abonnement » : sélectionnez celle indiquée ici, sinon le paiement sera refusé à la vérification. Si vous gardez la même formule, la durée s'ajoute à l'échéance.</p>
-      </div>}
+        {cameFrom && <p className="text-sm rounded-2xl bg-[var(--surface-2)] border border-[var(--gold)]/40 p-3">Vous revenez de Selar ? Votre formule est en surbrillance. Sélectionnez la période que vous avez payée, touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
+        <div role="tablist" aria-label="Durée" className="grid grid-cols-5 gap-1">
+          {PERIODS.map((p) => <button key={p} role="tab" aria-selected={period === p} aria-current={period === p} className="chip !px-1 !py-2 text-xs text-center" onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</button>)}
+        </div>
+        {data.plans.map((p, i) => {
+          const price = priceFor(p, period, 1); const save = savingPct(p, period);
+          const popular = p.id === "business"; const current = p.id === e.plan.id; const target = cameFrom?.plan === p.id;
+          return (
+            <div key={p.id} ref={target ? picked : undefined} className={`relative rounded-3xl border p-5 flex flex-col gap-3 ${popular ? "bg-gradient-to-b from-[#241d08] to-[var(--surface)]" : "bg-[var(--surface)]"} ${target ? "ring-2 ring-[var(--gold)]/60 border-[var(--gold)]" : popular || current ? "border-[var(--gold)]" : "border-[var(--line)]"}`}>
+              {(popular || current) && <span className="absolute -top-3 left-5 rounded-full bg-[var(--gold)] text-black text-xs font-bold px-3 py-1">{current ? "Votre formule" : "Le plus choisi"}</span>}
+              <div className="flex items-baseline justify-between"><h3 className="text-lg font-bold">{p.name}</h3>{save > 0 && <span className="text-xs rounded-full bg-emerald-400/15 text-emerald-300 px-2 py-1">−{save} % vs jour</span>}</div>
+              <div><span className="gold-text text-3xl font-extrabold">{formatFcfa(price)}</span><span className="text-sm text-white/50"> / {PER_LABEL[period]}</span></div>
+              <ul className="text-sm flex flex-col gap-1.5">
+                {[`${lim(p.limits.maxShops)} boutique(s)`, `${lim(p.limits.maxUsers)} utilisateur(s)`, `${lim(p.limits.maxProducts)} produits`, "Caisse, stock, achats, clients, compta", "Paiement QR Wave / Orange, factures PDF", "Fonctionne hors ligne"].map((f) => <li key={f} className="flex gap-2"><Check size={16} className="text-[var(--gold)] shrink-0 mt-0.5" />{f}</li>)}
+              </ul>
+              {!current && !e.trial && e.state !== "locked" && i >= 0 && <div className="text-xs text-amber-300">Changer de formule démarre la nouvelle période maintenant : le temps restant de l'actuelle n'est pas reporté.</div>}
+              <button className={popular ? "btn" : "btn-ghost"} disabled={!data.available[p.id]} onClick={() => setPay(p)}>{data.available[p.id] ? `Payer sur Selar · ${PERIOD_LABEL[period]}` : "Paiement bientôt disponible"}</button>
+            </div>
+          );
+        })}
+        {!Object.keys(data.available).length && <p className="text-xs text-amber-300 text-center">Le paiement en ligne n'est pas encore activé par la plateforme.</p>}
+        <ol className="card text-sm text-white/70 flex flex-col gap-2">
+          <li className="font-semibold text-white">Comment ça marche</li>
+          <li>1. Choisissez la formule et la durée, touchez « Payer sur Selar ».</li>
+          <li>2. Réglez sur Selar (Wave, Orange Money, carte) en sélectionnant la même durée.</li>
+          <li>3. Saisissez la référence de commande reçue par e-mail : votre formule est activée après vérification. Si vous gardez la même formule, la durée s'ajoute à l'échéance.</li>
+        </ol>
+        <p className="text-xs text-white/40 text-center flex items-center justify-center gap-1"><ShieldCheck size={14} />Paiement sécurisé par Selar · vos données restent conservées si l'abonnement expire.</p>
+      </section>}
 
       {!e.lifetime && data.payments.length > 0 && (
         <div className="card flex flex-col gap-1">
@@ -127,8 +149,9 @@ function PayModal({ plan, period, onClose }: { plan: Plan; period: Period; onClo
   async function submit() { setBusy(true); setErr(""); try { await api(s, "subscription.submitProof", { paymentId: link!.id, txRef: tx, payerEmail: email }); setDone(true); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } }
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center gap-3 p-6 overflow-y-auto">
-      <h2 className="text-xl font-bold">{plan.name} · {PERIOD_LABEL[period]}</h2>
-      {link && <p className="text-[var(--gold)] text-lg font-semibold">{formatFcfa(link.amount)}</p>}
+      <p className="text-xs uppercase tracking-widest text-white/40">{done ? "Étape 2 sur 2 · terminé" : link ? "Étape 1 sur 2 · paiement" : "Préparation"}</p>
+      <h2 className="text-xl font-bold">Formule {plan.name} · {PERIOD_LABEL[period]}</h2>
+      {link && <p className="gold-text text-3xl font-extrabold">{formatFcfa(link.amount)}</p>}
       {done ? <>
         <p className="text-emerald-400 text-center">Merci ! Votre paiement est en attente de validation. Votre formule sera activée dès que la plateforme l'aura vérifié dans Selar.</p>
         <button className="btn w-full max-w-xs" onClick={onClose}>Fermer</button>
