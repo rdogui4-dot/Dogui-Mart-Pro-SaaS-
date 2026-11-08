@@ -12,7 +12,7 @@ const base = [s("tenantId", 64, true), s("shopId", 64, true)];
 
 export const TABLES = {
   shops: { cols: [s("tenantId", 64, true), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
-  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived")], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]]] },
+  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]]] },
   // Journal immuable de mouvements : le stock est la somme des mouvements.
   stock_moves: { cols: [...base, s("productId", 64, true), i("qty", true), s("kind", 24, true), s("refId", 64), s("userId", 64)], idx: [["prod", ["productId"]]] },
   customers: { cols: [...base, s("name", 160, true), s("phone", 32), i("creditLimit"), i("creditBalance"), i("points"), i("annualSpend")], idx: [["shop", ["tenantId", "shopId"]], ["phone", ["phone"]]] },
@@ -24,6 +24,9 @@ export const TABLES = {
   payment_settings: { cols: [...base, t("waveTemplate"), t("orangeTemplate"), i("expiryMinutes")], idx: [] },
   // Liens de paiement Wave/Orange Business (le QR est dessiné côté client depuis `url`).
   payment_links: { cols: [...base, s("provider", 16, true), i("amount", true), s("reference", 40, true), t("url", true), s("status", 16, true), s("saleId", 64), s("txRef", 64), d("expiresAt"), s("createdBy", 64), s("confirmedBy", 64)], idx: [["tenant_tx", ["tenantId", "txRef"]], ["shop", ["tenantId", "shopId"]]] },
+  // Fiche employé (le rôle fait foi dans l'appartenance à la Team ; ici : boutiques affectées et statut).
+  staff: { cols: [s("tenantId", 64, true), s("userId", 64, true), s("name", 100, true), s("username", 32), s("email", 160), s("role", 16, true), t("shopIds"), b("active")], idx: [["tenant", ["tenantId"]]] },
+  transfers: { cols: [...base, s("toShopId", 64, true), s("number", 32), t("lines"), s("userId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["to", ["toShopId"]]] },
   subscriptions: { cols: [s("tenantId", 64, true), s("plan", 16, true), s("status", 16), d("renewsAt"), i("maxShops"), i("maxUsers")], idx: [["tenant", ["tenantId"], "unique"]] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
 };

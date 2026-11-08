@@ -14,7 +14,7 @@ const NAV = [
 ] as const;
 
 export function Layout() {
-  const { session } = useSession();
+  const { session, switchShop, logout } = useSession();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [pending, setPending] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
@@ -33,7 +33,16 @@ export function Layout() {
           {online ? "Synchronisation" : "Hors ligne"} · {pending} vente(s) en attente
         </div>
       )}
-      <main className="flex-1 overflow-y-auto p-4 pb-24"><Outlet /></main>
+      {session && session.shops.length > 1 && (
+        <div className="px-4 pt-3">
+          <select aria-label="Boutique" className="input !py-2" value={session.shopId} onChange={(e) => switchShop(e.target.value)}>
+            {session.shops.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+        </div>
+      )}
+      <main className="flex-1 overflow-y-auto p-4 pb-24">
+        {session?.shopId ? <Outlet key={session.shopId} /> : <div className="text-center text-white/60 py-10 flex flex-col gap-3 items-center"><p>Aucune boutique ne vous est affectée. Contactez le propriétaire.</p><button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button></div>}
+      </main>
       <nav className="fixed bottom-0 inset-x-0 bg-[#111] border-t border-white/10 grid grid-flow-col auto-cols-fr pb-[env(safe-area-inset-bottom)]">
         {NAV.filter((n) => can(session?.role, n.perm)).map(({ to, label, icon: I }) => (
           <Link key={to} to={to} className={`flex flex-col items-center py-2 text-xs ${path.startsWith(to) ? "text-[var(--gold)]" : "text-white/60"}`}>

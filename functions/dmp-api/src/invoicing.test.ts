@@ -10,7 +10,7 @@ const balanced = () => { const j = st.rows("journal_entries"); return j.reduce((
 
 beforeEach(async () => {
   st = new MemoryStore();
-  st.addMember(T, "own", ["owner"]); st.addMember(T, "mgr", ["manager"]); st.addMember(T, "cash", ["cashier"]); st.addMember("t2", "evil", ["owner"]);
+  await st.addShop(T, S); await st.grant(T, "own", ["owner"], []); await st.grant(T, "mgr", ["manager"], [S]); await st.grant(T, "cash", ["cashier"], [S]); await st.grant("t2", "evil", ["owner"], []);
   await st.create("customers", "c1", T, { tenantId: T, shopId: S, name: "Awa", creditLimit: 50_000, creditBalance: 0, points: 0, annualSpend: 0 });
   await st.create("products", "p1", T, { tenantId: T, shopId: S, name: "Riz", price: 1000 });
   await st.create("stock_moves", "m0", T, { tenantId: T, shopId: S, productId: "p1", qty: 50, kind: "purchase" });
@@ -43,8 +43,9 @@ describe("facture depuis une vente", () => {
   it("refuse un caissier et une vente d'un autre commerce", async () => {
     await sell([{ method: "cash", amount: 5000 }]);
     expect((await call("cash", "invoice.customer.fromSale", { saleId: "sale-client-0001" })).status).toBe(403);
-    const r: any = await handle(st, "evil", { action: "invoice.customer.fromSale", tenantId: "t2", shopId: S, payload: { saleId: "sale-client-0001" } });
-    expect(r.status).toBe(403);
+    await st.addShop("t2", "s9");
+    const r: any = await handle(st, "evil", { action: "invoice.customer.fromSale", tenantId: "t2", shopId: "s9", payload: { saleId: "sale-client-0001" } });
+    expect(r.status).toBe(403); // sa propre boutique existe, mais la vente appartient à un autre commerce
   });
   it("vente à crédit : le règlement de la facture fait baisser le crédit du client, plafonné", async () => {
     await sell([{ method: "cash", amount: 2000 }, { method: "credit", amount: 3000 }], { customerId: "c1" });

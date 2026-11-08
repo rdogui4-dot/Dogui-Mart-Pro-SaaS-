@@ -1,6 +1,6 @@
-import { ACTIONS } from "./handlers";
+import { ACTIONS, TENANT_LEVEL } from "./handlers";
 import { appwriteStore } from "./appwrite-store";
-import { HttpError, type Ctx, type Store } from "./store";
+import { HttpError, roleOf, type Ctx, type Store } from "./store";
 
 type Req = { method: string; headers: Record<string, string>; bodyJson?: any };
 type Res = { json(body: unknown, status?: number): unknown };
@@ -12,10 +12,24 @@ export async function handle(store: Store, userId: string | undefined, body: any
     const { action, tenantId, shopId, payload } = body ?? {};
     const fn = (ACTIONS as Record<string, (s: Store, c: Ctx, p: any) => Promise<unknown>>)[action];
     if (!fn) throw new HttpError(400, "Action inconnue");
-    if (typeof tenantId !== "string" || typeof shopId !== "string" || !tenantId || !shopId) throw new HttpError(400, "tenantId et shopId requis");
+    const tenantLevel = TENANT_LEVEL.has(action);
+    if (typeof tenantId !== "string" || !tenantId || (!tenantLevel && (typeof shopId !== "string" || !shopId))) throw new HttpError(400, "tenantId et shopId requis");
     const m = await store.membership(tenantId, userId);
     if (!m) throw new HttpError(403, "Vous n'appartenez pas à ce commerce");
-    return { status: 200, body: { ok: true, data: await fn(store, { userId, tenantId, shopId, roles: m.roles }, payload ?? {}) } };
+    const ctx: Ctx = { userId, tenantId, shopId: tenantLevel ? "" : shopId, roles: m.roles };
+    if (!tenantLevel) {
+      // La boutique doit exister dans CE commerce, et l'employé doit y être affecté (le propriétaire a accès à toutes).
+      const shop = await store.get("shops", shopId);
+      if (!shop || shop.tenantId !== tenantId) throw new HttpError(404, "Boutique introuvable");
+      if (roleOf(m.roles) === "owner") ctx.shopIds = "all";
+      else {
+        const staff = await store.get("staff", userId);
+        const ids: string[] = staff && staff.tenantId === tenantId && staff.active ? JSON.parse(String(staff.shopIds || "[]")) : [];
+        if (!ids.includes(shopId)) throw new HttpError(403, "Vous n'êtes pas affecté à cette boutique");
+        ctx.shopIds = ids;
+      }
+    }
+    return { status: 200, body: { ok: true, data: await fn(store, ctx, payload ?? {}) } };
   } catch (e) {
     if (e instanceof HttpError) return { status: e.status, body: { ok: false, error: e.message } };
     console.error(e);

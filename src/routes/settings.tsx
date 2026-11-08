@@ -3,11 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getShop } from "@/lib/data";
 import { can, useSession } from "@/lib/session";
+import { ShopsSection, StaffSection } from "./team";
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
   const [f, setF] = useState({ waveTemplate: "", orangeTemplate: "", expiryMinutes: "15" });
   const [msg, setMsg] = useState("");
+  const [tab, setTab] = useState<"general" | "shops" | "staff">("general");
   const qc = useQueryClient();
   const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) });
   const [sh, setSh] = useState({ name: "", address: "", city: "", phone: "", legal: "", vatRatePct: "18" });
@@ -27,6 +29,14 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Réglages</h1>
+      {can(s.role, "settings") && (
+        <div className="grid grid-cols-3 gap-1 text-sm">
+          {([["general", "Général"], ["shops", "Boutiques"], ["staff", "Équipe"]] as const).map(([k, l]) => <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>)}
+        </div>
+      )}
+      {tab === "shops" && <ShopsSection />}
+      {tab === "staff" && <StaffSection />}
+      {tab === "general" && <>
       <div className="card text-sm">Connecté : <b>{s.name}</b> · rôle {s.role}<br />Boutique : {s.shopId}</div>
       {can(s.role, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={saveShop}>
@@ -55,6 +65,7 @@ export function SettingsPage() {
         </form>
       )}
       <button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button>
+      </>}
     </div>
   );
 }

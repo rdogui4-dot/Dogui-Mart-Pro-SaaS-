@@ -6,6 +6,7 @@ import { list, saveEntity, stockLevels, type Product } from "@/lib/data";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
+import { useRef } from "react";
 
 export function StockPage() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
@@ -51,6 +52,7 @@ export function StockPage() {
           {add.error && <p className="text-red-400 text-sm">{(add.error as Error).message}</p>}
         </form>
       )}
+      {s.shops.length > 1 && can(s.role, "stock") && <Transfer products={products.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">
         {(products.data ?? []).map((p) => {
           const n = levels.data?.get(p.$id) ?? 0;
@@ -67,6 +69,41 @@ export function StockPage() {
         })}
       </ul>
       {scan && <Scanner onCode={(c) => { setF((x) => ({ ...x, barcode: c })); setScan(false); }} onClose={() => setScan(false)} />}
+    </div>
+  );
+}
+
+function Transfer({ products, levels, onDone }: { products: { $id: string; name: string }[]; levels?: Map<string, number>; onDone: () => void }) {
+  const { session } = useSession(); const s = session!;
+  const transferId = useRef(crypto.randomUUID()); // même identifiant à chaque nouvel essai : jamais deux transferts
+  const [open, setOpen] = useState(false); const [to, setTo] = useState("");
+  const [rows, setRows] = useState([{ productId: "", qty: "" }]); const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
+  const targets = s.shops.filter((x) => x.id !== s.shopId);
+  const set = (i: number, p: Partial<(typeof rows)[number]>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  async function submit(e: React.FormEvent) {
+    e.preventDefault(); setBusy(true); setMsg("");
+    try {
+      const r = await api<{ number: string }>(s, "stock.transfer", { transferId: transferId.current, toShopId: to, lines: rows.filter((x) => x.productId).map((x) => ({ productId: x.productId, qty: Number(x.qty) })) });
+      transferId.current = crypto.randomUUID(); setRows([{ productId: "", qty: "" }]); setMsg(`Transfert ${r.number} effectué`); onDone();
+    } catch (x) { setMsg((x as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <div className="card flex flex-col gap-2">
+      <button className="btn-ghost" onClick={() => setOpen(!open)}>{open ? "Fermer" : "Transférer vers une autre boutique"}</button>
+      {open && (
+        <form className="flex flex-col gap-2" onSubmit={submit}>
+          <select className="input" required value={to} onChange={(e) => setTo(e.target.value)}><option value="">Boutique de destination…</option>{targets.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          {rows.map((r, i) => (
+            <div key={i} className="grid grid-cols-[1fr_5rem] gap-1">
+              <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value })}><option value="">Produit…</option>{products.map((p) => <option key={p.$id} value={p.$id}>{p.name} ({levels?.get(p.$id) ?? 0})</option>)}</select>
+              <input className="input !px-2" inputMode="numeric" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+            </div>
+          ))}
+          <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { productId: "", qty: "" }])}>+ Ligne</button>
+          <button className="btn" disabled={busy || !to}>Transférer</button>
+        </form>
+      )}
+      {msg && <p className="text-sm text-amber-300">{msg}</p>}
     </div>
   );
 }

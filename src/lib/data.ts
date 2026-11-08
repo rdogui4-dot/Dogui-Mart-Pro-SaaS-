@@ -32,3 +32,9 @@ export async function getShop(s: Session): Promise<Shop | null> {
   try { return (await tables.getRow({ databaseId: DATABASE_ID, tableId: "shops", rowId: s.shopId.slice(0, 36) })) as unknown as Shop; }
   catch { return null; }
 }
+
+/** Tables propres au commerce entier (boutiques, employés) : pas de filtre par boutique. */
+export async function listTenant<T>(table: string, s: Session, limit = 100): Promise<Row<T>[]> {
+  const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [Query.equal("tenantId", s.tenantId), Query.limit(limit)] });
+  return r.rows as unknown as Row<T>[];
+}

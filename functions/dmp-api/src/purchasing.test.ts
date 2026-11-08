@@ -11,7 +11,7 @@ const balanced = () => { const j = st.rows("journal_entries"); return j.reduce((
 
 beforeEach(async () => {
   st = new MemoryStore();
-  st.addMember(T, "mgr", ["manager"]); st.addMember(T, "cash", ["cashier"]); st.addMember("t2", "evil", ["owner"]);
+  await st.addShop(T, S); await st.grant(T, "mgr", ["manager"], [S]); await st.grant(T, "cash", ["cashier"], [S]); await st.grant("t2", "evil", ["owner"], []);
   await st.create("suppliers", "sup1", T, { tenantId: T, shopId: S, name: "Grossiste" });
   await st.create("products", "p1", T, { tenantId: T, shopId: S, name: "Riz", price: 1000, cost: 500 });
   await st.create("products", "p2", T, { tenantId: T, shopId: S, name: "Huile", price: 2000, cost: 0 });
@@ -68,7 +68,8 @@ describe("réception", () => {
   });
   it("isolation entre commerces", async () => {
     await newPo();
-    const r: any = await handle(st, "evil", { action: "po.receive", tenantId: "t2", shopId: S, payload: { poId: "po-client-0001", receiptId: "rcpt-0001-aaaa", lines: [{ productId: "p1", qty: 1 }] } });
+    await st.addShop("t2", "s9");
+    const r: any = await handle(st, "evil", { action: "po.receive", tenantId: "t2", shopId: "s9", payload: { poId: "po-client-0001", receiptId: "rcpt-0001-aaaa", lines: [{ productId: "p1", qty: 1 }] } });
     expect(r.status).toBe(403);
   });
 });

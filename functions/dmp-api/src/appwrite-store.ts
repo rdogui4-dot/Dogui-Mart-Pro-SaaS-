@@ -1,9 +1,13 @@
-import { Client, Permission, Query, Role, TablesDB, Teams } from "node-appwrite";
-import type { Row, Store } from "./store";
+import { Client, Permission, Query, Role, TablesDB, Teams, Users } from "node-appwrite";
+import { HttpError, type Row, type Store } from "./store";
 
 export function appwriteStore(endpoint: string, project: string, key: string, databaseId: string): Store {
   const client = new Client().setEndpoint(endpoint).setProject(project).setKey(key);
-  const db = new TablesDB(client); const teams = new Teams(client);
+  const db = new TablesDB(client); const teams = new Teams(client); const users = new Users(client);
+  const membershipId = async (tenantId: string, userId: string) => {
+    const r = await teams.listMemberships({ teamId: tenantId, queries: [Query.equal("userId", userId), Query.limit(1)] });
+    return r.memberships[0]?.$id ?? null;
+  };
   return {
     async membership(tenantId, userId) {
       const r = await teams.listMemberships({ teamId: tenantId, queries: [Query.equal("userId", userId), Query.limit(1)] });
@@ -26,5 +30,21 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       } catch (e: any) { if (e?.code === 409) return false; throw e; }
     },
     async update(tableId, rowId, data) { await db.updateRow({ databaseId, tableId, rowId, data }); },
+    async createUser(a) {
+      try { await users.create({ userId: a.userId, email: a.email, password: a.password, name: a.name }); }
+      catch (e: any) { if (e?.code === 409) throw new HttpError(409, "Identifiant déjà utilisé"); throw e; }
+    },
+    async deleteUser(userId) { await users.delete({ userId }); },
+    async setUserActive(userId, active) { await users.updateStatus({ userId, status: active }); },
+    async setPassword(userId, password) { await users.updatePassword({ userId, password }); },
+    // Création serveur avec userId : le membre est ajouté et actif immédiatement (pas d'e-mail d'invitation).
+    async addMember(tenantId, userId, roles, name) { await teams.createMembership({ teamId: tenantId, roles, userId, name }); },
+    async setMemberRoles(tenantId, userId, roles) {
+      const id = await membershipId(tenantId, userId); if (!id) throw new HttpError(404, "Membre introuvable");
+      await teams.updateMembership({ teamId: tenantId, membershipId: id, roles });
+    },
+    async removeMember(tenantId, userId) {
+      const id = await membershipId(tenantId, userId); if (id) await teams.deleteMembership({ teamId: tenantId, membershipId: id });
+    },
   };
 }

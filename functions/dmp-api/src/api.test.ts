@@ -7,7 +7,7 @@ let st: MemoryStore;
 const call = (user: string | undefined, action: string, payload: unknown, tenant = T) => handle(st, user, { action, tenantId: tenant, shopId: S, payload });
 const seed = async () => {
   st = new MemoryStore();
-  st.addMember(T, "owner1", ["owner"]); st.addMember(T, "cash1", ["cashier"]); st.addMember("other", "evil", ["owner"]);
+  await st.addShop(T, S); await st.grant(T, "owner1", ["owner"], []); await st.grant(T, "cash1", ["cashier"], [S]); await st.grant("other", "evil", ["owner"], []);
   await st.create("products", "p1", T, { tenantId: T, shopId: S, name: "Riz", price: 1000, minStock: 1 });
   await st.create("stock_moves", "m0", T, { tenantId: T, shopId: S, productId: "p1", qty: 10, kind: "purchase" });
   await st.create("customers", "c1", T, { tenantId: T, shopId: S, name: "Awa", creditLimit: 5000, creditBalance: 0, points: 0, annualSpend: 0 });
