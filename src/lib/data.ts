@@ -20,8 +20,18 @@ export async function list<T>(table: string, s: Session, extra: string[] = [], l
 export const saveEntity = (s: Session, table: "products" | "customers" | "suppliers", data: object, id?: string) =>
   api<{ id: string }>(s, "entity.save", { table, id, data });
 
+/** Lit toutes les lignes d'une boutique par pages (curseur) : ne dépend d'aucune limite de taille de page. */
+export async function listAll<T>(table: string, s: Session, maxRows = 200_000): Promise<Row<T>[]> {
+  const rows: Row<T>[] = []; let cursor: string | undefined;
+  for (;;) {
+    const page = (await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [...scope(s), Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row<T>[];
+    if (!page.length || rows.length + page.length > maxRows) return rows.concat(page.slice(0, Math.max(0, maxRows - rows.length)));
+    rows.push(...page); cursor = page[page.length - 1]!.$id;
+  }
+}
+
 export async function stockLevels(s: Session): Promise<Map<string, number>> {
-  const moves = await list<{ productId: string; qty: number; kind: string }>("stock_moves", s, [], 5000);
+  const moves = await listAll<{ productId: string; qty: number; kind: string }>("stock_moves", s);
   const m = new Map<string, number>();
   for (const x of moves) m.set(x.productId, (m.get(x.productId) ?? 0) + delta({ productId: x.productId, qty: x.qty, kind: x.kind as never }));
   return m;

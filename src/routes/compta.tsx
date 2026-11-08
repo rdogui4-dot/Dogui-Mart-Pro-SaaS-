@@ -6,7 +6,8 @@ import { getShop, list, type Customer, type Row } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { dueOf, paidOf, type Payment } from "@/domain/purchasing";
-import { invoiceModel, type InvoiceDoc } from "@/domain/documents";
+import { invoiceModel, reportModel, type InvoiceDoc } from "@/domain/documents";
+import type { ConsolidatedReport } from "@/domain/reports";
 import { deliverPdf, pdfBlob } from "@/lib/pdf";
 
 type JE = { ref: string; account: string; debit: number; credit: number; label: string; date: string };
@@ -14,15 +15,16 @@ type Inv = { number: string; partyId: string; total: number; paid: number; vat?:
 type Sale = { number: string; total: number; soldAt: string; customerId?: string; status: string };
 
 export function ComptaPage() {
-  const [tab, setTab] = useState<"invoices" | "journal">("invoices");
+  const [tab, setTab] = useState<"invoices" | "journal" | "reports">("invoices");
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Compta & factures</h1>
-      <div className="grid grid-cols-2 gap-1 text-sm">
-        <button className={tab === "invoices" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("invoices")}>Factures clients</button>
-        <button className={tab === "journal" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("journal")}>Journal SYSCOHADA</button>
+      <div className="grid grid-cols-3 gap-1 text-sm">
+        <button className={tab === "invoices" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("invoices")}>Factures</button>
+        <button className={tab === "reports" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("reports")}>Rapports</button>
+        <button className={tab === "journal" ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab("journal")}>Journal</button>
       </div>
-      {tab === "invoices" ? <CustomerInvoices /> : <Journal />}
+      {tab === "invoices" ? <CustomerInvoices /> : tab === "reports" ? <Reports /> : <Journal />}
     </div>
   );
 }
@@ -164,5 +166,89 @@ function InvoiceCard({ inv, customer, shop, onChange }: { inv: Row<Inv>; custome
       )}
       {err && <p className="text-red-400 text-sm">{err}</p>}
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ Rapports consolidés
+const METHOD_FR: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte / banque", credit: "Crédit client" };
+const utc = (d: Date) => d.toISOString().slice(0, 10);
+const shift = (days: number) => utc(new Date(Date.now() - days * 86_400_000));
+/** Périodes proposées, en jours UTC (le serveur compte les jours en UTC). */
+const RANGES: { id: string; label: string; get: () => { from: string; to: string } }[] = [
+  { id: "today", label: "Aujourd'hui", get: () => ({ from: shift(0), to: shift(0) }) },
+  { id: "7", label: "7 j", get: () => ({ from: shift(6), to: shift(0) }) },
+  { id: "30", label: "30 j", get: () => ({ from: shift(29), to: shift(0) }) },
+  { id: "month", label: "Ce mois", get: () => ({ from: `${shift(0).slice(0, 8)}01`, to: shift(0) }) },
+  { id: "last", label: "Mois dernier", get: () => { const n = new Date(); const f = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() - 1, 1)); const l = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), 0)); return { from: utc(f), to: utc(l) }; } },
+];
+const money = (n: number | null) => (n === null ? "—" : formatFcfa(n));
+
+/** Histogramme du chiffre d'affaires par jour (SVG, sans dépendance). */
+function DailyChart({ daily }: { daily: ConsolidatedReport["daily"] }) {
+  const max = Math.max(1, ...daily.map((d) => d.revenueTtc)); const W = 300, H = 90, gap = 2;
+  const bw = Math.max(2, (W - gap * (daily.length - 1)) / daily.length);
+  const total = daily.reduce((s, d) => s + d.revenueTtc, 0);
+  return (
+    <figure className="flex flex-col gap-1">
+      <svg viewBox={`0 0 ${W} ${H + 14}`} role="img" aria-label={`Chiffre d'affaires par jour, total ${formatFcfa(total)} sur ${daily.length} jours`} className="w-full">
+        {daily.map((d, i) => { const h = d.revenueTtc > 0 ? Math.max(2, (d.revenueTtc / max) * H) : 0; return (
+          <g key={d.date}><title>{`${new Date(d.date).toLocaleDateString("fr-FR")} : ${formatFcfa(d.revenueTtc)} (${d.count} vente(s))`}</title>
+            <rect x={i * (bw + gap)} y={H - h} width={bw} height={h} rx={1.5} fill="var(--gold)" />
+            {d.revenueTtc === 0 && <rect x={i * (bw + gap)} y={H - 1} width={bw} height={1} fill="currentColor" opacity={0.25} />}</g>); })}
+        <text x={0} y={H + 11} fontSize={8} fill="currentColor" opacity={0.6}>{new Date(daily[0]!.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</text>
+        <text x={W} y={H + 11} fontSize={8} textAnchor="end" fill="currentColor" opacity={0.6}>{new Date(daily[daily.length - 1]!.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} · max {formatFcfa(max)}</text>
+      </svg>
+    </figure>
+  );
+}
+
+function Reports() {
+  const { session } = useSession(); const s = session!;
+  const [range, setRange] = useState("7"); const [err, setErr] = useState("");
+  const period = RANGES.find((r) => r.id === range)!.get();
+  const q = useQuery({ queryKey: ["report", s.tenantId, period.from, period.to], queryFn: () => api<ConsolidatedReport>(s, "report.consolidated", period) });
+  const r = q.data; const T = r?.totals;
+  async function pdf() {
+    if (!r) return; setErr("");
+    try { const shop = await getShop(s); await deliverPdf(await pdfBlob(reportModel(r, shop?.name ?? "Mon commerce")), `rapport-${r.period.from}_${r.period.to}.pdf`); } catch (e) { setErr((e as Error).message); }
+  }
+  const card = (label: string, value: string, sub?: string) => <div className="card"><div className="text-xs text-white/50">{label}</div><div className="font-semibold">{value}</div>{sub && <div className="text-[11px] text-white/50">{sub}</div>}</div>;
+  return (
+    <>
+      <div className="flex flex-wrap gap-1 text-xs [&>button]:flex-1">{RANGES.map((x) => <button key={x.id} className={range === x.id ? "btn !py-2 !px-2 !text-xs" : "btn-ghost !py-2 !px-2 !text-xs"} onClick={() => setRange(x.id)}>{x.label}</button>)}</div>
+      <p className="text-xs text-white/50">Du {new Date(period.from).toLocaleDateString("fr-FR")} au {new Date(period.to).toLocaleDateString("fr-FR")} · jours en heure UTC</p>
+      {q.isLoading && <p className="text-white/50">Calcul en cours…</p>}
+      {q.error && <p className="text-red-400 text-sm">{(q.error as Error).message}</p>}
+      {r && T && <>
+        {r.partial && <p className="text-sm text-amber-300">Rapport partiel : le volume de ventes dépasse la limite de lecture. Choisissez une période plus courte.</p>}
+        <div className="grid grid-cols-2 gap-2">
+          {card("Chiffre d'affaires TTC", money(T.revenueTtc), `${T.count} vente(s) · HT ${money(T.revenueHt)}`)}
+          {card("Panier moyen", money(T.avgBasket))}
+          {card("Marge brute HT", T.grossMargin === null ? "—" : `${money(T.grossMargin)}${T.marginPct !== null ? ` (${T.marginPct} %)` : ""}`, T.grossMargin === null ? `Coûts manquants : connus sur ${T.costCoveragePct} % du CA${T.costedRevenueTtc > 0 ? ` · marge indicative ${money(T.indicativeMargin)}` : ""}` : undefined)}
+          {card("Stock valorisé", money(T.stockValue), T.stockValue === null ? "Historique trop long pour un calcul exact" : `${T.stockouts ?? 0} produit(s) en alerte`)}
+          {card("Crédits clients", money(T.openCredit), `Factures à encaisser ${money(T.receivables)}`)}
+          {card("Dettes fournisseurs", money(T.payables))}
+        </div>
+        <div className="card"><h2 className="font-semibold mb-1">Chiffre d'affaires par jour</h2><DailyChart daily={r.daily} /></div>
+        <div className="card flex flex-col gap-1 text-sm"><h2 className="font-semibold">Encaissements par mode</h2>
+          {Object.entries(T.byMethod).sort((a, b) => b[1] - a[1]).map(([m, v]) => <div key={m} className="flex justify-between"><span>{METHOD_FR[m] ?? m}</span><span>{formatFcfa(v)}</span></div>)}
+          {!Object.keys(T.byMethod).length && <span className="text-white/50">Aucune vente sur la période.</span>}</div>
+        <div className="card flex flex-col gap-2 text-sm"><h2 className="font-semibold">Par boutique</h2>
+          {r.shops.map((x) => (
+            <div key={x.id} className="rounded-xl border border-white/10 p-2 flex flex-col gap-0.5">
+              <div className="flex justify-between"><b>{x.name}</b><span className="text-[var(--gold)]">{money(x.revenueTtc)}</span></div>
+              <div className="text-white/60">{x.count} vente(s) · panier {money(x.avgBasket)} · marge {x.grossMargin === null ? "—" : `${money(x.grossMargin)}${x.marginPct !== null ? ` (${x.marginPct} %)` : ""}`}</div>
+              <div className="text-white/60">Stock {money(x.stockValue)}{x.stockouts ? ` · ${x.stockouts} alerte(s)` : ""} · crédits {money(x.openCredit)} · dettes {money(x.payables)}</div>
+              {x.truncated.sales && <div className="text-amber-300 text-xs">Chiffres partiels (trop de ventes à lire).</div>}
+            </div>
+          ))}
+          {!r.shops.length && <span className="text-white/50">Aucune boutique accessible.</span>}</div>
+        <div className="card flex flex-col gap-1 text-sm"><h2 className="font-semibold">Produits les plus vendus</h2>
+          {r.topProducts.map((p, i) => <div key={p.key} className="flex justify-between gap-2"><span className="truncate">{i + 1}. {p.name}</span><span className="text-white/60 whitespace-nowrap">{p.qty} · {formatFcfa(p.revenueTtc)}</span></div>)}
+          {!r.topProducts.length && <span className="text-white/50">Aucune vente sur la période.</span>}</div>
+        <button className="btn-ghost" onClick={() => void pdf()}>Rapport PDF / Partager</button>
+        {err && <p className="text-red-400 text-sm">{err}</p>}
+      </>}
+    </>
   );
 }

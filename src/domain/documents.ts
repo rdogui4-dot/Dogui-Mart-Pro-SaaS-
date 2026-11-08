@@ -1,11 +1,14 @@
 import { formatFcfa, lineTotal, toFcfa } from "./money";
 import { paidOf, poTotalHt, type Payment, type PoLine } from "./purchasing";
+import type { ConsolidatedReport } from "./reports";
 
 /** Modèle neutre d'un document imprimable (facture, bon de commande, ticket). Le rendu PDF est séparé (src/lib/pdf.ts). */
 export type Party = { name: string; lines?: string[] };
 export type DocRow = { label: string; qty: number; unit: number; total: number };
 export type DocModel = {
-  kind: "invoice" | "purchase_order" | "receipt";
+  kind: "invoice" | "purchase_order" | "receipt" | "report";
+  /** En-têtes du tableau (par défaut : Désignation / Qté / P.U. / Total). */
+  columns?: [string, string, string, string];
   title: string; number: string; date: string; dueDate?: string;
   issuer: Party; party: Party; partyLabel: string;
   rows: DocRow[];
@@ -77,5 +80,29 @@ export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: st
     issuer: issuerOf(shop), partyLabel: "Client", party: { name: customer || "Client comptoir" },
     rows: sale.lines.map((l) => ({ label: l.name, qty: l.qty, unit: l.unitPrice, total: lineTotal({ productId: "", name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct }) })),
     totals, footer: ["Merci de votre visite !"],
+  };
+}
+
+const METHOD_FR: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte / banque", credit: "Crédit client" };
+
+/** Rapport consolidé imprimable : une ligne par boutique, puis les totaux. Les chiffres inconnus sont omis et expliqués en pied de page, jamais remplacés par 0. */
+export function reportModel(r: ConsolidatedReport, company: string, now: Date = new Date()): DocModel {
+  const T = r.totals; const totals: DocModel["totals"] = [
+    { label: "Chiffre d'affaires TTC", value: T.revenueTtc, strong: true }, { label: "dont TVA", value: T.vat }, { label: "Chiffre d'affaires HT", value: T.revenueHt },
+  ];
+  if (T.grossMargin !== null) totals.push({ label: `Marge brute HT${T.marginPct !== null ? ` (${T.marginPct} %)` : ""}`, value: T.grossMargin, strong: true });
+  for (const [m, v] of Object.entries(T.byMethod).sort((a, b) => b[1] - a[1])) totals.push({ label: `Encaissé : ${METHOD_FR[m] ?? m}`, value: v });
+  totals.push({ label: "Crédits clients ouverts", value: T.openCredit }, { label: "Factures clients à encaisser", value: T.receivables }, { label: "Dettes fournisseurs", value: T.payables });
+  if (T.stockValue !== null) totals.push({ label: "Stock valorisé (coût moyen)", value: T.stockValue });
+  const footer = [`Période : du ${dateFr(r.period.from)} au ${dateFr(r.period.to)} (${r.period.note.toLowerCase()}).`];
+  if (T.grossMargin === null) footer.push(`Marge brute non affichée : coûts d'achat manquants (couverture ${T.costCoveragePct} % du chiffre d'affaires).`);
+  if (T.stockValue === null) footer.push("Stock valorisé non affiché : historique trop long pour un calcul exact.");
+  if (r.partial) footer.push("Rapport partiel : le volume de ventes dépasse la limite de lecture.");
+  return {
+    kind: "report", title: "RAPPORT DE VENTES", number: `${r.period.from} au ${r.period.to}`, date: now.toLocaleDateString("fr-FR"),
+    issuer: { name: company }, partyLabel: "Périmètre", party: { name: r.shops.length === 1 ? r.shops[0]!.name : `${r.shops.length} boutiques`, lines: r.shops.length > 1 ? r.shops.map((s) => s.name) : [] },
+    columns: ["Boutique", "Ventes", "Panier moy.", "CA TTC"],
+    rows: r.shops.map((s) => ({ label: s.name, qty: s.count, unit: s.avgBasket, total: s.revenueTtc })),
+    totals, footer,
   };
 }

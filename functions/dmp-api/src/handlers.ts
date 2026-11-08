@@ -4,6 +4,7 @@ import { ACCOUNTS } from "../../../src/domain/accounting";
 import { checkout, stockFor, type CheckoutInput } from "./checkout";
 import { HttpError, need, type Ctx, type Store } from "./store";
 import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
+import { consolidatedReport } from "./reports";
 import { assertQuota, platformGrant, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
@@ -14,7 +15,7 @@ const mine = (ctx: Ctx, r: Record<string, unknown> | null) => !!r && r.tenantId 
 
 // Champs modifiables par le client. creditBalance / points / annualSpend sont gérés par le serveur uniquement.
 /** Actions de lecture / d'abonnement toujours permises, même quand l'abonnement est expiré. */
-export const LOCK_EXEMPT = new Set(["subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "payments.settings.get", "payment_link.status"]);
+export const LOCK_EXEMPT = new Set(["report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "payments.settings.get", "payment_link.status"]);
 
 const ENTITIES = {
   products: { min: "manager", fields: ["sku", "barcode", "name", "category", "price", "cost", "minStock", "archived"] },
@@ -138,7 +139,7 @@ export async function paymentLinkStatus(store: Store, ctx: Ctx, b: { linkId: str
 }
 
 /** Actions qui ne dépendent d'aucune boutique particulière (le shopId du contexte est alors vide). */
-export const TENANT_LEVEL = new Set(["subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword"]);
+export const TENANT_LEVEL = new Set(["report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword"]);
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
@@ -150,5 +151,6 @@ export const ACTIONS = {
   "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "stock.transfer": transferStock,
   "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof,
   "platform.me": platformMe, "platform.renewals.list": platformRenewals, "platform.renewals.markReminded": platformMarkReminded, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
+  "report.consolidated": consolidatedReport,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,
 } as const;

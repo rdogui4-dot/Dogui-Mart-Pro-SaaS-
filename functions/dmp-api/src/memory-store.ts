@@ -10,6 +10,12 @@ export class MemoryStore implements Store {
   async list(table: string, where: Record<string, string | number>, limit = 100) {
     return [...this.t(table).values()].filter((r) => Object.entries(where).every(([k, v]) => r[k] === v)).slice(0, limit).map((r) => ({ ...r }));
   }
+  async scan(table: string, where: Record<string, string | number>, opts: { range?: { field: string; from?: string; to?: string }; maxRows?: number } = {}) {
+    const max = opts.maxRows ?? 10_000; const r = opts.range;
+    const all = [...this.t(table).values()].filter((x) => Object.entries(where).every(([k, v]) => x[k] === v)
+      && (!r || ((r.from === undefined || String(x[r.field] ?? "") >= r.from) && (r.to === undefined || String(x[r.field] ?? "") < r.to))));
+    return { rows: all.slice(0, max).map((x) => ({ ...x })), truncated: all.length > max };
+  }
   /** Rôles autorisés à lire chaque ligne, calculés par la même politique que la production. */
   perms = new Map<string, string[]>();
   async create(table: string, id: string, tenantId: string, data: Record<string, unknown>) {

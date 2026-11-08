@@ -10,10 +10,11 @@ export type CheckoutInput = {
   lines: { productId: string; qty: number; discountPct?: number }[];
   payments: (Payment & { linkId?: string })[];
 };
+const MAX_FUTURE_MS = 10 * 60_000, MAX_AGE_MS = 45 * 86_400_000;
 const safeId = (s: string) => s.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 
 export async function stockFor(store: Store, productId: string): Promise<number> {
-  const moves = await store.list("stock_moves", { productId }, 5000);
+  const { rows: moves } = await store.scan("stock_moves", { productId }, { maxRows: 200_000 }); // lecture paginée : jamais tronquée en silence
   return stockOf(moves.map((m) => ({ productId, qty: Number(m.qty), kind: m.kind as StockMove["kind"] })));
 }
 
@@ -29,7 +30,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   if (existing && (existing.tenantId !== ctx.tenantId || existing.shopId !== ctx.shopId)) throw new HttpError(409, "Identifiant déjà utilisé");
 
   // 1) Prix et stock vérifiés en base
-  const lines: CartLine[] = [];
+  const lines: (CartLine & { unitCost?: number })[] = [];
   for (const l of input.lines) {
     const qty = Math.floor(Number(l.qty));
     if (!(qty > 0)) throw new HttpError(400, "Quantité invalide");
@@ -42,7 +43,10 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     // Remise > 0 réservée aux managers
     const discountPct = Number(l.discountPct ?? 0);
     if (discountPct > 0) need(ctx, "manager");
-    lines.push({ productId: p.$id, name: p.name, unitPrice: Number(p.price), qty, discountPct });
+    // Le coût du moment est figé sur la vente (la marge d'un rapport ne bouge pas quand le coût moyen change plus tard).
+    // Un coût non renseigné (0) n'est PAS figé : sinon la marge afficherait 100 % sur ce produit.
+    const cost = Number(p.cost ?? 0);
+    lines.push({ productId: p.$id, name: p.name, unitPrice: Number(p.price), qty, discountPct, ...(cost > 0 ? { unitCost: cost } : {}) });
   }
   let total = cartTotal(lines);
 
@@ -80,7 +84,14 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   // 4) Écritures idempotentes : la vente passe "pending" -> "posted" -> "paid"
   const shop = await store.get("shops", ctx.shopId);
   const vatRatePct = Number(shop?.vatRatePct ?? 18);
-  const soldAt = input.soldAt && !Number.isNaN(Date.parse(input.soldAt)) ? input.soldAt : new Date().toISOString();
+  // La date vient du téléphone (vente faite hors ligne) : on la borne pour qu'elle ne puisse fausser ni les rapports ni la comptabilité.
+  const nowMs = Date.now();
+  let soldAt = new Date(nowMs).toISOString();
+  if (input.soldAt) {
+    const ms = Date.parse(input.soldAt);
+    if (Number.isNaN(ms) || ms > nowMs + MAX_FUTURE_MS || ms < nowMs - MAX_AGE_MS) throw new HttpError(400, "Date de vente invalide (ni dans le futur, ni de plus de 45 jours)");
+    soldAt = new Date(ms).toISOString();
+  }
   const number = existing?.number ?? `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${saleId.slice(0, 6).toUpperCase()}`;
   const vat = total - Math.round(total / (1 + vatRatePct / 100));
   await store.create("sales", saleId, ctx.tenantId, {

@@ -47,7 +47,7 @@ function a4(doc: jsPDF, m: DocModel): jsPDF {
   y += 12;
   // Tableau
   const cols = { label: M + 2, qty: 125, unit: 157, total: R - 2 };
-  const header = () => { doc.setFillColor(...GOLD).rect(M, y - 5, R - M, 8, "F"); doc.setTextColor(20); text("Désignation", cols.label, 10, true); text("Qté", cols.qty, 10, true, "right"); text("P.U.", cols.unit, 10, true, "right"); text("Total", cols.total, 10, true, "right"); doc.setTextColor(0); y += 8; };
+  const header = () => { doc.setFillColor(...GOLD).rect(M, y - 5, R - M, 8, "F"); doc.setTextColor(20); const [h1, h2, h3, h4] = m.columns ?? ["Désignation", "Qté", "P.U.", "Total"]; text(h1, cols.label, 10, true); text(h2, cols.qty, 10, true, "right"); text(h3, cols.unit, 10, true, "right"); text(h4, cols.total, 10, true, "right"); doc.setTextColor(0); y += 8; };
   header();
   m.rows.forEach((r, i) => {
     const label = doc.setFont("helvetica", "normal").setFontSize(10).splitTextToSize(r.label, 95) as string[];

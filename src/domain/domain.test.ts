@@ -120,3 +120,43 @@ describe("documents", () => {
     expect(r.totals.map((t) => t.label)).toEqual(["TOTAL", "Espèces", "Monnaie rendue"]);
   });
 });
+
+import { reportModel } from "./documents";
+import type { ConsolidatedReport } from "./reports";
+describe("modèle PDF du rapport", () => {
+  const agg = { count: 3, revenueTtc: 6000, vat: 915, revenueHt: 5085, avgBasket: 2000, cogs: 3500, grossMargin: 1585, marginPct: 31.2, indicativeMargin: 1585, costCoveragePct: 100, costedRevenueTtc: 6000, lineRevenueTtc: 6000, byMethod: { cash: 2000, card: 4000 } };
+  const rep = (over: Partial<ConsolidatedReport["totals"]> = {}, partial = false): ConsolidatedReport => ({
+    period: { from: "2026-06-01", to: "2026-06-07", days: 7, note: "Jours en heure UTC" },
+    shops: [{ id: "a", name: "Dakar", ...agg, openCredit: 0, receivables: 0, payables: 0, stockValue: 1000, stockouts: 0, truncated: { sales: false, stock: false } }],
+    totals: { ...agg, openCredit: 4000, receivables: 500, payables: 5900, stockValue: 60600, stockouts: 2, ...over }, daily: [], topProducts: [], partial,
+  });
+  it("une ligne par boutique et les totaux utiles", () => {
+    const m = reportModel(rep(), "Chez Awa", new Date("2026-06-08T10:00:00Z"));
+    expect(m.kind).toBe("report"); expect(m.columns).toEqual(["Boutique", "Ventes", "Panier moy.", "CA TTC"]);
+    expect(m.rows).toEqual([{ label: "Dakar", qty: 3, unit: 2000, total: 6000 }]);
+    const labels = m.totals.map((t) => t.label);
+    expect(labels).toContain("Marge brute HT (31.2 %)"); expect(labels).toContain("Encaissé : Carte / banque"); expect(labels).toContain("Stock valorisé (coût moyen)");
+    expect(m.totals.find((t) => t.label === "Dettes fournisseurs")!.value).toBe(5900);
+  });
+  it("omet les chiffres inconnus au lieu de les mettre à zéro, et explique pourquoi", () => {
+    const m = reportModel(rep({ grossMargin: null, marginPct: null, costCoveragePct: 54, stockValue: null }, true), "Chez Awa");
+    expect(m.totals.map((t) => t.label).join("|")).not.toMatch(/Marge brute|Stock valorisé/);
+    expect(m.footer.join(" ")).toMatch(/54 %/); expect(m.footer.join(" ")).toMatch(/Stock valorisé non affiché/); expect(m.footer.join(" ")).toMatch(/partiel/);
+  });
+});
+
+describe("caractères imprimables dans les PDF", () => {
+  // Les polices PDF standard (WinAnsi) n'affichent ni flèches ni la plupart des symboles : un caractère hors de cette plage donne du texte illisible.
+  const PRINTABLE = /^[\u0020-\u007E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2026\u2022\u20AC\n]*$/;
+  const texts = (m: import("./documents").DocModel) => [m.title, m.number, m.date, m.issuer.name, ...(m.issuer.lines ?? []), m.party.name, ...(m.party.lines ?? []), ...(m.columns ?? []), ...m.rows.map((r) => r.label), ...m.totals.map((x) => x.label), ...m.footer];
+  it("facture, bon de commande, ticket et rapport n'utilisent que des caractères affichables", () => {
+    const shop = { name: "Chez Awa — Dakar", address: "Marché Sandaga", city: "Dakar", phone: "770000000", legal: "NINEA 1", vatRatePct: 18 };
+    const models = [
+      invoiceModel({ number: "FC-1", total: 1000, vat: 0, createdAt: "2026-01-02T10:00:00Z", dueAt: "2026-02-01T00:00:00Z", lines: [{ description: "Café crème", qty: 1, unitPrice: 1000 }], payments: [] }, shop, { name: "Moussa Diop" }),
+      purchaseOrderModel({ number: "BC-1", createdAt: "2026-01-02T10:00:00Z", lines: [{ productId: "p", name: "Riz", qty: 1, unitCost: 1, received: 0, invoiced: 0 }] }, shop, { name: "Grossiste" }),
+      receiptModel({ number: "V-1", soldAt: "2026-01-02T10:00:00Z", total: 2000, change: 500, lines: [{ name: "Riz", qty: 2, unitPrice: 1000 }], payments: [{ method: "cash", amount: 2500 }, { method: "credit", amount: 0 }] }, shop),
+      reportModel({ period: { from: "2026-06-01", to: "2026-06-07", days: 7, note: "Jours en heure UTC" }, shops: [], totals: { count: 0, revenueTtc: 0, vat: 0, revenueHt: 0, avgBasket: 0, cogs: null, grossMargin: null, marginPct: null, indicativeMargin: 0, costCoveragePct: 100, costedRevenueTtc: 0, lineRevenueTtc: 0, byMethod: { wave: 1 }, openCredit: 0, receivables: 0, payables: 0, stockValue: null, stockouts: null }, daily: [], topProducts: [], partial: true }, "Chez Awa"),
+    ];
+    for (const m of models) for (const s of texts(m)) expect(PRINTABLE.test(s), `${m.kind}: « ${s} »`).toBe(true);
+  });
+});
