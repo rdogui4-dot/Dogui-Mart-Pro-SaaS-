@@ -68,7 +68,8 @@ describe("paiement par lien / QR", () => {
   const cfg = () => call("owner1", "payments.settings.save", { waveTemplate: "https://pay.example.com/m/X?amount={amount}&ref={ref}", expiryMinutes: 10 });
   it("seul le propriétaire configure, et le modèle est validé", async () => {
     expect((await call("cash1", "payments.settings.save", { waveTemplate: "https://a.com/{amount}" })).status).toBe(403);
-    expect((await call("owner1", "payments.settings.save", { waveTemplate: "http://a.com/{amount}" })).status).toBe(500);
+    const r: any = await call("owner1", "payments.settings.save", { waveTemplate: "http://a.com/{amount}" }); // faute de saisie : 400 explicite (c'était une erreur interne 500)
+    expect(r.status).toBe(400); expect(r.body.error).toContain("https");
   });
   it("lien -> confirmation -> vente ; réutilisation et mauvais montant refusés", async () => {
     await cfg();
