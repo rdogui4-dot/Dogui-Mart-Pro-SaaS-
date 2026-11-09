@@ -51,7 +51,7 @@ describe("invariants de stock sous opérations aléatoires", () => {
         if (p.kind === "bundle" && p.bundleMode !== "kit" && moves(String(p.shopId), p.$id).length) throw new Error(`${label} : le bundle virtuel ${p.name} a des mouvements propres`);
       }
     };
-    const okOps = new Map<number, number>(); let cur = 0; const call2 = async (...a: Parameters<typeof call>) => { const r = await call(...a); if (r.status === 200) okOps.set(cur, (okOps.get(cur) ?? 0) + 1); else if (r.status >= 500) throw new Error(`HTTP ${r.status} ${r.body.error}`); return r; };
+    const okOps = new Map<number, number>(); let cur = 0; const call2 = async (...a: Parameters<typeof call>) => { const r = await call(...a); if (r.status === 200) okOps.set(cur, (okOps.get(cur) ?? 0) + 1); else if (r.status >= 500) throw new Error(`HTTP ${r.status} ${(r.body as { error?: string }).error}`); return r; };
     for (let i = 0; i < 90; i++) {
       const op = Math.floor(R() * 9); cur = op; let label = `op${i}:${op}`;
       const shop = R() < 0.8 ? A : B; const here = (x: string) => st.rows("products").find((p) => p.shopId === shop && (p.$id === x || p.originId === x))?.$id;
