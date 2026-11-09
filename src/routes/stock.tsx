@@ -17,19 +17,20 @@ import { trackingOf } from "@/domain/tracking";
 import { isVirtualBundle } from "@/domain/bundles";
 import type { ArticleRow } from "@/lib/articles";
 import { useSubscription } from "./subscription";
+import { useStockLevels } from "@/lib/queries";
 
 export function StockPage() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
   const products = useQuery({ queryKey: ["products"], queryFn: () => list<Product>("products", s, [], 500) });
-  const levels = useQuery({ queryKey: ["stock"], queryFn: () => stockLevels(s) });
+  const levels = useStockLevels();
   const variants = useQuery({ queryKey: ["variants-stock", s.shopId], queryFn: () => listAll<VariantRow>("article_variants", s) });
-  const [scan, setScan] = useState(false); const [q, setQ] = useState(""); const [pick, setPick] = useState<(Product & { $id: string }) | null>(null);
+  const [scan, setScan] = useState(false); const [note, setNote] = useState(""); const [q, setQ] = useState(""); const [pick, setPick] = useState<(Product & { $id: string }) | null>(null);
   const adjust = useMutation({
     mutationFn: ({ id, counted }: { id: string; counted: string }) => api(s, "stock.adjust", { productId: id, counted }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["stock"] }),
   });
   const sub = useSubscription(); const [track, setTrack] = useState<Product & { $id: string } | null>(null);
-  const openStock = (p: Product & { $id: string }) => { if (trackingOf(p)) setTrack(p); else if (p.hasVariants) alert("Cet article a des variantes : comptez chaque variante depuis l'écran Articles."); else setPick(p); };
+  const openStock = (p: Product & { $id: string }) => { if (trackingOf(p)) setTrack(p); else if (p.hasVariants) setNote("Cet article a des variantes : comptez chaque variante depuis l'écran Articles.");  else setPick(p); };
   const shown = (products.data ?? []).filter((p) => !p.archived && !isVirtualBundle(p) && (!q.trim() || [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))));
   const low = (products.data ?? []).filter((p) => !isVirtualBundle(p) && isLow(qtyOf(levels.data, p), p.minStock ?? 0));
   const value = (products.data ?? []).filter((p) => !p.hasVariants && !isVirtualBundle(p)).reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
@@ -46,6 +47,7 @@ export function StockPage() {
         <input className="input" placeholder="Rechercher un article (nom, référence, code-barres)" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
+      {note && <p className="text-sm text-amber-300" role="status">{note}</p>}
       <p className="text-xs text-white/50">Touchez un article pour ajuster son stock. Pour créer un article, utilisez l'écran Articles.</p>
       {s.shops.length > 1 && can(s, "stock") && <Transfer products={(products.data ?? []).filter((p) => p.kind !== "bundle")} variants={variants.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">

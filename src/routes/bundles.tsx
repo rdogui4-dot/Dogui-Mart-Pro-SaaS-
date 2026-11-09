@@ -14,6 +14,7 @@ import { marginOf, sellsAtLoss } from "@/domain/articles";
 import { formatQty, fromScaled } from "@/domain/quantity";
 import { trackingOf } from "@/domain/tracking";
 import { useSubscription } from "./subscription";
+import { useStockLevels } from "@/lib/queries";
 
 type CompRow = Row<{ bundleId: string; componentId: string; variantId?: string; qty: number }>;
 type Draft = { key: string; qty: string }; // key = « articleId » ou « articleId:varianteId »
@@ -27,7 +28,7 @@ export function BundlesPage() {
   const sub = useSubscription(); const pro = planAllows(sub.data?.entitlement.plan.id, "bundles"); const canManage = pro && can(s, "stock");
   const prods = useQuery({ queryKey: ["products-all", s.shopId], queryFn: () => listAll<Product>("products", s) });
   const comps = useQuery({ queryKey: ["components-all", s.shopId], queryFn: () => list<CompRow>("article_components", s, [], 500) });
-  const levels = useQuery({ queryKey: ["stock"], queryFn: () => stockLevels(s) });
+  const levels = useStockLevels();
   const variants = useQuery({ queryKey: ["variants-all-b", s.shopId], queryFn: () => listAll<VariantRow>("article_variants", s) });
   const [edit, setEdit] = useState<Row<Product> | "new" | null>(null); const [q, setQ] = useState("");
   const bundles = (prods.data ?? []).filter((p) => p.kind === "bundle" && (!q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()))).sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || a.name.localeCompare(b.name, "fr"));

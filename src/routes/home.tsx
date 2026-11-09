@@ -10,6 +10,8 @@ import { can, useSession, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
 import { stateLabel } from "@/domain/reminders";
 import { useSubscription } from "./subscription";
+import { RejectedSales } from "@/components/RejectedSales";
+import { useProductsAll, useStockLevels, useVariantsAll } from "@/lib/queries";
 
 type Sale = { total: number; status: string; soldAt: string };
 const greeting = () => { const h = new Date().getHours(); return h < 6 ? "Bonne nuit" : h < 18 ? "Bonjour" : "Bonsoir"; };
@@ -31,10 +33,8 @@ export function HomePage() {
   const { session } = useSession(); const s = session!;
   const sub = useSubscription();
   const sales = useQuery({ queryKey: ["home-sales", s.shopId], enabled: can(s, "pos"), queryFn: () => list<Sale>("sales", s, [Query.greaterThanEqual("soldAt", startOfToday())], 500) });
-  const stock = useQuery({
-    queryKey: ["home-stock", s.shopId], enabled: can(s, "stock"),
-    queryFn: async () => ({ products: await list<Product>("products", s, [], 500), levels: await stockLevels(s), variants: await listAll<VariantRow>("article_variants", s) }),
-  });
+  const canStock = can(s, "stock"); const prodQ = useProductsAll(canStock); const varQ = useVariantsAll(canStock); const lvlQ = useStockLevels();
+  const stock = { data: canStock && prodQ.data && varQ.data && lvlQ.data ? { products: prodQ.data, variants: varQ.data, levels: lvlQ.data } : undefined };
   const paid = (sales.data ?? []).filter((x) => x.status === "paid");
   const total = paid.reduce((a, x) => a + x.total, 0);
   const prods = (stock.data?.products ?? []).filter((p) => !p.archived);
@@ -48,6 +48,7 @@ export function HomePage() {
   const shopName = s.shops.find((x) => x.id === s.shopId)?.name;
   return (
     <div className="flex flex-col gap-4">
+      <RejectedSales />
       <header>
         <p className="text-white/50 text-sm">{greeting()},</p>
         <h1 className="text-2xl font-bold">{s.name}</h1>
@@ -84,6 +85,7 @@ export function PlusPage() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Plus</h1>
+      <RejectedSales />
       <div className="card text-sm"><b>{s.name}</b><br /><span className="text-white/50">{s.role === "owner" ? "Gérant principal (propriétaire)" : s.role}</span></div>
       {TILES.filter((t) => can(s, t.perm) && (t.to !== "/articles" || planAllows(plan, "articles"))).map(({ to, label, hint, icon: I }) => (
         <Link key={to} to={to} className="card flex items-center gap-3"><I className="text-[var(--gold)]" /><span><b>{label}</b><br /><span className="text-xs text-white/50">{hint}</span></span></Link>

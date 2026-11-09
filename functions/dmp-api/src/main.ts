@@ -29,7 +29,7 @@ export async function handle(store: Store, userId: string | undefined, body: any
     else {
       const staff = await store.get("staff", userId);
       const active = !!staff && staff.tenantId === tenantId && staff.active !== false;
-      ids = active ? JSON.parse(String(staff!.shopIds || "[]")) : [];
+      ids = active ? (() => { try { const v = JSON.parse(String(staff!.shopIds || "[]")); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } })() : []; // fiche illisible : aucune boutique plutôt qu'une erreur 500
       ctx.modules = active ? modulesFor(staff!.role ?? m.roles[0], staff!.access) : [];
     }
     if (!tenantLevel) {

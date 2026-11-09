@@ -21,8 +21,15 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       catch (e: any) { if (e?.code === 404) return null; throw e; }
     },
     async list(tableId, where, limit = 100) {
-      const queries = [...Object.entries(where).map(([k, v]) => Query.equal(k, v)), Query.limit(limit)];
-      return (await db.listRows({ databaseId, tableId, queries })).rows as unknown as Row[];
+      // Appwrite plafonne la taille d'une page : au-delà de 100 lignes on pagine par curseur (sinon la liste serait tronquée sans erreur).
+      const filters = Object.entries(where).map(([k, v]) => Query.equal(k, v)); const rows: Row[] = []; let cursor: string | undefined;
+      while (rows.length < limit) {
+        const page = (await db.listRows({ databaseId, tableId, queries: [...filters, Query.limit(Math.min(100, limit - rows.length)), ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row[];
+        if (!page.length) break;
+        rows.push(...page); cursor = page[page.length - 1]!.$id;
+        if (limit <= 100) break;
+      }
+      return rows;
     },
     async scan(tableId, where, opts = {}) {
       const max = opts.maxRows ?? 10_000; const PAGE = 100; const rows: Row[] = []; let cursor: string | undefined;

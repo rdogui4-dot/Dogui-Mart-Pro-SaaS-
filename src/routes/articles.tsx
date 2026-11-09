@@ -6,6 +6,7 @@ import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
 import { listAll, list, qtyOf, stockLevels, variantQty, type Product, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
 import { VariantsSheet } from "./variants";
 import { LotsSheet, SerialsSheet } from "./tracking";
+import { useProductsAll, useStockLevels, useVariantsAll } from "@/lib/queries";
 import { TRACKING_MODES, trackingOf } from "@/domain/tracking";
 import { PricingSheet, useRules } from "./pricing";
 import { ProfitSheet, SuppliersSheet, useLinks } from "./costing";
@@ -59,10 +60,8 @@ function Catalogue() {
     queryFn: ({ pageParam }) => fetchArticles(s, f, pageParam), getNextPageParam: (l) => l.next,
   });
   // Statistiques calculées sur les données réelles : catégories, valeur du stock, alertes (journal de mouvements)
-  const stats = useQuery({
-    queryKey: ["articles-stats", s.shopId],
-    queryFn: async () => ({ all: await listAll<Product>("products", s), levels: await stockLevels(s), variants: await listAll<VariantRow>("article_variants", s) }),
-  });
+  const prodQ = useProductsAll(); const varQ = useVariantsAll(); const lvlQ = useStockLevels();
+  const stats = { data: prodQ.data && varQ.data && lvlQ.data ? { all: prodQ.data, variants: varQ.data, levels: lvlQ.data } : undefined };
   const levels = stats.data?.levels;
   const variants = stats.data?.variants ?? [];
   const liveVariants = variants.filter((v) => !v.archived);
@@ -281,8 +280,7 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
   const [photo, setPhoto] = useState<File | null>(null); const [removePhoto, setRemovePhoto] = useState(false); const [preview, setPreview] = useState<string | null>(null);
   const [scan, setScan] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [done, setDone] = useState("");
   const suppliers = useQuery({ queryKey: ["suppliers-pick", s.shopId], enabled: can(s, "purchases"), queryFn: () => list<Supplier>("suppliers", s, [], 200) });
-  const cats = useQuery({ queryKey: ["articles-stats", s.shopId], queryFn: async () => ({ all: await listAll<Product>("products", s), levels: await stockLevels(s) }) });
-  const categories = [...new Set((cats.data?.all ?? []).map((p) => p.category).filter((c): c is string => !!c))];
+  const cats = useProductsAll(); const categories = [...new Set((cats.data ?? []).map((p) => p.category).filter((c): c is string => !!c))];
   useEffect(() => { if (!photo) { setPreview(null); return; } const u = URL.createObjectURL(photo); setPreview(u); return () => URL.revokeObjectURL(u); }, [photo]);
   const price = Number(f.price) || 0, cost = Number(f.cost) || 0; const m = marginOf(price, cost);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });

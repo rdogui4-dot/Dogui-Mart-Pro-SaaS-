@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { DATABASE_ID, Query, account, tables, teams } from "./appwrite";
 import { api } from "./api";
 import { MODULES, modulesFor, type Module, type StaffRole } from "@/domain/access";
+import { clearCache, restoreCache, startPersist } from "./persist";
 
 export type Role = "owner" | StaffRole;
 export type ShopInfo = { id: string; name: string };
@@ -29,8 +30,23 @@ async function listShops(tenantId: string): Promise<ShopInfo[]> {
   return r.rows.map((x) => ({ id: x.$id, name: String((x as unknown as { name?: string }).name ?? x.$id) }));
 }
 
+const SESSION_CACHE = "dmp.session.cache";
+const readCachedSession = (): Session | null => { try { const t = localStorage.getItem(SESSION_CACHE); return t ? (JSON.parse(t) as Session) : null; } catch { return null; } };
+const writeCachedSession = (s: Session | null) => { try { if (s && s.tenantId) localStorage.setItem(SESSION_CACHE, JSON.stringify({ ...s, setupError: undefined })); else localStorage.removeItem(SESSION_CACHE); } catch { /* navigation privée */ } };
+/** Refus d'authentification (session expirée ou absente) ≠ panne de réseau : seul le premier renvoie à l'écran de connexion. */
+const isAuthError = (e: unknown): boolean => { const c = (e as { code?: number } | null)?.code; return c === 401 || c === 403; };
+
 async function load(): Promise<Session | null> {
   try {
+    const s = await loadOnline(); writeCachedSession(s); return s;
+  } catch (e) {
+    if (isAuthError(e)) { writeCachedSession(null); return null; }
+    return readCachedSession(); // hors ligne : on garde la dernière session connue pour que la caisse reste utilisable
+  }
+}
+
+async function loadOnline(): Promise<Session | null> {
+  {
     const me = await account.get();
     const team = (await teams.list()).teams[0];
     if (!team) return { userId: me.$id, name: me.name, tenantId: "", shopId: "", role: "owner", shops: [], modules: [...MODULES], needsTenant: true };
@@ -51,22 +67,26 @@ async function load(): Promise<Session | null> {
       try {
         const st = (await tables.getRow({ databaseId: DATABASE_ID, tableId: "staff", rowId: me.$id })) as unknown as { shopIds?: string; active?: boolean; role?: string; access?: string };
         if (st.active !== false) { ids = JSON.parse(st.shopIds ?? "[]"); role = (st.role === "manager" || st.role === "cashier" || st.role === "stockkeeper" || st.role === "accountant" ? st.role : role) as Role; modules = modulesFor(role, st.access); }
-      } catch { /* pas de fiche : aucun accès */ }
+      } catch (e) { if ((e as { code?: number })?.code !== 404) throw e; /* pas de fiche (404) : aucun accès ; toute autre erreur (réseau…) remonte et ramène à la session en cache */ }
       shops = shops.filter((s) => ids.includes(s.id));
     }
     const want = remembered(me.$id);
     const shopId = shops.find((s) => s.id === want)?.id ?? shops[0]?.id ?? "";
     return { userId: me.$id, name: me.name, tenantId: team.$id, shopId, role, shops, modules, setupError };
-  } catch { return null; }
+  }
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const refresh = async () => { setSession(await load()); setLoading(false); };
+  const refresh = async () => {
+    const s = await load();
+    if (s?.userId) { await restoreCache(qc, s.userId); startPersist(qc, s.userId); }
+    setSession(s); setLoading(false);
+  };
   useEffect(() => { void refresh(); }, []);
-  const logout = async () => { await account.deleteSession({ sessionId: "current" }); qc.clear(); setSession(null); };
+  const logout = async () => { const uid = session?.userId; await account.deleteSession({ sessionId: "current" }); qc.clear(); writeCachedSession(null); if (uid) await clearCache(uid); setSession(null); };
   const switchShop = (id: string) => {
     setSession((s) => { if (!s || !s.shops.some((x) => x.id === id)) return s; remember(s.userId, id); return { ...s, shopId: id }; });
     qc.clear(); // les données en cache appartiennent à l'ancienne boutique

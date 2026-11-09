@@ -2,7 +2,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { BookOpen, Boxes, Home, MoreHorizontal, Receipt, ScanLine, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { can, useSession, type Perm } from "@/lib/session";
-import { pendingCount, syncPending } from "@/lib/offline";
+import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
 import { LogoMark } from "./Logo";
 
@@ -19,10 +19,10 @@ export function Layout() {
   const { session, switchShop, logout, refresh } = useSession();
   const sub = useSubscription();
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const [pending, setPending] = useState(0);
+  const [pending, setPending] = useState(0); const [rejected, setRejected] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {
-    const refresh = () => pendingCount().then(setPending);
+    const refresh = () => Promise.all([pendingCount().then(setPending), rejectedSales().then((r) => setRejected(r.length))]);
     const up = async () => { setOnline(true); await syncPending(); void refresh(); };
     const down = () => setOnline(false);
     window.addEventListener("online", up); window.addEventListener("offline", down);
@@ -38,6 +38,7 @@ export function Layout() {
             ? <select aria-label="Boutique" className="bg-transparent font-semibold w-full outline-none truncate" value={session.shopId} onChange={(e) => switchShop(e.target.value)}>{session.shops.map((x) => <option key={x.id} value={x.id} className="bg-[#141416]">{x.name}</option>)}</select>
             : <span className="font-semibold truncate block">{session?.shops.find((x) => x.id === session.shopId)?.name ?? "Dogui Mart Pro"}</span>}
         </div>
+        {rejected > 0 && <Link to="/plus" className="text-xs rounded-full bg-red-500 text-white px-3 py-1">{rejected} vente{rejected > 1 ? "s" : ""} à vérifier</Link>}
         {(!online || pending > 0) && <span className="flex items-center gap-1 text-xs rounded-full bg-amber-500/90 text-black px-3 py-1">{!online && <WifiOff size={14} />}{online ? "Synchronisation" : "Hors ligne"} · {pending}</span>}
       </header>
       <SubscriptionBanner />

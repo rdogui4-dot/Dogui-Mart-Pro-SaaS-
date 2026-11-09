@@ -9,6 +9,7 @@ import { unitLabel } from "@/domain/articles";
 import { planAllows } from "@/domain/features";
 import { resolvePrice, ruleFromRow, categoryLabel, KIND_LABEL } from "@/domain/pricing";
 import { useSubscription } from "./subscription";
+import { useStockLevels } from "@/lib/queries";
 import { queueSale, syncPending } from "@/lib/offline";
 import { useSession } from "@/lib/session";
 import { trackingOf } from "@/domain/tracking";
@@ -27,7 +28,7 @@ const plus = (a: number, b: number, scale: number) => fromScaled(scaledInt(a, sc
 export function PosPage() {
   const { session } = useSession(); const s = session!;
   const products = useQuery({ queryKey: ["products"], queryFn: () => list<Product>("products", s, [], 500), staleTime: 60_000 });
-  const stock = useQuery({ queryKey: ["stock"], queryFn: () => stockLevels(s) });
+  const stock = useStockLevels();
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => list<Customer>("customers", s, [], 500) });
   const unitsQ = useQuery({ queryKey: ["units-all", s.shopId], queryFn: () => list<UnitRow>("article_units", s, [Query.equal("active", true)], 500), staleTime: 60_000 });
   const variantsQ = useQuery({ queryKey: ["variants-all", s.shopId], queryFn: () => list<VariantRow>("article_variants", s, [Query.equal("archived", false)], 500), staleTime: 60_000 });
@@ -86,7 +87,7 @@ export function PosPage() {
     else { const p = products.data?.find((x) => !x.archived && (x.barcode === code || x.sku === code)); if (p) add(p as Product & { $id: string }); else void bySerial(code); }
     setScan(false);
   };
-  const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 40), [products.data, q]);
+  const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))).slice(0, 40), [products.data, q]);
   const customer = customers.data?.find((c) => c.$id === customerId);
   // Tarifs avancés (Pro) : mêmes règles et même moteur que le serveur, évalués à l'instant de la vente. Le serveur recalcule et fait foi.
   const tiered = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing");
@@ -124,7 +125,7 @@ export function PosPage() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
-        <input className="input" placeholder="Rechercher un produit" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="input" placeholder="Rechercher (nom, référence, code-barres)" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
       <div className="grid grid-cols-2 gap-2">

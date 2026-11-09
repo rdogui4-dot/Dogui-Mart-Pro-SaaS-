@@ -207,3 +207,18 @@ describe("composants : tous les articles du commerce (variantes, décimaux, lots
     await ok(call("own", "kit.assemble", { requestId: id8("dsm"), bundleId: kit, qty: 1, type: "disassemble" })); expect(await stockFor(st, riz)).toBe(3.5);
   });
 });
+
+describe("reprise d'une vente de bundle interrompue", () => {
+  it("composants avec lot et série : la reprise réutilise l'affectation figée et ne double aucun mouvement", async () => {
+    const dayStr = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+    const yaourt = await mk("Yaourt", 500, 300, 0, { tracking: "lot" }); await ok(call("own", "lot.receive", { productId: yaourt, lotNo: "A", qty: 5, expiresAt: dayStr(20) })); const tel = await mk("Tel", 50000, 40000, 0, { tracking: "serial" }); await ok(call("own", "serial.add", { productId: tel, serials: "SN001 SN002" }));
+    const b = await mk("Pack", 52000, 0, 0, { kind: "bundle" }); await ok(comps(b, [{ productId: yaourt, qty: 2 }, { productId: tel, qty: 1 }, { productId: jus, qty: 1 }]));
+    const body = { clientId: "vente-reprise-001", lines: [{ productId: b, qty: 2 }], payments: [{ method: "cash", amount: 104000 }] };
+    await ok(call("own", "checkout", body)); const before = st.rows("stock_moves").length;
+    // coupure simulée : la vente reste « pending » et une partie des mouvements d'écriture a disparu
+    const sale = st.rows("sales")[0]!; sale.status = "pending"; const sm = st.rows("stock_moves").filter((m) => m.kind === "sale" && !m.serial); for (const m of sm.slice(0, 2)) await st.remove("stock_moves", String(m.$id));
+    for (const r of st.rows("article_serials")) { r.status = "available"; delete r.saleId; } // la mise à jour « vendu » n'avait pas eu lieu
+    await ok(call("own", "checkout", body)); expect(st.rows("stock_moves")).toHaveLength(before); expect(st.rows("sales")).toHaveLength(1); expect(st.rows("article_serials").filter((r) => r.status === "sold")).toHaveLength(2);
+    expect(await stockFor(st, yaourt, 0)).toBe(1); expect(await stockFor(st, jus, 0)).toBe(18); expect(await stockFor(st, tel, 0)).toBe(0); expect(st.rows("sales")[0]!.status).toBe("paid");
+  });
+});

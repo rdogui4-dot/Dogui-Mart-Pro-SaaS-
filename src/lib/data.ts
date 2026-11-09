@@ -15,8 +15,15 @@ const scope = (s: Session) => [Query.equal("tenantId", s.tenantId), Query.equal(
 
 /** Lecture directe (droits de lecture de la Team) ; l'écriture, elle, passe uniquement par la fonction serveur. */
 export async function list<T>(table: string, s: Session, extra: string[] = [], limit = 200): Promise<Row<T>[]> {
-  const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [...scope(s), Query.limit(limit), Query.orderDesc("$createdAt"), ...extra] });
-  return r.rows as unknown as Row<T>[];
+  // Une page Appwrite est plafonnée (100 lignes) : au-delà, on pagine par curseur au lieu de tronquer la liste sans le dire.
+  const rows: Row<T>[] = []; let cursor: string | undefined;
+  while (rows.length < limit) {
+    const page = (await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [...scope(s), Query.limit(Math.min(100, limit - rows.length)), Query.orderDesc("$createdAt"), ...extra, ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row<T>[];
+    if (!page.length) break;
+    rows.push(...page); cursor = page[page.length - 1]!.$id;
+    if (limit <= 100 || page.length < Math.min(100, limit - rows.length + page.length)) break; // dernière page
+  }
+  return rows;
 }
 
 export const saveEntity = (s: Session, table: "products" | "customers" | "suppliers", data: object, id?: string) =>

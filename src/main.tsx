@@ -19,6 +19,9 @@ import { ArticlesPage } from "@/routes/articles";
 import { BundlesPage } from "@/routes/bundles";
 import { DashboardPage } from "@/routes/dashboard";
 
+// Réseau mobile instable : une seule nouvelle tentative, et les écrans gardent leurs dernières données si le réseau tombe.
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 10_000 } } });
+
 function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNode }) {
   const { session, loading } = useSession();
   if (loading) return <p className="p-6 text-white/50">Chargement…</p>;
@@ -41,5 +44,5 @@ declare module "@tanstack/react-router" { interface Register { router: typeof ro
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><QueryClientProvider client={new QueryClient()}><SessionProvider><RouterProvider router={router} /></SessionProvider></QueryClientProvider></StrictMode>,
+  <StrictMode><QueryClientProvider client={queryClient}><SessionProvider><RouterProvider router={router} /></SessionProvider></QueryClientProvider></StrictMode>,
 );

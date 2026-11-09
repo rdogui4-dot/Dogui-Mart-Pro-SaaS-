@@ -15,8 +15,12 @@ export type PendingSale = {
 const db = () => openDB("dmp-offline", 2, { upgrade(d) { if (!d.objectStoreNames.contains("sales")) d.createObjectStore("sales", { keyPath: "clientId" }); } });
 
 export async function queueSale(s: PendingSale) { await (await db()).put("sales", s); }
-export async function pendingCount(): Promise<number> { return (await db()).count("sales"); }
-export async function rejectedSales(): Promise<PendingSale[]> { return ((await (await db()).getAll("sales")) as PendingSale[]).filter((x) => x.error); }
+/** Ventes en attente d'envoi (hors celles que le serveur a refusées : elles attendent une décision humaine, voir rejectedSales). */
+export async function pendingCount(): Promise<number> { return ((await (await db()).getAll("sales")) as PendingSale[]).filter((x) => !x.error).length; }
+export async function rejectedSales(): Promise<PendingSale[]> { return ((await (await db()).getAll("sales")) as PendingSale[]).filter((x) => x.error).sort((a, b) => a.soldAt.localeCompare(b.soldAt)); }
+/** Remet une vente refusée dans la file (après correction du stock, par exemple) ou l'abandonne définitivement. */
+export async function retryRejected(clientId: string): Promise<void> { const d = await db(); const p = (await d.get("sales", clientId)) as PendingSale | undefined; if (p) { const { error: _e, ...rest } = p; await d.put("sales", rest); } }
+export async function discardRejected(clientId: string): Promise<void> { await (await db()).delete("sales", clientId); }
 
 let syncing = false;
 export async function syncPending(): Promise<number> {
