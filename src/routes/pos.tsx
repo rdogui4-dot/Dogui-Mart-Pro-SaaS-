@@ -22,7 +22,7 @@ import { canExtendCredit } from "@/domain/credit";
 
 
 /** Ligne du panier : quantité de base (pour le prix et le stock) + unité vendue si un conditionnement est choisi. */
-type Preview = { total: number; discountTotal: number; promotions: { promoId: string; name: string; code?: string; discount: number }[]; lines: { amount: number; baseAmount?: number; promo?: { name: string; code?: string; discount: number } }[] };
+type Preview = { total: number; discountTotal: number; promotions: { promoId: string; name: string; code?: string; discount: number }[]; decisions?: { promoId: string; name: string; outcome: "applied" | "refused"; message: string; reason: string }[]; notes?: string[]; pro?: boolean; coupon?: { ok: boolean; code: string; message: string; applied: boolean }; lines: { amount: number; baseAmount?: number; promo?: { name: string; code?: string; discount: number }; promos?: { name: string; discount: number }[] }[] };
 type PosLine = CartLine & { key: string; scale: number; basePrice: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; serials?: string[] };
 const keyOf = (productId: string, unit?: string, variantId?: string) => `${productId}|${unit ?? ""}|${variantId ?? ""}`;
 const plus = (a: number, b: number, scale: number) => fromScaled(scaledInt(a, scale) + scaledInt(b, scale), scale);
@@ -41,7 +41,7 @@ export function PosPage() {
   const [q, setQ] = useState(""); const [scan, setScan] = useState(false);
   const [pay, setPay] = useState<PaymentMethod>("cash"); const [given, setGiven] = useState("");
   const [customerId, setCustomerId] = useState(""); const [qr, setQr] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [msg, setMsg] = useState(""); const [couponIn, setCouponIn] = useState(""); const [coupon, setCoupon] = useState("");
   const [last, setLast] = useState<ReceiptSale | null>(null);
   const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s), staleTime: 300_000 });
 
@@ -103,7 +103,8 @@ export function PosPage() {
   // Promotions (Business) : le SERVEUR calcule remises et total (aperçu = même calcul qu'une vraie vente, rien n'est écrit) ; hors ligne, elles sont appliquées à la synchronisation.
   const promoOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotions"); 
   const apiLines = cart.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.serials ? { qty: l.serials.length, serials: l.serials } : l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) }));
-  const preview = useQuery({ queryKey: ["promo-preview", s.shopId, JSON.stringify(apiLines), customerId], enabled: promoOn && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Preview>(s, "promotions.preview", { lines: apiLines, customerId: customerId || undefined }) });
+  const proOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotionsPro");
+  const preview = useQuery({ queryKey: ["promo-preview", s.shopId, JSON.stringify(apiLines), customerId, coupon], enabled: promoOn && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Preview>(s, "promotions.preview", { lines: apiLines, customerId: customerId || undefined, ...(coupon ? { couponCode: coupon } : {}) }) });
   const pv = promoOn && preview.data && !preview.isFetching ? preview.data : undefined; const waiting = promoOn && cart.length > 0 && navigator.onLine && preview.isFetching;
   const total = pv ? pv.total : cartTotal(priced); const cashGiven = Number(given.replace(/\s/g, "")) || 0;
 
@@ -122,10 +123,10 @@ export function PosPage() {
       const c = canExtendCredit({ balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 }, tot);
       if (!c.ok) return setMsg(c.error);
     }
-    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: apiLines, payments, session: s });
+    await queueSale({ clientId, soldAt, customerId: customerId || undefined, ...(coupon && pv?.coupon?.ok ? { couponCode: coupon } : {}), lines: apiLines, payments, session: s });
     // Même formule de numéro que le serveur : le ticket imprimé hors ligne porte le bon numéro.
     setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total: tot, change: r.change, lines: linesAt.map((l) => ({ name: l.unit ? `${l.name} (${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()})` : l.name, qty: l.qty, unitPrice: l.unitPrice, amount: l.amount })), payments: payments.map((p) => ({ method: p.method, amount: p.amount })) });
-    setCart([]); setGiven(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
+    setCart([]); setGiven(""); setQr(false); setCoupon(""); setCouponIn(""); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
     void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); } });
   }
   const checkout = () => (isQrMethod(pay) ? (navigator.onLine ? setQr(true) : setMsg("Le paiement QR nécessite une connexion")) : void submit());
@@ -162,6 +163,9 @@ export function PosPage() {
           ))}
           {promoOn && <>
             {pv && pv.discountTotal > 0 && <p className="text-sm text-emerald-300" role="status">Remises : −{formatFcfa(pv.discountTotal)} ({pv.promotions.map((p) => (p.code ? `${p.name} · ${p.code}` : p.name)).join(", ")})</p>}
+            {proOn && <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setCoupon(couponIn.trim().toUpperCase()); }}><input className="input flex-1 !py-2" aria-label="Coupon" autoCapitalize="characters" placeholder="Coupon (facultatif)" value={couponIn} onChange={(e) => setCouponIn(e.target.value)} /><button className="btn-ghost !py-2" type="submit">Appliquer</button>{coupon && <button className="btn-ghost !py-2" type="button" onClick={() => { setCoupon(""); setCouponIn(""); }}>Retirer</button>}</form>}
+            {pv?.coupon && <p className={`text-xs ${pv.coupon.ok && pv.coupon.applied ? "text-emerald-300" : "text-amber-300"}`} role="status">{pv.coupon.ok && !pv.coupon.applied ? `${pv.coupon.message}, mais la campagne liée ne s'applique pas à ce panier` : pv.coupon.message}</p>}
+            {pv && !!pv.decisions?.length && <details className="text-xs text-white/60"><summary className="cursor-pointer">Pourquoi ces remises ? ({pv.decisions.length})</summary><ul className="pt-1 flex flex-col gap-0.5">{pv.decisions.map((d) => <li key={d.promoId + d.outcome}><span className={d.outcome === "applied" ? "text-emerald-300" : "text-white/50"}>{d.outcome === "applied" ? "✓" : "✗"} {d.name}</span> — {d.message}</li>)}{(pv.notes ?? []).map((n) => <li key={n}>ℹ {n}</li>)}</ul></details>}
             {preview.isError && <p className="text-xs text-amber-300">Aperçu des promotions indisponible : {(preview.error as Error).message}</p>}
           </>}
           <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>

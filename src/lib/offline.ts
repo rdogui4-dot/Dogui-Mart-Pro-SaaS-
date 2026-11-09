@@ -5,7 +5,7 @@ import type { Session } from "./session";
 
 /** Ce que le caissier a saisi. Les prix, le stock et la comptabilité sont recalculés par le serveur. */
 export type PendingSale = {
-  clientId: string; soldAt: string; customerId?: string; redeemPoints?: number; promoCode?: string;
+  clientId: string; soldAt: string; customerId?: string; redeemPoints?: number; couponCode?: string;
   lines: { productId: string; qty: number | string; unit?: string; variantId?: string; serials?: string[] }[];
   payments: (Payment & { linkId?: string })[];
   session: Session;
