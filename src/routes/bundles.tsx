@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Archive, Lock, Plus, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, Archive, Camera, Image as ImageIcon, Lock, Plus, Trash2, Undo2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { list, listAll, stockLevels, qtyOf, type Product, type Row } from "@/lib/data";
 import { can, useSession } from "@/lib/session";
-import { Confirm, Sheet } from "@/components/ui";
+import { Confirm, Sheet, Thumb } from "@/components/ui";
+import { compressImage, useArticleImage } from "@/lib/articles";
 import { MAX_COMPONENTS, bundleAvailable } from "@/domain/bundles";
 import { planAllows } from "@/domain/features";
 import { formatFcfa } from "@/domain/money";
@@ -42,9 +43,9 @@ export function BundlesPage() {
           const cs = compsOf(b.$id); const n = qtyOf(levels.data, b);
           return (
             <li key={b.$id}><button className={`card w-full text-left flex flex-col gap-1 ${b.archived ? "opacity-60" : ""}`} onClick={() => setEdit(b)}>
-              <div className="flex justify-between gap-2"><b className="truncate">{b.name}</b><span className="gold-text font-bold">{formatFcfa(b.price)}</span></div>
+              <div className="flex gap-3 items-center"><Thumb id={b.imageFileId} size={56} /><div className="min-w-0 flex-1 flex flex-col gap-1"><div className="flex justify-between gap-2"><b className="truncate">{b.name}</b><span className="gold-text font-bold">{formatFcfa(b.price)}</span></div>
               <div className="text-xs text-white/50 truncate">{cs.length ? cs.map((c) => `${c.qty}× ${name(c.componentId)}`).join(" + ") : "Aucun composant"}</div>
-              <div className="flex gap-2 text-xs"><span className={`rounded-full px-2 py-0.5 ${n <= 0 ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{formatQty(n)} disponible{n > 1 ? "s" : ""}</span>{b.archived && <span className="text-amber-300">Archivé</span>}{!cs.length && <span className="text-amber-300">Non vendable</span>}</div>
+              <div className="flex gap-2 text-xs"><span className={`rounded-full px-2 py-0.5 ${n <= 0 ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{formatQty(n)} disponible{n > 1 ? "s" : ""}</span>{b.archived && <span className="text-amber-300">Archivé</span>}{!cs.length && <span className="text-amber-300">Non vendable</span>}</div></div></div>
             </button></li>
           );
         })}
@@ -59,6 +60,9 @@ function BundleEditor({ initial, comps, products, levels, canManage, onClose, on
   const requestId = useRef(crypto.randomUUID()); const [bundleId, setBundleId] = useState(initial?.$id ?? "");
   const [f, setF] = useState({ name: initial?.name ?? "", price: initial ? String(initial.price) : "", sku: initial?.sku ?? "" });
   const [rows, setRows] = useState<Draft[]>(comps.length ? comps.map((c) => ({ productId: c.componentId, qty: String(c.qty) })) : [{ productId: "", qty: "1" }]);
+  const [photo, setPhoto] = useState<File | null>(null); const [removePhoto, setRemovePhoto] = useState(false); const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => { if (!photo) { setPreview(null); return; } const u = URL.createObjectURL(photo); setPreview(u); return () => URL.revokeObjectURL(u); }, [photo]);
+  const existing = useArticleImage(initial?.imageFileId, 400);
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [ask, setAsk] = useState<null | "archive" | "restore" | "delete">(null);
   const eligible = products.filter((p) => !p.archived && p.kind !== "bundle" && !trackingOf(p) && !p.hasVariants && (p.qtyScale ?? 0) === 0);
   const by = (id: string) => products.find((p) => p.$id === id);
@@ -76,6 +80,11 @@ function BundleEditor({ initial, comps, products, levels, canManage, onClose, on
       if (id) await api(s, "article.save", { id, data });
       else { id = (await api<{ id: string }>(s, "article.save", { requestId: requestId.current, data: { ...data, kind: "bundle" } })).id; setBundleId(id); }
       await api(s, "bundle.components", { bundleId: id, components: rows.map((r) => ({ productId: r.productId, qty: r.qty })) });
+      onSaved();
+      try { // la photo n'est confirmée qu'après réponse positive du serveur
+        if (photo) await api(s, "article.image", { id, data: await compressImage(photo) });
+        else if (removePhoto && initial?.imageFileId) await api(s, "article.image", { id, data: null });
+      } catch (x) { setErr(`Le bundle est enregistré, mais la photo a échoué : ${(x as Error).message}`); setPhoto(null); onSaved(); return; }
       onSaved(); onClose();
     } catch (x) { setErr((x as Error).message); onSaved(); } finally { setBusy(false); }
   }
@@ -86,6 +95,16 @@ function BundleEditor({ initial, comps, products, levels, canManage, onClose, on
   return (
     <Sheet title={initial ? initial.name : "Nouveau bundle"} onClose={onClose} back>
       <form onSubmit={save} className="flex flex-col gap-3">
+        {canManage && (
+          <div className="flex items-center gap-3">
+            {preview ? <img src={preview} alt="Aperçu" className="w-24 h-24 rounded-2xl object-cover" /> : removePhoto ? <Thumb size={96} /> : <Thumb id={initial?.imageFileId} size={96} />}
+            <div className="flex flex-col gap-2 flex-1">
+              <label className="btn-ghost flex items-center justify-center gap-2 cursor-pointer text-sm"><Camera size={18} />Prendre une photo<input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setRemovePhoto(false); }} /></label>
+              <label className="btn-ghost flex items-center justify-center gap-2 cursor-pointer text-sm"><ImageIcon size={18} />Galerie<input type="file" accept="image/*" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setRemovePhoto(false); }} /></label>
+              {(photo || (initial?.imageFileId && existing && !removePhoto)) && <button type="button" className="text-xs text-red-300 text-left" onClick={() => { setPhoto(null); setRemovePhoto(true); }}>Retirer la photo</button>}
+            </div>
+          </div>
+        )}
         <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Nom du bundle *</span><input className="input" required maxLength={160} disabled={!canManage} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Prix de vente (FCFA) *</span><input className="input" inputMode="numeric" required disabled={!canManage} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>

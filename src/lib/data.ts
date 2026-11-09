@@ -7,7 +7,7 @@ import { bundleAvailable } from "@/domain/bundles";
 import type { Session } from "./session";
 
 export type Row<T> = T & { $id: string; $createdAt: string };
-export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean; tracking?: string; kind?: string };
+export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean; tracking?: string; kind?: string; imageFileId?: string };
 export type Customer = { name: string; phone?: string; creditLimit?: number; creditBalance?: number; points?: number; annualSpend?: number; category?: string };
 export type Supplier = { name: string; phone?: string; email?: string; balance?: number };
 
