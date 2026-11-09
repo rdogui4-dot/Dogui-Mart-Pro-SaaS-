@@ -98,14 +98,15 @@ export function PosPage() {
     return { ...l, unitPrice: res.unitPrice, amount: res.amount, source: res.source };
   });
   const priced = pricedAt(new Date().toISOString());
-  const total = cartTotal(priced);
+  const total = cartTotal(priced); const cashGiven = Number(given.replace(/\s/g, "")) || 0;
 
   /** linkId : lien QR déjà confirmé. Le serveur revérifie prix, stock, plafond de crédit et lien. */
   async function submit(linkId?: string) {
     setMsg("");
     const clientId = crypto.randomUUID(); const soldAt = new Date().toISOString();
     const linesAt = pricedAt(soldAt); const tot = cartTotal(linesAt); // prix évalués à la date de la vente envoyée au serveur
-    const amount = pay === "cash" ? Number(given) || tot : tot;
+    if (pay === "cash" && !(Number(given.replace(/\s/g, "")) > 0)) return setMsg("Saisissez le montant reçu du client avant de valider");
+    const amount = pay === "cash" ? Number(given.replace(/\s/g, "")) : tot;
     const payments: (Payment & { linkId?: string })[] = [{ method: pay, amount, linkId }];
     const r = settle(tot, payments);
     if (!r.ok) return setMsg(r.error);
@@ -161,8 +162,11 @@ export function PosPage() {
               <button key={m} onClick={() => setPay(m)} className={`${pay === m ? "btn" : "btn-ghost"} !py-2 !px-1 text-[13px]`}>{{ cash: "Espèces", wave: "Wave", orange: "Orange", card: "Carte", credit: "Crédit" }[m]}</button>
             ))}
           </div>
-          {pay === "cash" && <input className="input" inputMode="numeric" placeholder="Montant reçu" value={given} onChange={(e) => setGiven(e.target.value)} />}
-          <button className="btn text-lg" onClick={checkout}>Encaisser {formatFcfa(total)}</button>
+          {pay === "cash" && <>
+            <input className="input" inputMode="numeric" required aria-required="true" aria-label="Montant reçu" placeholder="Montant reçu (obligatoire)" value={given} onChange={(e) => { setGiven(e.target.value); setMsg(""); }} />
+            {given.trim() !== "" && <p className={`text-sm ${cashGiven >= total ? "text-emerald-300" : "text-amber-300"}`} role="status">{cashGiven >= total ? `Monnaie à rendre : ${formatFcfa(cashGiven - total)}` : `Il manque ${formatFcfa(total - cashGiven)}`}</p>}
+          </>}
+          <button className="btn text-lg disabled:opacity-40" disabled={pay === "cash" && !(cashGiven >= total && cashGiven > 0)} onClick={checkout}>Encaisser {formatFcfa(total)}</button>
         </section>
       )}
       {msg && <p className="text-center text-amber-300">{msg}</p>}
