@@ -10,7 +10,7 @@ import { resolvePrice } from "../../../src/domain/pricing";
 import { loadRules } from "./pricing";
 import { allocateFefo, parseSerials, trackingOf, warrantyEnd } from "../../../src/domain/tracking";
 import { expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
-import { kindOf } from "../../../src/domain/bundles";
+import { isVirtualBundle } from "../../../src/domain/bundles";
 import { loadComponents } from "./bundles";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
@@ -73,7 +73,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   for (const [li, l] of input.lines.entries()) {
     const p = await store.get("products", l.productId);
     if (!p || p.tenantId !== ctx.tenantId || p.shopId !== ctx.shopId || p.archived) throw new HttpError(404, "Produit introuvable");
-    if (kindOf(p) === "bundle") { // bundle virtuel : prix propre, sort ses composants du stock (aucun stock propre)
+    if (isVirtualBundle(p)) { // bundle virtuel : prix propre, sort ses composants du stock (aucun stock propre)
       if (l.variantId) throw new HttpError(400, `${p.name} n'a pas de variantes`);
       if (l.unit && l.unit !== (p.unit || "piece")) throw new HttpError(400, `${p.name} : un bundle se vend à la pièce`);
       bundlesOk ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "bundles");

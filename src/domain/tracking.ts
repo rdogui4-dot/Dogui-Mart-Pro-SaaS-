@@ -54,12 +54,12 @@ export function normalizeDate(raw: unknown, label: string): string {
 }
 
 // ------------------------------------------------------------------ numéros de série
-export const SERIAL_STATUSES = [{ id: "available", label: "Disponible" }, { id: "sold", label: "Vendu" }, { id: "returned", label: "Retourné" }, { id: "warranty", label: "Sous garantie" }, { id: "defective", label: "Défectueux" }] as const;
+export const SERIAL_STATUSES = [{ id: "available", label: "Disponible" }, { id: "sold", label: "Vendu" }, { id: "returned", label: "Retourné" }, { id: "warranty", label: "Sous garantie" }, { id: "defective", label: "Défectueux" }, { id: "transferred", label: "Transféré" }] as const;
 export type SerialStatus = (typeof SERIAL_STATUSES)[number]["id"];
 export const serialStatusLabel = (s?: string): string => SERIAL_STATUSES.find((x) => x.id === s)?.label ?? "Disponible";
 /** Transitions autorisées par l'utilisateur. La vente (available → sold) n'est faite que par l'encaissement. */
 export const SERIAL_TRANSITIONS: Record<SerialStatus, SerialStatus[]> = {
-  available: ["defective"], sold: ["returned", "warranty"], warranty: ["sold", "returned"], returned: ["available", "defective"], defective: [],
+  available: ["defective"], sold: ["returned", "warranty"], warranty: ["sold", "returned"], returned: ["available", "defective"], defective: [], transferred: [],
 };
 /** Effet d'une transition sur le stock : +1 quand l'unité redevient vendable, −1 quand elle sort du stock vendable. */
 export const stockEffect = (from: SerialStatus, to: SerialStatus): -1 | 0 | 1 => (to === "available" && from !== "available" ? 1 : from === "available" && to !== "available" ? -1 : 0);

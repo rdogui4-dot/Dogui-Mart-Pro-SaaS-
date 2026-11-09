@@ -2,6 +2,7 @@ import { aggregateSales, mergeAggregates, parsePeriod, type SaleRow, type SalesA
 import { stockOf, type StockMove } from "../../../src/domain/stock";
 import { fromScaled, scaleOf } from "../../../src/domain/quantity";
 import { trackingOf } from "../../../src/domain/tracking";
+import { isVirtualBundle } from "../../../src/domain/bundles";
 import { HttpError, roleOf, type Ctx, type Store, needModule } from "./store";
 
 const parse = <T,>(s: unknown, fb: T): T => { try { return JSON.parse(String(s)) as T; } catch { return fb; } };
@@ -47,7 +48,7 @@ export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: stri
       const lotRows = (await store.scan("article_lots", where, { maxRows: 20_000 })).rows;
       const lotValue = (productId: string, variantId: string, scale: number, fallback: number) => lotRows.filter((l) => l.productId === productId && String(l.variantId ?? "") === variantId).reduce((a, l) => a + Math.max(0, fromScaled(stockOf(byLot.get(String(l.$id)) ?? []), scale)) * (Number(l.unitCost) > 0 ? Number(l.unitCost) : fallback), 0);
       stockValue = 0; stockouts = 0;
-      const productRows = products.rows.filter((x) => !x.archived);
+      const productRows = products.rows.filter((x) => !x.archived && !isVirtualBundle(x)); // un bundle virtuel n'a pas de stock propre
       for (const p of productRows.filter((x) => !x.hasVariants)) {
         const n = fromScaled(stockOf(byProduct.get(String(p.$id)) ?? []), scaleOf(p)); // décimal pour les articles au kilo / au litre
         stockValue += trackingOf(p) === "lot" ? lotValue(String(p.$id), "", scaleOf(p), Number(p.cost ?? 0)) : Math.max(0, n) * Number(p.cost ?? 0);

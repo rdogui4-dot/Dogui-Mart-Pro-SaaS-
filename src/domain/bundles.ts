@@ -2,6 +2,12 @@
 export const MAX_COMPONENTS = 20, MAX_COMPONENT_QTY = 9999;
 export type Kind = "simple" | "bundle";
 export const kindOf = (p: object | null | undefined): Kind => ((p as { kind?: unknown } | null)?.kind === "bundle" ? "bundle" : "simple");
+/** Un bundle est « virtuel » (pas de stock propre, composants sortis à la vente) ou un « kit » physique (assemblé à l'avance par ordre d'assemblage, stock propre). */
+export type BundleMode = "virtual" | "kit";
+export const bundleModeOf = (p: object | null | undefined): BundleMode => ((p as { bundleMode?: unknown } | null)?.bundleMode === "kit" ? "kit" : "virtual");
+export const isVirtualBundle = (p: object | null | undefined): boolean => kindOf(p) === "bundle" && bundleModeOf(p) === "virtual";
+export const isKit = (p: object | null | undefined): boolean => kindOf(p) === "bundle" && bundleModeOf(p) === "kit";
+/** Nombre maximal de kits assemblables avec le stock actuel des composants. */
 export type Component = { productId: string; qty: number };
 
 /** Valide la composition saisie : 1 à 20 composants distincts, quantités entières positives. Renvoie la liste nettoyée. */
@@ -28,3 +34,6 @@ export function bundleAvailable(components: Component[], stockOf: (productId: st
 }
 /** Quantités de composants à sortir pour `qty` bundles vendus. */
 export const componentNeeds = (components: Component[], qty: number): Component[] => components.map((c) => ({ productId: c.productId, qty: c.qty * qty }));
+
+/** Kits assemblables = même calcul que la disponibilité d'un bundle virtuel. */
+export const maxAssemblable = bundleAvailable;

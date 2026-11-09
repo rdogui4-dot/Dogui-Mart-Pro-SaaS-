@@ -4,7 +4,7 @@ import { bundleAvailable } from "../../../src/domain/bundles";
 import { aggregateProfit, type ProfitRow } from "../../../src/domain/costing";
 import { fromScaled, scaleOf } from "../../../src/domain/quantity";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
-import { kindOf } from "../../../src/domain/bundles";
+import { isVirtualBundle, kindOf } from "../../../src/domain/bundles";
 import { trackingOf } from "../../../src/domain/tracking";
 import { needFeature } from "./articles";
 import { HttpError, needModule, type Ctx, type Row, type Store } from "./store";
@@ -42,7 +42,8 @@ export async function articleDashboard(store: Store, ctx: Ctx, b: { days?: numbe
   if (!partial) {
     for (const p of live) {
       const name = String(p.name);
-      if (kindOf(p) === "bundle") { bundles++; stockItems.push({ productId: p.$id, label: name, qty: bundleAvailable(compsBy.get(p.$id) ?? [], (id) => stockOf(byProduct.get(id) ?? [])), minStock: Number(p.minStock ?? 0), bundle: true }); continue; }
+      if (kindOf(p) === "bundle") bundles++;
+      if (isVirtualBundle(p)) { stockItems.push({ productId: p.$id, label: name, qty: bundleAvailable(compsBy.get(p.$id) ?? [], (id) => stockOf(byProduct.get(id) ?? [])), minStock: Number(p.minStock ?? 0), bundle: true }); continue; }
       simple++;
       if (!p.hasVariants) {
         const n = qtyP(p);

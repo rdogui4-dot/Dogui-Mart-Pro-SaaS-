@@ -237,8 +237,59 @@ describe("combinaisons, rapports, droits, isolation", () => {
     expect((await ok(call("own", "report.consolidated", { from: d, to: d }))).totals.stockValue).toBe(10 * 200 + 10 * 400);
     await ok(sell([{ productId: lotP, qty: 4 }], 2000)); expect((await ok(call("own", "report.consolidated", { from: d, to: d }))).totals.stockValue).toBe(6 * 200 + 10 * 400); // le lot A (péremption proche) est sorti en premier
   });
-  it("transfert d'un article suivi : refusé clairement", async () => {
-    await ok(lot(lotP, "A", 10, 30)); await err(call("own", "stock.transfer", { transferId: id8("trf"), toShopId: B, lines: [{ productId: lotP, qty: 1 }] }), 409, "pas encore disponible"); expect(await stockFor(st, lotP)).toBe(10);
+  it("transfert d'un article suivi par lot : FEFO, lots recréés à l'identique en destination, rejouable", async () => {
+    await ok(lot(lotP, "A", 5, 30, { unitCost: 250 })); await ok(lot(lotP, "B", 10, 60)); const trf = { transferId: "trf-lot-00000001", toShopId: B, lines: [{ productId: lotP, qty: 8 }] };
+    const r = await ok(call("own", "stock.transfer", trf)); expect(r.duplicate).toBe(false);
+    expect(await stockOfLot(lotP, "A")).toBe(0); expect(await stockOfLot(lotP, "B")).toBe(7); expect(await stockFor(st, lotP)).toBe(7);
+    const dest = st.rows("products").find((p) => p.shopId === B && p.originId === lotP)!; expect(dest).toMatchObject({ tracking: "lot", name: "Yaourt" });
+    const dl = st.rows("article_lots").filter((l) => l.shopId === B); expect(dl.map((l) => [l.lotNo, l.productId]).sort()).toEqual([["A", dest.$id], ["B", dest.$id]]); expect(dl.find((l) => l.lotNo === "A")!.unitCost).toBe(250);
+    expect(new Date(String(dl.find((l) => l.lotNo === "A")!.expiresAt)).toISOString().slice(0, 10)).toBe(dayStr(30)); expect(await stockFor(st, dest.$id)).toBe(8);
+    expect(st.rows("stock_moves").filter((m) => m.kind === "transfer_in" && m.lotId)).toHaveLength(2); expect(st.rows("transfers")[0]).toMatchObject({ status: "done" });
+    expect((await ok(call("own", "stock.transfer", trf))).duplicate).toBe(true); expect(await stockFor(st, lotP)).toBe(7); expect(await stockFor(st, dest.$id)).toBe(8);
+    // retour d'un lot vers la boutique d'origine : le lot existant est réutilisé (même numéro, même péremption)
+    await ok(call("own", "stock.transfer", { transferId: "trf-lot-retour001", toShopId: A, lines: [{ productId: dest.$id, qty: 2 }] }, B)); expect(await stockOfLot(lotP, "A")).toBe(2); expect(st.rows("article_lots").filter((l) => l.shopId === A)).toHaveLength(2);
+  });
+  it("transfert par lot : lots périmés/bloqués exclus, stock insuffisant, conflit de péremption en destination — rien n'est écrit", async () => {
+    await ok(lot(lotP, "OLD", 5, -2)); await ok(lot(lotP, "OK", 3, 40)); const t = (q: number, id: string) => call("own", "stock.transfer", { transferId: id, toShopId: B, lines: [{ productId: lotP, qty: q }] });
+    await err(t(5, "trf-exc-00000001"), 409, "périmé"); expect(st.rows("transfers")).toHaveLength(0); expect(st.rows("products").filter((p) => p.shopId === B)).toHaveLength(0);
+    const okLot = st.rows("article_lots").find((l) => l.lotNo === "OK")!; await ok(call("own", "lot.update", { id: okLot.$id, status: "blocked" })); await err(t(1, "trf-exc-00000002"), 409, "bloqué");
+    await ok(call("own", "lot.update", { id: okLot.$id, status: "active" })); await ok(t(3, "trf-exc-00000003"));
+    // le lot « OK » existe maintenant en destination ; une nouvelle entrée du même numéro avec une autre date côté origine est refusée au retour
+    await ok(lot(lotP, "OK", 2, 40)); const dest = st.rows("products").find((p) => p.shopId === B && p.originId === lotP)!; await ok(call("own", "lot.receive", { productId: dest.$id, lotNo: "ZZ", qty: 1, expiresAt: dayStr(10) }, B));
+    await ok(lot(lotP, "ZZ", 4, 99)); const before = await stockFor(st, lotP); await err(t(4, "trf-exc-00000004"), 409, "autre date"); expect(await stockFor(st, lotP)).toBe(before);
+    expect(st.rows("transfers")).toHaveLength(1); // seul le transfert valide a laissé une fiche
+  });
+  it("transfert d'un article suivi par série : numéros choisis ou plus anciens, « transféré » à l'origine, disponibles en destination, retour possible", async () => {
+    await ok(serials(serP, "SN001 SN002 SN003 SN004", { warrantyMonths: 12, unitCost: 41000 }));
+    await ok(call("own", "stock.transfer", { transferId: "trf-ser-00000001", toShopId: B, lines: [{ productId: serP, qty: 2 }] }));
+    const row = (sn: string, shop: string) => st.rows("article_serials").find((r) => r.serial === sn && r.shopId === shop)!;
+    expect(row("SN001", A).status).toBe("transferred"); expect(row("SN002", A).status).toBe("transferred"); expect(row("SN003", A).status).toBe("available"); expect(row("SN001", B)).toMatchObject({ status: "available", warrantyMonths: 12, unitCost: 41000 });
+    const dest = st.rows("products").find((p) => p.shopId === B && p.originId === serP)!; expect(dest.tracking).toBe("serial"); expect(await stockFor(st, serP)).toBe(2); expect(await stockFor(st, dest.$id)).toBe(2);
+    await ok(call("own", "stock.transfer", { transferId: "trf-ser-00000002", toShopId: B, lines: [{ productId: serP, qty: 1, serials: "sn004" }] })); expect(row("SN004", B).status).toBe("available"); expect(row("SN003", A).status).toBe("available");
+    await err(call("own", "stock.transfer", { transferId: "trf-ser-00000003", toShopId: B, lines: [{ productId: serP, qty: 1, serials: "SN001" }] }), 409, "indisponible"); await err(call("own", "stock.transfer", { transferId: "trf-ser-00000004", toShopId: B, lines: [{ productId: serP, qty: 2, serials: "SN003" }] }), 400, "exactement 2");
+    await err(call("own", "stock.transfer", { transferId: "trf-ser-00000005", toShopId: B, lines: [{ productId: serP, qty: 1, serials: "SN999" }] }), 404, "inconnu"); await err(call("own", "stock.transfer", { transferId: "trf-ser-00000006", toShopId: B, lines: [{ productId: serP, qty: 2 }] }), 409, "Stock insuffisant");
+    // retour de SN001 vers l'origine : sa ligne est réactivée (nouveau cycle), vendable à nouveau
+    await ok(call("own", "stock.transfer", { transferId: "trf-ser-00000007", toShopId: A, lines: [{ productId: dest.$id, qty: 1, serials: "SN001" }] }, B)); expect(row("SN001", A)).toMatchObject({ status: "available", cycle: 1 }); expect(row("SN001", B).status).toBe("transferred");
+    await ok(sell([{ productId: serP, qty: 1, serials: "SN001" }], 50000)); expect(row("SN001", A).status).toBe("sold"); expect(await stockFor(st, serP)).toBe(1);
+  });
+  it("une série vendue pendant le transfert : conflit détecté, réservations annulées, plan retiré", async () => {
+    await ok(serials(serP, "SN001 SN002")); await st.create("stock_moves", `${serialRowId(serP, "SN002")}_0`, T, { tenantId: T, shopId: A, productId: serP, serial: "SN002", qty: 1, kind: "sale", refId: "V-AUTRE" });
+    await err(call("own", "stock.transfer", { transferId: "trf-ser-conflit01", toShopId: B, lines: [{ productId: serP, qty: 2, serials: "SN001 SN002" }] }), 409, "déjà vendu"); expect(st.rows("transfers")).toHaveLength(0);
+    expect(st.rows("stock_moves").filter((m) => m.serial === "SN001" && m.kind === "transfer_out")).toHaveLength(0); expect(st.rows("article_serials").find((r) => r.serial === "SN001")!.status).toBe("available");
+  });
+  it("reprise après coupure : plan « pending » complété sans doubler les mouvements ni les lots", async () => {
+    await ok(lot(lotP, "A", 5, 30)); await ok(serials(serP, "SN001 SN002"));
+    const body = { transferId: "trf-coupure-0001", toShopId: B, lines: [{ productId: lotP, qty: 3 }, { productId: serP, qty: 1 }] };
+    await st.create("transfers", "trf-coupure-0001", T, { tenantId: T, shopId: A, toShopId: B, number: "TR-20260101-TRFCOU", userId: "own", status: "pending", lines: JSON.stringify([{ productId: lotP, name: "Yaourt", qty: 3, lots: [{ lotId: lotRowId(lotP, "", "A"), lotNo: "A", expiresAt: new Date(dayStr(30)).toISOString(), unitCost: 300, supplierId: "", qty: 3 }] }, { productId: serP, name: "Téléphone", qty: 1, serials: ["SN001"] }]) });
+    await st.create("stock_moves", "trf-coupure-0001_o0_0", T, { tenantId: T, shopId: A, productId: lotP, lotId: lotRowId(lotP, "", "A"), qty: 3, kind: "transfer_out", refId: "TR-20260101-TRFCOU", userId: "own" }); // coupure après la 1re sortie
+    await ok(call("own", "stock.transfer", body)); const dL = st.rows("products").find((p) => p.shopId === B && p.originId === lotP)!, dS = st.rows("products").find((p) => p.shopId === B && p.originId === serP)!;
+    expect(await stockFor(st, lotP)).toBe(2); expect(await stockFor(st, dL.$id)).toBe(3); expect(await stockFor(st, serP)).toBe(1); expect(await stockFor(st, dS.$id)).toBe(1); expect(st.rows("article_lots").filter((l) => l.shopId === B)).toHaveLength(1);
+    expect(st.rows("transfers")[0]).toMatchObject({ status: "done" }); expect((await ok(call("own", "stock.transfer", body))).duplicate).toBe(true); expect(await stockFor(st, lotP)).toBe(2);
+  });
+  it("Pro seulement pour les articles suivis (402) ; les articles simples se transfèrent toujours", async () => {
+    await ok(lot(lotP, "A", 5, 30)); const plain = (await ok(call("own", "article.save", { data: { name: "Pain", price: 100, sku: "P", barcode: "P0" }, initialQty: 5 }))).id;
+    setPlan("business"); await err(call("own", "stock.transfer", { transferId: "trf-biz-00000001", toShopId: B, lines: [{ productId: lotP, qty: 1 }] }), 402, "Pro"); expect(await stockFor(st, lotP)).toBe(5);
+    await ok(call("own", "stock.transfer", { transferId: "trf-biz-00000002", toShopId: B, lines: [{ productId: plain, qty: 2 }] })); expect(await stockFor(st, plain)).toBe(3);
   });
   it("Business : plus de création de lots/séries/blocage/rebut (402) ; la vente FEFO et les séries continuent ; la réception d'articles suivis reste possible", async () => {
     await ok(lot(lotP, "A", 10, 30)); await ok(serials(serP, "SN001 SN002")); setPlan("business");

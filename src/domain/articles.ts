@@ -12,11 +12,11 @@ export const MAX_AMOUNT = 100_000_000; // 100 millions de FCFA : borne anti-sais
 
 export type ArticleInput = {
   name?: unknown; sku?: unknown; barcode?: unknown; category?: unknown; description?: unknown;
-  price?: unknown; cost?: unknown; unit?: unknown; minStock?: unknown; supplierId?: unknown; archived?: unknown; qtyScale?: unknown; tracking?: unknown; kind?: unknown;
+  price?: unknown; cost?: unknown; unit?: unknown; minStock?: unknown; supplierId?: unknown; archived?: unknown; qtyScale?: unknown; tracking?: unknown; kind?: unknown; bundleMode?: unknown;
 };
 export type Article = {
   name: string; sku: string; barcode: string; category: string; description: string;
-  price: number; cost: number; unit: UnitId; minStock: number; supplierId: string; archived: boolean; qtyScale: Scale; tracking: Tracking; kind: "simple" | "bundle";
+  price: number; cost: number; unit: UnitId; minStock: number; supplierId: string; archived: boolean; qtyScale: Scale; tracking: Tracking; kind: "simple" | "bundle"; bundleMode: "" | "virtual" | "kit";
 };
 /** Champs réservés à la formule Business (la fiche simple : nom, code, catégorie, prix, seuil, reste ouverte à toutes les formules). */
 /** Champs réservés à la formule Pro. */
@@ -53,11 +53,13 @@ export function normalizeArticle(raw: ArticleInput): Article {
   if (!isTracking(tracking)) throw new Error("Mode de suivi inconnu");
   const kind = raw.kind === undefined || raw.kind === null || raw.kind === "" ? "simple" : raw.kind;
   if (kind !== "simple" && kind !== "bundle") throw new Error("Type d'article inconnu");
+  const bundleMode = raw.bundleMode === undefined || raw.bundleMode === null ? "" : raw.bundleMode;
+  if (bundleMode !== "" && bundleMode !== "virtual" && bundleMode !== "kit") throw new Error("Mode de bundle inconnu");
   const minStock = raw.minStock === undefined || raw.minStock === "" ? 0 : Number(raw.minStock);
   if (!Number.isInteger(minStock) || minStock < 0 || minStock > 1_000_000) throw new Error("Seuil d'alerte invalide (entier positif)");
   return {
     name, sku: cleanText(raw.sku, 64, "Référence"), barcode, category: cleanText(raw.category, 80, "Catégorie"), description: cleanText(raw.description, 1000, "Description"),
-    price, cost, unit: unit as UnitId, minStock, qtyScale, tracking, kind, supplierId: cleanText(raw.supplierId, 64, "Fournisseur"), archived: raw.archived === true,
+    price, cost, unit: unit as UnitId, minStock, qtyScale, tracking, kind, bundleMode, supplierId: cleanText(raw.supplierId, 64, "Fournisseur"), archived: raw.archived === true,
   };
 }
 

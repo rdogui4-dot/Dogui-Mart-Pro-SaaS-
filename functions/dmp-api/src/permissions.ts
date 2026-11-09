@@ -47,6 +47,7 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   article_lots: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_serials: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_components: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
+  assembly_orders: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_alerts: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_price_rules: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_variants: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],

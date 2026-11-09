@@ -27,8 +27,8 @@ describe("création et composition", () => {
   it("un bundle n'a pas de stock propre, sa composition est enregistrée et son coût indicatif calculé", async () => {
     expect(st.rows("products").find((p) => p.$id === pack)).toMatchObject({ kind: "bundle", cost: 700 });
     expect(st.rows("article_components")).toHaveLength(2); expect(await stockFor(st, pack, 0)).toBe(0);
-    await err(call("own", "article.save", { data: { name: "B2", price: 1, kind: "bundle", sku: "B2", barcode: "B20" }, initialQty: 3 }), 400, "stock propre");
-    await err(call("own", "article.save", { data: { name: "B3", price: 1, kind: "bundle", tracking: "lot", sku: "B3", barcode: "B30" } }), 400, "stock propre");
+    await err(call("own", "article.save", { data: { name: "B2", price: 1, kind: "bundle", sku: "B2", barcode: "B20" }, initialQty: 3 }), 400, "ne se saisit pas");
+    await err(call("own", "article.save", { data: { name: "B3", price: 1, kind: "bundle", tracking: "lot", sku: "B3", barcode: "B30" } }), 400, "suivi par lot");
     await err(call("own", "article.save", { data: { name: "B4", price: 1, kind: "bidule" } }), 400, "Type");
     await err(call("own", "article.save", { id: pack, data: { kind: "simple" } }), 409, "ne peut pas changer");
   });
@@ -100,5 +100,59 @@ describe("garde-fous", () => {
     const autre = (await ok(call("own", "article.save", { data: { name: "Ailleurs", price: 1, cost: 1, sku: "AIL", barcode: "AIL0" } }, ))).id;
     const inB = (await ok(call("own", "article.save", { data: { name: "Chez B", price: 1, sku: "CB", barcode: "CB0" } }, B))).id; void autre;
     await err(comps(pack, [{ productId: inB, qty: 1 }]), 404);
+  });
+});
+
+describe("kit physique et ordre d'assemblage", () => {
+  let kit = "";
+  const asm = (qty: unknown, extra: object = {}) => call("own", "kit.assemble", { requestId: id8("asm"), bundleId: kit, qty, ...extra });
+  const orders = () => st.rows("assembly_orders");
+  beforeEach(async () => { kit = await mk("Kit petit-déj", 1500, 0, 0, { kind: "bundle", bundleMode: "kit" }); await ok(comps(kit, [{ productId: jus, qty: 2 }, { productId: pain, qty: 1 }])); });
+
+  it("création : mode kit mémorisé, pas de stock initial, mode non modifiable, mode réservé aux bundles", async () => {
+    expect(st.rows("products").find((p) => p.$id === kit)).toMatchObject({ kind: "bundle", bundleMode: "kit" }); expect(st.rows("products").find((p) => p.$id === pack)).toMatchObject({ bundleMode: "virtual" });
+    await err(call("own", "article.save", { data: { name: "K2", price: 1, kind: "bundle", bundleMode: "kit", sku: "K2", barcode: "K20" }, initialQty: 3 }), 400, "ne se saisit pas");
+    await err(call("own", "article.save", { id: kit, data: { bundleMode: "virtual" } }), 409, "ne peut pas changer"); await err(call("own", "article.save", { data: { name: "S", price: 1, bundleMode: "kit" } }), 400, "bundles");
+    await err(call("own", "article.save", { data: { name: "S", price: 1, kind: "bundle", bundleMode: "xyz" } }), 400, "Mode");
+  });
+  it("assemblage : composants sortis, kit entré, mouvements tracés, coût moyen pondéré, rejouable", async () => {
+    const body = { requestId: "asm-rejeu-0001", bundleId: kit, qty: 3 };
+    await ok(call("own", "kit.assemble", body)); expect(await stockFor(st, kit, 0)).toBe(3); expect(await stockFor(st, jus, 0)).toBe(14); expect(await stockFor(st, pain, 0)).toBe(7);
+    expect(orders()).toHaveLength(1); expect(orders()[0]).toMatchObject({ type: "assemble", qty: 3, unitCost: 700, status: "done" }); expect(st.rows("products").find((p) => p.$id === kit)!.cost).toBe(700);
+    expect(st.rows("stock_moves").filter((m) => String(m.kind).startsWith("assembly"))).toHaveLength(3);
+    const again = await ok(call("own", "kit.assemble", body)); expect(again.duplicate).toBe(true); expect(await stockFor(st, kit, 0)).toBe(3); expect(await stockFor(st, jus, 0)).toBe(14);
+    await ok(call("own", "article.save", { id: jus, data: { cost: 400 } })); await ok(asm(1)); // coût du lot : 2×400+100 = 900 ; moyenne (3×700 + 1×900)/4 = 750
+    expect(st.rows("products").find((p) => p.$id === kit)!.cost).toBe(750); expect(await stockFor(st, kit, 0)).toBe(4);
+  });
+  it("refus : composants insuffisants (nommé), quantité invalide, kit sans composants, bundle virtuel, kit archivé", async () => {
+    await err(asm(11), 409, "Stock insuffisant pour assembler"); expect(orders()).toHaveLength(0); expect(await stockFor(st, pain, 0)).toBe(10);
+    for (const bad of [0, -1, 1.5, "x", 10000]) await err(asm(bad), 400, "Quantité");
+    await err(call("own", "kit.assemble", { requestId: id8("asm"), bundleId: pack, qty: 1 }), 409, "kit physique"); await err(call("own", "kit.assemble", { requestId: "court", bundleId: kit, qty: 1 }), 400, "requestId");
+    const vide = await mk("Kit vide", 1, 0, 0, { kind: "bundle", bundleMode: "kit" }); await err(call("own", "kit.assemble", { requestId: id8("asm"), bundleId: vide, qty: 1 }), 409, "sans composants");
+    await ok(call("own", "article.archive", { id: kit, archived: true })); await err(asm(1), 409, "archivé");
+  });
+  it("vente d'un kit : stock propre (pas de sortie des composants), refus s'il n'est pas assemblé", async () => {
+    await err(sell([{ productId: kit, qty: 1 }], 1500), 409, "Stock insuffisant"); await ok(asm(2));
+    await ok(sell([{ productId: kit, qty: 2 }], 3000)); expect(await stockFor(st, kit, 0)).toBe(0); expect(await stockFor(st, jus, 0)).toBe(16); expect(lastLine()).toMatchObject({ productId: kit, qty: 2, unitCost: 700 }); expect(lastLine().components).toBeUndefined();
+    await err(sell([{ productId: kit, qty: 1 }], 1500), 409, "Stock insuffisant");
+  });
+  it("démontage : le kit sort, les composants reviennent ; refus si stock du kit insuffisant", async () => {
+    await ok(asm(3)); await err(call("own", "kit.assemble", { requestId: id8("dsm"), bundleId: kit, qty: 4, type: "disassemble" }), 409, "insuffisant");
+    await ok(call("own", "kit.assemble", { requestId: id8("dsm"), bundleId: kit, qty: 2, type: "disassemble" })); expect(await stockFor(st, kit, 0)).toBe(1); expect(await stockFor(st, jus, 0)).toBe(18); expect(await stockFor(st, pain, 0)).toBe(9);
+    expect(orders().map((o) => o.type).sort()).toEqual(["assemble", "disassemble"]); expect(String(orders().find((o) => o.type === "disassemble")!.number)).toMatch(/^DS-/);
+  });
+  it("reprise après coupure : un ordre « pending » est complété sans doubler les mouvements", async () => {
+    const body = { requestId: "asm-coupure-01", bundleId: kit, qty: 2 }; const id = "kasmcoupure01";
+    await st.create("assembly_orders", id, T, { tenantId: T, shopId: A, number: "AS-20260101-ASMCOU", bundleId: kit, type: "assemble", qty: 2, unitCost: 700, lines: JSON.stringify([{ productId: jus, name: "Jus", qty: 2, unitCost: 300 }, { productId: pain, name: "Pain", qty: 1, unitCost: 100 }]), status: "pending", userId: "own" });
+    await st.create("stock_moves", `${id}_c0`, T, { tenantId: T, shopId: A, productId: jus, kind: "assembly_out", qty: 4, refId: "AS-20260101-ASMCOU", userId: "own" }); // coupure après le 1er mouvement
+    await ok(call("own", "kit.assemble", body)); expect(await stockFor(st, jus, 0)).toBe(16); expect(await stockFor(st, pain, 0)).toBe(8); expect(await stockFor(st, kit, 0)).toBe(2); expect(orders()[0]!.status).toBe("done");
+    await ok(call("own", "kit.assemble", body)); expect(await stockFor(st, kit, 0)).toBe(2);
+  });
+  it("garde-fous : le kit ne se commande ni ne se transfère ; l'inventaire reste possible ; suppression refusée une fois assemblé ; Business refusé", async () => {
+    const sup = (await ok(call("own", "entity.save", { table: "suppliers", data: { name: "F" } }))).id;
+    await err(call("own", "po.create", { clientId: id8("cmd"), supplierId: sup, lines: [{ productId: kit, qty: 1, unitCost: 1 }] }), 409, "bundle"); await err(call("own", "stock.transfer", { transferId: id8("trf"), toShopId: B, lines: [{ productId: kit, qty: 1 }] }), 409, "bundle");
+    await ok(asm(2)); await ok(call("own", "stock.adjust", { productId: kit, counted: 1 })); expect(await stockFor(st, kit, 0)).toBe(1);
+    await err(call("own", "article.delete", { id: kit }), 409, "historique"); expect(st.rows("article_components").filter((c) => c.bundleId === kit)).toHaveLength(2);
+    setPlan("business"); await err(asm(1), 402);
   });
 });

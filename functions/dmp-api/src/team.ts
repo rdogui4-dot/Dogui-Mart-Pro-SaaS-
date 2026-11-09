@@ -1,10 +1,12 @@
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { lineKey } from "../../../src/domain/variants";
-import { trackingOf } from "../../../src/domain/tracking";
+import { allocateFefo, parseSerials, trackingOf } from "../../../src/domain/tracking";
+import { planAllows } from "../../../src/domain/features";
+import { checkLot, ensureLot, expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
 import { refuseBundle } from "./bundles";
 import { stockFor, stockScaledVariant } from "./checkout";
 import { HttpError, need, type Ctx, type Store, needModule } from "./store";
-import { assertQuota, getSub, grantLifetime } from "./subscriptions";
+import { assertQuota, entitlementOf, getSub, grantLifetime } from "./subscriptions";
 import { labelsFor } from "./permissions";
 import { ROLE_PRESETS, STAFF_ROLES, isStaffRole, modulesFor, parseModules, type Module, type StaffRole } from "../../../src/domain/access";
 
@@ -117,54 +119,146 @@ export async function resetStaffPassword(store: Store, ctx: Ctx, b: { userId: st
 export const allowedIn = (ctx: Ctx, shopId: string): boolean => ctx.shopIds === "all" || !!ctx.shopIds?.includes(shopId);
 
 /** Transfert immédiat entre deux boutiques du même commerce. Les produits sont propres à chaque boutique : le produit de destination
- *  est retrouvé par code-barres ou par origine, sinon créé. Identifiants déterministes : une reprise complète les écritures manquantes. */
-export async function transferStock(store: Store, ctx: Ctx, b: { transferId: string; toShopId: string; lines: { productId: string; variantId?: string; qty: number }[] }) {
+ *  est retrouvé par code-barres ou par origine, sinon créé. Identifiants déterministes : une reprise complète les écritures manquantes.
+ *  Articles suivis : lots prélevés en FEFO (recréés à l'identique dans la boutique de destination, avec leur péremption et leur coût) ; numéros de série
+ *  transférés un à un (« transféré » à l'origine, « disponible » à destination), au choix de l'utilisateur ou automatiquement (les plus anciens).
+ *  Un transfert avec articles suivis enregistre d'abord son plan (fiche « pending », lots et numéros figés) : une coupure se reprend sans rien doubler. */
+type TLine = { productId: string; variantId?: string; qty: number | string; serials?: unknown; lots?: { lotId: string; lotNo: string; expiresAt?: string; manufacturedAt?: string; unitCost: number; supplierId: string; qty: number }[]; name?: string };
+export async function transferStock(store: Store, ctx: Ctx, b: { transferId: string; toShopId: string; lines: TLine[] }) {
   needModule(ctx, "stock");
   const tid = safeId(b.transferId); if (tid.length < 8) throw new HttpError(400, "transferId invalide");
   if (!allowedIn(ctx, b.toShopId)) throw new HttpError(403, "Vous n'avez pas accès à la boutique de destination");
   if (b.toShopId === ctx.shopId) throw new HttpError(400, "La destination doit être une autre boutique");
   const dest = await store.get("shops", b.toShopId); if (!dest || dest.tenantId !== ctx.tenantId) throw new HttpError(404, "Boutique de destination introuvable");
   const existing = await store.get("transfers", tid);
-  if (existing) { if (existing.tenantId !== ctx.tenantId) throw new HttpError(409, "Identifiant déjà utilisé"); return { number: existing.number, duplicate: true }; }
-  if (!b.lines?.length) throw new HttpError(400, "Transfert vide");
+  if (existing && existing.tenantId !== ctx.tenantId) throw new HttpError(409, "Identifiant déjà utilisé");
+  if (existing && existing.status !== "pending") return { number: existing.number, duplicate: true };
+  const pending = existing; // reprise d'un transfert d'articles suivis interrompu : le plan enregistré fait foi
+  if (pending && (pending.shopId !== ctx.shopId || pending.toShopId !== b.toShopId)) throw new HttpError(409, "Identifiant déjà utilisé");
+  const inputLines: TLine[] = pending ? parse<TLine[]>(pending.lines, []) : b.lines;
+  if (!inputLines?.length) throw new HttpError(400, "Transfert vide");
   const base = tid.slice(0, 26);
-  const resumed = !!(await store.get("stock_moves", `${base}_o0`));
-  const seen = new Set<string>(); const items: { src: any; variant: any; qty: number }[] = [];
-  for (const l of b.lines) {
+  const resumed = !!pending || !!(await store.get("stock_moves", `${base}_o0`));
+  const number = pending ? String(pending.number) : `TR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${tid.slice(0, 6).toUpperCase()}`;
+  const today = new Date().toISOString().slice(0, 10); let policy: Awaited<ReturnType<typeof expiredPolicyOf>> | undefined; let trackedOk: boolean | undefined;
+  const seen = new Set<string>(); const items: { src: any; variant: any; qty: number; lots?: TLine["lots"]; serials?: string[] }[] = [];
+  for (const l of inputLines) {
     if (seen.has(lineKey(l))) throw new HttpError(400, "Produit en double"); seen.add(lineKey(l));
     const src = await store.get("products", l.productId);
     if (!src || src.tenantId !== ctx.tenantId || src.shopId !== ctx.shopId) throw new HttpError(404, "Produit introuvable");
     let qty: number; try { qty = qtyFor(l.qty, scaleOf(src)); } catch (e) { throw new HttpError(400, `${src.name} : ${(e as Error).message}`); }
-    refuseBundle(src, "il ne se transfère pas (son stock se déduit de ses composants).");
-    if (trackingOf(src)) throw new HttpError(409, `${src.name} : le transfert des articles suivis par lot ou par numéro de série n'est pas encore disponible`);
+    refuseBundle(src, "il ne se transfère pas (virtuel : son stock se déduit des composants ; kit : assemblez-le dans la boutique de destination).");
+    const mode = trackingOf(src);
+    if (mode) { trackedOk ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, mode === "lot" ? "lots" : "serials"); if (!trackedOk) throw new HttpError(402, "Le transfert d'articles suivis par lot ou numéro de série est réservé à la formule Pro."); }
     let variant: any = null;
     if (src.hasVariants) { variant = l.variantId ? await store.get("article_variants", l.variantId) : null; if (!variant || variant.tenantId !== ctx.tenantId || variant.shopId !== ctx.shopId || variant.productId !== src.$id) throw new HttpError(400, `Choisissez une variante pour ${src.name}`); }
     else if (l.variantId) throw new HttpError(400, `${src.name} n'a pas de variantes`);
-    if (!resumed) { const have = variant ? fromScaled(await stockScaledVariant(store, variant.$id), scaleOf(src)) : await stockFor(store, src.$id, scaleOf(src)); if (have < qty) throw new HttpError(409, `Stock insuffisant : ${src.name}${variant ? ` — ${variant.label}` : ""} (${have})`); }
-    items.push({ src, variant, qty });
+    const item: (typeof items)[number] = { src, variant, qty };
+    if (mode === "lot") {
+      if (pending) item.lots = l.lots ?? [];
+      else {
+        policy ??= await expiredPolicyOf(store, ctx);
+        const stocks = (await lotsWithStock(store, ctx, src.$id, variant?.$id ?? "")).map((x) => ({ id: x.id, qty: x.qty, expiresAt: x.row.expiresAt ? String(x.row.expiresAt) : null, receivedAt: x.row.receivedAt ? String(x.row.receivedAt) : "", status: String(x.row.status ?? "active"), row: x.row }));
+        const need = scaledInt(qty, scaleOf(src)), fefo = allocateFefo(stocks, need, today, policy);
+        if (fefo.shortage > 0) throw new HttpError(409, `Stock insuffisant : ${src.name}${variant ? ` — ${variant.label}` : ""} (${fromScaled(need - fefo.shortage, scaleOf(src))} transférable${fefo.expiredQty ? `, ${fromScaled(fefo.expiredQty, scaleOf(src))} périmé(s)` : ""}${fefo.blockedQty ? `, ${fromScaled(fefo.blockedQty, scaleOf(src))} bloqué(s)` : ""})`);
+        item.lots = fefo.allocations.map((a) => { const r = stocks.find((x) => x.id === a.lotId)!.row; return { lotId: a.lotId, lotNo: String(r.lotNo), ...(r.expiresAt ? { expiresAt: new Date(String(r.expiresAt)).toISOString() } : {}), ...(r.manufacturedAt ? { manufacturedAt: new Date(String(r.manufacturedAt)).toISOString() } : {}), unitCost: Number(r.unitCost ?? 0), supplierId: String(r.supplierId ?? ""), qty: fromScaled(a.qty, scaleOf(src)) }; });
+      }
+    } else if (mode === "serial") {
+      if (!Number.isInteger(qty) || qty < 1) throw new HttpError(400, `${src.name} : quantité entière requise`);
+      if (pending) item.serials = (l.serials as string[]) ?? [];
+      else {
+        let given: string[] | null = null;
+        if (l.serials !== undefined && l.serials !== null && !(Array.isArray(l.serials) && !l.serials.length) && String(l.serials).trim() !== "") { try { given = parseSerials(l.serials); } catch (e) { throw new HttpError(400, `${src.name} : ${(e as Error).message}`); } }
+        const vid = variant?.$id ?? "";
+        if (given) {
+          if (given.length !== qty) throw new HttpError(400, `${src.name} : indiquez exactement ${qty} numéro${qty > 1 ? "s" : ""} de série`);
+          for (const sn of given) {
+            const r = await store.get("article_serials", serialRowId(src.$id, sn));
+            if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId || String(r.variantId ?? "") !== vid) throw new HttpError(404, `Numéro de série inconnu : ${sn}`);
+            if (r.status !== "available") throw new HttpError(409, `Numéro de série indisponible : ${sn} (${r.status})`);
+          }
+          item.serials = given;
+        } else {
+          const pool = (await store.scan("article_serials", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, status: "available" }, { maxRows: 5000 })).rows.filter((r) => String(r.variantId ?? "") === vid).sort((a, c) => String(a.receivedAt ?? "").localeCompare(String(c.receivedAt ?? "")) || String(a.serial).localeCompare(String(c.serial)));
+          if (pool.length < qty) throw new HttpError(409, `Stock insuffisant : ${src.name}${variant ? ` — ${variant.label}` : ""} (${pool.length} unité${pool.length > 1 ? "s" : ""} disponible${pool.length > 1 ? "s" : ""})`);
+          item.serials = pool.slice(0, qty).map((r) => String(r.serial));
+        }
+      }
+    } else if (!resumed) { const have = variant ? fromScaled(await stockScaledVariant(store, variant.$id), scaleOf(src)) : await stockFor(store, src.$id, scaleOf(src)); if (have < qty) throw new HttpError(409, `Stock insuffisant : ${src.name}${variant ? ` — ${variant.label}` : ""} (${have})`); }
+    items.push(item);
   }
-  const number = `TR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${tid.slice(0, 6).toUpperCase()}`;
-  for (const [i, { src, variant, qty }] of items.entries()) {
+  const tracked = items.some((x) => x.lots || x.serials);
+  const tctx = { ...ctx, shopId: b.toShopId };
+  // Boutique de destination : article, variante, lots et numéros déjà connus ? (résolu une fois, réutilisé par les contrôles et l'écriture)
+  const resolve = async (src: any, variant: any, i: number) => {
     const origin = String(src.originId || src.$id);
     let target = (await store.list("products", { tenantId: ctx.tenantId, shopId: b.toShopId, originId: origin }, 1))[0];
     if (!target && src.barcode) target = (await store.list("products", { tenantId: ctx.tenantId, shopId: b.toShopId, barcode: String(src.barcode) }, 1))[0];
     const targetId = target?.$id ?? `${base}_p${i}`;
     if (target && scaleOf(target) !== scaleOf(src)) throw new HttpError(409, `${src.name} : la précision des quantités diffère entre les deux boutiques`);
-    if (!target) await store.create("products", targetId, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, name: src.name, sku: src.sku ?? "", barcode: src.barcode ?? "", category: src.category ?? "", price: src.price, cost: src.cost ?? 0, minStock: src.minStock ?? 0, archived: false, originId: origin, description: src.description ?? "", unit: src.unit ?? "piece", qtyScale: scaleOf(src), ...(src.hasVariants ? { hasVariants: true } : {}) });
+    if (target && trackingOf(target) !== trackingOf(src)) throw new HttpError(409, `${src.name} : le mode de suivi (lot / numéro de série) diffère dans la boutique de destination`);
+    let tv: any;
+    if (variant && target) tv = (await store.list("article_variants", { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, attrKey: String(variant.attrKey) }, 1))[0];
+    return { origin, target, targetId, tv };
+  };
+  if (tracked && !pending) { // contrôles AVANT toute écriture : lots et numéros en conflit dans la boutique de destination
+    for (const [i, it] of items.entries()) {
+      if (!it.lots && !it.serials) continue;
+      const r = await resolve(it.src, it.variant, i); if (!r.target) continue;
+      for (const a of it.lots ?? []) await checkLot(store, tctx, r.target, r.tv?.$id ?? "", { lotNo: a.lotNo, qty: a.qty, ...(a.expiresAt ? { expiresAt: a.expiresAt } : {}) });
+      for (const sn of it.serials ?? []) { const cur = await store.get("article_serials", serialRowId(r.targetId, sn)); if (cur && cur.status !== "transferred") throw new HttpError(409, `Numéro de série déjà enregistré dans la boutique de destination : ${sn}`); }
+    }
+  }
+  const planLines = () => items.map((x) => ({ productId: x.src.$id, ...(x.variant ? { variantId: x.variant.$id } : {}), name: x.variant ? `${x.src.name} — ${x.variant.label}` : x.src.name, qty: x.qty, ...(x.lots ? { lots: x.lots } : {}), ...(x.serials ? { serials: x.serials } : {}) }));
+  if (tracked && !pending) await store.create("transfers", tid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, toShopId: b.toShopId, number, lines: JSON.stringify(planLines()), userId: ctx.userId, status: "pending" });
+  // Numéros de série : chaque sortie « réserve » son numéro par un mouvement à identifiant unique (numéro + cycle) ; conflit → tout est annulé et le plan retiré.
+  if (tracked) {
+    const claimed: string[] = [];
+    for (const it of items) for (const sn of it.serials ?? []) {
+      const rid = serialRowId(it.src.$id, sn); const cur = await store.get("article_serials", rid); const cid = `${rid}_${Number(cur?.cycle ?? 0)}`.slice(0, 36);
+      const ok = await store.create("stock_moves", cid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: it.src.$id, ...(it.variant ? { variantId: it.variant.$id } : {}), serial: sn, qty: 1, kind: "transfer_out", refId: number, userId: ctx.userId });
+      if (ok) claimed.push(cid);
+      else if ((await store.get("stock_moves", cid))?.refId !== number) { for (const c of claimed) await store.remove("stock_moves", c); if (!pending) await store.remove("transfers", tid); throw new HttpError(409, `Numéro de série déjà vendu ou transféré : ${sn}`); }
+    }
+  }
+  for (const [i, it] of items.entries()) {
+    const { src, variant, qty } = it;
+    const { origin, target, targetId, tv } = await resolve(src, variant, i);
+    if (!target) await store.create("products", targetId, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, name: src.name, sku: src.sku ?? "", barcode: src.barcode ?? "", category: src.category ?? "", price: src.price, cost: src.cost ?? 0, minStock: src.minStock ?? 0, archived: false, originId: origin, description: src.description ?? "", unit: src.unit ?? "piece", qtyScale: scaleOf(src), ...(trackingOf(src) ? { tracking: trackingOf(src) } : {}), ...(src.hasVariants ? { hasVariants: true } : {}) });
     // Variante : retrouvée par sa combinaison d'attributs dans la boutique cible, sinon copiée (les stocks restent séparés par boutique).
     let targetVariantId = "";
     if (variant) {
       if (target && !target.hasVariants) throw new HttpError(409, `${src.name} : l'article de la boutique cible n'a pas de variantes`);
-      const tv = (await store.list("article_variants", { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, attrKey: String(variant.attrKey) }, 1))[0];
       targetVariantId = tv?.$id ?? `${base}_v${i}`;
-      if (!tv) {
+      if (!tv && !(await store.get("article_variants", targetVariantId))) {
         const free = async (f: "sku" | "barcode") => (variant[f] && !(await store.list("products", { tenantId: ctx.tenantId, shopId: b.toShopId, [f]: variant[f] }, 1)).length && !(await store.list("article_variants", { tenantId: ctx.tenantId, shopId: b.toShopId, [f]: variant[f] }, 1)).length ? variant[f] : "");
         await store.create("article_variants", targetVariantId, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, attributes: variant.attributes, attrKey: variant.attrKey, label: variant.label, sku: await free("sku"), barcode: await free("barcode"), price: variant.price, cost: variant.cost ?? 0, minStock: variant.minStock ?? 0, imageFileId: "", archived: false });
       }
     }
+    const vfield = (id: string) => (id ? { variantId: id } : {});
+    if (it.lots) {
+      for (const [k, a] of it.lots.entries()) {
+        const lot = await ensureLot(store, tctx, { $id: targetId, cost: src.cost ?? 0 } as any, targetVariantId, { lotNo: a.lotNo, qty: a.qty, ...(a.expiresAt ? { expiresAt: a.expiresAt } : {}), ...(a.manufacturedAt ? { manufacturedAt: a.manufacturedAt } : {}) }, { supplierId: a.supplierId, unitCost: a.unitCost, receivedAt: new Date().toISOString() });
+        await store.create("stock_moves", `${base}_o${i}_${k}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, ...vfield(variant?.$id ?? ""), lotId: a.lotId, qty: scaledInt(a.qty, scaleOf(src)), kind: "transfer_out", refId: number, userId: ctx.userId });
+        await store.create("stock_moves", `${base}_i${i}_${k}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...vfield(targetVariantId), lotId: lot.$id, qty: scaledInt(a.qty, scaleOf(src)), kind: "transfer_in", refId: number, userId: ctx.userId });
+      }
+      continue;
+    }
+    if (it.serials) {
+      for (const [k, sn] of it.serials.entries()) {
+        const srid = serialRowId(src.$id, sn); const srow = await store.get("article_serials", srid); const trid = serialRowId(targetId, sn); const cur = await store.get("article_serials", trid);
+        const info = { unitCost: Number(srow?.unitCost ?? 0), warrantyMonths: Number(srow?.warrantyMonths ?? 0), supplierId: String(srow?.supplierId ?? "") };
+        if (!cur) await store.create("article_serials", trid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...vfield(targetVariantId), serial: sn, status: "available", receivedAt: new Date().toISOString(), ...info, saleId: "", saleRef: "", cycle: 0, entryRef: number });
+        else if (cur.entryRef !== number) await store.update("article_serials", trid, { status: "available", saleId: "", saleRef: "", soldAt: null, warrantyUntil: null, cycle: Number(cur.cycle ?? 0) + 1, entryRef: number, ...info }); // numéro revenu dans une boutique où il avait déjà été
+        await store.create("stock_moves", `${base}_i${i}_${k}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...vfield(targetVariantId), serial: sn, qty: 1, kind: "transfer_in", refId: number, userId: ctx.userId });
+        if (srow && srow.status !== "transferred") await store.update("article_serials", srid, { status: "transferred" });
+      }
+      continue;
+    }
     await store.create("stock_moves", `${base}_o${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, ...(variant ? { variantId: variant.$id } : {}), qty: scaledInt(qty, scaleOf(src)), kind: "transfer_out", refId: number, userId: ctx.userId });
     await store.create("stock_moves", `${base}_i${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...(targetVariantId ? { variantId: targetVariantId } : {}), qty: scaledInt(qty, scaleOf(src)), kind: "transfer_in", refId: number, userId: ctx.userId });
   }
-  await store.create("transfers", tid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, toShopId: b.toShopId, number, lines: JSON.stringify(items.map((x) => ({ productId: x.src.$id, ...(x.variant ? { variantId: x.variant.$id } : {}), name: x.variant ? `${x.src.name} — ${x.variant.label}` : x.src.name, qty: x.qty }))), userId: ctx.userId });
+  if (tracked) await store.update("transfers", tid, { status: "done" });
+  else await store.create("transfers", tid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, toShopId: b.toShopId, number, lines: JSON.stringify(planLines()), userId: ctx.userId });
   return { number, duplicate: false };
 }

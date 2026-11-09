@@ -12,7 +12,7 @@ const base = [s("tenantId", 64, true), s("shopId", 64, true)];
 
 export const TABLES = {
   shops: { cols: [s("tenantId", 64, true), s("costMethod", 16), s("expiredPolicy", 8), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
-  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64), t("description"), s("unit", 16), s("supplierId", 64), s("imageFileId", 64), i("qtyScale"), b("hasVariants"), s("tracking", 8), s("kind", 8)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]], ["name_ft", ["name"], "fulltext"], ["sku", ["sku"]], ["category", ["tenantId", "shopId", "category"]]] },
+  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64), t("description"), s("unit", 16), s("supplierId", 64), s("imageFileId", 64), i("qtyScale"), b("hasVariants"), s("tracking", 8), s("kind", 8), s("bundleMode", 8)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]], ["name_ft", ["name"], "fulltext"], ["sku", ["sku"]], ["category", ["tenantId", "shopId", "category"]]] },
   // Historique des modifications de prix d'un article (les ventes gardent leur propre prix figé).
   // Conditionnements d'un article (1 unité = `factor` unités de base). Une ligne par (article, unité) ; retirée = active:false.
   article_units: { cols: [...base, s("productId", 64, true), s("unit", 16, true), f("factor", true), b("active")], idx: [["product", ["productId"]]] },
@@ -29,6 +29,8 @@ export const TABLES = {
   article_components: { cols: [...base, s("bundleId", 64, true), s("componentId", 64, true), i("qty", true)], idx: [["bundle", ["bundleId"]], ["component", ["componentId"]], ["shop", ["tenantId", "shopId"]]] },
   // Alertes du jour : une ligne par (type, objet, jour) à identifiant déterministe ; `status` open → read (accusé de lecture tracé).
   article_alerts: { cols: [...base, s("day", 10, true), s("type", 24, true), s("productId", 64), s("refId", 64, true), s("severity", 10), s("label", 255), s("detail", 500), s("status", 10), s("readBy", 64), d("readAt")], idx: [["shop_day", ["tenantId", "shopId", "day"]]] },
+  // Ordres d'assemblage / démontage d'un kit physique : composants sortis (ou rendus) et kit entré (ou sorti) par mouvements tracés.
+  assembly_orders: { cols: [...base, s("number", 32, true), s("bundleId", 64, true), s("type", 12, true), i("qty", true), i("unitCost"), t("lines"), s("status", 10), s("userId", 64)], idx: [["bundle", ["bundleId"]], ["shop", ["tenantId", "shopId"]]] },
   article_lots: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("lotNo", 40, true), d("manufacturedAt"), d("expiresAt"), d("receivedAt"), s("supplierId", 64), i("unitCost"), s("status", 16)], idx: [["product", ["productId"]], ["shop", ["tenantId", "shopId"]]] },
   // Numéros de série : une ligne par unité ; `cycle` compte les retours remis en stock (verrou de vente atomique par identifiant de mouvement).
   article_serials: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("serial", 64, true), s("status", 16, true), d("receivedAt"), s("supplierId", 64), i("unitCost"), i("warrantyMonths"), s("saleId", 64), s("saleRef", 64), d("soldAt"), d("warrantyUntil"), i("cycle"), s("entryRef", 64)], idx: [["product", ["productId"]], ["serial", ["serial"]], ["shop", ["tenantId", "shopId"]]] },
@@ -46,7 +48,7 @@ export const TABLES = {
   payment_links: { cols: [...base, s("provider", 16, true), i("amount", true), s("reference", 40, true), t("url", true), s("status", 16, true), s("saleId", 64), s("txRef", 64), d("expiresAt"), s("createdBy", 64), s("confirmedBy", 64)], idx: [["tenant_tx", ["tenantId", "txRef"]], ["shop", ["tenantId", "shopId"]]] },
   // Fiche employé (le rôle fait foi dans l'appartenance à la Team ; ici : boutiques affectées et statut).
   staff: { cols: [s("tenantId", 64, true), s("userId", 64, true), s("name", 100, true), s("username", 32), s("email", 160), s("role", 16, true), t("shopIds"), t("access"), b("active")], idx: [["tenant", ["tenantId"]]] },
-  transfers: { cols: [...base, s("toShopId", 64, true), s("number", 32), t("lines"), s("userId", 64)], idx: [["shop", ["tenantId", "shopId"]], ["to", ["toShopId"]]] },
+  transfers: { cols: [...base, s("toShopId", 64, true), s("number", 32), t("lines"), s("userId", 64), s("status", 10)], idx: [["shop", ["tenantId", "shopId"]], ["to", ["toShopId"]]] },
   // Abonnement du commerce : identifiant de ligne = tenantId. Les limites viennent du catalogue de formules (modifiable par la plateforme).
   subscriptions: { cols: [s("tenantId", 64, true), s("plan", 16, true), s("period", 16), s("status", 16), d("startedAt"), d("renewsAt"), d("remindedAt")], idx: [["tenant", ["tenantId"], "unique"]] },
   // Demandes de paiement d'abonnement (liens Selar, validés à la main par la plateforme) et attributions manuelles.
