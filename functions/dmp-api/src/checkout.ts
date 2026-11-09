@@ -250,7 +250,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     }
     if (p.method === "card") verified.set(pi, false);
     if (isQrMethod(p.method)) {
-      verified.set(pi, true); const link = p.linkId ? await store.get("payment_links", p.linkId) : null;
+      verified.set(pi, false); const link = p.linkId ? await store.get("payment_links", p.linkId) : null; if (link?.txRef && !refs.has(pi)) refs.set(pi, String(link.txRef).slice(0, 64));
       if (!link || link.tenantId !== ctx.tenantId || link.shopId !== ctx.shopId) throw new HttpError(400, "Lien de paiement introuvable");
       if (link.status !== "paid") throw new HttpError(402, "Paiement QR non confirmé");
       if (link.provider !== p.method || Number(link.amount) !== toFcfa(p.amount)) throw new HttpError(400, "Lien de paiement incompatible");

@@ -30,13 +30,13 @@ export function refundable(sale: Row, returns: Row[]): { lines: { index: number;
   return { lines: out, remainingTotal: out.reduce((a, l) => a + l.remainingNet, 0) };
 }
 
-type Input = { returnId?: string; saleId?: string; kind?: string; lines?: { index: number; qty: unknown }[]; reason?: string; refunds?: { method: string; amount: unknown; reference?: string }[] };
+type Input = { preview?: boolean; returnId?: string; saleId?: string; kind?: string; lines?: { index: number; qty: unknown }[]; reason?: string; refunds?: { method: string; amount: unknown; reference?: string }[] };
 /** Annulation (vente entière) ou remboursement (lignes et quantités) : opération TRACÉE (ligne `sale_returns`, mouvements de stock « retour », écriture comptable inverse, trace d'audit) — la vente d'origine n'est jamais supprimée ni modifiée dans ses montants.
  *  Gérant ou propriétaire. Idempotent (returnId) et rejouable : une coupure reprend sans doubler stock, comptabilité ni fidélité. Retour non géré pour bundles, séries et lots (refus explicite). */
 export async function refundSale(store: Store, ctx: Ctx, b: Input) {
   needModule(ctx, "pos"); need(ctx, "manager"); await needFeature(store, ctx, "smartPos");
-  const rawId = String(b.returnId ?? ""); if (rawId.length < 8) throw new HttpError(400, "returnId invalide (8 caractères au moins)"); const rid = `rt${sha(`${ctx.tenantId}|${rawId}`).slice(0, 30)}`;
-  const kind = b.kind === "cancel" ? "cancel" : "refund"; const reason = String(b.reason ?? "").trim(); if (reason.length < 3 || reason.length > 200) throw new HttpError(400, "Motif obligatoire (3 à 200 caractères)");
+  const rawId = String(b.returnId ?? (b.preview ? "preview-00000000" : "")); if (rawId.length < 8) throw new HttpError(400, "returnId invalide (8 caractères au moins)"); const rid = `rt${sha(`${ctx.tenantId}|${rawId}`).slice(0, 30)}`;
+  const kind = b.kind === "cancel" ? "cancel" : "refund"; const reason = String(b.reason ?? (b.preview ? "aperçu" : "")).trim(); if (reason.length < 3 || reason.length > 200) throw new HttpError(400, "Motif obligatoire (3 à 200 caractères)");
   const sale = await store.get("sales", String(b.saleId ?? "")); if (!sale || sale.tenantId !== ctx.tenantId || sale.shopId !== ctx.shopId) throw new HttpError(404, "Vente introuvable");
   const prior = await store.get("sale_returns", rid); const existing = (await store.list("sale_returns", { saleId: sale.$id }, 200)); let row = prior;
   if (prior && prior.saleId !== sale.$id) throw new HttpError(409, "Identifiant d'opération déjà utilisé");
@@ -53,6 +53,7 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
       const full = scaledInt(a.qty, sc) === scaledInt(l.remainingQty, sc); const amt = full ? l.remainingNet : Math.round(l.net * a.qty / l.qty); chosen.push({ index: a.index, qty: a.qty, amount: Math.min(amt, l.remainingNet) });
     }
     amount = chosen.reduce((a, l) => a + l.amount, 0); if (!(amount > 0)) throw new HttpError(400, "Montant à rembourser nul");
+    if (b.preview) return { preview: true as const, amount, kind, lines: chosen }; // calcul serveur du montant (aucune écriture)
     refunds = (b.refunds ?? []).map((r) => ({ method: String(r.method), amount: toFcfa(Number(r.amount)), ...(r.reference ? { reference: String(r.reference).trim().slice(0, 64) } : {}) }));
     if (!refunds.length) throw new HttpError(400, "Indiquez comment le client est remboursé");
     for (const r of refunds) { if (!(METHODS as readonly string[]).includes(r.method)) throw new HttpError(400, "Moyen de remboursement inconnu"); if (!(r.amount > 0)) throw new HttpError(400, "Montant de remboursement invalide"); if (["wave", "orange", "card"].includes(r.method) && (r.reference ?? "").length < 4) throw new HttpError(400, "Référence obligatoire pour un remboursement numérique (elle n'est pas vérifiée par l'application)"); if (r.method === "credit" && !customer) throw new HttpError(400, "Remboursement sur compte : la vente n'a pas de client"); }

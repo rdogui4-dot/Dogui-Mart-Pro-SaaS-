@@ -68,18 +68,20 @@ export function purchaseOrderModel(po: { number: string; createdAt: string; line
 export type ReceiptSale = {
   number: string; soldAt: string; total: number; change?: number;
   lines: { name: string; qty: number; unitPrice: number; discountPct?: number; amount?: number }[];
-  payments: { method: string; amount: number }[];
+  payments: { method: string; amount: number; reference?: string }[];
 };
 const METHOD: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "Crédit" };
 
-export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: string): DocModel {
+export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: string, opts: { duplicate?: boolean; refunded?: number } = {}): DocModel {
   const totals = [{ label: "TOTAL", value: sale.total, strong: true }, ...sale.payments.map((p) => ({ label: METHOD[p.method] ?? p.method, value: p.amount }))];
   if (sale.change) totals.push({ label: "Monnaie rendue", value: sale.change });
+  if (opts.refunded) totals.push({ label: "Remboursé", value: -opts.refunded });
+  const refs = sale.payments.filter((p) => p.reference).map((p) => `${METHOD[p.method] ?? p.method} réf. ${p.reference} (non vérifiée)`);
   return {
-    kind: "receipt", title: "TICKET DE CAISSE", number: sale.number, date: new Date(sale.soldAt).toLocaleString("fr-FR"),
+    kind: "receipt", title: opts.duplicate ? "DUPLICATA - TICKET DE CAISSE" : "TICKET DE CAISSE", number: sale.number, date: new Date(sale.soldAt).toLocaleString("fr-FR"),
     issuer: issuerOf(shop), partyLabel: "Client", party: { name: customer || "Client comptoir" },
     rows: sale.lines.map((l) => ({ label: l.name, qty: l.qty, unit: l.unitPrice, total: lineTotal({ productId: "", name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct, amount: l.amount }) })),
-    totals, footer: ["Merci de votre visite !"],
+    totals, footer: [...refs, ...(opts.duplicate ? ["Copie du ticket d'origine : aucune nouvelle vente"] : []), "Merci de votre visite !"],
   };
 }
 

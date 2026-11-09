@@ -5,16 +5,16 @@ export const pdfMoney = plainMoney;
 const GOLD: [number, number, number] = [201, 162, 39];
 
 /** Construit le PDF (A4 pour factures et bons de commande, rouleau 80 mm pour le ticket). */
-export async function buildPdf(m: DocModel): Promise<jsPDF> {
+export async function buildPdf(m: DocModel, width: 58 | 80 = 80): Promise<jsPDF> {
   const { jsPDF } = await import("jspdf");
-  return m.kind === "receipt" ? receipt(new jsPDF({ unit: "mm", format: [80, receiptHeight(m)] }), m) : a4(new jsPDF({ unit: "mm", format: "a4" }), m);
+  return m.kind === "receipt" ? receipt(new jsPDF({ unit: "mm", format: [width, receiptHeight(m)] }), m) : a4(new jsPDF({ unit: "mm", format: "a4" }), m);
 }
-export async function pdfBlob(m: DocModel): Promise<Blob> { return (await buildPdf(m)).output("blob"); }
+export async function pdfBlob(m: DocModel, width: 58 | 80 = 80): Promise<Blob> { return (await buildPdf(m, width)).output("blob"); }
 
 const receiptHeight = (m: DocModel) => 40 + (m.issuer.lines?.length ?? 0) * 4 + m.rows.length * 9 + m.totals.length * 5 + m.footer.length * 5;
 
 function receipt(doc: jsPDF, m: DocModel): jsPDF {
-  const W = 80, M = 4; let y = 8;
+  const W = doc.internal.pageSize.getWidth(), M = 4; let y = 8;
   const center = (t: string, size = 9, bold = false) => { doc.setFont("helvetica", bold ? "bold" : "normal").setFontSize(size); doc.text(t, W / 2, y, { align: "center" }); y += size * 0.45 + 1; };
   center(m.issuer.name, 12, true); for (const l of m.issuer.lines ?? []) center(l, 8);
   y += 1; center(`${m.title}`, 9, true); center(`N° ${m.number}`, 8); center(m.date, 8);
