@@ -17,6 +17,7 @@ import { SettingsPage } from "@/routes/settings";
 import { HomePage, PlusPage } from "@/routes/home";
 import { ArticlesPage } from "@/routes/articles";
 import { BundlesPage } from "@/routes/bundles";
+import { DashboardPage } from "@/routes/dashboard";
 
 function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNode }) {
   const { session, loading } = useSession();
@@ -32,7 +33,7 @@ const tree = root.addChildren([
   // Redirection du routeur (et non d'un composant) : un composant d'accueil se monterait brièvement pendant un changement de page et renverrait à la caisse.
   createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
   r("/accueil", null, HomePage), r("/plus", null, PlusPage),
-  r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/clients", "customers", ClientsPage),
+  r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/tableau", "stock", DashboardPage), r("/clients", "customers", ClientsPage),
   r("/achats", "purchases", AchatsPage), r("/compta", "finance", ComptaPage), r("/reglages", "settings", SettingsPage),
 ]);
 const router = createRouter({ routeTree: tree, basepath: routerBasepath(import.meta.env.BASE_URL) });
