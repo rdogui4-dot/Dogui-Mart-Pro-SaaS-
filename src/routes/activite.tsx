@@ -15,7 +15,7 @@ type Daily = { date: string; revenue: number; count: number };
 type Margin = { known: boolean; amount: number | null; pct: number | null; linesWithoutCost: number; coveragePct: number; indicative: number };
 type Overview = {
   tz: string; asOf: string; today: string; scope: { shopId: string; shops: { id: string; name: string }[]; many: boolean }; period: { preset: PresetId; label: string; from: string; to: string; days: number };
-  kpis: { today: { revenue: number; count: number }; month: { from: string; to: string; revenue: number; count: number }; period: { count: number; revenue: number; avgBasket: number; encaisse: number; credit: number; purchases: number; margin: Margin };
+  kpis: { today: { revenue: number; count: number }; month: { from: string; to: string; revenue: number; count: number }; period: { count: number; revenue: number; avgBasket: number; encaisse: number; credit: number; purchases: number; margin: Margin; refunds: { amount: number; count: number } };
     stock: { articles: number; value: number | null; methodLabel: string; partial: boolean; low: number | null; out: number | null } };
   charts: { last7: Daily[]; series: Daily[]; byMethod: { method: string; amount: number }[]; top: { key: string; name: string; qty: number; revenue: number }[]; byCategory: { category: string; revenue: number; qty: number }[]; byShop: { id: string; name: string; revenue: number; count: number }[] };
   activity: { sales: { id: string; number: string; total: number; at: string; shop: string; methods: string[]; lines: { name: string; qty: number; amount: number }[] }[]; purchases: { id: string; number: string; supplier: string; total: number; status: string; at: string }[];
@@ -68,6 +68,7 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
           <Kpi label="Ventes réalisées" value={String(per.count)} sub={`${periodTxt} · tickets terminés`} />
           <Kpi label="Panier moyen" value={formatFcfa(per.avgBasket)} sub={`${periodTxt} · CA ÷ ventes`} />
           <Kpi label="Encaissé" value={formatFcfa(per.encaisse)} sub={`${periodTxt} · hors crédit, monnaie exclue`} />
+          <Kpi label="Remboursements" value={formatFcfa(per.refunds.amount)} sub={`${periodTxt} · ${per.refunds.count} opération(s) · CA net ${formatFcfa(per.revenue - per.refunds.amount)}`} tone={per.refunds.amount ? "text-amber-300" : ""} />
           <Kpi label="Vendu à crédit" value={formatFcfa(per.credit)} sub={`${periodTxt} · non encaissé`} tone={per.credit ? "text-amber-300" : ""} />
           <Kpi label="Achats enregistrés" value={formatFcfa(per.purchases)} sub={`${periodTxt} · HT, factures fournisseurs`} to="/achats" />
           <Kpi label="Marge brute" value={per.margin.known ? formatFcfa(per.margin.amount!) : "Non calculable"} sub={per.margin.known ? `${periodTxt} · ${per.margin.pct} % du CA HT − coût de revient` : per.count ? `Coût manquant sur ${per.margin.linesWithoutCost} ligne(s) (${per.margin.coveragePct} % du CA couvert)` : `${periodTxt} · aucune vente`} />

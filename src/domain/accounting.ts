@@ -43,3 +43,12 @@ export function purchaseJournal(a: { ref: string; date: string; totalTtc: number
   entries.push({ account: ACCOUNTS.suppliers, debit: 0, credit: a.totalTtc, label: `Achat ${a.ref}` });
   return { date: a.date, ref: a.ref, entries };
 }
+
+/** Remboursement ou annulation : écriture inverse de la vente (ventes et TVA collectée au débit, trésorerie ou clients au crédit). */
+export function refundJournal(a: { ref: string; date: string; totalTtc: number; vatRatePct: number; refunds: { method: Method; amount: number }[] }): Journal {
+  const ht = Math.round(a.totalTtc / (1 + a.vatRatePct / 100)); const vat = a.totalTtc - ht;
+  const entries: Entry[] = [{ account: ACCOUNTS.salesGoods, debit: ht, credit: 0, label: `Remboursement ${a.ref}` }];
+  if (vat > 0) entries.push({ account: ACCOUNTS.vatCollected, debit: vat, credit: 0, label: `TVA remboursement ${a.ref}` });
+  for (const r of a.refunds) if (r.amount > 0) entries.push({ account: treasury(r.method), debit: 0, credit: r.amount, label: `Remboursement ${a.ref} (${r.method})` });
+  return { date: a.date, ref: a.ref, entries };
+}

@@ -111,7 +111,7 @@ function Exec({ d }: { d: Any }) {
     <section aria-label="Indicateurs" className="grid grid-cols-2 gap-2">
       <Card label="Chiffre d'affaires TTC" value={formatFcfa(t.revenue)} kind="comptable" method={def.revenue[1]} delta={dl("revenue")} sub={p ? `préc. ${formatFcfa(p.revenue)}` : undefined} />
       <Card label="Encaissements" value={formatFcfa(t.encaisse)} kind="comptable" method={def.encaisse[1]} sub={`dont à crédit non encaissé : ${formatFcfa(t.credit)}`} />
-      <Na label="Remboursements" reason="Fonction inexistante : non calculable" />
+      <Card label="Remboursements" value={formatFcfa(d.refunds.amount)} kind="comptable" method="Somme des remboursements partiels ou complets enregistrés (opérations tracées) dans la période. Une annulation complète exclut déjà la vente du CA ; un remboursement partiel se déduit du CA pour obtenir le CA net." sub={`${d.refunds.count} opération(s) · CA net ${formatFcfa(t.revenue - d.refunds.amount)}`} />
       <Card label="Coût des marchandises vendues" value={money(t.cogs)} kind="comptable" method={def.cogs[1]} sub={t.cogs === null && t.count ? `Coût manquant sur ${t.cost.linesWithoutCost} ligne(s)` : undefined} />
       <Card label="Marge brute" value={money(t.margin)} kind="comptable" method={def.margin[1]} delta={dl("margin")} sub={t.margin === null && t.count ? `Indicative sur ${t.cost.coveragePct} % du CA : ${formatFcfa(t.cost.indicativeMargin)}` : "Pas un bénéfice net"} />
       <Card label="Taux de marge" value={pct(t.marginRate)} kind="comptable" method={def.marginRate[1]} delta={c?.marginRate} sub={c?.marginRate !== null && c?.marginRate !== undefined ? "points vs période comparée" : undefined} />

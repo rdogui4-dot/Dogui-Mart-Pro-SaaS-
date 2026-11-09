@@ -13,6 +13,7 @@ import { allocateFefo, parseSerials, trackingOf, warrantyEnd } from "../../../sr
 import { expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
 import { isVirtualBundle } from "../../../src/domain/bundles";
 import { loadComponents } from "./bundles";
+import { assertSessionForSale } from "./cashier";
 import { evaluateForSale, recordUsage, releaseUsage, useCoupon, releaseCoupon, logInvalidCoupon, type CouponCheck } from "./promotions";
 import type { Decision, EvalResult, Promo } from "../../../src/domain/promotions";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
@@ -22,7 +23,7 @@ type PromoSnap = PromoPart;
 export type CheckoutInput = {
   clientId: string; soldAt?: string; customerId?: string; redeemPoints?: number;
   lines: { productId: string; variantId?: string; qty: number | string; unit?: string; discountPct?: number; serials?: unknown }[];
-  payments: (Payment & { linkId?: string })[];
+  payments: (Payment & { linkId?: string; reference?: string })[];
   /** Aperçu : calcule prix, promotions et total comme une vraie vente, sans rien écrire. */ dryRun?: boolean; /** Coupon saisi à la caisse (Pro). */ couponCode?: string;
 };
 const moveId = (saleId: string, ...parts: number[]): string => `m${createHash("sha1").update(`${saleId}|${parts.join("|")}`).digest("hex").slice(0, 30)}`; // identifiant déterministe ≤ 36 caractères
@@ -66,6 +67,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     if (Number.isNaN(ms) || ms > nowMs + MAX_FUTURE_MS || ms < nowMs - MAX_AGE_MS) throw new HttpError(400, "Date de vente invalide (ni dans le futur, ni de plus de 45 jours)");
     soldAt = new Date(ms).toISOString();
   }
+  if (!input.dryRun && !existing) await assertSessionForSale(store, ctx, soldAt); // boutique à session de caisse obligatoire
   // Client (catégorie tarifaire) : lu avant les lignes, car le prix d'une ligne en dépend
   const customer = input.customerId ? await store.get("customers", input.customerId) : null;
   if (input.customerId && (!customer || customer.tenantId !== ctx.tenantId || customer.shopId !== ctx.shopId)) throw new HttpError(404, "Client introuvable");
@@ -239,9 +241,16 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
 
   // 3) Paiements : QR = lien confirmé, montant exact, non déjà utilisé
   const links: Record<string, unknown>[] = [];
-  for (const p of input.payments) {
+  const refOf = (p: { reference?: unknown }) => { const r = String(p.reference ?? "").trim(); if (/[\u0000-\u001f]/.test(r) || r.length > 64) throw new HttpError(400, "Référence de paiement invalide"); return r; };
+  const verified = new Map<number, boolean>(); const refs = new Map<number, string>();
+  for (const [pi, p] of input.payments.entries()) {
+    const ref = refOf(p); if (ref) refs.set(pi, ref);
+    if (isQrMethod(p.method) && !p.linkId) { // Mobile Money saisi à la main (sans lien confirmé) : référence obligatoire, paiement marqué « non vérifié » (l'application ne confirme rien d'externe)
+      if (ref.length < 4) throw new HttpError(400, `Paiement ${p.method === "wave" ? "Wave" : "Orange Money"} : saisissez la référence de la transaction (4 caractères au moins)`); verified.set(pi, false); continue;
+    }
+    if (p.method === "card") verified.set(pi, false);
     if (isQrMethod(p.method)) {
-      const link = p.linkId ? await store.get("payment_links", p.linkId) : null;
+      verified.set(pi, true); const link = p.linkId ? await store.get("payment_links", p.linkId) : null;
       if (!link || link.tenantId !== ctx.tenantId || link.shopId !== ctx.shopId) throw new HttpError(400, "Lien de paiement introuvable");
       if (link.status !== "paid") throw new HttpError(402, "Paiement QR non confirmé");
       if (link.provider !== p.method || Number(link.amount) !== toFcfa(p.amount)) throw new HttpError(400, "Lien de paiement incompatible");
@@ -255,7 +264,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     const ok = canExtendCredit({ balance: Number(customer.creditBalance ?? 0), limit: Number(customer.creditLimit ?? 0) }, credit);
     if (!ok.ok && !existing) throw new HttpError(409, ok.error);
   }
-  const payments: Payment[] = input.payments.map((p) => ({ method: p.method as PaymentMethod, amount: toFcfa(p.amount) }));
+  const payments = input.payments.map((p, pi) => ({ method: p.method as PaymentMethod, amount: toFcfa(p.amount), ...(refs.get(pi) ? { reference: refs.get(pi) } : {}), ...(verified.has(pi) ? { verified: verified.get(pi) } : {}) })) as (Payment & { reference?: string; verified?: boolean })[];
   const s = settle(total, payments);
   if (!s.ok) throw new HttpError(402, s.error);
 

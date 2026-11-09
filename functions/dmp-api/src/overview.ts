@@ -14,7 +14,7 @@ const MOVE_LABEL: Record<string, string> = { sale: "Vente", purchase: "Réceptio
 
 /** Tableau de bord de l'activité (Business) : indicateurs réels de la boutique choisie (ou de toutes vos boutiques), jours en heure de l'entreprise.
  *  Définitions : chiffre d'affaires = ventes « paid » (TTC) ; encaissé = paiements hors crédit (monnaie rendue exclue, fractionnés comptés une fois) ; crédit = vendu mais non encaissé ;
- *  marge = HT − coût de revient figé des lignes, seulement si TOUTES les lignes ont un coût ; achats = débits du compte 601 du journal. Aucune vente annulée/remboursement n'existe dans l'application. */
+ *  marge = HT − coût de revient figé des lignes, seulement si TOUTES les lignes ont un coût ; achats = débits du compte 601 du journal. */
 export async function businessDashboard(store: Store, ctx: Ctx, b: { preset?: string; from?: string; to?: string; shopId?: string } = {}) {
   needModule(ctx, "reports"); await needFeature(store, ctx, "businessDashboard");
   const now = new Date(); const all = await store.list("shops", { tenantId: ctx.tenantId }, 100); let allowed = all;
@@ -26,11 +26,12 @@ export async function businessDashboard(store: Store, ctx: Ctx, b: { preset?: st
   const winFrom = [period.from, mFrom, addDays(today, -6)].sort()[0]!; const winTo = [period.to, today].sort().at(-1)!; const win = boundsOf(winFrom, winTo, tz);
   const pb = boundsOf(period.from, period.to, tz); const since30 = new Date(now.getTime() - 30 * DAY).toISOString(); const since7 = new Date(now.getTime() - 7 * DAY).toISOString();
   const rows: (SaleIn & { shopId: string })[] = []; const catOf = new Map<string, string>(); const nameOf = new Map<string, string>();
-  let purchases = 0, truncSales = false, partialStock = false, stockValue: number | null = 0, articles = 0, noPrice: string[] = [];
+  let refunds = 0, refundCount = 0, purchases = 0, truncSales = false, partialStock = false, stockValue: number | null = 0, articles = 0, noPrice: string[] = [];
   const out: { name: string; qty: number }[] = [], low: { name: string; qty: number; min: number }[] = []; const recentPurchases: Record<string, unknown>[] = [], recentMoves: Record<string, unknown>[] = [], created: Record<string, unknown>[] = [], important: Record<string, unknown>[] = [];
   const stuck: Row[] = []; const pending: Row[] = [];
   for (const shop of target) {
     const sid = String(shop.$id); const where = { tenantId: ctx.tenantId, shopId: sid };
+    const retRows = await store.scan("sale_returns", where, { range: { field: "at", from: pb.gte, to: pb.lt }, maxRows: 20_000 }); for (const r of retRows.rows) if (r.status !== "failed") { refunds += Number(r.amount ?? 0); refundCount++; }
     const [sales, snap, journal, orders, moves, suppliers, pend, post] = await Promise.all([
       store.scan("sales", where, { range: { field: "soldAt", from: win.gte, to: win.lt }, maxRows: MAX_SALES }), stockSnapshot(store, where, MAX_MOVES),
       store.scan("journal_entries", { ...where, account: "601" }, { range: { field: "date", from: pb.gte, to: pb.lt }, maxRows: 20_000 }),
@@ -69,12 +70,12 @@ export async function businessDashboard(store: Store, ctx: Ctx, b: { preset?: st
     tz, asOf: now.toISOString(), today, scope: { shopId: wantAll ? "all" : String(target[0]!.$id), shops: allowed.map((s) => ({ id: String(s.$id), name: String(s.name ?? s.$id) })), many: allowed.length > 1 }, period,
     kpis: {
       today: { from: today, to: today, revenue: day.revenue, count: day.count }, month: { from: mFrom, to: today, revenue: month.revenue, count: month.count },
-      period: { count: per.count, revenue: per.revenue, avgBasket: per.avgBasket, encaisse: per.encaisse, credit: per.credit, vat: per.vat, purchases, margin: per.margin },
+      period: { count: per.count, revenue: per.revenue, avgBasket: per.avgBasket, encaisse: per.encaisse, credit: per.credit, vat: per.vat, purchases, margin: per.margin, refunds: { amount: refunds, count: refundCount } },
       stock: { articles, value: stockValue, method: costMethod, methodLabel: methodLabel(costMethod), partial: partialStock, low: partialStock ? null : low.length, out: partialStock ? null : out.length },
     },
     charts: { last7: wk.daily, series: per.daily, byMethod: Object.entries(per.byMethod).map(([method, amount]) => ({ method, amount })).sort((a, c) => c.amount - a.amount), top: per.top, byCategory: per.byCategory, byShop },
     activity: { sales: recentSales, purchases: top(recentPurchases, (x) => Date.parse(String(x.at)) || 0, 5), moves: top(recentMoves, (x) => Date.parse(String(x.at)) || 0, 10), created: top(created, (x) => Date.parse(String(x.at)) || 0, 5), important: top(important, (x) => Date.parse(String(x.at)) || 0, 10) },
     alerts, truncated: { sales: truncSales },
-    notes: ["Chiffre d'affaires = ventes terminées (TTC) ; une vente non finalisée n'est jamais comptée.", "Encaissé = paiements reçus hors crédit ; « à crédit » = vendu mais pas encore payé ; la monnaie rendue n'est pas un encaissement.", "Aucune annulation ni aucun remboursement de vente n'existe dans l'application : rien n'est déduit à ce titre.", "Les dépenses hors achats ne sont pas saisies dans l'application : seuls les achats enregistrés (compte 601, HT) sont affichés.", "La marge n'est calculée que si toutes les lignes vendues ont un coût de revient connu.", "Les écarts d'inventaire sont appliqués immédiatement au stock (aucun écart « en attente ») : ils figurent dans les opérations importantes."],
+    notes: ["Chiffre d'affaires = ventes terminées (TTC) ; une vente non finalisée n'est jamais comptée.", "Encaissé = paiements reçus hors crédit ; « à crédit » = vendu mais pas encore payé ; la monnaie rendue n'est pas un encaissement.", "Annulation complète : la vente est exclue du chiffre d'affaires. Remboursement partiel : la vente reste comptée et le montant remboursé (opérations tracées) est affiché séparément ; il se déduit du CA net.", "Les dépenses hors achats ne sont pas saisies dans l'application : seuls les achats enregistrés (compte 601, HT) sont affichés.", "La marge n'est calculée que si toutes les lignes vendues ont un coût de revient connu.", "Les écarts d'inventaire sont appliqués immédiatement au stock (aucun écart « en attente ») : ils figurent dans les opérations importantes."],
   };
 }

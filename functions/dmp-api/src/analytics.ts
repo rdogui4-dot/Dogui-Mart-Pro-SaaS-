@@ -68,7 +68,9 @@ async function world(store: Store, ctx: Ctx, b: Params, needMoves: boolean) {
   const factsAll = A.buildFacts(sales, c, state); const prevAll = A.buildFacts(prevSales, c, "paid");
   const inP = (f: A.Fact) => f.day >= period.from && f.day <= period.to; const facts = A.applyFilters(factsAll.filter(inP), filters); const prevFacts = prev ? A.applyFilters(prevAll.filter((f) => f.day >= prev.from && f.day <= prev.to), filters) : [];
   const shopName = (id: string) => String(all.find((s) => s.$id === id)?.name ?? id);
-  return { ctx, now, tz, today, all, allowed, target, home, period, prev, compare, gran, th, filters, state, facts, prevFacts, factsAll, products, perShop, suppliers, sellerName, shopName, truncated, rowsRead, hasLineFilter: !!(filters.categories.length || filters.articles.length || filters.suppliers.length), sales };
+  const refunds = { amount: 0, count: 0 };
+  { const rb = boundsOf(period.from, period.to, tz); for (const shop of target) for (const r of (await store.scan("sale_returns", { tenantId: ctx.tenantId, shopId: String(shop.$id) }, { range: { field: "at", from: rb.gte, to: rb.lt }, maxRows: 20_000 })).rows) if (r.status !== "failed") { refunds.amount += Number(r.amount ?? 0); refunds.count++; } }
+  return { refunds, ctx, now, tz, today, all, allowed, target, home, period, prev, compare, gran, th, filters, state, facts, prevFacts, factsAll, products, perShop, suppliers, sellerName, shopName, truncated, rowsRead, hasLineFilter: !!(filters.categories.length || filters.articles.length || filters.suppliers.length), sales };
 }
 type World = Awaited<ReturnType<typeof world>>;
 
@@ -109,11 +111,9 @@ const stockValueRotation = (w: World, st: ReturnType<typeof stockAnalysis>, cogs
 // ------------------------------------------------------------------ espace 1 : vue exécutive
 function exec(w: World) {
   const t = A.totalsOf(w.facts); const pt = w.compare !== "none" ? A.totalsOf(w.prevFacts) : null; const st = stockAnalysis(w); const svr = stockValueRotation(w, st, t.cogs);
-  const journal = w.perShop.length ? null : null; void journal;
-  return { ...head(w, "exec"), totals: t, previous: pt, comparison: cmp(t, pt), comparisonNote: w.compare === "none" ? null : pt && pt.count > 0 ? "Comparaison descriptive : elle n'établit pas de lien de cause." : "Aucune vente sur la période de comparaison : pas de comparaison.",
+  return { ...head(w, "exec"), totals: t, refunds: w.refunds, previous: pt, comparison: cmp(t, pt), comparisonNote: w.compare === "none" ? null : pt && pt.count > 0 ? "Comparaison descriptive : elle n'établit pas de lien de cause." : "Aucune vente sur la période de comparaison : pas de comparaison.",
     series: A.series(w.facts, w.period, w.gran), previousSeries: w.prev ? A.series(w.prevFacts, { from: w.prev.from, to: w.prev.to }, w.gran) : null, stock: { ...svr, partialShops: st.partialShops, methodLabel: methodLabel(String(w.home.costMethod ?? "cmup")) },
     unavailable: [
-      { id: "refunds", label: "Remboursements", reason: "Aucun remboursement ni annulation de vente n'existe dans l'application : le montant n'est pas calculable (et non « zéro »)." },
       { id: "expenses", label: "Dépenses d'exploitation", reason: "Les dépenses hors achats de marchandises ne sont pas saisies dans l'application." },
       { id: "operating", label: "Résultat opérationnel estimé", reason: "Non calculable : il exige les charges d'exploitation (loyer, salaires, transport…) qui ne sont pas enregistrées. La marge brute n'est pas un bénéfice." },
     ],

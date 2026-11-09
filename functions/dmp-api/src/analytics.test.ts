@@ -45,7 +45,7 @@ describe("vue exécutive : chiffres comptables et non calculables", () => {
     const d = await pro({ preset: "today" }); const t = d.totals; expect(t).toMatchObject({ count: 2, revenue: 5000, encaisse: 2000, credit: 3000 }); expect(t.encaisse + t.credit).toBe(t.revenue);
     const rate = 18; const ht = Math.round(5000 / (1 + rate / 100)); expect(t.cogs).toBe(4 * 300 + 3 * 600); expect(t.margin).toBe(t.revenueHt - t.cogs); expect(t.revenueHt).toBe(ht); expect(t.marginRate).toBe(Math.round(t.margin / ht * 1000) / 10); expect(t.markup).toBe(Math.round(t.margin / t.cogs * 1000) / 10);
     const b = await ok(call("own", "dashboard.business", { preset: "today" })); expect(b.kpis.period.revenue).toBe(t.revenue); expect(b.kpis.period.margin.amount).toBe(t.margin); expect(d.checks).toEqual({ seriesEqualsTotal: true, paymentsEqualRevenue: true });
-    expect(d.unavailable.map((x: any) => x.id)).toEqual(["refunds", "expenses", "operating"]); expect(d.unavailable.every((x: any) => x.reason.length > 20)).toBe(true); expect(JSON.stringify(d)).not.toMatch(/"(refunds|operating)":\s*0/);
+    expect(d.unavailable.map((x: any) => x.id)).toEqual(["expenses", "operating"]); expect(d.unavailable.every((x: any) => x.reason.length > 20)).toBe(true); expect(d.refunds).toEqual({ amount: 0, count: 0 });
     expect(d.stock.value).toBeGreaterThan(0); expect(d.stock.methodLabel).toBeTruthy(); expect(d.definitions.margin[1]).toContain("PAS un bénéfice");
   });
   it("ventes annulées / non finalisées jamais comptées ; état « non finalisées » les isole", async () => {
