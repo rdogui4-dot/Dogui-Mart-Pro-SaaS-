@@ -16,10 +16,11 @@ import { QrPay } from "@/components/QrPay";
 import { receiptModel, type ReceiptSale } from "@/domain/documents";
 import { deliverPdf, pdfBlob } from "@/lib/pdf";
 import { canExtendCredit } from "@/domain/credit";
+import { parseSerials, trackingOf } from "@/domain/tracking";
 
 
 /** Ligne du panier : quantité de base (pour le prix et le stock) + unité vendue si un conditionnement est choisi. */
-type PosLine = CartLine & { key: string; scale: number; basePrice: number; unit?: string; unitQty?: number; factor?: number; variantId?: string };
+type PosLine = CartLine & { key: string; scale: number; basePrice: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; serials?: string[] };
 const keyOf = (productId: string, unit?: string, variantId?: string) => `${productId}|${unit ?? ""}|${variantId ?? ""}`;
 const plus = (a: number, b: number, scale: number) => fromScaled(scaledInt(a, scale) + scaledInt(b, scale), scale);
 
@@ -31,6 +32,7 @@ export function PosPage() {
   const unitsQ = useQuery({ queryKey: ["units-all", s.shopId], queryFn: () => list<UnitRow>("article_units", s, [Query.equal("active", true)], 500), staleTime: 60_000 });
   const variantsQ = useQuery({ queryKey: ["variants-all", s.shopId], queryFn: () => list<VariantRow>("article_variants", s, [Query.equal("archived", false)], 500), staleTime: 60_000 });
   const variantsOf = (id: string) => (variantsQ.data ?? []).filter((v) => v.productId === id);
+  const [pickSerial, setPickSerial] = useState<{ p: Product & { $id: string }; v?: VariantRow } | null>(null);
   const [pickVar, setPickVar] = useState<(Product & { $id: string }) | null>(null);
   const unitsOf = (id: string) => (unitsQ.data ?? []).filter((u) => u.productId === id);
   const [cart, setCart] = useState<PosLine[]>([]); const [pick, setPick] = useState<{ p: Product & { $id: string }; v?: VariantRow } | null>(null);
@@ -55,7 +57,14 @@ export function PosPage() {
     });
   }
   /** Article simple (entier, sans conditionnement) : ajout direct ; sinon on demande la quantité et l'unité. */
-  const add = (p: Product & { $id: string }, v?: VariantRow) => { if (p.hasVariants && !v) { setPickVar(p); return; } if (scaleOf(p) > 0 || unitsOf(p.$id).length) { setPick({ p, v }); return; } try { addLine(p, 1, "", v); } catch (e) { setMsg((e as Error).message); } };
+  const add = (p: Product & { $id: string }, v?: VariantRow) => { if (p.hasVariants && !v) { setPickVar(p); return; } if (trackingOf(p) === "serial") { setPickSerial({ p, v }); return; } if (scaleOf(p) > 0 || unitsOf(p.$id).length) { setPick({ p, v }); return; } try { addLine(p, 1, "", v); } catch (e) { setMsg((e as Error).message); } };
+  /** Article à numéro de série : une ligne par article/variante, quantité = nombre de numéros saisis ; le serveur vérifie qu'ils existent et sont disponibles. */
+  function addSerials(p: Product & { $id: string }, v: VariantRow | undefined, list: string[]) {
+    const key = `${keyOf(p.$id, "", v?.$id)}|serial`;
+    setCart((c) => { const ex = c.find((l) => l.key === key); const all = [...new Set([...(ex?.serials ?? []), ...list])];
+      const line: PosLine = { key, productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: v ? v.price : p.price, basePrice: v ? v.price : p.price, qty: all.length, scale: 0, serials: all, ...(v ? { variantId: v.$id } : {}) };
+      return ex ? c.map((l) => (l.key === key ? line : l)) : [...c, line]; });
+  }
   const step = (key: string, d: 1 | -1) => setCart((c) => c.flatMap((l) => {
     if (l.key !== key) return [l];
     const next = l.unit ? plus(l.unitQty!, d, 3) : plus(l.qty, d, l.scale);
@@ -95,7 +104,7 @@ export function PosPage() {
       const c = canExtendCredit({ balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 }, tot);
       if (!c.ok) return setMsg(c.error);
     }
-    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: cart.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) })), payments, session: s });
+    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: cart.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.serials ? { qty: l.serials.length, serials: l.serials } : l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) })), payments, session: s });
     // Même formule de numéro que le serveur : le ticket imprimé hors ligne porte le bon numéro.
     setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total: tot, change: r.change, lines: linesAt.map((l) => ({ name: l.unit ? `${l.name} (${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()})` : l.name, qty: l.qty, unitPrice: l.unitPrice, amount: l.amount })), payments: payments.map((p) => ({ method: p.method, amount: p.amount })) });
     setCart([]); setGiven(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
@@ -127,9 +136,10 @@ export function PosPage() {
           {priced.map((l) => (
             <div key={l.key} className="flex items-center justify-between gap-2">
               <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-white/50">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{formatFcfa(l.amount)}{l.source !== "base" && <b className="ml-1 text-emerald-300">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
+              {l.serials ? <><span className="text-xs text-white/60 max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost !p-2" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
               <button className="btn-ghost !p-2" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
-              <button className="btn-ghost !p-2" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>
+              <button className="btn-ghost !p-2" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button></>}
             </div>
           ))}
           <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
@@ -148,6 +158,7 @@ export function PosPage() {
       {msg && <p className="text-center text-amber-300">{msg}</p>}
       {last && cart.length === 0 && <button className="btn-ghost" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, customer?.name)).then((b) => deliverPdf(b, `${last.number}.pdf`))}>Ticket PDF / Partager</button>}
       {qr && isQrMethod(pay) && <QrPay session={s} provider={pay} amount={total} onPaid={(id) => void submit(id)} onCancel={() => setQr(false)} />}
+      {pickSerial && <SerialDialog p={pickSerial.p} v={pickSerial.v} onClose={() => setPickSerial(null)} onAdd={(l) => { addSerials(pickSerial.p, pickSerial.v, l); setPickSerial(null); }} />}
       {pickVar && <VariantDialog p={pickVar} variants={variantsOf(pickVar.$id)} levels={stock.data} onClose={() => setPickVar(null)} onPick={(v) => { const p = pickVar; setPickVar(null); add(p, v); }} />}
       {pick && <QtyDialog p={pick.p} v={pick.v} units={unitsOf(pick.p.$id)} onClose={() => setPick(null)} onAdd={(q, unit) => { addLine(pick.p, q, unit, pick.v); setPick(null); }} />}
       {scan && <Scanner onCode={byCode} onClose={() => setScan(false)} />}
@@ -170,6 +181,23 @@ function QtyDialog({ p, v, units, onClose, onAdd }: { p: Product & { $id: string
         {ok && <p className="text-sm text-white/60">{unit ? `= ${formatQty(base)} ${unitLabel(p.unit).toLowerCase()} · ` : ""}{formatFcfa(Math.round((v ? v.price : p.price) * base * 1e6) / 1e6)}</p>}
         {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
         <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={onClose}>Annuler</button><button className="btn flex-1" disabled={!ok}>Ajouter</button></div>
+      </form>
+    </div>
+  );
+}
+
+/** Saisie (ou scan) des numéros de série vendus. */
+function SerialDialog({ p, v, onClose, onAdd }: { p: Product & { $id: string }; v?: VariantRow; onClose: () => void; onAdd: (serials: string[]) => void }) {
+  const [txt, setTxt] = useState(""); const [scan, setScan] = useState(false);
+  let list: string[] = []; let err = ""; try { list = txt.trim() ? parseSerials(txt) : []; } catch (e) { err = (e as Error).message; }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Numéros de série">
+      <form className="card w-full max-w-sm flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); if (list.length) onAdd(list); }}>
+        <b>{v ? `${p.name} — ${v.label}` : p.name}</b>
+        <div className="flex gap-2"><textarea className="input flex-1" rows={3} autoFocus placeholder="Numéro(s) de série vendu(s)" value={txt} onChange={(e) => setTxt(e.target.value)} /><button type="button" className="btn-ghost self-start" aria-label="Scanner un numéro" onClick={() => setScan(true)}><ScanLine size={20} /></button></div>
+        <p className={`text-xs ${err ? "text-red-300" : "text-white/50"}`} role={err ? "alert" : undefined}>{err || `${list.length} numéro(s) · un numéro par unité vendue.`}</p>
+        <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={onClose}>Annuler</button><button className="btn flex-1" disabled={!list.length || !!err}>Ajouter</button></div>
+        {scan && <Scanner onCode={(c) => { setTxt((t) => (t.trim() ? `${t.trim()}\n${c}` : c)); setScan(false); }} onClose={() => setScan(false)} />}
       </form>
     </div>
   );

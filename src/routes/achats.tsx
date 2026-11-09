@@ -4,6 +4,7 @@ import { Query } from "@/lib/appwrite";
 import { api } from "@/lib/api";
 import { list, saveEntity, type Product, type Row, type Supplier, type VariantRow } from "@/lib/data";
 import { lineKey } from "@/domain/variants";
+import { parseSerials, trackingOf } from "@/domain/tracking";
 import { planAllows } from "@/domain/features";
 import { useSubscription } from "./subscription";
 import type { LinkRow } from "./costing";
@@ -117,12 +118,17 @@ function NewPo({ suppliers, products, variants, links, onDone }: { suppliers: Ro
   );
 }
 
+type TrackIn = { lots: { lotNo: string; qty: string; expiresAt: string }[]; serials: string };
+const emptyTrack = (): TrackIn => ({ lots: [{ lotNo: "", qty: "", expiresAt: "" }], serials: "" });
+
 function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onChange: () => void }) {
   const { session } = useSession(); const s = session!;
   const sharePdf = async () => deliverPdf(await pdfBlob(purchaseOrderModel({ number: po.number, createdAt: po.$createdAt, lines: lines(po) }, await getShop(s), { name: supplier })), `${po.number}.pdf`);
   const ls = lines(po);
   const [open, setOpen] = useState(false); const [qty, setQty] = useState<Record<string, string>>({}); const [fees, setFees] = useState(""); const proCosting = planAllows(useSubscription().data?.entitlement.plan.id, "costing");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const prodsQ = useQuery({ queryKey: ["products"], queryFn: () => list<Product>("products", s, [], 500), staleTime: 60_000 }); const [tr, setTr] = useState<Record<string, TrackIn>>({});
+  const modeOf = (productId: string) => trackingOf(prodsQ.data?.find((x) => x.$id === productId)); const trOf = (k: string) => tr[k] ?? emptyTrack();
   const receiptId = useRef(crypto.randomUUID()); const invoiceId = useRef(crypto.randomUUID());
   const canReceive = po.status === "ordered" || po.status === "partial";
   const canInvoice = po.status !== "cancelled" && ls.some((l) => toInvoice(l) > 0);
@@ -142,9 +148,22 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
             <label key={lineKey(l)} className="flex items-center justify-between gap-2 text-sm">{l.name} (reste {toReceive(l)})
               <input className="input !w-20 !py-2" inputMode="decimal" value={qty[lineKey(l)] ?? ""} onChange={(e) => setQty({ ...qty, [lineKey(l)]: e.target.value })} /></label>
           ))}
+          {ls.filter((l) => toReceive(l) > 0 && Number((qty[lineKey(l)] ?? "").replace(",", ".")) > 0 && modeOf(l.productId)).map((l) => { const k = lineKey(l); const t = trOf(k); const mode = modeOf(l.productId); let n = 0; try { n = t.serials.trim() ? parseSerials(t.serials).length : 0; } catch { n = -1; }
+            return mode === "lot" ? (
+              <div key={`t${k}`} className="flex flex-col gap-1 rounded-xl border border-white/10 p-2 text-sm"><b>Lots reçus · {l.name}</b>
+                {t.lots.map((r, i) => <div key={i} className="grid grid-cols-[1fr_4rem_7.5rem] gap-1"><input className="input !px-2 !py-2" placeholder="N° de lot" aria-label="N° de lot" value={r.lotNo} onChange={(e) => setTr({ ...tr, [k]: { ...t, lots: t.lots.map((x, j) => (j === i ? { ...x, lotNo: e.target.value } : x)) } })} />
+                  {t.lots.length > 1 ? <input className="input !px-2 !py-2" inputMode="decimal" placeholder="Qté" aria-label="Quantité du lot" value={r.qty} onChange={(e) => setTr({ ...tr, [k]: { ...t, lots: t.lots.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)) } })} /> : <span />}
+                  <input className="input !px-2 !py-2" type="date" aria-label="Péremption" value={r.expiresAt} onChange={(e) => setTr({ ...tr, [k]: { ...t, lots: t.lots.map((x, j) => (j === i ? { ...x, expiresAt: e.target.value } : x)) } })} /></div>)}
+                <button type="button" className="text-xs text-[var(--gold)] text-left" onClick={() => setTr({ ...tr, [k]: { ...t, lots: [...t.lots, { lotNo: "", qty: "", expiresAt: "" }] } })}>+ autre lot</button></div>
+            ) : (
+              <div key={`t${k}`} className="flex flex-col gap-1 rounded-xl border border-white/10 p-2 text-sm"><b>Numéros de série · {l.name}</b>
+                <textarea className="input" rows={3} placeholder="Un numéro par ligne" aria-label="Numéros de série reçus" value={t.serials} onChange={(e) => setTr({ ...tr, [k]: { ...t, serials: e.target.value } })} />
+                <span className={`text-xs ${n === Number(qty[k]) ? "text-emerald-300" : "text-amber-300"}`}>{n < 0 ? "Numéros invalides" : `${n} numéro(s) saisi(s) pour ${qty[k]} reçu(s)`}</span></div>
+            ); })}
           {proCosting && <label className="flex items-center justify-between gap-2 text-sm">Frais d'approvisionnement (transport, douane…) <input className="input !w-28 !py-2" inputMode="numeric" placeholder="FCFA" aria-label="Frais d'approvisionnement" value={fees} onChange={(e) => setFees(e.target.value)} /></label>}
           <button className="btn" disabled={busy || (!!fees && !/^\d+$/.test(fees.replace(/\s/g, "")))} onClick={() => void run(
-            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, ...(fees ? { fees: fees.replace(/\s/g, "") } : {}), lines: Object.entries(qty).filter(([, v]) => Number(v.replace(",", ".")) > 0).map(([key, v]) => { const [productId, variantId] = key.split(":"); return { productId, ...(variantId ? { variantId } : {}), qty: v }; }) }),
+            () => api(s, "po.receive", { poId: po.$id, receiptId: receiptId.current, ...(fees ? { fees: fees.replace(/\s/g, "") } : {}), lines: Object.entries(qty).filter(([, v]) => Number(v.replace(",", ".")) > 0).map(([key, v]) => { const [productId, variantId] = key.split(":"); const k = variantId ? `${productId}:${variantId}` : productId!; const mode = modeOf(productId!); const t = trOf(k);
+              return { productId, ...(variantId ? { variantId } : {}), qty: v, ...(mode === "lot" ? { lots: t.lots.map((x) => ({ lotNo: x.lotNo, qty: t.lots.length === 1 ? v : x.qty, ...(x.expiresAt ? { expiresAt: x.expiresAt } : {}) })) } : {}), ...(mode === "serial" ? { serials: t.serials } : {}) }; }) }),
             () => { setOpen(false); setFees(""); receiptId.current = crypto.randomUUID(); })}>Confirmer la réception</button>
         </div>
       )}

@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
 import { listAll, list, qtyOf, stockLevels, variantQty, type Product, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
 import { VariantsSheet } from "./variants";
+import { LotsSheet, SerialsSheet } from "./tracking";
+import { TRACKING_MODES, trackingOf } from "@/domain/tracking";
 import { PricingSheet, useRules } from "./pricing";
 import { ProfitSheet, SuppliersSheet, useLinks } from "./costing";
 import { getShop } from "@/lib/data";
@@ -143,7 +145,8 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
-  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false); const [supOpen, setSupOpen] = useState(false);
+  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false); const [supOpen, setSupOpen] = useState(false); const [lotsOpen, setLotsOpen] = useState(false); const [serOpen, setSerOpen] = useState(false);
+  const mode = trackingOf(a); const proTracking = planAllows(useSubscription().data?.entitlement.plan.id, mode === "serial" ? "serials" : "lots");
   const proCosting = planAllows(useSubscription().data?.entitlement.plan.id, "costing"); const links = useLinks(a.$id); const shopDoc = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) }); const method = (shopDoc.data as { costMethod?: string } | null)?.costMethod ?? "cmup";
   const proPricing = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing"); const rules = useRules(a.$id);
   const proVariants = planAllows(useSubscription().data?.entitlement.plan.id, "variants");
@@ -208,7 +211,8 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
       {err && <p className="text-red-400 text-sm">{err}</p>}
       <div className="grid grid-cols-2 gap-2">
         <button className="btn flex items-center justify-center gap-2" onClick={onEdit}><Pencil size={18} />Modifier</button>
-        <button className="btn-ghost" onClick={() => { if (a.hasVariants) { setVarsOpen(true); return; } setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>{a.hasVariants ? "Stock par variante" : "Compter le stock"}</button>
+        {mode ? <button className="btn-ghost" onClick={() => (mode === "lot" ? setLotsOpen(true) : setSerOpen(true))}>{mode === "lot" ? "Lots & péremption" : "Numéros de série"}</button> : null}
+        {!mode && <button className="btn-ghost" onClick={() => { if (a.hasVariants) { setVarsOpen(true); return; } setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>{a.hasVariants ? "Stock par variante" : "Compter le stock"}</button>}
         {a.archived ? <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("restore")}><Undo2 size={18} />Restaurer</button> : <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("archive")}><Archive size={18} />Archiver</button>}
         {canDelete && <button className="btn-ghost !text-red-300 flex items-center justify-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={18} />Supprimer</button>}
       </div>
@@ -222,6 +226,8 @@ function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChang
           <p className="text-xs text-white/50">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
           <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+([.,]\d{1,3})?$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
       )}
+      {lotsOpen && <LotsSheet a={a} canManage={proTracking && can(s, "stock")} onClose={() => setLotsOpen(false)} onChanged={onChanged} />}
+      {serOpen && <SerialsSheet a={a} canManage={proTracking && can(s, "stock")} onClose={() => setSerOpen(false)} onChanged={onChanged} />}
       {supOpen && <SuppliersSheet a={a} variants={variants} canManage={proCosting} method={method} onClose={() => setSupOpen(false)} onChanged={() => { void links.refetch(); onChanged(); }} />}
       {priceOpen && <PricingSheet a={a} variants={variants} units={units.data ?? []} canManage={proPricing} onClose={() => setPriceOpen(false)} onChanged={() => { void rules.refetch(); onChanged(); }} />}
       {varsOpen && <VariantsSheet a={a} variants={variants} levels={levels} canManage={proVariants} onClose={() => setVarsOpen(false)} onChanged={onChanged} />}
@@ -269,7 +275,7 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved }: { initial: Article
   const edit = !!initial; const requestId = useRef(crypto.randomUUID());
   const [f, setF] = useState({
     name: initial?.name ?? "", sku: initial?.sku ?? "", barcode: initial?.barcode ?? "", category: initial?.category ?? "", description: initial?.description ?? "",
-    price: initial ? String(initial.price) : "", cost: initial?.cost ? String(initial.cost) : "", unit: initial?.unit ?? "piece", minStock: String(initial?.minStock ?? 5), supplierId: initial?.supplierId ?? "", qty: "", qtyScale: String(initial?.qtyScale ?? 0),
+    price: initial ? String(initial.price) : "", cost: initial?.cost ? String(initial.cost) : "", unit: initial?.unit ?? "piece", minStock: String(initial?.minStock ?? 5), supplierId: initial?.supplierId ?? "", qty: "", qtyScale: String(initial?.qtyScale ?? 0), tracking: trackingOf(initial) as string,
   });
   const [photo, setPhoto] = useState<File | null>(null); const [removePhoto, setRemovePhoto] = useState(false); const [preview, setPreview] = useState<string | null>(null);
   const [scan, setScan] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [done, setDone] = useState("");
@@ -288,7 +294,7 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved }: { initial: Article
     e.preventDefault(); setBusy(true); setErr(""); setDone("");
     let id = initial?.$id ?? "";
     try {
-      const data = { name: f.name, sku: f.sku, barcode: f.barcode, category: f.category, description: f.description, price: f.price.replace(/\s/g, ""), cost: f.cost.replace(/\s/g, ""), unit: f.unit, minStock: f.minStock, supplierId: f.supplierId, ...(pro || Number(f.qtyScale) !== (initial?.qtyScale ?? 0) ? { qtyScale: Number(f.qtyScale) } : {}) };
+      const data = { name: f.name, sku: f.sku, barcode: f.barcode, category: f.category, description: f.description, price: f.price.replace(/\s/g, ""), cost: f.cost.replace(/\s/g, ""), unit: f.unit, minStock: f.minStock, supplierId: f.supplierId, ...(pro || f.tracking !== trackingOf(initial) ? { tracking: f.tracking } : {}), ...(pro || Number(f.qtyScale) !== (initial?.qtyScale ?? 0) ? { qtyScale: Number(f.qtyScale) } : {}) };
       const r = await api<{ id: string }>(s, "article.save", edit ? { id, data } : { requestId: requestId.current, data, initialQty: f.qty ? f.qty.trim() : 0 });
       id = r.id; onSaved();
     } catch (x) { setErr((x as Error).message); setBusy(false); return; }
@@ -330,7 +336,9 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved }: { initial: Article
         </div>
         {pro && lbl("Précision des quantités", <select className="input" value={f.qtyScale} onChange={set("qtyScale")}>{SCALES.map((x) => <option key={x} value={x}>{scaleLabel(x)}</option>)}</select>)}
         {pro && <p className="text-xs text-white/40 -mt-2">Pour vendre au kilo ou au litre. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
-        {edit ? <p className="text-sm text-white/50">Stock actuel : <b>{formatQty(qty)}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="decimal" value={f.qty} onChange={set("qty")} />)}
+        {pro && lbl("Suivi du stock", <select className="input" value={f.tracking} onChange={set("tracking")}>{TRACKING_MODES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>)}
+        {pro && <p className="text-xs text-white/40 -mt-2">Par lot : péremption et prélèvement du plus ancien d'abord. Par numéro de série : une unité = un numéro. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
+        {f.tracking && !edit ? <p className="text-sm text-white/50">Le stock d'un article suivi s'ajoute après création : entrée de lot ou numéros de série.</p> : edit ? <p className="text-sm text-white/50">Stock actuel : <b>{formatQty(qty)}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="decimal" value={f.qty} onChange={set("qty")} />)}
         {can(s, "purchases") && lbl("Fournisseur principal (facultatif)", <select className="input" value={f.supplierId} onChange={set("supplierId")}><option value="">Aucun</option>{(suppliers.data ?? []).map((x) => <option key={x.$id} value={x.$id}>{x.name}</option>)}</select>)}
         {lbl("Description", <textarea className="input" rows={3} maxLength={1000} value={f.description} onChange={set("description")} />)}
         {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}

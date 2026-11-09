@@ -9,6 +9,7 @@ import { parseDeepLink } from "@/domain/redirects";
 import { DEFAULT_PLANS } from "@/domain/subscriptions";
 import { COST_METHODS, isCostMethod, methodLabel } from "@/domain/costing";
 import { planAllows } from "@/domain/features";
+import { EXPIRED_POLICIES, isExpiredPolicy } from "@/domain/tracking";
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
@@ -28,6 +29,12 @@ export function SettingsPage() {
   const [shMsg, setShMsg] = useState("");
   const costMethod = (isCostMethod((shop.data as { costMethod?: string } | null)?.costMethod) ? (shop.data as { costMethod: string }).costMethod : "cmup");
   const [costMsg, setCostMsg] = useState(""); const [costBusy, setCostBusy] = useState(false);
+  const expiredPolicy = isExpiredPolicy((shop.data as { expiredPolicy?: string } | null)?.expiredPolicy) ? (shop.data as { expiredPolicy: string }).expiredPolicy : "block";
+  const [polMsg, setPolMsg] = useState("");
+  async function savePolicy(v: string) {
+    setPolMsg("");
+    try { await api(s, "shop.save", { expiredPolicy: v }); setPolMsg("Politique enregistrée."); await qc.invalidateQueries({ queryKey: ["shop"] }); } catch (x) { setPolMsg((x as Error).message); }
+  }
   async function saveMethod(m: string) {
     setCostMsg(""); setCostBusy(true);
     try { await api(s, "shop.save", { costMethod: m }); setCostMsg("Méthode enregistrée."); await qc.invalidateQueries({ queryKey: ["shop"] }); }
@@ -91,6 +98,15 @@ export function SettingsPage() {
           <p className="text-xs text-white/50">{COST_METHODS.find((m) => m.id === costMethod)?.help}</p>
           {!planAllows(sub.data?.entitlement.plan.id, "costing") && <p className="text-xs text-amber-300">Le choix de la méthode est réservé à la formule Pro (méthode actuelle : {methodLabel(costMethod)}).</p>}
           {costMsg && <p className="text-sm text-amber-300" role="status">{costMsg}</p>}
+        </div>
+      )}
+      {tab === "shop" && can(s, "settings") && (
+        <div className="card flex flex-col gap-2">
+          <h2 className="font-semibold">Lots périmés</h2>
+          <p className="text-xs text-white/50">Pour les articles suivis par lot : que faire à la caisse d'un lot dont la date de péremption est dépassée ?</p>
+          <select className="input" aria-label="Politique des lots périmés" value={expiredPolicy} disabled={!planAllows(sub.data?.entitlement.plan.id, "lots")} onChange={(e) => void savePolicy(e.target.value)}>{EXPIRED_POLICIES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
+          {!planAllows(sub.data?.entitlement.plan.id, "lots") && <p className="text-xs text-amber-300">Les lots et dates d'expiration sont réservés à la formule Pro.</p>}
+          {polMsg && <p className="text-sm text-amber-300" role="status">{polMsg}</p>}
         </div>
       )}
       {tab === "payments" && can(s, "settings") && (

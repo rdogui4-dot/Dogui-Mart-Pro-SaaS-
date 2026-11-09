@@ -8,6 +8,9 @@ import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
 import { useRef } from "react";
+import { planAllows } from "@/domain/features";
+import { ExpiryAlerts } from "./tracking";
+import { useSubscription } from "./subscription";
 
 export function StockPage() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
@@ -27,11 +30,13 @@ export function StockPage() {
     mutationFn: ({ id, counted }: { id: string; counted: string }) => api(s, "stock.adjust", { productId: id, counted }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["stock"] }),
   });
+  const sub = useSubscription();
   const low = (products.data ?? []).filter((p) => isLow(qtyOf(levels.data, p), p.minStock ?? 0));
   const value = (products.data ?? []).filter((p) => !p.hasVariants).reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-4">
+      {planAllows(sub.data?.entitlement.plan.id, "lots") && <ExpiryAlerts />}
       <div className="grid grid-cols-2 gap-2">
         <div className="card"><div className="text-white/50 text-xs">Valeur du stock</div><div className="font-semibold">{formatFcfa(value)}</div></div>
         <div className="card"><div className="text-white/50 text-xs">Ruptures / alertes</div><div className="font-semibold text-red-400">{low.length}</div></div>
