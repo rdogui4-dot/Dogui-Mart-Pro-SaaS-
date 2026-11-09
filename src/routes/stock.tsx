@@ -9,7 +9,9 @@ import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
 import { useRef } from "react";
 import { planAllows } from "@/domain/features";
-import { ExpiryAlerts } from "./tracking";
+import { ExpiryAlerts, LotsSheet, SerialsSheet } from "./tracking";
+import { trackingOf } from "@/domain/tracking";
+import type { ArticleRow } from "@/lib/articles";
 import { useSubscription } from "./subscription";
 
 export function StockPage() {
@@ -30,12 +32,13 @@ export function StockPage() {
     mutationFn: ({ id, counted }: { id: string; counted: string }) => api(s, "stock.adjust", { productId: id, counted }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["stock"] }),
   });
-  const sub = useSubscription();
+  const sub = useSubscription(); const [track, setTrack] = useState<Product & { $id: string } | null>(null);
   const low = (products.data ?? []).filter((p) => isLow(qtyOf(levels.data, p), p.minStock ?? 0));
   const value = (products.data ?? []).filter((p) => !p.hasVariants).reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-4">
+      {track && (trackingOf(track) === "lot" ? <LotsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "lots")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} /> : <SerialsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "serials")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} />)}
       {planAllows(sub.data?.entitlement.plan.id, "lots") && <ExpiryAlerts />}
       <div className="grid grid-cols-2 gap-2">
         <div className="card"><div className="text-white/50 text-xs">Valeur du stock</div><div className="font-semibold">{formatFcfa(value)}</div></div>
@@ -70,7 +73,7 @@ export function StockPage() {
                 <div className="text-xs text-white/50">{formatFcfa(p.price)} · seuil {p.minStock ?? 0}{isLow(n, p.minStock ?? 0) && ` · à commander : ${reorderQty(n, 0, 14) || "à voir"}`}</div>
               </div>
               <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{formatQty(n)}</div>
-              {can(s, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { if (p.hasVariants) { alert("Cet article a des variantes : comptez chaque variante depuis l'écran Articles."); return; } const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v.replace(",", ".")))) adjust.mutate({ id: p.$id, counted: v }); }}>Compter</button>}
+              {can(s, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { if (trackingOf(p)) { setTrack(p as Product & { $id: string }); return; } if (p.hasVariants) { alert("Cet article a des variantes : comptez chaque variante depuis l'écran Articles."); return; } const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v.replace(",", ".")))) adjust.mutate({ id: p.$id, counted: v }); }}>{trackingOf(p) === "lot" ? "Lots" : trackingOf(p) === "serial" ? "Séries" : "Compter"}</button>}
             </li>
           );
         })}

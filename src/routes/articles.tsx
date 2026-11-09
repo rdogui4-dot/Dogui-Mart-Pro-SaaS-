@@ -51,7 +51,7 @@ function Catalogue() {
   const [f, setF] = useState<Filters>({ q: "", status: "active", category: "", sort: "name_asc" });
   const [qInput, setQInput] = useState(""); const [grid, setGrid] = useState(false);
   const [profitOpen, setProfitOpen] = useState(false); const proProfit = planAllows(sub.data?.entitlement.plan.id, "profitability");
-  const [form, setForm] = useState<ArticleRow | "new" | null>(null); const [detail, setDetail] = useState<ArticleRow | null>(null); const [scan, setScan] = useState(false);
+  const [form, setForm] = useState<ArticleRow | "new" | null>(null); const [detail, setDetail] = useState<ArticleRow | null>(null); const [scan, setScan] = useState(false); const [autoOpen, setAutoOpen] = useState(false);
   useEffect(() => { const t = setTimeout(() => setF((x) => ({ ...x, q: qInput })), 300); return () => clearTimeout(t); }, [qInput]);
   const filterKey = JSON.stringify(f);
   const page = useInfiniteQuery({
@@ -116,8 +116,8 @@ function Catalogue() {
       {!pro && <ProLocks />}
       {profitOpen && <ProfitSheet onClose={() => setProfitOpen(false)} />}
 
-      {detail && <ArticleDetail a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} variants={variants.filter((v) => v.productId === detail.$id)} levels={levels} onClose={() => setDetail(null)} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
-      {form && <ArticleForm initial={form === "new" ? null : form} pro={pro} qty={form === "new" ? 0 : qtyOf(levels, form)} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
+      {detail && <ArticleDetail autoOpen={autoOpen} a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} variants={variants.filter((v) => v.productId === detail.$id)} levels={levels} onClose={() => { setDetail(null); setAutoOpen(false); }} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
+      {form && <ArticleForm onCreated={async (id) => { try { const r = (await tables.getRow({ databaseId: DATABASE_ID, tableId: "products", rowId: id })) as unknown as ArticleRow; setAutoOpen(true); setDetail(r); } catch { /* la fiche reste accessible depuis la liste */ } }} initial={form === "new" ? null : form} pro={pro} qty={form === "new" ? 0 : qtyOf(levels, form)} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
       {scan && <Scanner onCode={(c) => { setQInput(c); setScan(false); }} onClose={() => setScan(false)} />}
     </div>
   );
@@ -141,12 +141,13 @@ function ArticleCard({ a, qty, grid, nVariants, onOpen }: { a: ArticleRow; qty?:
   );
 }
 
-function ArticleDetail({ a, qty, pro, variants, levels, onClose, onEdit, onChanged }: { a: ArticleRow; qty: number; pro: boolean; variants: VariantRow[]; levels?: Map<string, number>; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
+function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdit, onChanged }: { autoOpen?: boolean; a: ArticleRow; qty: number; pro: boolean; variants: VariantRow[]; levels?: Map<string, number>; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
   const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false); const [supOpen, setSupOpen] = useState(false); const [lotsOpen, setLotsOpen] = useState(false); const [serOpen, setSerOpen] = useState(false);
-  const mode = trackingOf(a); const proTracking = planAllows(useSubscription().data?.entitlement.plan.id, mode === "serial" ? "serials" : "lots");
+  const mode = trackingOf(a); useEffect(() => { if (autoOpen && mode === "lot") setLotsOpen(true); if (autoOpen && mode === "serial") setSerOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const proTracking = planAllows(useSubscription().data?.entitlement.plan.id, mode === "serial" ? "serials" : "lots");
   const proCosting = planAllows(useSubscription().data?.entitlement.plan.id, "costing"); const links = useLinks(a.$id); const shopDoc = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) }); const method = (shopDoc.data as { costMethod?: string } | null)?.costMethod ?? "cmup";
   const proPricing = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing"); const rules = useRules(a.$id);
   const proVariants = planAllows(useSubscription().data?.entitlement.plan.id, "variants");
@@ -270,7 +271,7 @@ function UnitsEditor({ a, current, onClose, onSaved }: { a: ArticleRow; current:
   );
 }
 
-function ArticleForm({ initial, qty, pro, onClose, onSaved }: { initial: ArticleRow | null; qty: number; pro: boolean; onClose: () => void; onSaved: () => void }) {
+function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCreated?: (id: string) => void; initial: ArticleRow | null; qty: number; pro: boolean; onClose: () => void; onSaved: () => void }) {
   const { session } = useSession(); const s = session!;
   const edit = !!initial; const requestId = useRef(crypto.randomUUID());
   const [f, setF] = useState({
@@ -301,7 +302,8 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved }: { initial: Article
     try { // la photo n'est confirmée qu'après réponse positive du serveur
       if (photo) await api(s, "article.image", { id, data: await compressImage(photo) });
       else if (removePhoto && initial?.imageFileId) await api(s, "article.image", { id, data: null });
-      onSaved(); setDone(edit ? "Article modifié." : "Article créé."); setBusy(false); setTimeout(onClose, 700);
+      onSaved(); setDone(edit ? "Article modifié." : "Article créé."); setBusy(false);
+      if (!edit && f.tracking) { onCreated?.(id); onClose(); } else setTimeout(onClose, 700); // article suivi : on ouvre directement l'entrée de stock (lots / numéros de série)
     } catch (x) {
       setBusy(false); setErr(`L'article est enregistré, mais la photo a échoué : ${(x as Error).message}`); onSaved();
       if (!edit) { requestId.current = crypto.randomUUID(); }

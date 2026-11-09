@@ -62,7 +62,10 @@ export function useArticleImage(fileId?: string, size = 200): string | null {
     const hit = cache.get(key); if (hit) { setUrl(hit); return; }
     let live = true;
     const env = import.meta.env; let fallback = ""; try { fallback = localStorage.getItem("cookieFallback") ?? ""; } catch { /* navigation privée */ }
-    fetch(`${env.VITE_APPWRITE_ENDPOINT}/storage/buckets/articles/files/${fileId}/preview?width=${size}&height=${size}&output=webp`, { headers: { "X-Appwrite-Project": String(env.VITE_APPWRITE_PROJECT_ID), "X-Fallback-Cookies": fallback }, credentials: "include" })
+    const base = `${env.VITE_APPWRITE_ENDPOINT}/storage/buckets/articles/files/${fileId}`; const init: RequestInit = { headers: { "X-Appwrite-Project": String(env.VITE_APPWRITE_PROJECT_ID), "X-Fallback-Cookies": fallback }, credentials: "include" };
+    // L'aperçu redimensionné (transformations d'image) n'est pas disponible sur toutes les formules Appwrite : à défaut, on affiche le fichier d'origine (déjà compressé à l'enregistrement).
+    fetch(`${base}/preview?width=${size}&height=${size}&output=webp`, init)
+      .then((r) => (r.ok ? r : fetch(`${base}/view`, init)))
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
       .then((b) => { const u = URL.createObjectURL(b); cache.set(key, u); if (live) setUrl(u); })
       .catch(() => { if (live) setUrl(null); });
