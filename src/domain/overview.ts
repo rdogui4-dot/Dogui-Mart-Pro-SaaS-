@@ -17,12 +17,12 @@ export const todayIn = (now: Date, tz: string): string => utcToZoned(now.toISOSt
 
 export type Period = { preset: PresetId; label: string; from: string; to: string; days: number };
 /** Période choisie, en jours calendaires de l'entreprise (bornes incluses). */
-export function resolvePeriod(preset: unknown, today: string, custom?: { from?: unknown; to?: unknown }): { ok: true; period: Period } | { ok: false; error: string } {
+export function resolvePeriod(preset: unknown, today: string, custom?: { from?: unknown; to?: unknown }, maxDays: number = MAX_RANGE_DAYS): { ok: true; period: Period } | { ok: false; error: string } {
   const p = (PRESETS.find((x) => x.id === preset)?.id ?? "last30") as PresetId; let from = today, to = today;
   if (p === "yesterday") from = to = addDays(today, -1); else if (p === "last7") from = addDays(today, -6); else if (p === "last30") from = addDays(today, -29);
   else if (p === "month") from = monthStart(today); else if (p === "lastMonth") { to = addDays(monthStart(today), -1); from = monthStart(to); }
   else if (p === "custom") { if (!isDay(custom?.from) || !isDay(custom?.to)) return { ok: false, error: "Période personnalisée : dates invalides" }; from = custom.from; to = custom.to; if (to < from) return { ok: false, error: "La fin précède le début" }; if (to > today) to = today; if (from > to) return { ok: false, error: "La période est dans le futur" }; }
-  const days = daysIn(from, to).length; if (days > MAX_RANGE_DAYS) return { ok: false, error: `Période de ${MAX_RANGE_DAYS} jours au maximum` };
+  const days = daysIn(from, to).length; if (days > maxDays) return { ok: false, error: `Période de ${maxDays} jours au maximum` };
   return { ok: true, period: { preset: p, label: PRESETS.find((x) => x.id === p)!.label, from, to, days } };
 }
 /** Bornes UTC [gte, lt[ d'une plage de jours de l'entreprise. */

@@ -4,7 +4,7 @@ import { trackingOf } from "../../../src/domain/tracking";
 import { isVirtualBundle } from "../../../src/domain/bundles";
 import type { Row, Store } from "./store";
 
-export type StockItem = { productId: string; variantId?: string; name: string; qty: number; min: number };
+export type StockItem = { productId: string; variantId?: string; name: string; qty: number; min: number; value: number };
 export type StockSnapshot = { partial: boolean; value: number | null; stockouts: number | null; items: StockItem[]; products: Row[]; activeProducts: number };
 
 /** État du stock d'une boutique, UNE seule définition partagée par les rapports et le tableau de bord (mêmes chiffres partout) :
@@ -27,16 +27,16 @@ export async function stockSnapshot(store: Store, where: Record<string, string>,
   const productRows = live.filter((x) => !isVirtualBundle(x)); // un bundle virtuel n'a pas de stock propre
   for (const p of productRows.filter((x) => !x.hasVariants)) {
     const n = fromScaled(stockOf(byProduct.get(String(p.$id)) ?? []), scaleOf(p));
-    value += trackingOf(p) === "lot" ? lotValue(String(p.$id), "", scaleOf(p), Number(p.cost ?? 0)) : Math.max(0, n) * Number(p.cost ?? 0);
+    const iv = trackingOf(p) === "lot" ? lotValue(String(p.$id), "", scaleOf(p), Number(p.cost ?? 0)) : Math.max(0, n) * Number(p.cost ?? 0); value += iv;
     if (n <= Number(p.minStock ?? 0)) stockouts++;
-    items.push({ productId: String(p.$id), name: String(p.name), qty: n, min: Number(p.minStock ?? 0) });
+    items.push({ productId: String(p.$id), name: String(p.name), qty: n, min: Number(p.minStock ?? 0), value: iv });
   }
   const variants = await store.scan("article_variants", where, { maxRows: 20_000 }); const liveV = new Set(productRows.filter((x) => x.hasVariants).map((x) => String(x.$id)));
   for (const v of variants.rows.filter((x) => !x.archived && liveV.has(String(x.productId)))) {
     const parent = products.rows.find((x) => x.$id === v.productId); const n = fromScaled(stockOf(byVariant.get(String(v.$id)) ?? []), scaleOf(parent));
-    value += trackingOf(parent) === "lot" ? lotValue(String(v.productId), String(v.$id), scaleOf(parent), Number(v.cost ?? 0)) : Math.max(0, n) * Number(v.cost ?? 0);
+    const iv = trackingOf(parent) === "lot" ? lotValue(String(v.productId), String(v.$id), scaleOf(parent), Number(v.cost ?? 0)) : Math.max(0, n) * Number(v.cost ?? 0); value += iv;
     if (n <= Number(v.minStock ?? 0)) stockouts++;
-    items.push({ productId: String(v.productId), variantId: String(v.$id), name: `${parent?.name ?? "Article"} — ${v.label}`, qty: n, min: Number(v.minStock ?? 0) });
+    items.push({ productId: String(v.productId), variantId: String(v.$id), name: `${parent?.name ?? "Article"} — ${v.label}`, qty: n, min: Number(v.minStock ?? 0), value: iv });
   }
   return { partial: false, value, stockouts, items, products: products.rows, activeProducts };
 }
