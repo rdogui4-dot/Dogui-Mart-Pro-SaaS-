@@ -62,7 +62,7 @@ describe("vente d'un bundle", () => {
     await ok(comps(pack, [{ productId: pain, qty: 5 }])); expect(lastLine().components).toHaveLength(2); // l'historique ne bouge pas
   });
   it("stock insuffisant : refus sans écriture, composant limitant nommé ; cumul avec une ligne simple du même composant", async () => {
-    await err(sell([{ productId: pack, qty: 11 }], 11000), 409, "Pain"); expect(st.rows("sales")).toHaveLength(0); expect(await stockFor(st, pain, 0)).toBe(10);
+    await err(sell([{ productId: pack, qty: 11 }], 11000), 409, "composant"); expect(st.rows("sales")).toHaveLength(0); expect(await stockFor(st, pain, 0)).toBe(10);
     await err(sell([{ productId: pack, qty: 6 }, { productId: pain, qty: 5 }], 9999), 409, "Stock insuffisant"); // 6 + 5 pains > 10
     await err(sell([{ productId: pain, qty: 5 }, { productId: pack, qty: 6 }], 9999), 409, "Stock insuffisant"); expect(st.rows("sales")).toHaveLength(0);
     await ok(sell([{ productId: pack, qty: 5 }, { productId: pain, qty: 5 }], 5000 + 1000)); expect(await stockFor(st, pain, 0)).toBe(0); expect(await stockFor(st, jus, 0)).toBe(10);
