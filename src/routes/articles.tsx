@@ -113,7 +113,7 @@ function Catalogue() {
       </ul>
       {page.hasNextPage && <button className="btn-ghost" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>{page.isFetchingNextPage ? "Chargement…" : "Voir plus d'articles"}</button>}
       {proProfit && <button className="btn-ghost" onClick={() => setProfitOpen(true)}>Rentabilité par article et catégorie</button>}
-      <ProLocks />
+      {!pro && <ProLocks />}
       {profitOpen && <ProfitSheet onClose={() => setProfitOpen(false)} />}
 
       {detail && <ArticleDetail a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} variants={variants.filter((v) => v.productId === detail.$id)} levels={levels} onClose={() => setDetail(null)} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
