@@ -177,11 +177,17 @@ describe("numéros de série", () => {
   });
   it("vente : les numéros doivent exister et être disponibles ; la vente les passe « vendu » avec référence et garantie", async () => {
     await ok(serials(serP, "SN001 SN002 SN003", { warrantyMonths: 12 }));
-    await err(sell([{ productId: serP, qty: 1 }], 50000), 400, "exactement 1"); await err(sell([{ productId: serP, qty: 2, serials: "SN001" }], 100000), 400, "exactement 2"); await err(sell([{ productId: serP, qty: 1, serials: "SN999" }], 50000), 404, "inconnu"); await err(sell([{ productId: serP, qty: 2, serials: "SN001 SN001" }], 1), 400, "double");
+    await err(sell([{ productId: serP, qty: 2, serials: "SN001" }], 100000), 400, "exactement 2"); await err(sell([{ productId: serP, qty: 1, serials: "SN999" }], 50000), 404, "inconnu"); await err(sell([{ productId: serP, qty: 2, serials: "SN001 SN001" }], 1), 400, "double");
     expect(st.rows("sales")).toHaveLength(0); expect(await stockFor(st, serP)).toBe(3);
     await ok(sell([{ productId: serP, qty: 2, serials: "sn001 sn002" }], 100000)); expect(await stockFor(st, serP)).toBe(1); const sale = st.rows("sales").at(-1)!;
     const row = st.rows("article_serials").find((r) => r.serial === "SN001")!; expect(row).toMatchObject({ status: "sold", saleId: sale.$id, saleRef: sale.number }); expect(row.warrantyUntil).toBeTruthy(); expect(lastLine().serials).toEqual(["SN001", "SN002"]);
     expect(st.rows("stock_moves").filter((m) => m.kind === "sale" && m.serial)).toHaveLength(2); expect(st.rows("article_serials").find((r) => r.serial === "SN003")!.status).toBe("available");
+  });
+  it("caisse : sans numéro saisi, les plus anciennes unités disponibles sont attribuées automatiquement", async () => {
+    await ok(serials(serP, "SN001 SN002 SN003")); await ok(sell([{ productId: serP, qty: 2 }], 100000));
+    expect(lastLine().serials).toEqual(["SN001", "SN002"]); expect(st.rows("article_serials").filter((r) => r.status === "sold").map((r) => r.serial).sort()).toEqual(["SN001", "SN002"]); expect(await stockFor(st, serP)).toBe(1);
+    await ok(sell([{ productId: serP, qty: 1 }], 50000)); expect(lastLine().serials).toEqual(["SN003"]); expect(await stockFor(st, serP)).toBe(0);
+    await err(sell([{ productId: serP, qty: 1 }], 50000), 409, "Stock insuffisant"); expect(st.rows("sales")).toHaveLength(2);
   });
   it("un numéro déjà vendu ne se revend pas, et un conflit en cours de vente annule les réservations déjà faites", async () => {
     await ok(serials(serP, "SN001 SN002")); await ok(sell([{ productId: serP, qty: 1, serials: "SN001" }], 50000));

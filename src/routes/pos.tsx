@@ -11,12 +11,12 @@ import { resolvePrice, ruleFromRow, categoryLabel, KIND_LABEL } from "@/domain/p
 import { useSubscription } from "./subscription";
 import { queueSale, syncPending } from "@/lib/offline";
 import { useSession } from "@/lib/session";
+import { trackingOf } from "@/domain/tracking";
 import { Scanner } from "@/components/Scanner";
 import { QrPay } from "@/components/QrPay";
 import { receiptModel, type ReceiptSale } from "@/domain/documents";
 import { deliverPdf, pdfBlob } from "@/lib/pdf";
 import { canExtendCredit } from "@/domain/credit";
-import { parseSerials, trackingOf } from "@/domain/tracking";
 
 
 /** Ligne du panier : quantité de base (pour le prix et le stock) + unité vendue si un conditionnement est choisi. */
@@ -32,7 +32,6 @@ export function PosPage() {
   const unitsQ = useQuery({ queryKey: ["units-all", s.shopId], queryFn: () => list<UnitRow>("article_units", s, [Query.equal("active", true)], 500), staleTime: 60_000 });
   const variantsQ = useQuery({ queryKey: ["variants-all", s.shopId], queryFn: () => list<VariantRow>("article_variants", s, [Query.equal("archived", false)], 500), staleTime: 60_000 });
   const variantsOf = (id: string) => (variantsQ.data ?? []).filter((v) => v.productId === id);
-  const [pickSerial, setPickSerial] = useState<{ p: Product & { $id: string }; v?: VariantRow } | null>(null);
   const [pickVar, setPickVar] = useState<(Product & { $id: string }) | null>(null);
   const unitsOf = (id: string) => (unitsQ.data ?? []).filter((u) => u.productId === id);
   const [cart, setCart] = useState<PosLine[]>([]); const [pick, setPick] = useState<{ p: Product & { $id: string }; v?: VariantRow } | null>(null);
@@ -57,11 +56,11 @@ export function PosPage() {
     });
   }
   /** Article simple (entier, sans conditionnement) : ajout direct ; sinon on demande la quantité et l'unité. */
-  const add = (p: Product & { $id: string }, v?: VariantRow) => { if (p.hasVariants && !v) { setPickVar(p); return; } if (trackingOf(p) === "serial") { setPickSerial({ p, v }); return; } if (scaleOf(p) > 0 || unitsOf(p.$id).length) { setPick({ p, v }); return; } try { addLine(p, 1, "", v); } catch (e) { setMsg((e as Error).message); } };
+  const add = (p: Product & { $id: string }, v?: VariantRow) => { if (p.hasVariants && !v) { setPickVar(p); return; } if (trackingOf(p) === "serial" && cart.some((l) => l.serials && l.productId === p.$id && (l.variantId ?? "") === (v?.$id ?? ""))) { setMsg("Cet article est saisi par numéro de série : scannez l'étiquette de chaque unité (ou retirez la ligne pour une attribution automatique)."); return; } if (scaleOf(p) > 0 || unitsOf(p.$id).length) { setPick({ p, v }); return; } try { addLine(p, 1, "", v); } catch (e) { setMsg((e as Error).message); } };
   /** Article à numéro de série : une ligne par article/variante, quantité = nombre de numéros saisis ; le serveur vérifie qu'ils existent et sont disponibles. */
   function addSerials(p: Product & { $id: string }, v: VariantRow | undefined, list: string[]) {
     const key = `${keyOf(p.$id, "", v?.$id)}|serial`;
-    setCart((c) => { const ex = c.find((l) => l.key === key); const all = [...new Set([...(ex?.serials ?? []), ...list])];
+    setCart((c) => { c = c.filter((l) => !(l.productId === p.$id && (l.variantId ?? "") === (v?.$id ?? "") && !l.serials)); const ex = c.find((l) => l.key === key); const all = [...new Set([...(ex?.serials ?? []), ...list])];
       const line: PosLine = { key, productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: v ? v.price : p.price, basePrice: v ? v.price : p.price, qty: all.length, scale: 0, serials: all, ...(v ? { variantId: v.$id } : {}) };
       return ex ? c.map((l) => (l.key === key ? line : l)) : [...c, line]; });
   }
@@ -71,10 +70,20 @@ export function PosPage() {
     if (!(next > 0)) return [];
     try { return [l.unit ? { ...l, unitQty: next, qty: convertQty(next, l.factor!, l.scale) } : { ...l, qty: next }]; } catch { return [l]; }
   }));
+  /** Code scanné = numéro de série d'une unité précise (étiquette collée sur l'appareil) : cette unité est ajoutée au panier. */
+  async function bySerial(code: string) {
+    try {
+      const r = await list<{ productId: string; variantId?: string; serial: string; status: string }>("article_serials", s, [Query.equal("serial", code.trim().toUpperCase())], 5);
+      const hit = r[0]; const p = hit && products.data?.find((x) => x.$id === hit.productId);
+      if (!hit || !p) return setMsg(`Code inconnu : ${code}`);
+      if (hit.status !== "available") return setMsg(`Numéro de série ${hit.serial} indisponible (${hit.status === "sold" ? "déjà vendu" : hit.status})`);
+      addSerials(p as Product & { $id: string }, variantsQ.data?.find((v) => v.$id === hit.variantId), [hit.serial]);
+    } catch { setMsg(`Code inconnu : ${code}`); }
+  }
   const byCode = (code: string) => {
     const v = variantsQ.data?.find((x) => x.barcode === code || x.sku === code); const vp = v && products.data?.find((x) => x.$id === v.productId && !x.archived);
     if (v && vp) add(vp as Product & { $id: string }, v);
-    else { const p = products.data?.find((x) => !x.archived && (x.barcode === code || x.sku === code)); if (p) add(p as Product & { $id: string }); else setMsg(`Code inconnu : ${code}`); }
+    else { const p = products.data?.find((x) => !x.archived && (x.barcode === code || x.sku === code)); if (p) add(p as Product & { $id: string }); else void bySerial(code); }
     setScan(false);
   };
   const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 40), [products.data, q]);
@@ -158,7 +167,6 @@ export function PosPage() {
       {msg && <p className="text-center text-amber-300">{msg}</p>}
       {last && cart.length === 0 && <button className="btn-ghost" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, customer?.name)).then((b) => deliverPdf(b, `${last.number}.pdf`))}>Ticket PDF / Partager</button>}
       {qr && isQrMethod(pay) && <QrPay session={s} provider={pay} amount={total} onPaid={(id) => void submit(id)} onCancel={() => setQr(false)} />}
-      {pickSerial && <SerialDialog p={pickSerial.p} v={pickSerial.v} onClose={() => setPickSerial(null)} onAdd={(l) => { addSerials(pickSerial.p, pickSerial.v, l); setPickSerial(null); }} />}
       {pickVar && <VariantDialog p={pickVar} variants={variantsOf(pickVar.$id)} levels={stock.data} onClose={() => setPickVar(null)} onPick={(v) => { const p = pickVar; setPickVar(null); add(p, v); }} />}
       {pick && <QtyDialog p={pick.p} v={pick.v} units={unitsOf(pick.p.$id)} onClose={() => setPick(null)} onAdd={(q, unit) => { addLine(pick.p, q, unit, pick.v); setPick(null); }} />}
       {scan && <Scanner onCode={byCode} onClose={() => setScan(false)} />}
@@ -181,23 +189,6 @@ function QtyDialog({ p, v, units, onClose, onAdd }: { p: Product & { $id: string
         {ok && <p className="text-sm text-white/60">{unit ? `= ${formatQty(base)} ${unitLabel(p.unit).toLowerCase()} · ` : ""}{formatFcfa(Math.round((v ? v.price : p.price) * base * 1e6) / 1e6)}</p>}
         {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
         <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={onClose}>Annuler</button><button className="btn flex-1" disabled={!ok}>Ajouter</button></div>
-      </form>
-    </div>
-  );
-}
-
-/** Saisie (ou scan) des numéros de série vendus. */
-function SerialDialog({ p, v, onClose, onAdd }: { p: Product & { $id: string }; v?: VariantRow; onClose: () => void; onAdd: (serials: string[]) => void }) {
-  const [txt, setTxt] = useState(""); const [scan, setScan] = useState(false);
-  let list: string[] = []; let err = ""; try { list = txt.trim() ? parseSerials(txt) : []; } catch (e) { err = (e as Error).message; }
-  return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Numéros de série">
-      <form className="card w-full max-w-sm flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); if (list.length) onAdd(list); }}>
-        <b>{v ? `${p.name} — ${v.label}` : p.name}</b>
-        <div className="flex gap-2"><textarea className="input flex-1" rows={3} autoFocus placeholder="Numéro(s) de série vendu(s)" value={txt} onChange={(e) => setTxt(e.target.value)} /><button type="button" className="btn-ghost self-start" aria-label="Scanner un numéro" onClick={() => setScan(true)}><ScanLine size={20} /></button></div>
-        <p className={`text-xs ${err ? "text-red-300" : "text-white/50"}`} role={err ? "alert" : undefined}>{err || `${list.length} numéro(s) · un numéro par unité vendue.`}</p>
-        <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={onClose}>Annuler</button><button className="btn flex-1" disabled={!list.length || !!err}>Ajouter</button></div>
-        {scan && <Scanner onCode={(c) => { setTxt((t) => (t.trim() ? `${t.trim()}\n${c}` : c)); setScan(false); }} onClose={() => setScan(false)} />}
       </form>
     </div>
   );

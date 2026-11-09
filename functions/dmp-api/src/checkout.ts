@@ -108,7 +108,17 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
       }
     } else if (mode === "serial") {
       if (soldUnit) throw new HttpError(400, `${p.name} : un article suivi par numéro de série se vend à l'unité`);
-      try { serials = existing ? (prevLines[li]?.serials ?? []) : parseSerials(l.serials); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
+      const given = (() => { if (existing || l.serials === undefined || l.serials === null || (Array.isArray(l.serials) && !l.serials.length) || String(l.serials).trim() === "") return null; try { return parseSerials(l.serials); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); } })();
+      if (existing) serials = prevLines[li]?.serials ?? [];
+      else if (given) serials = given;
+      else { // attribution automatique : les plus anciennes unités disponibles d'abord (le caissier n'a rien à mémoriser)
+        if (!Number.isInteger(qty) || qty < 1) throw new HttpError(400, `${p.name} : quantité invalide`);
+        const taken = new Set([...serialRows.keys()]); for (const x of lines) for (const sn of x.serials ?? []) taken.add(sn);
+        const pool = (await store.scan("article_serials", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, status: "available" }, { maxRows: 5000 })).rows
+          .filter((r) => String(r.variantId ?? "") === variantId && !taken.has(String(r.serial))).sort((a, b) => String(a.receivedAt ?? "").localeCompare(String(b.receivedAt ?? "")) || String(a.serial).localeCompare(String(b.serial)));
+        if (pool.length < qty) throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${pool.length} unité${pool.length > 1 ? "s" : ""} disponible${pool.length > 1 ? "s" : ""})`);
+        serials = pool.slice(0, qty).map((r) => String(r.serial));
+      }
       if (serials.length !== qty) throw new HttpError(400, `${p.name} : indiquez exactement ${qty} numéro${qty > 1 ? "s" : ""} de série`);
       if (!existing) {
         let sum = 0;
