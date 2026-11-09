@@ -17,6 +17,7 @@ import { articleProfitability, deleteSupplierLink, saveSupplierLink } from "./co
 import { archiveVariant, deleteVariant, saveVariant } from "./variants";
 import { assembleKit, refuseBundle, saveComponents } from "./bundles";
 import { ackAlerts, articleDashboard } from "./dashboard";
+import { deletePromotion, promotionStats, savePromotion, setPromotionStatus } from "./promotions";
 import { isCategory } from "../../../src/domain/pricing";
 import { archiveArticle, needFeature, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
@@ -181,7 +182,7 @@ export const TENANT_LEVEL = new Set(["report.consolidated", "subscription.get", 
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
-  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "bundle.components": saveComponents, "kit.assemble": assembleKit, "articles.dashboard": articleDashboard, "alerts.ack": ackAlerts, "lot.receive": receiveLot, "lot.update": updateLot, "lot.writeoff": writeOffLot, "serial.add": addSerials, "serial.status": setSerialStatus, "supplier.link.save": saveSupplierLink, "supplier.link.delete": deleteSupplierLink, "article.profitability": articleProfitability, "price.rule.save": savePriceRule, "price.rule.delete": deletePriceRule, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
+  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "bundle.components": saveComponents, "promotion.save": savePromotion, "promotion.status": setPromotionStatus, "promotion.delete": deletePromotion, "promotions.stats": promotionStats, "promotions.preview": (s: Store, c: Ctx, b: any) => checkout(s, c, { ...b, dryRun: true }), "kit.assemble": assembleKit, "articles.dashboard": articleDashboard, "alerts.ack": ackAlerts, "lot.receive": receiveLot, "lot.update": updateLot, "lot.writeoff": writeOffLot, "serial.add": addSerials, "serial.status": setSerialStatus, "supplier.link.save": saveSupplierLink, "supplier.link.delete": deleteSupplierLink, "article.profitability": articleProfitability, "price.rule.save": savePriceRule, "price.rule.delete": deletePriceRule, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,

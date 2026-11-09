@@ -13,12 +13,16 @@ import { allocateFefo, parseSerials, trackingOf, warrantyEnd } from "../../../sr
 import { expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
 import { isVirtualBundle } from "../../../src/domain/bundles";
 import { loadComponents } from "./bundles";
+import { evaluateForSale, recordUsage } from "./promotions";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
+type PromoSnap = { id: string; name: string; code?: string; kind: string; value: number; discount: number };
 export type CheckoutInput = {
   clientId: string; soldAt?: string; customerId?: string; redeemPoints?: number;
   lines: { productId: string; variantId?: string; qty: number | string; unit?: string; discountPct?: number; serials?: unknown }[];
   payments: (Payment & { linkId?: string })[];
+  /** Code promotionnel saisi à la caisse (facultatif). */ promoCode?: string;
+  /** Aperçu : calcule prix, promotions et total comme une vraie vente, sans rien écrire. */ dryRun?: boolean;
 };
 const moveId = (saleId: string, ...parts: number[]): string => `m${createHash("sha1").update(`${saleId}|${parts.join("|")}`).digest("hex").slice(0, 30)}`; // identifiant déterministe ≤ 36 caractères
 const MAX_FUTURE_MS = 10 * 60_000, MAX_AGE_MS = 45 * 86_400_000;
@@ -43,7 +47,9 @@ export async function stockFor(store: Store, productId: string, scale?: number):
 /** Vente atomique côté serveur : prix et stock lus en base, jamais fournis par le client. */
 export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   needModule(ctx, "pos");
-  if (!input.clientId || !input.lines?.length) throw new HttpError(400, "Panier vide");
+  if (!input.lines?.length) throw new HttpError(400, "Panier vide");
+  if (input.dryRun) input = { ...input, clientId: `dry${crypto.randomUUID().replace(/-/g, "")}`.slice(0, 36), payments: [] };
+  if (!input.clientId) throw new HttpError(400, "Panier vide");
   const saleId = safeId(input.clientId);
   if (saleId.length < 8) throw new HttpError(400, "clientId invalide");
 
@@ -66,9 +72,9 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   let tiered: boolean | undefined; // tarifs avancés : fonction Pro (retour en Business : on repasse au prix de base)
 
   // 1) Prix et stock vérifiés en base
-  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[] })[] = [];
-  const scales = new Map<string, number>(); const seenKeys = new Set<string>();
-  let packagingOk: boolean | undefined;
+  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[]; promo?: PromoSnap; baseAmount?: number })[] = [];
+  const pcat = new Map<string, string>(); const scales = new Map<string, number>(); const seenKeys = new Set<string>();
+  let packagingOk: boolean | undefined; let promoOn: boolean | undefined;
   const demand = new Map<string, number>(); const takenSerials = new Set<string>(); let bundlesOk: boolean | undefined;
   const prevLines: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[] }[] = (() => { try { return existing ? JSON.parse(String(existing.lines)) : []; } catch { return []; } })();
   const today = soldAt.slice(0, 10); let policy: Awaited<ReturnType<typeof expiredPolicyOf>> | undefined; const reserved = new Map<string, number>(); const serialRows = new Map<string, Row>();
@@ -124,6 +130,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   for (const [li, l] of input.lines.entries()) {
     const p = await store.get("products", l.productId);
     if (!p || p.tenantId !== ctx.tenantId || p.shopId !== ctx.shopId || p.archived) throw new HttpError(404, "Produit introuvable");
+    pcat.set(p.$id, String(p.category ?? ""));
     if (isVirtualBundle(p)) { // bundle virtuel : prix propre, sort ses composants du stock (aucun stock propre)
       if (l.variantId) throw new HttpError(400, `${p.name} n'a pas de variantes`);
       if (l.unit && l.unit !== (p.unit || "piece")) throw new HttpError(400, `${p.name} : un bundle se vend à la pièce`);
@@ -191,7 +198,25 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     const price = resolvePrice(rules, { basePrice: Number((v ?? p).price), unit: soldUnit, factor, qty: soldUnit ? unitQty! : qty, baseQty: qty, customerCategory: category, at: soldAt });
     lines.push({ productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: price.unitPrice, amount: price.amount, qty, ...(v ? { variantId: v.$id } : {}), discountPct, ...(cost > 0 ? { unitCost: cost } : {}), ...(soldUnit ? { unit: soldUnit, unitQty, factor } : {}), ...(lots?.length ? { lots: lots.map((x) => ({ lotId: x.lotId, lotNo: x.lotNo, qty: x.qty })) } : {}), ...(serials?.length ? { serials } : {}), ...(price.source !== "base" ? { priceSource: price.source, priceRuleId: price.ruleId, basePrice: Number((v ?? p).price) } : {}) });
   }
+  // Promotions (Business) : calculées ICI, à la date de la vente ; une seule par ligne, jamais cumulées avec un prix de tarification spécial ni une remise manuelle.
+  // Une reprise réutilise la remise déjà figée dans la vente : une vente confirmée n'est jamais recalculée.
+  let promoApplied: { promoId: string; name: string; code?: string; discount: number; lineIndexes: number[] }[] = []; let promoMeta: Map<string, { id: string; usageLimit?: number; usageCount: number; code?: string }> = new Map();
+  if (existing) {
+    for (const [i, l] of lines.entries()) { const pr = (prevLines[i] as { promo?: PromoSnap; baseAmount?: number; amount?: number } | undefined); if (pr?.promo) { l.promo = pr.promo; l.baseAmount = pr.baseAmount; l.amount = pr.amount; } }
+    const by = new Map<string, { promoId: string; name: string; code?: string; discount: number; lineIndexes: number[] }>();
+    for (const [i, l] of lines.entries()) if (l.promo) { const a = by.get(l.promo.id) ?? { promoId: l.promo.id, name: l.promo.name, ...(l.promo.code ? { code: l.promo.code } : {}), discount: 0, lineIndexes: [] }; a.discount += l.promo.discount; a.lineIndexes.push(i); by.set(l.promo.id, a); }
+    promoApplied = [...by.values()];
+    for (const a of promoApplied) { const pr = await store.get("promotions", a.promoId); promoMeta.set(a.promoId, { id: a.promoId, usageLimit: pr?.usageLimit == null ? undefined : Number(pr.usageLimit), usageCount: Number(pr?.usageCount ?? 0), code: a.code }); }
+  } else {
+    promoOn ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "promotions");
+    if (promoOn) {
+      const ev = await evaluateForSale(store, ctx, lines.map((l, i) => ({ index: i, productId: l.productId, category: pcat.get(l.productId), qty: l.qty, baseAmount: Number(l.amount ?? Math.round(l.unitPrice * l.qty)), unitCost: l.unitCost, eligible: !(Number(l.discountPct ?? 0) > 0) && (!l.priceSource || l.priceSource === "base") })), { customerId: customer?.$id, code: input.promoCode, now: new Date(soldAt) });
+      for (const r of ev.lines) if (r.promoId && r.discount > 0) { const l = lines[r.index]!; const pr = ev.promos.find((x) => x.id === r.promoId)!; const base = Number(l.amount ?? Math.round(l.unitPrice * l.qty)); l.baseAmount = base; l.amount = base - r.discount; l.promo = { id: pr.id, name: pr.name, ...(pr.code ? { code: pr.code } : {}), kind: pr.kind, value: pr.value, discount: r.discount }; }
+      promoApplied = ev.applied; promoMeta = new Map(ev.promos.map((x) => [x.id, { id: x.id, usageLimit: x.usageLimit, usageCount: x.usageCount, code: x.code }]));
+    }
+  }
   let total = cartTotal(lines);
+  if (input.dryRun) return { dryRun: true as const, total, discountTotal: lines.reduce((a, l) => a + (l.promo?.discount ?? 0), 0), promotions: promoApplied, lines: lines.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), name: l.name, qty: l.qty, amount: l.amount ?? Math.round(l.unitPrice * l.qty), ...(l.promo ? { baseAmount: l.baseAmount, promo: l.promo } : {}) })) };
 
   // 2) Client, points
   let redeem = 0;
@@ -233,6 +258,16 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     if (ok) claimed.push(cid);
     else if ((await store.get("stock_moves", cid))?.refId !== number) { for (const c of claimed) await store.remove("stock_moves", c); throw new HttpError(409, `Numéro de série déjà vendu : ${sn}`); }
   }
+
+  // Promotions : chaque utilisation est réservée (limite globale atomique) et liée à CETTE vente ; en cas d'échec, les réservations de séries et de promotions sont annulées.
+  const usageCreated: string[] = [];
+  try {
+    for (const a of promoApplied) {
+      const id = await recordUsage(store, ctx, promoMeta.get(a.promoId)!, { saleId, saleNumber: number, customerId: customer?.$id, discount: a.discount, usedAt: soldAt, baseAmount: a.lineIndexes.reduce((s, i) => s + (lines[i]!.baseAmount ?? 0), 0),
+        lines: a.lineIndexes.map((i) => ({ index: i, productId: lines[i]!.productId, name: lines[i]!.name, base: lines[i]!.baseAmount, discount: lines[i]!.promo!.discount })) });
+      if (id) usageCreated.push(id);
+    }
+  } catch (e) { for (const c of claimed) await store.remove("stock_moves", c); for (const u of usageCreated) await store.remove("promotion_usage", u); throw e; }
 
   // 4) Écritures idempotentes : la vente passe "pending" -> "posted" -> "paid"
   const shop = await store.get("shops", ctx.shopId);

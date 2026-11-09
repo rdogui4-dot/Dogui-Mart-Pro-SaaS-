@@ -3,6 +3,7 @@ export type PlanId = "starter" | "business" | "pro";
 const RANK: Record<PlanId, number> = { starter: 0, business: 1, pro: 2 };
 
 export const FEATURES = {
+  promotions: { label: "Promotions", min: "business", help: "Remises programmées, codes promotionnels, suivi des résultats." },
   articles: { label: "Catalogue d'articles", min: "business", help: "Fiches complètes, photos, catégories, historique des prix." },
   // Fonctions avancées réservées à Pro (verrouillées et proposées en mise à niveau ; non développées dans cette version)
   costing: { label: "Fournisseurs multiples, frais et valorisation du stock", min: "pro", help: "Comparer vos fournisseurs, intégrer les frais d'approvisionnement au coût, choisir la méthode de valorisation." },
