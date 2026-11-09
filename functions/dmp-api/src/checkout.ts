@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cartTotal, isQrMethod, settle, toFcfa, type CartLine, type Payment, type PaymentMethod } from "../../../src/domain/money";
+import { cartTotal, isQrMethod, lineTotal, settle, toFcfa, type CartLine, type Payment, type PaymentMethod } from "../../../src/domain/money";
 import { canExtendCredit } from "../../../src/domain/credit";
 import { DEFAULT_RULES, earnedPoints, redeemablePoints, tierFor } from "../../../src/domain/loyalty";
 import { saleJournal } from "../../../src/domain/accounting";
@@ -13,8 +13,10 @@ import { allocateFefo, parseSerials, trackingOf, warrantyEnd } from "../../../sr
 import { expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
 import { isVirtualBundle } from "../../../src/domain/bundles";
 import { loadComponents } from "./bundles";
-import { assertSessionForSale } from "./cashier";
+import { assertSessionForSale, openSessionOf } from "./cashier";
+import { MAX_BATCH, type BatchOp } from "./store";
 import { evaluateForSale, recordUsage, releaseUsage, useCoupon, releaseCoupon, logInvalidCoupon, type CouponCheck } from "./promotions";
+import { approvalNeeded, assertRefFree, claimApproval, hasRight, ledgerOp, receiptCode, refClaimOp, voucherByCode, voucherUseOp, type ApprovalKind } from "./pos-pro";
 import type { Decision, EvalResult, Promo } from "../../../src/domain/promotions";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
@@ -24,10 +26,11 @@ export type CheckoutInput = {
   clientId: string; soldAt?: string; customerId?: string; redeemPoints?: number;
   lines: { productId: string; variantId?: string; qty: number | string; unit?: string; discountPct?: number; serials?: unknown }[];
   payments: (Payment & { linkId?: string; reference?: string })[];
-  /** Aperçu : calcule prix, promotions et total comme une vraie vente, sans rien écrire. */ dryRun?: boolean; /** Coupon saisi à la caisse (Pro). */ couponCode?: string;
+  /** Aperçu : calcule prix, promotions et total comme une vraie vente, sans rien écrire. */ dryRun?: boolean; /** Coupon saisi à la caisse (Pro). */ couponCode?: string; /** Approbations hiérarchiques accordées (Pro) : remise manuelle, marge sous le seuil. */ approvals?: { discount?: string; margin?: string };
 };
 const moveId = (saleId: string, ...parts: number[]): string => `m${createHash("sha1").update(`${saleId}|${parts.join("|")}`).digest("hex").slice(0, 30)}`; // identifiant déterministe ≤ 36 caractères
 const MAX_FUTURE_MS = 10 * 60_000, MAX_AGE_MS = 45 * 86_400_000;
+const newIdLocal = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const safeId = (s: string) => s.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 
 /** Somme brute des mouvements : entiers à l'échelle de l'article (sous-unités). */
@@ -72,13 +75,18 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   const customer = input.customerId ? await store.get("customers", input.customerId) : null;
   if (input.customerId && (!customer || customer.tenantId !== ctx.tenantId || customer.shopId !== ctx.shopId)) throw new HttpError(404, "Client introuvable");
   const category = String(customer?.category ?? "");
+  const planNow = (await entitlementOf(store, ctx.tenantId)).plan.id; const proPos = planAllows(planNow, "smartPosPro");
+  const fp = createHash("sha1").update(input.lines.map((l) => `${l.productId}|${l.variantId ?? ""}|${l.qty}|${Number(l.discountPct ?? 0)}`).join(";")).digest("hex").slice(0, 16); // empreinte du panier : une approbation ne vaut que pour CE panier
+  const needs = { discount: false, margin: false };
+  /** Remise manuelle : Business = gérant ; Pro = droit « remise » ou approbation d'un responsable. */
+  const gateDiscount = async () => { if (!proPos) { need(ctx, "manager"); return; } if (await hasRight(store, ctx, "discount")) return; needs.discount = true; };
   let tiered: boolean | undefined; // tarifs avancés : fonction Pro (retour en Business : on repasse au prix de base)
 
   // 1) Prix et stock vérifiés en base
   const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[]; promo?: PromoSnap; promos?: PromoPart[]; couponRef?: { id: string; code: string }; baseAmount?: number })[] = [];
   const pcat = new Map<string, string>(); const psku = new Map<string, string>(); const scales = new Map<string, number>(); const seenKeys = new Set<string>();
   let packagingOk: boolean | undefined; let promoOn: boolean | undefined;
-  const demand = new Map<string, number>(); const takenSerials = new Set<string>(); let bundlesOk: boolean | undefined;
+  const slotKeys = new Map<string, number>(); const demand = new Map<string, number>(); const takenSerials = new Set<string>(); let bundlesOk: boolean | undefined;
   const prevLines: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[] }[] = (() => { try { return existing ? JSON.parse(String(existing.lines)) : []; } catch { return []; } })();
   const today = soldAt.slice(0, 10); let policy: Awaited<ReturnType<typeof expiredPolicyOf>> | undefined; const reserved = new Map<string, number>(); const serialRows = new Map<string, Row>();
   /** Affecte le stock d'un article (ou variante) pour `qty` unités lisibles : lots en FEFO, numéros de série (donnés ou les plus anciens disponibles), ou simple vérification du stock.
@@ -89,7 +97,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     if (mode === "lot") {
       if (existing) lots = (prev?.lots ?? []).map((x) => ({ ...x, unitCost: 0 }));
       else {
-        policy ??= await expiredPolicyOf(store, ctx);
+        policy ??= await expiredPolicyOf(store, ctx); slotKeys.set(dkey, (await store.scan("stock_moves", { productId: p.$id }, { maxRows: 200_000 })).rows.length);
         const stocks = (await lotsWithStock(store, ctx, p.$id, variantId)).map((x) => ({ id: x.id, qty: x.qty - (reserved.get(x.id) ?? 0), expiresAt: x.row.expiresAt ? String(x.row.expiresAt) : null, receivedAt: x.row.receivedAt ? String(x.row.receivedAt) : "", status: String(x.row.status ?? "active"), lotNo: String(x.row.lotNo), cost: Number(x.row.unitCost ?? 0) }));
         const need = scaledInt(qty, scale), fefo = allocateFefo(stocks, need, today, policy);
         if (fefo.shortage > 0) { const avail = fromScaled(need - fefo.shortage, scale); throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${avail} vendable${fefo.expiredQty ? `, ${fromScaled(fefo.expiredQty, scale)} périmé(s)` : ""}${fefo.blockedQty ? `, ${fromScaled(fefo.blockedQty, scale)} bloqué(s)` : ""})`); }
@@ -123,7 +131,8 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
       }
       for (const sn of serials) takenSerials.add(sn);
     } else if (!existing) { // le stock a déjà été décrémenté lors d'une reprise
-      const have = v ? fromScaled(await stockScaledVariant(store, v.$id), scale) : await stockFor(store, p.$id, scale);
+      const mv = (await store.scan("stock_moves", v ? { variantId: v.$id } : { productId: p.$id }, { maxRows: 200_000 })).rows; slotKeys.set(dkey, mv.length); // rang de lecture : sert à départager deux ventes simultanées
+      const have = fromScaled(stockOf(mv.map((m) => ({ productId: v ? v.$id : p.$id, qty: Number(m.qty), kind: m.kind as StockMove["kind"] }))), scale);
       const already = demand.get(dkey) ?? 0; // le même article peut figurer sur plusieurs lignes ou dans des bundles : cumul
       if (have < already + qty) throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${have})`);
       demand.set(dkey, already + qty);
@@ -156,7 +165,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
           comps.push({ productId: cp.$id, ...(d.variantId ? { variantId: d.variantId } : {}), name: cv ? `${cp.name} — ${cv.label}` : String(cp.name), qty: total, perBundle: d.qty, unitCost: al.trackedCost ?? Number((cv ?? cp).cost ?? 0), ...(al.lots?.length ? { lots: al.lots.map((x) => ({ lotId: x.lotId, lotNo: x.lotNo, qty: x.qty })) } : {}), ...(al.serials?.length ? { serials: al.serials } : {}) });
         }
       }
-      const bDisc = Number(l.discountPct ?? 0); if (bDisc > 0) need(ctx, "manager");
+      const bDisc = Number(l.discountPct ?? 0); if (bDisc > 0) await gateDiscount();
       const bcost = Math.round(comps.reduce((a, c) => a + c.unitCost * c.perBundle, 0));
       tiered ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "tieredPricing");
       const brules = tiered ? await loadRules(store, ctx, p.$id, "") : [];
@@ -191,7 +200,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     const lots = al.lots, serials = al.serials, trackedCost = al.trackedCost;
     // Remise > 0 réservée aux managers
     const discountPct = Number(l.discountPct ?? 0);
-    if (discountPct > 0) need(ctx, "manager");
+    if (discountPct > 0) await gateDiscount();
     // Le coût du moment est figé sur la vente (la marge d'un rapport ne bouge pas quand le coût moyen change plus tard).
     // Un coût non renseigné (0) n'est PAS figé : sinon la marge afficherait 100 % sur ce produit.
     const cost = trackedCost ?? Number((v ?? p).cost ?? 0);
@@ -228,10 +237,23 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     }
   }
   let total = cartTotal(lines);
-  if (input.dryRun) return { dryRun: true as const, total, discountTotal: lines.reduce((a, l) => a + (l.promo?.discount ?? 0), 0), promotions: promoApplied, decisions: promoDecisions, notes: promoNotes, pro: promoPro,
+  // Protection des marges (Pro) : marge de chaque ligne sur le coût figé, au prix FINAL (promotions et remises comprises)
+  const shopRow = await store.get("shops", ctx.shopId.slice(0, 36)); const minMargin = Math.max(0, Math.min(100, Number(shopRow?.minMarginPct ?? 0)));
+  const margins = lines.map((l, index) => { const amount = lineTotal(l); const cost = l.unitCost ? Math.round(l.unitCost * l.qty) : null; const pct = cost !== null && amount > 0 ? Math.round(((amount - cost) / amount) * 1000) / 10 : null;
+    const level = cost === null ? null : amount <= 0 || amount < cost ? "below_cost" as const : minMargin > 0 && pct !== null && pct < minMargin ? "low_margin" as const : null; return { index, name: l.name, amount, cost, marginPct: pct, level }; });
+  const marginAlerts = margins.filter((m) => m.level).map((m) => ({ index: m.index, name: m.name, level: m.level!, marginPct: m.marginPct, amount: m.amount, cost: m.cost!, thresholdPct: minMargin }));
+  if (proPos && marginAlerts.length && !(await hasRight(store, ctx, "approve"))) needs.margin = true;
+  const knownCost = margins.filter((m) => m.cost !== null); const estMargin = knownCost.reduce((a, m) => a + m.amount - m.cost!, 0);
+  if (input.dryRun) return { dryRun: true as const, fp, margin: { alerts: marginAlerts, thresholdPct: minMargin, estimated: estMargin, coveredAmount: knownCost.reduce((a, m) => a + m.amount, 0), lines: margins.map((m) => ({ index: m.index, cost: m.cost, marginPct: m.marginPct })) }, needsApproval: needs, pro: promoPro, proPos, total, discountTotal: lines.reduce((a, l) => a + (l.promo?.discount ?? 0), 0), promotions: promoApplied, decisions: promoDecisions, notes: promoNotes,
     coupon: couponInfo ? { ok: couponInfo.ok, code: couponInfo.code, message: couponInfo.message, applied: !!couponRef } : undefined,
     lines: lines.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), name: l.name, qty: l.qty, amount: l.amount ?? Math.round(l.unitPrice * l.qty), ...(l.promo ? { baseAmount: l.baseAmount, promo: l.promo, promos: l.promos } : {}) })) };
 
+  // Droits et approbations hiérarchiques (Pro) : exigés avant toute écriture ; chaque approbation ne sert qu'une fois, pour ce panier
+  const approvalOps: BatchOp[] = [];
+  if (!existing) for (const k of ["discount", "margin"] as const) if (needs[k]) {
+    const id = String(input.approvals?.[k] ?? ""); if (!id) throw approvalNeeded(k as ApprovalKind, k === "discount" ? "remise manuelle : droit « remise » ou approbation d'un responsable requis" : `marge sous le seuil sur ${marginAlerts.map((m) => m.name).join(", ")}`, fp);
+    approvalOps.push(...(await claimApproval(store, ctx, id, k, saleId, fp)));
+  }
   // 2) Client, points
   let redeem = 0;
   if (input.redeemPoints && customer) {
@@ -242,9 +264,19 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   // 3) Paiements : QR = lien confirmé, montant exact, non déjà utilisé
   const links: Record<string, unknown>[] = [];
   const refOf = (p: { reference?: unknown }) => { const r = String(p.reference ?? "").trim(); if (/[\u0000-\u001f]/.test(r) || r.length > 64) throw new HttpError(400, "Référence de paiement invalide"); return r; };
-  const verified = new Map<number, boolean>(); const refs = new Map<number, string>();
+  const verified = new Map<number, boolean>(); const refs = new Map<number, string>(); const voucherUses: { code: string; amount: number; slot: number }[] = []; const refClaims: { method: string; ref: string; original: string; amount: number }[] = [];
   for (const [pi, p] of input.payments.entries()) {
     const ref = refOf(p); if (ref) refs.set(pi, ref);
+    if (p.method === ("voucher" as PaymentMethod)) { // bon d'achat / avoir : code obligatoire, solde et titulaire vérifiés côté serveur
+      if (!proPos) throw new HttpError(402, "Les bons d'achat sont réservés à la formule Pro."); if (!ref) throw new HttpError(400, "Saisissez le code du bon d'achat");
+      const code = ref.toUpperCase(); if (voucherUses.some((u) => u.code === code)) throw new HttpError(400, "Le même bon est utilisé deux fois");
+      const v = await voucherByCode(store, ctx, code); if (!v) throw new HttpError(404, "Bon d'achat inconnu");
+      if (v.status !== "active") throw new HttpError(409, "Bon d'achat désactivé"); if (v.expiresAt && Date.parse(v.expiresAt) < Date.now()) throw new HttpError(409, "Bon d'achat expiré");
+      if (v.customerId && v.customerId !== (customer?.$id ?? "")) throw new HttpError(409, "Bon nominatif : identifiez son titulaire à la caisse");
+      const amt = toFcfa(p.amount); if (amt > v.balance) throw new HttpError(409, `Solde du bon insuffisant (${v.balance.toLocaleString("fr-FR")} FCFA)`);
+      voucherUses.push({ code, amount: amt, slot: v.uses }); verified.set(pi, true); refs.set(pi, code); continue;
+    }
+    if (proPos && ref && p.method !== "cash") { if (refClaims.some((c) => c.ref === ref.toUpperCase() && c.method === p.method)) throw new HttpError(400, `Référence « ${ref} » saisie deux fois dans la même vente`); await assertRefFree(store, ctx, p.method, ref, saleId); refClaims.push({ method: p.method, ref: ref.toUpperCase(), original: ref, amount: toFcfa(p.amount) }); }
     if (isQrMethod(p.method) && !p.linkId) { // Mobile Money saisi à la main (sans lien confirmé) : référence obligatoire, paiement marqué « non vérifié » (l'application ne confirme rien d'externe)
       if (ref.length < 4) throw new HttpError(400, `Paiement ${p.method === "wave" ? "Wave" : "Orange Money"} : saisissez la référence de la transaction (4 caractères au moins)`); verified.set(pi, false); continue;
     }
@@ -299,9 +331,13 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   const shop = await store.get("shops", ctx.shopId);
   const vatRatePct = Number(shop?.vatRatePct ?? 18);
   const vat = total - Math.round(total / (1 + vatRatePct / 100));
-  await store.create("sales", saleId, ctx.tenantId, {
+  // Mode ATOMIQUE (transaction Appwrite) : vente, mouvements de stock, écritures comptables, client et trace sont validés ensemble ou pas du tout. Reprise d'une ancienne vente partielle ou panier géant : enchaînement idempotent historique.
+  const batchMode = !existing && lines.length * 3 + payments.length * 2 + 24 <= MAX_BATCH; const ops: BatchOp[] = [];
+  const wc = async (table: string, id: string, data: Record<string, unknown>) => { if (batchMode) ops.push({ kind: "create", table, id, tenantId: ctx.tenantId, data }); else await store.create(table, id, ctx.tenantId, data); };
+  const wu = async (table: string, id: string, data: Record<string, unknown>) => { if (batchMode) ops.push({ kind: "update", table, id, data }); else await store.update(table, id, data); };
+  await wc("sales", saleId, {
     tenantId: ctx.tenantId, shopId: ctx.shopId, number, total, vat, customerId: customer?.$id ?? "", cashierId: ctx.userId,
-    payments: JSON.stringify(payments), lines: JSON.stringify(lines), status: "pending", clientId: saleId, soldAt,
+    payments: JSON.stringify(payments), lines: JSON.stringify(lines), status: batchMode ? "paid" : "pending", clientId: saleId, soldAt,
   });
   const base = saleId.slice(0, 28);
   for (const [i, l] of lines.entries()) { // mouvements en entiers de sous-unités ; l'unité vendue est tracée sur le mouvement
@@ -309,38 +345,56 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
       for (const [k, c] of l.components.entries()) {
         if (c.serials?.length) continue;
         const csc = scales.get(c.productId) ?? 0; const cm = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: c.productId, kind: "sale", refId: number, userId: ctx.userId, ...(c.variantId ? { variantId: c.variantId } : {}) };
-        if (c.lots?.length) for (const [m, a] of c.lots.entries()) await store.create("stock_moves", moveId(saleId, i, k, m), ctx.tenantId, { ...cm, lotId: a.lotId, qty: scaledInt(a.qty, csc) });
-        else await store.create("stock_moves", moveId(saleId, i, k), ctx.tenantId, { ...cm, qty: scaledInt(c.qty, csc) });
+        if (c.lots?.length) for (const [m, a] of c.lots.entries()) await wc("stock_moves", moveId(saleId, i, k, m), { ...cm, lotId: a.lotId, qty: scaledInt(a.qty, csc) });
+        else await wc("stock_moves", moveId(saleId, i, k), { ...cm, qty: scaledInt(c.qty, csc) });
       }
       continue;
     }
     if (l.serials?.length) continue; // les séries sont déjà tracées par leurs mouvements de réservation
     const scale = scales.get(l.productId) ?? 0; const common = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, kind: "sale", refId: number, userId: ctx.userId, ...(l.variantId ? { variantId: l.variantId } : {}) };
-    if (l.lots?.length) { for (const [k, a] of l.lots.entries()) await store.create("stock_moves", `${base}_m${i}_${k}`, ctx.tenantId, { ...common, lotId: a.lotId, qty: scaledInt(a.qty, scale), ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) }); continue; }
-    await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { ...common, qty: scaledInt(l.qty, scale), ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) });
+    if (l.lots?.length) { for (const [k, a] of l.lots.entries()) await wc("stock_moves", `${base}_m${i}_${k}`, { ...common, lotId: a.lotId, qty: scaledInt(a.qty, scale), ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) }); continue; }
+    await wc("stock_moves", `${base}_m${i}`, { ...common, qty: scaledInt(l.qty, scale), ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) });
   }
   // Les numéros vendus passent « vendu », avec la référence de vente et la fin de garantie.
   for (const l of serialEntries) for (const sn of l.serials ?? []) {
     const rid = serialRowId(l.productId, sn); const row = await store.get("article_serials", rid); if (!row) continue;
     const months = Number(row.warrantyMonths ?? 0);
-    await store.update("article_serials", rid, { status: "sold", saleId, saleRef: number, soldAt, ...(months > 0 ? { warrantyUntil: warrantyEnd(soldAt, months) } : {}) });
+    await wu("article_serials", rid, { status: "sold", saleId, saleRef: number, soldAt, ...(months > 0 ? { warrantyUntil: warrantyEnd(soldAt, months) } : {}) });
   }
   const j = saleJournal({ ref: number, date: soldAt, totalTtc: total, vatRatePct, payments });
   for (const [i, e] of j.entries.entries())
-    await store.create("journal_entries", `${base}_j${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, ref: number, account: e.account, debit: e.debit, credit: e.credit, label: e.label, date: soldAt });
-  await store.update("sales", saleId, { status: "posted" });
+    await wc("journal_entries", `${base}_j${i}`, { tenantId: ctx.tenantId, shopId: ctx.shopId, ref: number, account: e.account, debit: e.debit, credit: e.credit, label: e.label, date: soldAt });
+  if (!batchMode) await store.update("sales", saleId, { status: "posted" });
 
-  // 5) Client : crédit, points, cumul annuel (appliqué une seule fois, puis la vente passe "paid")
-  const current = await store.get("sales", saleId);
+  // 5) Client : crédit, points, cumul annuel (appliqué une seule fois) ; la vente passe « paid » (déjà le cas en mode atomique)
+  const current = batchMode ? { status: "posted" } : await store.get("sales", saleId);
   if (current?.status === "posted") {
     if (customer) {
       const spend = Number(customer.annualSpend ?? 0) + total;
       const pts = Number(customer.points ?? 0) - redeem + earnedPoints(total, tierFor(spend));
-      await store.update("customers", customer.$id, { creditBalance: Number(customer.creditBalance ?? 0) + credit, points: pts, annualSpend: spend });
+      await wu("customers", customer.$id, { creditBalance: Number(customer.creditBalance ?? 0) + credit, points: pts, annualSpend: spend });
     }
-    for (const l of links) await store.update("payment_links", l.$id as string, { saleId });
-    await store.update("sales", saleId, { status: "paid" });
+    for (const l of links) await wu("payment_links", l.$id as string, { saleId });
+    if (!batchMode) await store.update("sales", saleId, { status: "paid" });
   }
-  await store.create("audit_log", `${base}_a`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "sale.checkout", detail: `${number} ${total}` });
-  return { saleId, number, total, change: s.change, duplicate: false };
+  await wc("audit_log", `${base}_a`, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "sale.checkout", detail: `${number} ${total}` });
+  const put = async (o: BatchOp) => { if (o.kind === "create") await wc(o.table, o.id, o.data); else if (o.kind === "update") await wu(o.table, o.id, o.data); };
+  if (batchMode) for (const [k, n] of slotKeys) await wc("payment_refs", `sk${createHash("sha1").update(`${ctx.tenantId}|${k}|${n}`).digest("hex").slice(0, 28)}`, { tenantId: ctx.tenantId, shopId: ctx.shopId, saleId, method: "stock", reference: `${k}#${n}`.slice(0, 64), amount: 0 }); // une seule vente peut occuper un rang de stock : la perdante rejoue la lecture
+  for (const o of approvalOps) await put(o);
+  for (const c of refClaims) { const o = refClaimOp(ctx, c.method, c.original, saleId, c.amount); await put(o); }
+  for (const u of voucherUses) { const o = voucherUseOp(ctx, u.code, u.amount, saleId, u.slot); await put(o); }
+  if (proPos) { const o = ledgerOp(ctx, { kind: "sale", ref: number, key: saleId, amount: total, at: soldAt, sessionId: (await openSessionOf(store, ctx))?.$id as string | undefined, payload: { saleId, payments: payments.map((x) => ({ method: x.method, amount: x.amount, ...(x.reference ? { reference: x.reference } : {}) })), customerId: customer?.$id ?? "" } }); await put(o); }
+  if (batchMode) {
+    try { await store.batch(ops); }
+    catch (e) {
+      const again = await store.get("sales", saleId); if (again?.status === "paid" && again.tenantId === ctx.tenantId) return { saleId, number: again.number, duplicate: true }; // même vente validée en parallèle : un seul exemplaire (les réservations, à identifiants déterministes, appartiennent à la vente gagnante : on n'y touche pas)
+      for (const c of claimed) await store.remove("stock_moves", c); for (const u of usageCreated) await releaseUsage(store, u.promoId, u.id); if (couponUsage) await releaseCoupon(store, couponUsage.couponId, couponUsage.id);
+      const tries = (input as { __try?: number }).__try ?? 0;
+      if (e instanceof HttpError && e.status === 409 && tries < 12 && !input.dryRun) { await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 15 * (tries + 1)))); return checkout(store, ctx, { ...input, __try: tries + 1 } as CheckoutInput); } // conflit de rang (vente simultanée) : on relit le stock réel et on rejoue
+      throw e;
+    }
+  }
+  const warnings: string[] = [];
+  if (proPos) for (const pid of new Set(lines.flatMap((l) => (l.components ? l.components.map((c) => c.productId) : [l.productId])))) { const bal = await stockScaled(store, pid); if (bal < 0) { warnings.push(`Stock négatif détecté après la vente (${pid})`); await store.create("audit_log", newIdLocal(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "stock.negative", detail: `${number} ${pid} ${bal}` }); } }
+  return { saleId, number, total, change: s.change, duplicate: false, ...(proPos ? { verifyCode: receiptCode(ctx.tenantId, number, total, soldAt) } : {}), ...(warnings.length ? { warnings } : {}) };
 }

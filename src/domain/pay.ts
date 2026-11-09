@@ -3,7 +3,7 @@ import { isQrMethod, type Payment, type PaymentMethod } from "./money";
 
 /** Ligne de paiement saisie à la caisse (le montant reste un texte tant qu'il n'est pas validé). */
 export type PayLine = { id: string; method: PaymentMethod; amount: string; reference: string; linkId?: string };
-export const METHOD_LABEL: Record<PaymentMethod, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "Crédit client" };
+export const METHOD_LABEL: Record<PaymentMethod, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "Crédit client", voucher: "Bon d'achat / avoir" };
 export type PayState = { ok: boolean; errors: string[]; paid: number; remaining: number; change: number; creditAmount: number; payments: (Payment & { reference?: string; linkId?: string })[] };
 
 /** Contrôle d'un encaissement (paiement mixte compris) : montants entiers, référence pour Mobile Money (jamais « vérifiée » par l'application), crédit réservé aux clients dans leur plafond,

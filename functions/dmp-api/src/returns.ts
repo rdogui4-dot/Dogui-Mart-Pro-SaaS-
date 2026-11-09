@@ -7,6 +7,9 @@ import { boundsOf, addDays, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { needFeature } from "./articles";
 import { openSessionOf } from "./cashier";
+import { approvalNeeded, claimApproval, hasRight, ledgerOp, newVoucherOps, receiptCode, voucherCodeFor } from "./pos-pro";
+import { entitlementOf } from "./subscriptions";
+import { planAllows } from "../../../src/domain/features";
 import { HttpError, need, needModule, roleOf, type Ctx, type Row, type Store } from "./store";
 
 const sha = (s: string) => createHash("sha1").update(s).digest("hex");
@@ -14,7 +17,7 @@ const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const parse = <T,>(s: unknown, fb: T): T => { try { const v = JSON.parse(String(s)); return v ?? fb; } catch { return fb; } };
 const iso = (v: unknown): string => { const t = Date.parse(String(v)); return Number.isNaN(t) ? "" : new Date(t).toISOString(); };
 const isManager = (ctx: Ctx) => { const r = roleOf(ctx.roles); return r === "owner" || r === "manager"; };
-const METHODS = ["cash", "wave", "orange", "card", "credit"] as const;
+const METHODS = ["cash", "wave", "orange", "card", "credit", "voucher"] as const;
 type SaleLine = { productId: string; variantId?: string; name: string; qty: number; unitPrice: number; discountPct?: number; amount?: number; unitCost?: number; unit?: string; unitQty?: number; components?: unknown[]; serials?: string[]; lots?: unknown[] };
 type RetLine = { index: number; qty: number; amount: number };
 const audit = (store: Store, ctx: Ctx, action: string, detail: string) => store.create("audit_log", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action, detail: detail.slice(0, 1000) });
@@ -30,11 +33,14 @@ export function refundable(sale: Row, returns: Row[]): { lines: { index: number;
   return { lines: out, remainingTotal: out.reduce((a, l) => a + l.remainingNet, 0) };
 }
 
-type Input = { preview?: boolean; returnId?: string; saleId?: string; kind?: string; lines?: { index: number; qty: unknown }[]; reason?: string; refunds?: { method: string; amount: unknown; reference?: string }[] };
+type Input = { preview?: boolean; returnId?: string; saleId?: string; kind?: string; lines?: { index: number; qty: unknown }[]; reason?: string; refunds?: { method: string; amount: unknown; reference?: string }[]; approvalId?: string };
 /** Annulation (vente entière) ou remboursement (lignes et quantités) : opération TRACÉE (ligne `sale_returns`, mouvements de stock « retour », écriture comptable inverse, trace d'audit) — la vente d'origine n'est jamais supprimée ni modifiée dans ses montants.
  *  Gérant ou propriétaire. Idempotent (returnId) et rejouable : une coupure reprend sans doubler stock, comptabilité ni fidélité. Retour non géré pour bundles, séries et lots (refus explicite). */
 export async function refundSale(store: Store, ctx: Ctx, b: Input) {
-  needModule(ctx, "pos"); need(ctx, "manager"); await needFeature(store, ctx, "smartPos");
+  needModule(ctx, "pos"); await needFeature(store, ctx, "smartPos");
+  const proPos = planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "smartPosPro"); const kindWanted = b.kind === "cancel" ? "cancel" : "refund";
+  let needApproval = false; // Pro : droit distinct « annuler » / « rembourser », ou approbation d'un responsable ; Business : gérant
+  if (proPos) { if (!(await hasRight(store, ctx, kindWanted))) needApproval = true; } else need(ctx, "manager");
   const rawId = String(b.returnId ?? (b.preview ? "preview-00000000" : "")); if (rawId.length < 8) throw new HttpError(400, "returnId invalide (8 caractères au moins)"); const rid = `rt${sha(`${ctx.tenantId}|${rawId}`).slice(0, 30)}`;
   const kind = b.kind === "cancel" ? "cancel" : "refund"; const reason = String(b.reason ?? (b.preview ? "aperçu" : "")).trim(); if (reason.length < 3 || reason.length > 200) throw new HttpError(400, "Motif obligatoire (3 à 200 caractères)");
   const sale = await store.get("sales", String(b.saleId ?? "")); if (!sale || sale.tenantId !== ctx.tenantId || sale.shopId !== ctx.shopId) throw new HttpError(404, "Vente introuvable");
@@ -55,12 +61,14 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
     amount = chosen.reduce((a, l) => a + l.amount, 0); if (!(amount > 0)) throw new HttpError(400, "Montant à rembourser nul");
     if (b.preview) return { preview: true as const, amount, kind, lines: chosen }; // calcul serveur du montant (aucune écriture)
     refunds = (b.refunds ?? []).map((r) => ({ method: String(r.method), amount: toFcfa(Number(r.amount)), ...(r.reference ? { reference: String(r.reference).trim().slice(0, 64) } : {}) }));
+    if (refunds.some((r) => r.method === "voucher")) { if (!proPos) throw new HttpError(402, "Les avoirs (bons d'achat) sont réservés à la formule Pro."); refunds = refunds.map((r) => (r.method === "voucher" ? { ...r, reference: voucherCodeFor(`${ctx.tenantId}|${rawId}`) } : r)); if (refunds.filter((r) => r.method === "voucher").length > 1) throw new HttpError(400, "Un seul avoir par remboursement"); }
     if (!refunds.length) throw new HttpError(400, "Indiquez comment le client est remboursé");
     for (const r of refunds) { if (!(METHODS as readonly string[]).includes(r.method)) throw new HttpError(400, "Moyen de remboursement inconnu"); if (!(r.amount > 0)) throw new HttpError(400, "Montant de remboursement invalide"); if (["wave", "orange", "card"].includes(r.method) && (r.reference ?? "").length < 4) throw new HttpError(400, "Référence obligatoire pour un remboursement numérique (elle n'est pas vérifiée par l'application)"); if (r.method === "credit" && !customer) throw new HttpError(400, "Remboursement sur compte : la vente n'a pas de client"); }
     const sumR = refunds.reduce((a, r) => a + r.amount, 0); if (sumR !== amount) throw new HttpError(400, `La répartition du remboursement (${sumR.toLocaleString("fr-FR")}) ne correspond pas au montant à rembourser (${amount.toLocaleString("fr-FR")})`);
     const creditPart = refunds.filter((r) => r.method === "credit").reduce((a, r) => a + r.amount, 0); if (creditPart > Number(customer?.creditBalance ?? 0)) throw new HttpError(409, `Remboursement sur compte supérieur à la dette du client (${Number(customer?.creditBalance ?? 0).toLocaleString("fr-FR")} FCFA)`);
     const cashPart = refunds.filter((r) => r.method === "cash").reduce((a, r) => a + r.amount, 0); const sess = await openSessionOf(store, ctx);
     if (cashPart > 0 && !sess && shop?.cashRequired === true) throw new HttpError(409, "Ouvrez la caisse avant de rembourser en espèces");
+    if (needApproval) { const aid = String(b.approvalId ?? ""); if (!aid) throw approvalNeeded(kind, `${kind === "cancel" ? "annulation" : "remboursement"} : droit requis ou approbation d'un responsable`, sale.$id); for (const o of await claimApproval(store, ctx, aid, kind, rid, sale.$id)) { if (o.kind === "create") { if (!(await store.create(o.table, o.id, ctx.tenantId, o.data))) throw new HttpError(409, "Approbation déjà utilisée"); } else if (o.kind === "update") await store.update(o.table, o.id, o.data); } }
     const data = { tenantId: ctx.tenantId, shopId: ctx.shopId, saleId: sale.$id, saleNumber: String(sale.number), kind, amount, refunds: JSON.stringify(refunds), lines: JSON.stringify(chosen), reason, userId: ctx.userId, sessionId: cashPart > 0 && sess ? sess.$id : "", at: new Date().toISOString(), points: 0, status: "pending" };
     if (!(await store.create("sale_returns", rid, ctx.tenantId, data))) throw new HttpError(409, "Opération déjà en cours : réessayez");
     row = await store.get("sale_returns", rid);
@@ -69,6 +77,8 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
   const base = rid.slice(0, 26); const number = String(sale.number); const at = String(row!.at);
   for (const c of chosen) { const l = lines[c.index]!; const p = await store.get("products", l.productId); await store.create("stock_moves", `${base}_s${c.index}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), qty: scaledInt(c.qty, scaleOf(p)), kind: "return", refId: `retour-${number}`, userId: ctx.userId, ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) }); }
   const j = refundJournal({ ref: number, date: at, totalTtc: amount, vatRatePct, refunds: refunds as never }); for (const [i, e] of j.entries.entries()) await store.create("journal_entries", `${base}_j${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, ref: `${number}-RETOUR`, account: e.account, debit: e.debit, credit: e.credit, label: e.label, date: at });
+  const vr = refunds.find((r) => r.method === "voucher"); if (vr) { const o = newVoucherOps({ ...ctx }, vr.amount, number, sale.customerId ? String(sale.customerId) : undefined, vr.reference); for (const x of o.ops) if (x.kind === "create") await store.create(x.table, x.id, ctx.tenantId, x.data); }
+  if (proPos) { const o = ledgerOp(ctx, { kind, ref: number, key: rid, amount: -amount, at, userId: String(row!.userId ?? ctx.userId), sessionId: String(row!.sessionId ?? ""), payload: { refunds, reason } }); await store.create(o.table, o.id, ctx.tenantId, (o as { data: Record<string, unknown> }).data); }
   const fresh = await store.get("sale_returns", rid);
   if (fresh?.status === "pending") {
     let pts = 0;
@@ -104,6 +114,7 @@ export async function getSale(store: Store, ctx: Ctx, b: { saleId: string; repri
   if (!isManager(ctx) && s.cashierId !== ctx.userId) throw new HttpError(403, "Vous ne pouvez consulter que vos propres ventes");
   const rets = (await store.list("sale_returns", { saleId: s.$id }, 200)); const nm = await names(store, ctx); const cu = s.customerId ? await store.get("customers", String(s.customerId)) : null; const lines = parse<SaleLine[]>(s.lines, []);
   if (b.reprint) await audit(store, ctx, "sale.reprint", `${s.number}`); // une réimpression est tracée ; elle ne crée ni vente, ni mouvement de stock
-  return { ...saleView(s, rets, nm, new Map(cu ? [[cu.$id, String(cu.name)]] : [])), lines: lines.map((l) => ({ name: l.name, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct ?? 0, amount: l.amount ?? Math.round(l.unitPrice * l.qty), unit: l.unit ?? "", unitQty: l.unitQty ?? null })), refundable: refundable(s, rets), returnsDetail: rets.map((r) => ({ id: r.$id, kind: String(r.kind), amount: Number(r.amount), reason: String(r.reason ?? ""), at: iso(r.at), status: String(r.status), refunds: parse(r.refunds, []), user: nm.get(String(r.userId)) ?? "" })).sort((a, c) => c.at.localeCompare(a.at)) };
+  const proPos = planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "smartPosPro");
+  return { ...saleView(s, rets, nm, new Map(cu ? [[cu.$id, String(cu.name)]] : [])), ...(proPos ? { verifyCode: receiptCode(ctx.tenantId, String(s.number), Number(s.total), String(s.soldAt)) } : {}), lines: lines.map((l) => ({ name: l.name, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct ?? 0, amount: l.amount ?? Math.round(l.unitPrice * l.qty), unit: l.unit ?? "", unitQty: l.unitQty ?? null })), refundable: refundable(s, rets), returnsDetail: rets.map((r) => ({ id: r.$id, kind: String(r.kind), amount: Number(r.amount), reason: String(r.reason ?? ""), at: iso(r.at), status: String(r.status), refunds: parse(r.refunds, []), user: nm.get(String(r.userId)) ?? "" })).sort((a, c) => c.at.localeCompare(a.at)) };
 }
 void addDays;

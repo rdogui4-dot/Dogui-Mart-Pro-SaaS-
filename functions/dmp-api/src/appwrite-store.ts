@@ -51,6 +51,14 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
         return true;
       } catch (e: any) { if (e?.code === 409) return false; throw e; }
     },
+    async batch(ops) {
+      if (!ops.length) return;
+      const tx = await db.createTransaction({ ttl: 120 });
+      try {
+        await db.createOperations({ transactionId: tx.$id, operations: ops.map((o) => (o.kind === "create" ? { action: "create", databaseId, tableId: o.table, rowId: o.id, data: { ...o.data, $permissions: readRoles(o.table, o.tenantId, o.data, o.id).map((r) => Permission.read(r)) } } : o.kind === "update" ? { action: "update", databaseId, tableId: o.table, rowId: o.id, data: o.data } : { action: "delete", databaseId, tableId: o.table, rowId: o.id })) as never });
+        const done = await db.updateTransaction({ transactionId: tx.$id, commit: true }); if ((done as { status?: string }).status !== "committed") throw new Error(`Transaction non validée (${(done as { status?: string }).status})`);
+      } catch (e: any) { try { await db.updateTransaction({ transactionId: tx.$id, rollback: true }); } catch { /* déjà annulée ou expirée */ } throw e?.code === 409 ? new HttpError(409, "Conflit d'écriture : la ligne existe déjà") : e; }
+    },
     async update(tableId, rowId, data) { await db.updateRow({ databaseId, tableId, rowId, data }); },
     async remove(tableId, rowId) { try { await db.deleteRow({ databaseId, tableId, rowId }); } catch (e: any) { if (e?.code !== 404) throw e; } },
     async putFile(fileId, data, name, mime, readRoles) {

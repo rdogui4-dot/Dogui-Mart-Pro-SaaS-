@@ -1,6 +1,6 @@
 /** Écritures SYSCOHADA simplifiées, générées automatiquement à partir des opérations commerciales. */
 export const ACCOUNTS = {
-  cash: "571", wave: "5722", orange: "5723", bank: "521", customers: "411", suppliers: "401",
+  cash: "571", wave: "5722", orange: "5723", bank: "521", customers: "411", vouchers: "4191", suppliers: "401",
   salesGoods: "701", purchasesGoods: "601", stockGoods: "31", vatCollected: "4431", vatDeductible: "4452",
 } as const;
 
@@ -10,9 +10,9 @@ export type Journal = { date: string; ref: string; entries: Entry[] };
 export const isBalanced = (j: Journal): boolean =>
   j.entries.reduce((s, e) => s + e.debit, 0) === j.entries.reduce((s, e) => s + e.credit, 0);
 
-type Method = "cash" | "wave" | "orange" | "card" | "credit";
+type Method = "cash" | "wave" | "orange" | "card" | "credit" | "voucher";
 const treasury = (m: Method) =>
-  ({ cash: ACCOUNTS.cash, wave: ACCOUNTS.wave, orange: ACCOUNTS.orange, card: ACCOUNTS.bank, credit: ACCOUNTS.customers })[m];
+  ({ cash: ACCOUNTS.cash, wave: ACCOUNTS.wave, orange: ACCOUNTS.orange, card: ACCOUNTS.bank, credit: ACCOUNTS.customers, voucher: ACCOUNTS.vouchers })[m];
 
 /** Vente : débit trésorerie/clients (TTC), crédit 701 (HT) et 4431 (TVA). */
 export function saleJournal(a: {

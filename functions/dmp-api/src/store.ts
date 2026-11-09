@@ -3,7 +3,12 @@ export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 /** Accès aux données. Implémenté par Appwrite en production et en mémoire dans les tests. */
+export type BatchOp = { kind: "create"; table: string; id: string; tenantId: string; data: Record<string, unknown> } | { kind: "update"; table: string; id: string; data: Record<string, unknown> } | { kind: "remove"; table: string; id: string };
+/** Au-delà, une transaction Appwrite sort des limites usuelles : l'appelant bascule sur l'enchaînement idempotent. */
+export const MAX_BATCH = 90;
 export interface Store {
+  /** Écritures ATOMIQUES : tout est appliqué ou rien (transaction TablesDB d'Appwrite : création → opérations → validation ; annulation en cas d'échec). Une création sur un identifiant existant fait échouer le lot (409). */
+  batch(ops: BatchOp[]): Promise<void>;
   membership(tenantId: string, userId: string): Promise<{ roles: string[] } | null>;
   get(table: string, id: string): Promise<Row | null>;
   list(table: string, where: Record<string, string | number | boolean>, limit?: number): Promise<Row[]>;

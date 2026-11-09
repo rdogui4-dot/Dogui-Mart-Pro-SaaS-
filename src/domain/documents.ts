@@ -70,7 +70,7 @@ export type ReceiptSale = {
   lines: { name: string; qty: number; unitPrice: number; discountPct?: number; amount?: number }[];
   payments: { method: string; amount: number; reference?: string }[];
 };
-const METHOD: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "Crédit" };
+const METHOD: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "Crédit", voucher: "Bon d'achat" };
 
 export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: string, opts: { duplicate?: boolean; refunded?: number } = {}): DocModel {
   const totals = [{ label: "TOTAL", value: sale.total, strong: true }, ...sale.payments.map((p) => ({ label: METHOD[p.method] ?? p.method, value: p.amount }))];

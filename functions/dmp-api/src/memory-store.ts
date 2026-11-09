@@ -1,4 +1,4 @@
-import { HttpError, type Row, type Store } from "./store";
+import { HttpError, type BatchOp, type Row, type Store } from "./store";
 import { readRoles } from "./permissions";
 /** Store en mémoire pour les tests. */
 export class MemoryStore implements Store {
@@ -22,6 +22,16 @@ export class MemoryStore implements Store {
     if (this.t(table).has(id)) return false;
     this.perms.set(`${table}/${id}`, readRoles(table, tenantId, data, id));
     this.t(table).set(id, { ...data, $id: id }); return true;
+  }
+  /** Émule la transaction Appwrite : contrôle préalable (doublons, lignes absentes) puis application ; l'échec d'un contrôle n'écrit RIEN. Un crochet de test permet de simuler une panne en cours de lot. */
+  failBatchAfter: number | null = null;
+  private chain: Promise<unknown> = Promise.resolve();
+  /** Une transaction à la fois (comme le validateur Appwrite) : contrôle + application indivisibles. */
+  batch(ops: BatchOp[]): Promise<void> { const run = this.chain.then(() => this.batchNow(ops)); this.chain = run.catch(() => undefined); return run; }
+  private async batchNow(ops: BatchOp[]) {
+    const seen = new Set<string>(); for (const o of ops) { const k = `${o.table}/${o.id}`; if (o.kind === "create") { if (this.t(o.table).has(o.id) || seen.has(k)) throw new HttpError(409, "Conflit d'écriture : la ligne existe déjà"); seen.add(k); } else if (o.kind === "update" && !this.t(o.table).has(o.id) && !seen.has(k)) throw new HttpError(404, "Ligne introuvable"); }
+    if (this.failBatchAfter !== null) { const n = this.failBatchAfter; this.failBatchAfter = null; if (n < ops.length) throw new Error("Panne simulée pendant la transaction : rien n'est appliqué"); }
+    for (const o of ops) { if (o.kind === "create") await this.create(o.table, o.id, o.tenantId, o.data); else if (o.kind === "update") await this.update(o.table, o.id, o.data); else await this.remove(o.table, o.id); }
   }
   async remove(table: string, id: string) { this.t(table).delete(id); this.perms.delete(`${table}/${id}`); }
   files = new Map<string, { data: Uint8Array; name: string; mime: string; readRoles: string[] }>();
