@@ -29,9 +29,9 @@ export function StockPage() {
   });
   const sub = useSubscription(); const [track, setTrack] = useState<Product & { $id: string } | null>(null);
   const openStock = (p: Product & { $id: string }) => { if (trackingOf(p)) setTrack(p); else if (p.hasVariants) alert("Cet article a des variantes : comptez chaque variante depuis l'écran Articles."); else setPick(p); };
-  const shown = (products.data ?? []).filter((p) => !p.archived && (!q.trim() || [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))));
-  const low = (products.data ?? []).filter((p) => isLow(qtyOf(levels.data, p), p.minStock ?? 0));
-  const value = (products.data ?? []).filter((p) => !p.hasVariants).reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
+  const shown = (products.data ?? []).filter((p) => !p.archived && p.kind !== "bundle" && (!q.trim() || [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))));
+  const low = (products.data ?? []).filter((p) => p.kind !== "bundle" && isLow(qtyOf(levels.data, p), p.minStock ?? 0));
+  const value = (products.data ?? []).filter((p) => !p.hasVariants && p.kind !== "bundle").reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -46,7 +46,7 @@ export function StockPage() {
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
       <p className="text-xs text-white/50">Touchez un article pour ajuster son stock. Pour créer un article, utilisez l'écran Articles.</p>
-      {s.shops.length > 1 && can(s, "stock") && <Transfer products={products.data ?? []} variants={variants.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
+      {s.shops.length > 1 && can(s, "stock") && <Transfer products={(products.data ?? []).filter((p) => p.kind !== "bundle")} variants={variants.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">
         {shown.map((p) => {
           const n = qtyOf(levels.data, p);

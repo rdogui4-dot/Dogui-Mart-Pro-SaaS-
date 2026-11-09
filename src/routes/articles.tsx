@@ -6,6 +6,7 @@ import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
 import { listAll, list, qtyOf, stockLevels, variantQty, type Product, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
 import { VariantsSheet } from "./variants";
 import { LotsSheet, SerialsSheet } from "./tracking";
+import { BundleSheet, useComponents } from "./bundles";
 import { TRACKING_MODES, trackingOf } from "@/domain/tracking";
 import { PricingSheet, useRules } from "./pricing";
 import { ProfitSheet, SuppliersSheet, useLinks } from "./costing";
@@ -73,8 +74,8 @@ function Catalogue() {
   const simple = active.filter((p) => !p.hasVariants);
   const scaleById = new Map(all.map((p) => [p.$id, scaleOf(p)]));
   const activeVariants = liveVariants.filter((v) => active.some((p) => p.$id === v.productId && p.hasVariants));
-  const value = simple.reduce((a, p) => a + Math.max(qtyOf(levels, p), 0) * (p.cost ?? 0), 0) + activeVariants.reduce((a, v) => a + Math.max(variantQty(levels, v, scaleById.get(v.productId)), 0) * (v.cost ?? 0), 0);
-  const alerts = simple.filter((p) => isLow(qtyOf(levels, p), p.minStock ?? 0)).length + activeVariants.filter((v) => isLow(variantQty(levels, v, scaleById.get(v.productId)), v.minStock ?? 0)).length;
+  const value = simple.filter((p) => p.kind !== "bundle").reduce((a, p) => a + Math.max(qtyOf(levels, p), 0) * (p.cost ?? 0), 0) + activeVariants.reduce((a, v) => a + Math.max(variantQty(levels, v, scaleById.get(v.productId)), 0) * (v.cost ?? 0), 0);
+  const alerts = simple.filter((p) => p.kind !== "bundle" && isLow(qtyOf(levels, p), p.minStock ?? 0)).length + activeVariants.filter((v) => isLow(variantQty(levels, v, scaleById.get(v.productId)), v.minStock ?? 0)).length;
   const rows = page.data?.pages.flatMap((p) => p.rows) ?? [];
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["articles"] }); void qc.invalidateQueries({ queryKey: ["articles-stats"] }); void qc.invalidateQueries({ queryKey: ["products"] }); void qc.invalidateQueries({ queryKey: ["stock"] }); };
 
@@ -131,9 +132,9 @@ function ArticleCard({ a, qty, grid, nVariants, onOpen }: { a: ArticleRow; qty?:
         <Thumb id={a.imageFileId} size={grid ? 96 : 56} className={grid ? "self-center" : ""} />
         <div className="min-w-0 flex-1">
           <div className="font-semibold truncate">{a.name}</div>
-          <div className="text-xs text-white/50 truncate">{[a.sku, a.category, nVariants ? `${nVariants} variante${nVariants > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</div>
+          <div className="text-xs text-white/50 truncate">{[a.sku, a.category, a.kind === "bundle" ? "Bundle" : "", nVariants ? `${nVariants} variante${nVariants > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</div>
           <div className="flex items-center justify-between mt-1"><span className="gold-text font-bold">{formatFcfa(a.price)}</span>
-            <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
+            <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{qty === undefined ? "…" : a.kind === "bundle" ? `${formatQty(qty)} dispo` : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
           {a.archived && <span className="text-xs text-amber-300">Archivé</span>}
         </div>
       </button>
@@ -145,8 +146,9 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
-  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false); const [supOpen, setSupOpen] = useState(false); const [lotsOpen, setLotsOpen] = useState(false); const [serOpen, setSerOpen] = useState(false);
-  const mode = trackingOf(a); useEffect(() => { if (autoOpen && mode === "lot") setLotsOpen(true); if (autoOpen && mode === "serial") setSerOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false); const [supOpen, setSupOpen] = useState(false); const [lotsOpen, setLotsOpen] = useState(false); const [serOpen, setSerOpen] = useState(false); const [bndOpen, setBndOpen] = useState(false);
+  const isBundle = a.kind === "bundle"; const proBundles = planAllows(useSubscription().data?.entitlement.plan.id, "bundles"); const bundleComps = useComponents(isBundle ? a.$id : "-");
+  const mode = trackingOf(a); useEffect(() => { if (autoOpen && mode === "lot") setLotsOpen(true); if (autoOpen && mode === "serial") setSerOpen(true); if (autoOpen && a.kind === "bundle") setBndOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const proTracking = planAllows(useSubscription().data?.entitlement.plan.id, mode === "serial" ? "serials" : "lots");
   const proCosting = planAllows(useSubscription().data?.entitlement.plan.id, "costing"); const links = useLinks(a.$id); const shopDoc = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) }); const method = (shopDoc.data as { costMethod?: string } | null)?.costMethod ?? "cmup";
   const proPricing = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing"); const rules = useRules(a.$id);
@@ -174,8 +176,12 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
         {row("Fournisseur principal", sup.data?.name ?? (a.supplierId && !can(s, "purchases") ? "Non visible avec vos accès" : ""))}
         {a.hasVariants ? row("Prix de vente", <b className="gold-text">{prices.length ? (Math.min(...prices) === Math.max(...prices) ? formatFcfa(prices[0]!) : `${formatFcfa(Math.min(...prices))} – ${formatFcfa(Math.max(...prices))}`) : "—"}</b>) : <>{row("Prix de vente", <b className="gold-text">{formatFcfa(a.price)}</b>)}{row("Prix d'achat", a.cost ? formatFcfa(a.cost) : "")}
         {row("Marge brute indicative", a.cost ? `${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Prix d'achat non renseigné")}{proCosting && a.cost ? <>{row("Taux de marge (sur le coût)", `${(marginStats(a.price, a.cost).markupPct ?? "—").toLocaleString("fr-FR")} %`)}{row("Taux de marque (sur le prix)", `${(marginStats(a.price, a.cost).markPct ?? "—").toLocaleString("fr-FR")} %`)}</> : null}</>}
-        {row("Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-red-400" : ""}>{formatQty(qty)} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Précision des quantités", scaleLabel(a.qtyScale ?? 0))}{row("Seuil d'alerte", a.minStock ?? 0)}
+        {row(isBundle ? "Disponible (selon composants)" : "Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-red-400" : ""}>{formatQty(qty)} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Précision des quantités", scaleLabel(a.qtyScale ?? 0))}{row("Seuil d'alerte", a.minStock ?? 0)}
       </div>
+      {isBundle && (
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Composition</h3><button className="text-sm text-[var(--gold)]" onClick={() => setBndOpen(true)}>{proBundles && can(s, "stock") ? "Modifier" : "Voir"}</button></div>
+          <p className="text-sm text-white/50 mt-1">{bundleComps.data?.length ? `${bundleComps.data.length} composant${bundleComps.data.length > 1 ? "s" : ""} : chaque vente les retire du stock.` : "Aucun composant : ajoutez-en pour pouvoir vendre ce bundle."}</p></div>
+      )}
       {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
       {a.description && <div className="card text-sm whitespace-pre-line">{a.description}</div>}
       <div className="card"><h3 className="font-semibold mb-1">Historique des prix</h3>
@@ -183,7 +189,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
           <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>
             <span className="text-right">{h.oldPrice ? `${formatFcfa(h.oldPrice)} → ` : "Création : "}{formatFcfa(h.newPrice ?? 0)}<span className="text-white/40"> · achat {formatFcfa(h.newCost ?? 0)}</span></span></li>)}</ul>}
         <p className="text-xs text-white/40 mt-2">Les ventes déjà enregistrées gardent le prix du jour de la vente.</p></div>
-      {(proCosting || !!links.data?.length) && (
+      {!isBundle && (proCosting || !!links.data?.length) && (
         <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Fournisseurs & coûts</h3><button className="text-sm text-[var(--gold)]" onClick={() => setSupOpen(true)}>{proCosting ? "Gérer" : "Voir"}</button></div>
           <p className="text-sm text-white/50 mt-1">{links.data?.length ? `${links.data.length} fournisseur${links.data.length > 1 ? "s" : ""} associé${links.data.length > 1 ? "s" : ""} · coût de revient, comparaison et évolution.` : "Aucun fournisseur associé : comparez vos fournisseurs et suivez l'évolution de vos coûts."}</p>
           {!proCosting && <p className="text-xs text-amber-300 mt-2">Lecture seule (formule Business) : vos données sont conservées ; les frais d'approvisionnement ne sont plus appliqués.</p>}
@@ -195,14 +201,14 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
           {!proPricing && !!rules.data?.length && <p className="text-xs text-amber-300 mt-2">Tarifs désactivés (formule Business) : le prix de base s'applique ; vos tarifs sont conservés.</p>}
         </div>
       )}
-      {(proVariants || a.hasVariants) && (
+      {!isBundle && (proVariants || a.hasVariants) && (
         <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Variantes</h3><button className="text-sm text-[var(--gold)]" onClick={() => setVarsOpen(true)}>{proVariants ? "Gérer" : "Voir"}</button></div>
           {!live.length ? <p className="text-sm text-white/50 mt-1">Aucune variante active.</p> :
             <ul className="text-sm mt-1 flex flex-col gap-1">{live.slice(0, 5).map((v) => <li key={v.$id} className="flex justify-between gap-2"><span className="truncate">{v.label}</span><span className="text-white/60 whitespace-nowrap">{formatQty(variantQty(levels, v, scaleOf(a)))} · {formatFcfa(v.price)}</span></li>)}{live.length > 5 && <li className="text-white/40">+ {live.length - 5} autres…</li>}</ul>}
           {!proVariants && <p className="text-xs text-amber-300 mt-2">Variantes en lecture seule (formule Business) : vos données sont conservées et la vente continue ; la gestion revient avec Pro.</p>}
         </div>
       )}
-      {(pro || !!units.data?.length) && (
+      {!isBundle && (pro || !!units.data?.length) && (
         <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Conditionnements</h3>{pro && <button className="text-sm text-[var(--gold)]" onClick={() => setUnitsOpen(true)}>Modifier</button>}</div>
           {!units.data?.length ? <p className="text-sm text-white/50 mt-1">Vendu uniquement en {unitLabel(a.unit).toLowerCase()}.</p> :
             <ul className="text-sm mt-1 flex flex-col gap-1">{units.data.map((u) => <li key={u.$id} className="flex justify-between"><span>1 {unitLabel(u.unit).toLowerCase()} = {formatQty(u.factor)} {unitLabel(a.unit).toLowerCase()}</span><span className="gold-text font-semibold">{formatFcfa(Math.round(a.price * u.factor * 1e6) / 1e6)}</span></li>)}</ul>}
@@ -213,7 +219,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
       <div className="grid grid-cols-2 gap-2">
         <button className="btn flex items-center justify-center gap-2" onClick={onEdit}><Pencil size={18} />Modifier</button>
         {mode ? <button className="btn-ghost" onClick={() => (mode === "lot" ? setLotsOpen(true) : setSerOpen(true))}>{mode === "lot" ? "Lots & péremption" : "Numéros de série"}</button> : null}
-        {!mode && <button className="btn-ghost" onClick={() => { if (a.hasVariants) { setVarsOpen(true); return; } setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>{a.hasVariants ? "Stock par variante" : "Compter le stock"}</button>}
+        {!mode && !isBundle && <button className="btn-ghost" onClick={() => { if (a.hasVariants) { setVarsOpen(true); return; } setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>{a.hasVariants ? "Stock par variante" : "Compter le stock"}</button>}
         {a.archived ? <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("restore")}><Undo2 size={18} />Restaurer</button> : <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("archive")}><Archive size={18} />Archiver</button>}
         {canDelete && <button className="btn-ghost !text-red-300 flex items-center justify-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={18} />Supprimer</button>}
       </div>
@@ -227,6 +233,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
           <p className="text-xs text-white/50">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
           <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+([.,]\d{1,3})?$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
       )}
+      {bndOpen && <BundleSheet a={a} canManage={proBundles && can(s, "stock")} onClose={() => setBndOpen(false)} onChanged={() => { void bundleComps.refetch(); onChanged(); }} />}
       {lotsOpen && <LotsSheet a={a} canManage={proTracking && can(s, "stock")} onClose={() => setLotsOpen(false)} onChanged={onChanged} />}
       {serOpen && <SerialsSheet a={a} canManage={proTracking && can(s, "stock")} onClose={() => setSerOpen(false)} onChanged={onChanged} />}
       {supOpen && <SuppliersSheet a={a} variants={variants} canManage={proCosting} method={method} onClose={() => setSupOpen(false)} onChanged={() => { void links.refetch(); onChanged(); }} />}
@@ -276,7 +283,7 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
   const edit = !!initial; const requestId = useRef(crypto.randomUUID());
   const [f, setF] = useState({
     name: initial?.name ?? "", sku: initial?.sku ?? "", barcode: initial?.barcode ?? "", category: initial?.category ?? "", description: initial?.description ?? "",
-    price: initial ? String(initial.price) : "", cost: initial?.cost ? String(initial.cost) : "", unit: initial?.unit ?? "piece", minStock: String(initial?.minStock ?? 5), supplierId: initial?.supplierId ?? "", qty: "", qtyScale: String(initial?.qtyScale ?? 0), tracking: trackingOf(initial) as string,
+    price: initial ? String(initial.price) : "", cost: initial?.cost ? String(initial.cost) : "", unit: initial?.unit ?? "piece", minStock: String(initial?.minStock ?? 5), supplierId: initial?.supplierId ?? "", qty: "", qtyScale: String(initial?.qtyScale ?? 0), tracking: trackingOf(initial) as string, kind: initial?.kind === "bundle" ? "bundle" : "simple",
   });
   const [photo, setPhoto] = useState<File | null>(null); const [removePhoto, setRemovePhoto] = useState(false); const [preview, setPreview] = useState<string | null>(null);
   const [scan, setScan] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [done, setDone] = useState("");
@@ -295,7 +302,7 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
     e.preventDefault(); setBusy(true); setErr(""); setDone("");
     let id = initial?.$id ?? "";
     try {
-      const data = { name: f.name, sku: f.sku, barcode: f.barcode, category: f.category, description: f.description, price: f.price.replace(/\s/g, ""), cost: f.cost.replace(/\s/g, ""), unit: f.unit, minStock: f.minStock, supplierId: f.supplierId, ...(pro || f.tracking !== trackingOf(initial) ? { tracking: f.tracking } : {}), ...(pro || Number(f.qtyScale) !== (initial?.qtyScale ?? 0) ? { qtyScale: Number(f.qtyScale) } : {}) };
+      const data = { name: f.name, sku: f.sku, barcode: f.barcode, category: f.category, description: f.description, price: f.price.replace(/\s/g, ""), cost: f.cost.replace(/\s/g, ""), unit: f.unit, minStock: f.minStock, supplierId: f.supplierId, ...(!edit && f.kind === "bundle" ? { kind: "bundle" } : {}), ...(pro || f.tracking !== trackingOf(initial) ? { tracking: f.tracking } : {}), ...(pro || Number(f.qtyScale) !== (initial?.qtyScale ?? 0) ? { qtyScale: Number(f.qtyScale) } : {}) };
       const r = await api<{ id: string }>(s, "article.save", edit ? { id, data } : { requestId: requestId.current, data, initialQty: f.qty ? f.qty.trim() : 0 });
       id = r.id; onSaved();
     } catch (x) { setErr((x as Error).message); setBusy(false); return; }
@@ -303,7 +310,7 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
       if (photo) await api(s, "article.image", { id, data: await compressImage(photo) });
       else if (removePhoto && initial?.imageFileId) await api(s, "article.image", { id, data: null });
       onSaved(); setDone(edit ? "Article modifié." : "Article créé."); setBusy(false);
-      if (!edit && f.tracking) { onCreated?.(id); onClose(); } else setTimeout(onClose, 700); // article suivi : on ouvre directement l'entrée de stock (lots / numéros de série)
+      if (!edit && (f.tracking || f.kind === "bundle")) { onCreated?.(id); onClose(); } else setTimeout(onClose, 700); // article suivi : on ouvre directement l'entrée de stock (lots / numéros de série)
     } catch (x) {
       setBusy(false); setErr(`L'article est enregistré, mais la photo a échoué : ${(x as Error).message}`); onSaved();
       if (!edit) { requestId.current = crypto.randomUUID(); }
@@ -336,11 +343,13 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
           {lbl("Unité de vente", <select className="input" value={f.unit} onChange={set("unit")}>{UNITS.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}</select>)}
           {lbl("Seuil d'alerte", <input className="input" inputMode="numeric" value={f.minStock} onChange={set("minStock")} />)}
         </div>
-        {pro && lbl("Précision des quantités", <select className="input" value={f.qtyScale} onChange={set("qtyScale")}>{SCALES.map((x) => <option key={x} value={x}>{scaleLabel(x)}</option>)}</select>)}
-        {pro && <p className="text-xs text-white/40 -mt-2">Pour vendre au kilo ou au litre. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
-        {pro && lbl("Suivi du stock", <select className="input" value={f.tracking} onChange={set("tracking")}>{TRACKING_MODES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>)}
-        {pro && <p className="text-xs text-white/40 -mt-2">Par lot : péremption et prélèvement du plus ancien d'abord. Par numéro de série : une unité = un numéro. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
-        {f.tracking && !edit ? <p className="text-sm text-white/50">Le stock d'un article suivi s'ajoute après création : entrée de lot ou numéros de série.</p> : edit ? <p className="text-sm text-white/50">Stock actuel : <b>{formatQty(qty)}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="decimal" value={f.qty} onChange={set("qty")} />)}
+        {pro && !edit && lbl("Type d'article", <select className="input" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value, ...(e.target.value === "bundle" ? { tracking: "", qtyScale: "0", qty: "" } : {}) })}><option value="simple">Article simple</option><option value="bundle">Bundle (pack de plusieurs articles)</option></select>)}
+        {f.kind === "bundle" && <p className="text-xs text-white/40 -mt-2">Un bundle se vend à son propre prix et retire ses composants du stock. Vous les choisirez à l'étape suivante.</p>}
+        {pro && f.kind !== "bundle" && lbl("Précision des quantités", <select className="input" value={f.qtyScale} onChange={set("qtyScale")}>{SCALES.map((x) => <option key={x} value={x}>{scaleLabel(x)}</option>)}</select>)}
+        {pro && f.kind !== "bundle" && <p className="text-xs text-white/40 -mt-2">Pour vendre au kilo ou au litre. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
+        {pro && f.kind !== "bundle" && lbl("Suivi du stock", <select className="input" value={f.tracking} onChange={set("tracking")}>{TRACKING_MODES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>)}
+        {pro && f.kind !== "bundle" && <p className="text-xs text-white/40 -mt-2">Par lot : péremption et prélèvement du plus ancien d'abord. Par numéro de série : une unité = un numéro. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
+        {f.kind === "bundle" ? null : f.tracking && !edit ? <p className="text-sm text-white/50">Le stock d'un article suivi s'ajoute après création : entrée de lot ou numéros de série.</p> : edit ? <p className="text-sm text-white/50">Stock actuel : <b>{formatQty(qty)}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="decimal" value={f.qty} onChange={set("qty")} />)}
         {can(s, "purchases") && lbl("Fournisseur principal (facultatif)", <select className="input" value={f.supplierId} onChange={set("supplierId")}><option value="">Aucun</option>{(suppliers.data ?? []).map((x) => <option key={x.$id} value={x.$id}>{x.name}</option>)}</select>)}
         {lbl("Description", <textarea className="input" rows={3} maxLength={1000} value={f.description} onChange={set("description")} />)}
         {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}

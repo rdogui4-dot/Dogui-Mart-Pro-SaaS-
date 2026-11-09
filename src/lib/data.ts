@@ -3,10 +3,11 @@ import type { Shop } from "@/domain/documents";
 import { api } from "./api";
 import { delta } from "@/domain/stock";
 import { fromScaled } from "@/domain/quantity";
+import { bundleAvailable } from "@/domain/bundles";
 import type { Session } from "./session";
 
 export type Row<T> = T & { $id: string; $createdAt: string };
-export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean; tracking?: string };
+export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean; tracking?: string; kind?: string };
 export type Customer = { name: string; phone?: string; creditLimit?: number; creditBalance?: number; points?: number; annualSpend?: number; category?: string };
 export type Supplier = { name: string; phone?: string; email?: string; balance?: number };
 
@@ -39,6 +40,11 @@ export async function stockLevels(s: Session): Promise<Map<string, number>> {
     m.set(x.productId, (m.get(x.productId) ?? 0) + d); // total de l'article (toutes variantes)
     if (x.variantId) m.set(`v:${x.variantId}`, (m.get(`v:${x.variantId}`) ?? 0) + d); // stock propre à la variante
   }
+  // Bundles virtuels : pas de stock propre, la disponibilité se déduit des composants (composant le plus limitant).
+  const comps = await listAll<{ bundleId: string; componentId: string; qty: number }>("article_components", s);
+  const by = new Map<string, { productId: string; qty: number }[]>();
+  for (const c of comps) by.set(c.bundleId, [...(by.get(c.bundleId) ?? []), { productId: c.componentId, qty: c.qty }]);
+  for (const [bundleId, list] of by) m.set(bundleId, bundleAvailable(list, (id) => m.get(id) ?? 0));
   return m;
 }
 

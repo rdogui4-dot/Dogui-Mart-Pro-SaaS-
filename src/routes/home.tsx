@@ -36,7 +36,7 @@ export function HomePage() {
   const total = paid.reduce((a, x) => a + x.total, 0);
   const prods = (stock.data?.products ?? []).filter((p) => !p.archived);
   const lowNames = [
-    ...prods.filter((p) => !p.hasVariants && isLow(qtyOf(stock.data?.levels, p), p.minStock ?? 0)).map((p) => p.name),
+    ...prods.filter((p) => !p.hasVariants && p.kind !== "bundle" && isLow(qtyOf(stock.data?.levels, p), p.minStock ?? 0)).map((p) => p.name),
     ...(stock.data?.variants ?? []).filter((v) => !v.archived).flatMap((v) => { const p = prods.find((x) => x.$id === v.productId); return p?.hasVariants && isLow(variantQty(stock.data?.levels, v, p.qtyScale ?? 0), v.minStock ?? 0) ? [`${p.name} — ${v.label}`] : []; }),
   ];
   const low = lowNames;
