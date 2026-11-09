@@ -1,8 +1,5 @@
 import { aggregateSales, mergeAggregates, parsePeriod, type SaleRow, type SalesAggregate } from "../../../src/domain/reports";
-import { stockOf, type StockMove } from "../../../src/domain/stock";
-import { fromScaled, scaleOf } from "../../../src/domain/quantity";
-import { trackingOf } from "../../../src/domain/tracking";
-import { isVirtualBundle } from "../../../src/domain/bundles";
+import { stockSnapshot } from "./stock-snapshot";
 import { HttpError, roleOf, type Ctx, type Store, needModule } from "./store";
 
 const parse = <T,>(s: unknown, fb: T): T => { try { return JSON.parse(String(s)) as T; } catch { return fb; } };
@@ -26,44 +23,16 @@ export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: stri
   const perShop: { agg: SalesAggregate; row: Record<string, unknown> }[] = [];
   for (const shop of allowed) {
     const where = { tenantId: ctx.tenantId, shopId: String(shop.$id) };
-    const [sales, products, moves, customers, invoices] = await Promise.all([
+    const [sales, products, customers, invoices] = await Promise.all([
       store.scan("sales", where, { range: { field: "soldAt", from: period.gte, to: period.lt }, maxRows: MAX_SALES }),
-      store.scan("products", where, { maxRows: 5_000 }), store.scan("stock_moves", where, { maxRows: MAX_MOVES }),
+      store.scan("products", where, { maxRows: 5_000 }),
       store.scan("customers", where, { maxRows: 10_000 }), store.scan("invoices", where, { maxRows: 5_000 }),
     ]);
     const barcodes = Object.fromEntries(products.rows.filter((p) => p.barcode).map((p) => [String(p.$id), String(p.barcode)]));
     const rows: SaleRow[] = sales.rows.map((r) => ({ total: Number(r.total), vat: Number(r.vat ?? 0), soldAt: String(r.soldAt), status: String(r.status), payments: parse(r.payments, []), lines: parse(r.lines, []) }));
     const agg = aggregateSales(rows, { from: period.from, to: period.to }, barcodes);
-    // Stock valorisé au coût moyen et ruptures : impossibles à calculer honnêtement si l'historique a été tronqué.
-    let stockValue: number | null = null, stockouts: number | null = null;
-    if (!moves.truncated && !products.truncated) {
-      const byProduct = new Map<string, StockMove[]>(), byVariant = new Map<string, StockMove[]>(), byLot = new Map<string, StockMove[]>();
-      for (const m of moves.rows) {
-        const mv = { productId: String(m.productId), qty: Number(m.qty), kind: m.kind as StockMove["kind"] };
-        const [map, k] = m.variantId ? [byVariant, String(m.variantId)] : [byProduct, String(m.productId)];
-        (map.get(k) ?? map.set(k, []).get(k)!).push(mv);
-        if (m.lotId) (byLot.get(String(m.lotId)) ?? byLot.set(String(m.lotId), []).get(String(m.lotId))!).push(mv);
-      }
-      // Articles suivis par lot : valorisés au coût de chaque lot (coût de revient de sa réception) ; le coût de l'article sert de repli.
-      const lotRows = (await store.scan("article_lots", where, { maxRows: 20_000 })).rows;
-      const lotValue = (productId: string, variantId: string, scale: number, fallback: number) => lotRows.filter((l) => l.productId === productId && String(l.variantId ?? "") === variantId).reduce((a, l) => a + Math.max(0, fromScaled(stockOf(byLot.get(String(l.$id)) ?? []), scale)) * (Number(l.unitCost) > 0 ? Number(l.unitCost) : fallback), 0);
-      stockValue = 0; stockouts = 0;
-      const productRows = products.rows.filter((x) => !x.archived && !isVirtualBundle(x)); // un bundle virtuel n'a pas de stock propre
-      for (const p of productRows.filter((x) => !x.hasVariants)) {
-        const n = fromScaled(stockOf(byProduct.get(String(p.$id)) ?? []), scaleOf(p)); // décimal pour les articles au kilo / au litre
-        stockValue += trackingOf(p) === "lot" ? lotValue(String(p.$id), "", scaleOf(p), Number(p.cost ?? 0)) : Math.max(0, n) * Number(p.cost ?? 0);
-        if (n <= Number(p.minStock ?? 0)) stockouts++;
-      }
-      // Articles déclinés : chaque variante active a son stock, son coût et son seuil.
-      const variants = await store.scan("article_variants", where, { maxRows: 20_000 });
-      const live = new Set(productRows.filter((x) => x.hasVariants).map((x) => String(x.$id)));
-      for (const v of variants.rows.filter((x) => !x.archived && live.has(String(x.productId)))) {
-        const n = fromScaled(stockOf(byVariant.get(String(v.$id)) ?? []), scaleOf(products.rows.find((x) => x.$id === v.productId)));
-        const parent = products.rows.find((x) => x.$id === v.productId);
-        stockValue += trackingOf(parent) === "lot" ? lotValue(String(v.productId), String(v.$id), scaleOf(parent), Number(v.cost ?? 0)) : Math.max(0, n) * Number(v.cost ?? 0);
-        if (n <= Number(v.minStock ?? 0)) stockouts++;
-      }
-    }
+    // Stock valorisé et ruptures : définition partagée avec le tableau de bord ; null si l'historique est trop volumineux (jamais un chiffre faux).
+    const snap = await stockSnapshot(store, where, MAX_MOVES); const stockValue = snap.value, stockouts = snap.stockouts;
     const sum = (rs: Record<string, unknown>[], f: (r: Record<string, unknown>) => number) => rs.reduce((s, r) => s + f(r), 0);
     const customerInv = invoices.rows.filter((i) => i.kind === "customer"), supplierInv = invoices.rows.filter((i) => i.kind === "supplier");
     perShop.push({ agg, row: {
@@ -71,7 +40,7 @@ export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: stri
       openCredit: sum(customers.rows, (c) => Number(c.creditBalance ?? 0)),
       receivables: sum(customerInv, (i) => Math.max(0, Number(i.total) - Number(i.paid ?? 0))),
       payables: sum(supplierInv, (i) => Math.max(0, Number(i.total) - Number(i.paid ?? 0))),
-      stockValue, stockouts, truncated: { sales: sales.truncated, stock: moves.truncated || products.truncated },
+      stockValue, stockouts, truncated: { sales: sales.truncated, stock: snap.partial },
     } });
   }
   const merged = mergeAggregates(perShop.map((p) => p.agg), { from: period.from, to: period.to });

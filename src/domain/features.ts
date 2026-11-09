@@ -4,6 +4,7 @@ const RANK: Record<PlanId, number> = { starter: 0, business: 1, pro: 2 };
 
 export const FEATURES = {
   promotions: { label: "Promotions", min: "business", help: "Remises programmées, codes promotionnels, suivi des résultats." },
+  businessDashboard: { label: "Tableau de bord de l'activité", min: "business", help: "Chiffre d'affaires, ventes, marge, stock, graphiques, activité récente et alertes réelles." },
   promotionsPro: { label: "Promotions avancées", min: "pro", help: "Prix dégressifs, achetez X obtenez Y, packs, coupons, ciblage clients, multi-magasins, budgets, analyses et recommandations." },
   articles: { label: "Catalogue d'articles", min: "business", help: "Fiches complètes, photos, catégories, historique des prix." },
   // Fonctions avancées réservées à Pro (verrouillées et proposées en mise à niveau ; non développées dans cette version)
