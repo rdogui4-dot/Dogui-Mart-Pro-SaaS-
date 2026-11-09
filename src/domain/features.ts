@@ -13,6 +13,7 @@ export const FEATURES = {
   serials: { label: "Numéros de série", min: "pro", help: "Suivi unitaire des articles sensibles." },
   multiShopCatalog: { label: "Catalogue multi-magasins avancé", min: "pro", help: "Prix et disponibilité différents par boutique, synchronisés." },
   bundles: { label: "Bundles et compositions", min: "pro", help: "Vendre des lots d'articles ou des produits composés." },
+  dashboard: { label: "Tableau de bord articles et alertes", min: "pro", help: "Indicateurs de stock, alertes de rupture, de péremption et de marge, meilleurs articles." },
   profitability: { label: "Analyses avancées de rentabilité", min: "pro", help: "Marge par article, catégorie et période." },
 } as const satisfies Record<string, { label: string; min: PlanId; help: string }>;
 export type FeatureKey = keyof typeof FEATURES;

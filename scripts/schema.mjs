@@ -27,6 +27,8 @@ export const TABLES = {
   // Lots (péremption) : quantité d'un lot = somme des mouvements portant son lotId. unitCost = coût de revient du lot (valorisation par lot).
   // Bundles virtuels : composition d'un article `kind = bundle` (une ligne par composant ; qty entière en unité de base du composant).
   article_components: { cols: [...base, s("bundleId", 64, true), s("componentId", 64, true), i("qty", true)], idx: [["bundle", ["bundleId"]], ["component", ["componentId"]], ["shop", ["tenantId", "shopId"]]] },
+  // Alertes du jour : une ligne par (type, objet, jour) à identifiant déterministe ; `status` open → read (accusé de lecture tracé).
+  article_alerts: { cols: [...base, s("day", 10, true), s("type", 24, true), s("productId", 64), s("refId", 64, true), s("severity", 10), s("label", 255), s("detail", 500), s("status", 10), s("readBy", 64), d("readAt")], idx: [["shop_day", ["tenantId", "shopId", "day"]]] },
   article_lots: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("lotNo", 40, true), d("manufacturedAt"), d("expiresAt"), d("receivedAt"), s("supplierId", 64), i("unitCost"), s("status", 16)], idx: [["product", ["productId"]], ["shop", ["tenantId", "shopId"]]] },
   // Numéros de série : une ligne par unité ; `cycle` compte les retours remis en stock (verrou de vente atomique par identifiant de mouvement).
   article_serials: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("serial", 64, true), s("status", 16, true), d("receivedAt"), s("supplierId", 64), i("unitCost"), i("warrantyMonths"), s("saleId", 64), s("saleRef", 64), d("soldAt"), d("warrantyUntil"), i("cycle"), s("entryRef", 64)], idx: [["product", ["productId"]], ["serial", ["serial"]], ["shop", ["tenantId", "shopId"]]] },
