@@ -66,7 +66,7 @@ export function PilotagePage() {
   if (!allowed) return (
     <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Tableau de bord Pro</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-[var(--gold)]" />Réservé à la formule Pro</span><span className="text-white/60">Performance commerciale, rentabilité, stocks, achats, magasins, prévisions indicatives et exports PDF, Excel, CSV. Le tableau de bord Business reste disponible.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div></div>
   );
-  const d = q.data; const offline = typeof navigator !== "undefined" && !navigator.onLine; const set = (k: (typeof FKEYS)[number], v: string[]) => setFilters({ ...filters, [k]: v });
+  const d = q.data; const fresh = d && d.space === space ? d : undefined; const offline = typeof navigator !== "undefined" && !navigator.onLine; const set = (k: (typeof FKEYS)[number], v: string[]) => setFilters({ ...filters, [k]: v });
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2"><h1 className="text-2xl font-bold">Tableau de bord Pro</h1><div className="flex gap-1">
@@ -80,13 +80,13 @@ export function PilotagePage() {
           {["exec", "sales"].includes(space) && <label className="text-xs text-white/60">Évolution<select className="input mt-1" value={gran} onChange={(e) => setGran(e.target.value)}>{GRANS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>}</div>
         {(d?.scope?.shops?.length ?? 0) > 1 && <label className="text-xs text-white/60 flex flex-col gap-1">Magasin<select className="input" value={shop} onChange={(e) => setShop(e.target.value)}>{d!.scope.shops.map((x: Any) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="all">Tous mes magasins</option></select></label>}
         {(offline || q.error) && space !== "reports" && <div className="card border border-amber-400/40 text-sm flex gap-2 items-start" role="alert"><WifiOff size={16} className="text-amber-300 shrink-0 mt-0.5" /><span>{offline ? "Hors ligne : ce tableau a besoin d'une connexion." : `Impossible de charger : ${(q.error as Error).message}`} <button className="underline text-[var(--gold)]" onClick={() => void q.refetch()}>Réessayer</button></span></div>}
-        {q.isLoading && space !== "reports" && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-20 animate-pulse bg-white/5" />)}</div>}
+        {(q.isLoading || (q.isPlaceholderData && !fresh)) && space !== "reports" && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-20 animate-pulse bg-white/5" />)}</div>}
         {d && space !== "reports" && <p className="text-[11px] text-white/40 flex items-center gap-1">{live && <Zap size={11} className="text-emerald-300" />}{d.period.label} · {d.period.from} → {d.period.to}{d.prevPeriod ? ` · comparé à ${d.prevPeriod.from} → ${d.prevPeriod.to}` : ""} · fuseau {d.tz} · calculé à {new Date(d.generatedAt).toLocaleTimeString("fr-FR", { timeZone: d.tz, hour: "2-digit", minute: "2-digit" })}{live ? " · mise à jour en direct" : ""}</p>}
         {d?.truncated && <Warn>Volume très élevé : certaines lignes n'ont pas été lues. Les totaux peuvent être partiels (réduisez la période ou filtrez).</Warn>}
         {d?.saleState === "open" && <Warn>Vous consultez les ventes <b>non finalisées</b> : elles ne sont pas du chiffre d'affaires.</Warn>}
       </>}
       {space === "essential" && <ActivitePage embedded />}
-      {d && space === "exec" && <Exec d={d} />}{d && space === "sales" && <Sales d={d} />}{d && space === "profit" && <Profit d={d} />}{d && space === "stock" && <Stock d={d} th={th} setTh={setTh} />}{d && space === "purchases" && <Purchases d={d} />}{d && space === "stores" && <Stores d={d} />}{d && space === "forecast" && <Forecast d={d} />}
+      {fresh && space === "exec" && <Exec d={fresh} />}{fresh && space === "sales" && <Sales d={fresh} />}{fresh && space === "profit" && <Profit d={fresh} />}{fresh && space === "stock" && <Stock d={fresh} th={th} setTh={setTh} />}{fresh && space === "purchases" && <Purchases d={fresh} />}{fresh && space === "stores" && <Stores d={fresh} />}{fresh && space === "forecast" && <Forecast d={fresh} />}
       {space === "reports" && <Reports params={params} />}
       {showF && <Sheet title="Filtres avancés" onClose={() => setShowF(false)}>
         <p className="text-xs text-white/50">Tous les graphiques, indicateurs et rapports se recalculent avec ces filtres. Un filtre d'article, de catégorie ou de fournisseur réduit chaque vente à ses lignes concernées.</p>
