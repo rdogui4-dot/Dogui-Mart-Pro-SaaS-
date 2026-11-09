@@ -44,6 +44,7 @@ describe("invariants de stock sous opérations aléatoires", () => {
     const sign = (m: any) => (m.kind === "adjust" ? Number(m.qty) : (["sale", "loss", "transfer_out", "assembly_out"].includes(String(m.kind)) ? -1 : 1) * Math.abs(Number(m.qty)));
     const stock = (shop: string, pid: string) => moves(shop, pid).reduce((a, m) => a + sign(m), 0);
     const check = (label: string) => {
+      const bal = new Map<string, number>(); for (const j of st.rows("journal_entries")) bal.set(String(j.ref), (bal.get(String(j.ref)) ?? 0) + Number(j.debit ?? 0) - Number(j.credit ?? 0)); for (const [ref, d] of bal) if (d !== 0) throw new Error(`${label} : écritures déséquilibrées pour ${ref} (${d})`);
       for (const p of st.rows("products")) {
         const s = stock(String(p.shopId), p.$id); if (s < 0 && p.kind !== "bundle") throw new Error(`${label} : stock négatif ${s} pour ${p.name} (${p.shopId})`);
         if (p.tracking === "lot") { const byLot = new Map<string, number>(); for (const m of moves(String(p.shopId), p.$id)) if (m.lotId) byLot.set(String(m.lotId), (byLot.get(String(m.lotId)) ?? 0) + sign(m)); const sum = [...byLot.values()].reduce((a, b) => a + b, 0); if (sum !== s) throw new Error(`${label} : lots ${sum} ≠ stock ${s} pour ${p.name} (${p.shopId})`); for (const [l, q] of byLot) if (q < 0) throw new Error(`${label} : lot ${l} négatif`); }
