@@ -1,7 +1,7 @@
 import { cleanText, parseAmount } from "../../../src/domain/articles";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { MAX_VARIANTS, normalizeAttributes } from "../../../src/domain/variants";
-import { assertUnique, needFeature } from "./articles";
+import { assertUnique, freeSku, needFeature } from "./articles";
 import { stockScaled } from "./checkout";
 import { HttpError, need, needModule, type Ctx, type Row, type Store } from "./store";
 
@@ -73,7 +73,8 @@ export async function saveVariant(store: Store, ctx: Ctx, b: VariantInput) {
   }
   if (siblings.some((x) => x.attrKey === a.key)) throw new HttpError(409, "Une variante avec ces attributs existe déjà");
   if (!p.hasVariants && (await stockScaled(store, p.$id)) !== 0) throw new HttpError(409, "Cet article a du stock : comptez-le à 0 (inventaire) avant de créer des variantes, puis saisissez le stock de chaque variante.");
-  const sku = field(b.sku, 64, "Référence"), barcode = barcodeOk(field(b.barcode, 64, "Code-barres"));
+  let sku = field(b.sku, 64, "Référence"); const barcode = barcodeOk(field(b.barcode, 64, "Code-barres"));
+  if (!sku) { const base = String(p.sku ?? ""); if (base) for (let n = siblings.length + 1; n < siblings.length + 30 && !sku; n++) { const c = `${base}-${String(n).padStart(2, "0")}`.slice(0, 64); try { await assertUnique(store, ctx, "sku", c); sku = c; } catch { /* essai suivant */ } } if (!sku) sku = await freeSku(store, ctx); }
   await assertUnique(store, ctx, "sku", sku); await assertUnique(store, ctx, "barcode", barcode);
   const price = b.price === undefined || b.price === "" ? Number(p.price) : money(b.price, "Prix de vente");
   const cost = b.cost === undefined || b.cost === "" ? Number(p.cost ?? 0) : money(b.cost, "Prix d'achat");

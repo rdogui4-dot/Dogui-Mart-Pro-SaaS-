@@ -33,6 +33,18 @@ export async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barco
   if (hit) throw new HttpError(409, `${field === "sku" ? "Référence déjà utilisée" : "Code-barres déjà utilisé"} par « ${dup ? dup.name : `${(await store.get("products", String(vdup!.productId)))?.name ?? "article"} — ${vdup!.label}`} »`);
 }
 
+/** Référence automatique « ART-000123 » : numéro suivant le plus grand déjà attribué dans la boutique (articles et variantes). Unicité revérifiée par l'appelant. */
+export async function nextSku(store: Store, ctx: Ctx, prefix = "ART-", skip = 0): Promise<string> {
+  const re = new RegExp(`^${prefix.replace(/[^A-Za-z0-9]/g, "\\$&")}(\\d+)$`); let max = 0;
+  for (const t of ["products", "article_variants"]) for (const r of (await store.scan(t, { tenantId: ctx.tenantId, shopId: ctx.shopId }, { maxRows: 200_000 })).rows) { const m = re.exec(String(r.sku ?? "")); if (m) max = Math.max(max, Number(m[1])); }
+  return `${prefix}${String(max + 1 + skip).padStart(6, "0")}`;
+}
+/** Attribue une référence libre ; quelques essais si deux créations simultanées visent le même numéro. */
+export async function freeSku(store: Store, ctx: Ctx, prefix = "ART-"): Promise<string> {
+  for (let i = 0; i < 5; i++) { const sku = await nextSku(store, ctx, prefix, i); try { await assertUnique(store, ctx, "sku", sku); return sku; } catch (e) { if (i === 4) throw e; } }
+  throw new HttpError(409, "Référence automatique indisponible, réessayez");
+}
+
 /** Écritures qui suivent la création de la fiche (stock initial, premier prix, journal) : à identifiants fixes, donc rejouables sans doublon. */
 async function creationRows(store: Store, ctx: Ctx, id: string, a: Article, qty: number, business: boolean) {
   if (qty > 0) await store.create("stock_moves", `${id}_init`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: id, qty, kind: "adjust", refId: INITIAL, userId: ctx.userId });
@@ -83,6 +95,7 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
       if ((patch.qtyScale ?? scaleOf(row)) !== 0) throw new HttpError(400, "Un article suivi par numéro de série se vend à l'unité entière");
       if ((await store.list("article_units", { productId: row.$id, active: true }, 1)).length) throw new HttpError(409, "Retirez d'abord les conditionnements : un article suivi par série ne se vend qu'à l'unité");
     }
+    if (patch.sku === "") { if (row.sku) delete patch.sku; else patch.sku = await freeSku(store, ctx); } // une référence existante ne s'efface pas ; une absente est attribuée
     if (patch.sku !== undefined) await assertUnique(store, ctx, "sku", patch.sku, { productId: row.$id });
     if (patch.barcode !== undefined) await assertUnique(store, ctx, "barcode", patch.barcode, { productId: row.$id });
     if (!Object.keys(patch).length) return { id: row.$id };
@@ -113,6 +126,7 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
     await creationRows(store, ctx, id, prior as unknown as Article, qty, business); // reprise après coupure : complète ce qui manquerait, sans rien doubler
     return { id, duplicate: true };
   }
+  if (!a.sku) a.sku = await freeSku(store, ctx); // référence attribuée automatiquement si elle n'est pas saisie
   await assertUnique(store, ctx, "sku", a.sku); await assertUnique(store, ctx, "barcode", a.barcode);
   await assertQuota(store, ctx.tenantId, "products");
   const created = await store.create("products", id, ctx.tenantId, { ...a, tenantId: ctx.tenantId, shopId: ctx.shopId });

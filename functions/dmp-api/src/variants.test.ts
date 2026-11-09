@@ -225,4 +225,10 @@ describe("archivage, suppression, droits de formule, isolation", () => {
     await err(call("own", "variant.save", { productId: pid, attributes: attrs("Z") }, B), 404); // autre boutique du même commerce
     const v = st.rows("article_variants")[0]!; expect(st.readableBy(U.cais!, "article_variants").map((r) => r.$id)).toContain(v.$id); expect(st.readableBy("intruder", "article_variants")).toHaveLength(0);
   });
+  it("référence automatique des variantes : référence de l'article + numéro", async () => {
+    const pid = await mkProduct({ name: "Polo", price: 5000 }); const base = st.rows("products").find((p) => p.$id === pid)!.sku;
+    expect(base).toBe("ART-000001");
+    const v1 = await mkVariant(pid, { attributes: attrs("S") }); const v2 = await mkVariant(pid, { attributes: attrs("M") });
+    expect(st.rows("article_variants").find((v) => v.$id === v1)!.sku).toBe("ART-000001-01"); expect(st.rows("article_variants").find((v) => v.$id === v2)!.sku).toBe("ART-000001-02");
+  });
 });
