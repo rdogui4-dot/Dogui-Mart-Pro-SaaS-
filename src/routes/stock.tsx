@@ -14,6 +14,7 @@ import { useRef } from "react";
 import { planAllows } from "@/domain/features";
 import { ExpiryAlerts, LotsSheet, SerialsSheet } from "./tracking";
 import { trackingOf } from "@/domain/tracking";
+import { isVirtualBundle } from "@/domain/bundles";
 import type { ArticleRow } from "@/lib/articles";
 import { useSubscription } from "./subscription";
 
@@ -29,9 +30,9 @@ export function StockPage() {
   });
   const sub = useSubscription(); const [track, setTrack] = useState<Product & { $id: string } | null>(null);
   const openStock = (p: Product & { $id: string }) => { if (trackingOf(p)) setTrack(p); else if (p.hasVariants) alert("Cet article a des variantes : comptez chaque variante depuis l'écran Articles."); else setPick(p); };
-  const shown = (products.data ?? []).filter((p) => !p.archived && p.kind !== "bundle" && (!q.trim() || [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))));
-  const low = (products.data ?? []).filter((p) => p.kind !== "bundle" && isLow(qtyOf(levels.data, p), p.minStock ?? 0));
-  const value = (products.data ?? []).filter((p) => !p.hasVariants && p.kind !== "bundle").reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
+  const shown = (products.data ?? []).filter((p) => !p.archived && !isVirtualBundle(p) && (!q.trim() || [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))));
+  const low = (products.data ?? []).filter((p) => !isVirtualBundle(p) && isLow(qtyOf(levels.data, p), p.minStock ?? 0));
+  const value = (products.data ?? []).filter((p) => !p.hasVariants && !isVirtualBundle(p)).reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -82,18 +83,18 @@ function CountSheet({ p, n, busy, error, onClose, onCount }: { p: Product & { $i
   );
 }
 
-function Transfer({ products, variants, levels, onDone }: { products: { $id: string; name: string; qtyScale?: number; hasVariants?: boolean }[]; variants: VariantRow[]; levels?: Map<string, number>; onDone: () => void }) {
+function Transfer({ products, variants, levels, onDone }: { products: { $id: string; name: string; qtyScale?: number; hasVariants?: boolean; tracking?: string }[]; variants: VariantRow[]; levels?: Map<string, number>; onDone: () => void }) {
   const { session } = useSession(); const s = session!;
   const transferId = useRef(crypto.randomUUID()); // même identifiant à chaque nouvel essai : jamais deux transferts
   const [open, setOpen] = useState(false); const [to, setTo] = useState("");
-  const [rows, setRows] = useState([{ productId: "", qty: "" }]); const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
+  const [rows, setRows] = useState([{ productId: "", qty: "", serials: "" }]); const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
   const targets = s.shops.filter((x) => x.id !== s.shopId);
   const set = (i: number, p: Partial<(typeof rows)[number]>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...p } : x)));
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setMsg("");
     try {
-      const r = await api<{ number: string }>(s, "stock.transfer", { transferId: transferId.current, toShopId: to, lines: rows.filter((x) => x.productId).map((x) => { const [productId, variantId] = x.productId.split(":"); return { productId, ...(variantId ? { variantId } : {}), qty: x.qty }; }) });
-      transferId.current = crypto.randomUUID(); setRows([{ productId: "", qty: "" }]); setMsg(`Transfert ${r.number} effectué`); onDone();
+      const r = await api<{ number: string }>(s, "stock.transfer", { transferId: transferId.current, toShopId: to, lines: rows.filter((x) => x.productId).map((x) => { const [productId, variantId] = x.productId.split(":"); return { productId, ...(variantId ? { variantId } : {}), qty: x.qty, ...(x.serials.trim() ? { serials: x.serials } : {}) }; }) });
+      transferId.current = crypto.randomUUID(); setRows([{ productId: "", qty: "", serials: "" }]); setMsg(`Transfert ${r.number} effectué`); onDone();
     } catch (x) { setMsg((x as Error).message); } finally { setBusy(false); }
   }
   return (
@@ -106,9 +107,10 @@ function Transfer({ products, variants, levels, onDone }: { products: { $id: str
             <div key={i} className="grid grid-cols-[1fr_5rem] gap-1">
               <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value })}><option value="">Produit…</option>{products.flatMap((p) => p.hasVariants ? variants.filter((v) => v.productId === p.$id && !v.archived).map((v) => <option key={v.$id} value={`${p.$id}:${v.$id}`}>{p.name} — {v.label} ({formatQty(variantQty(levels, v, p.qtyScale ?? 0))})</option>) : [<option key={p.$id} value={p.$id}>{p.name} ({formatQty(qtyOf(levels, p))})</option>])}</select>
               <input className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+              {(() => { const mode = products.find((p) => p.$id === r.productId.split(":")[0])?.tracking; return mode === "lot" ? <p className="col-span-2 text-xs text-white/50">Lots prélevés automatiquement, les plus proches de la péremption d'abord ; ils sont recréés à l'identique (numéro, péremption, coût) dans la boutique de destination.</p> : mode === "serial" ? <textarea className="input col-span-2" rows={2} placeholder="Numéros de série à transférer (facultatif : sinon les plus anciens disponibles)" aria-label="Numéros de série à transférer" value={r.serials} onChange={(e) => set(i, { serials: e.target.value })} /> : null; })()}
             </div>
           ))}
-          <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { productId: "", qty: "" }])}>+ Ligne</button>
+          <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { productId: "", qty: "", serials: "" }])}>+ Ligne</button>
           <button className="btn" disabled={busy || !to}>Transférer</button>
         </form>
       )}

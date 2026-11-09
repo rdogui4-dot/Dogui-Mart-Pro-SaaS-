@@ -6,7 +6,7 @@ import type { Row } from "./data";
 /** Ligne de la table `products` vue comme article. Prix de vente = price, prix d'achat = cost (voir README : la table historique est conservée). */
 export type ArticleRow = Row<{
   name: string; sku?: string; barcode?: string; category?: string; description?: string; price: number; cost?: number;
-  unit?: string; minStock?: number; supplierId?: string; imageFileId?: string; archived?: boolean; qtyScale?: number; hasVariants?: boolean; tracking?: string; kind?: string;
+  unit?: string; minStock?: number; supplierId?: string; imageFileId?: string; archived?: boolean; qtyScale?: number; hasVariants?: boolean; tracking?: string; kind?: string; bundleMode?: string;
 }>;
 export type PriceHistoryRow = Row<{ productId: string; oldPrice?: number; newPrice?: number; oldCost?: number; newCost?: number; userId?: string }>;
 

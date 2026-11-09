@@ -3,11 +3,11 @@ import type { Shop } from "@/domain/documents";
 import { api } from "./api";
 import { delta } from "@/domain/stock";
 import { fromScaled } from "@/domain/quantity";
-import { bundleAvailable } from "@/domain/bundles";
+import { bundleAvailable, isVirtualBundle } from "@/domain/bundles";
 import type { Session } from "./session";
 
 export type Row<T> = T & { $id: string; $createdAt: string };
-export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean; tracking?: string; kind?: string; imageFileId?: string };
+export type Product = { sku?: string; barcode?: string; name: string; category?: string; price: number; cost?: number; minStock?: number; archived?: boolean; qtyScale?: number; unit?: string; hasVariants?: boolean; tracking?: string; kind?: string; bundleMode?: string; imageFileId?: string };
 export type Customer = { name: string; phone?: string; creditLimit?: number; creditBalance?: number; points?: number; annualSpend?: number; category?: string };
 export type Supplier = { name: string; phone?: string; email?: string; balance?: number };
 
@@ -44,7 +44,10 @@ export async function stockLevels(s: Session): Promise<Map<string, number>> {
   const comps = await listAll<{ bundleId: string; componentId: string; qty: number }>("article_components", s);
   const by = new Map<string, { productId: string; qty: number }[]>();
   for (const c of comps) by.set(c.bundleId, [...(by.get(c.bundleId) ?? []), { productId: c.componentId, qty: c.qty }]);
-  for (const [bundleId, list] of by) m.set(bundleId, bundleAvailable(list, (id) => m.get(id) ?? 0));
+  if (by.size) {
+    const virtual = new Set((await listAll<{ kind?: string; bundleMode?: string }>("products", s)).filter(isVirtualBundle).map((p) => p.$id)); // un kit physique a son propre stock : il n'est pas recalculé
+    for (const [bundleId, list] of by) if (virtual.has(bundleId)) m.set(bundleId, bundleAvailable(list, (id) => m.get(id) ?? 0));
+  }
   return m;
 }
 

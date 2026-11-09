@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Tags, Layers, LayoutDashboard, LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, Users, AlertTriangle, TrendingUp, ShoppingBag } from "lucide-react";
 import { formatFcfa } from "@/domain/money";
 import { isLow } from "@/domain/stock";
+import { isVirtualBundle } from "@/domain/bundles";
 import { Query } from "@/lib/appwrite";
 import { list, listAll, qtyOf, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
 import { can, useSession, type Perm } from "@/lib/session";
@@ -38,7 +39,7 @@ export function HomePage() {
   const total = paid.reduce((a, x) => a + x.total, 0);
   const prods = (stock.data?.products ?? []).filter((p) => !p.archived);
   const lowNames = [
-    ...prods.filter((p) => !p.hasVariants && p.kind !== "bundle" && isLow(qtyOf(stock.data?.levels, p), p.minStock ?? 0)).map((p) => p.name),
+    ...prods.filter((p) => !p.hasVariants && !isVirtualBundle(p) && isLow(qtyOf(stock.data?.levels, p), p.minStock ?? 0)).map((p) => p.name),
     ...(stock.data?.variants ?? []).filter((v) => !v.archived).flatMap((v) => { const p = prods.find((x) => x.$id === v.productId); return p?.hasVariants && isLow(variantQty(stock.data?.levels, v, p.qtyScale ?? 0), v.minStock ?? 0) ? [`${p.name} — ${v.label}`] : []; }),
   ];
   const low = lowNames;
