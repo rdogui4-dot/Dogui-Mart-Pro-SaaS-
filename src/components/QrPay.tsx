@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { formatFcfa } from "@/domain/money";
 import type { Session } from "@/lib/session";
 
-type Link = { id: string; url: string; reference: string; amount: number; expiresAt: string };
+type Link = { id: string; url: string; reference: string; amount: number; expiresAt: string; fixedLink?: boolean };
 
 /** Génère le lien Wave/Orange Business, l'affiche en QR code, puis attend la confirmation de réception. */
 export function QrPay({ session, provider, amount, onPaid, onCancel }: {
@@ -28,6 +28,7 @@ export function QrPay({ session, provider, amount, onPaid, onCancel }: {
       <h2 className="text-xl font-bold capitalize">{provider} Business · {formatFcfa(amount)}</h2>
       {link ? <canvas ref={canvas} className="rounded-xl" /> : !err && <p className="text-white/60">Création du lien…</p>}
       {link && <>
+        {link.fixedLink && <p className="text-lg font-bold text-[var(--gold)] text-center">Le client saisit le montant : {formatFcfa(amount)}</p>}
         <p className="text-sm text-white/60">Réf. {link.reference} — le client scanne, paie, puis saisissez l'ID de transaction reçu.</p>
         <input className="input max-w-xs" placeholder="ID de transaction (SMS / app Business)" value={tx} onChange={(e) => setTx(e.target.value)} />
         <button className="btn w-full max-w-xs" disabled={busy || tx.trim().length < 6} onClick={confirm}>Paiement reçu</button>

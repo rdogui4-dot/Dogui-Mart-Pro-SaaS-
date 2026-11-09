@@ -25,7 +25,8 @@ describe("normalizeTemplate (domaine)", () => {
   it("ajoute le montant à un lien Wave sans montant, jamais pour un autre domaine", () => {
     expect(normalizeTemplate("https://pay.wave.com/m/M_sn_abc/c/sn/", "wave").template).toBe("https://pay.wave.com/m/M_sn_abc/c/sn/?amount={amount}");
     expect(normalizeTemplate("https://wave.com/pay?x=1", "wave").template).toBe("https://wave.com/pay?x=1&amount={amount}");
-    expect(() => normalizeTemplate("https://pay.orange.sn/merchant/12", "orange")).toThrow("ne contient pas le montant");
+    expect(normalizeTemplate("https://multi.app.orange-money.com/app/v1/kapptivate/qrcode/odyssee/?id=codgen48-abc&v=1", "orange")).toEqual({ template: "https://multi.app.orange-money.com/app/v1/kapptivate/qrcode/odyssee/?id=codgen48-abc&v=1", converted: false }); // QR marchand fixe
+    expect(() => normalizeTemplate("https://pay.autre.sn/merchant/12", "wave")).toThrow("ne contient pas le montant");
     expect(() => normalizeTemplate("https://evilwave.com/x", "wave")).toThrow("ne contient pas le montant");
   });
   it("refuse texte, http, espaces et vide avec un message lisible", () => {
@@ -61,5 +62,12 @@ describe("enregistrement des liens QR", () => {
   });
   it("seul le propriétaire modifie les liens", async () => {
     await err(call("cais", "payments.settings.save", { waveTemplate: "https://pay.wave.com/m/a/c/sn/?amount=1" }), 403);
+  });
+  it("lien Orange fixe (sans montant) : enregistré, QR généré tel quel, le caissier est prévenu que le client saisit le montant", async () => {
+    const om = "https://multi.app.orange-money.com/app/v1/kapptivate/qrcode/odyssee/?id=codgen48-f68852cb9f7e45abaa6bda9525160862&v=1";
+    await ok(call("own", "payments.settings.save", { waveTemplate: "https://pay.wave.com/m/M_ci_6BKxI6ZVAZbF/c/ci/", orangeTemplate: om }));
+    expect(saved()).toMatchObject({ waveTemplate: "https://pay.wave.com/m/M_ci_6BKxI6ZVAZbF/c/ci/?amount={amount}", orangeTemplate: om });
+    const o = await ok(call("own", "payment_link.create", { provider: "orange", amount: 2500 })); expect(o).toMatchObject({ url: om, fixedLink: true });
+    const w = await ok(call("own", "payment_link.create", { provider: "wave", amount: 2500 })); expect(w).toMatchObject({ url: "https://pay.wave.com/m/M_ci_6BKxI6ZVAZbF/c/ci/?amount=2500", fixedLink: false });
   });
 });

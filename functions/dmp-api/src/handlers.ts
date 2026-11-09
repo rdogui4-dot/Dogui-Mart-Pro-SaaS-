@@ -1,4 +1,4 @@
-import { buildPaymentUrl, isExpired, linkRef, normalizeTemplate, type QrProvider } from "../../../src/domain/payment-links";
+import { buildPaymentUrl, isExpired, isStaticTemplate, linkRef, normalizeTemplate, type QrProvider } from "../../../src/domain/payment-links";
 import { toFcfa } from "../../../src/domain/money";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { trackingOf } from "../../../src/domain/tracking";
@@ -109,7 +109,7 @@ export async function savePaymentSettings(store: Store, ctx: Ctx, b: { waveTempl
   const norm: { waveTemplate?: string; orangeTemplate?: string } = {}; const converted: string[] = [];
   for (const [key, provider, label] of [["waveTemplate", "wave", "Wave Business"], ["orangeTemplate", "orange", "Orange Business"]] as const) {
     const raw = b[key]; if (!raw) continue;
-    try { const n = normalizeTemplate(raw, provider); buildPaymentUrl(n.template, { amount: 1, ref: "TEST" }); norm[key] = n.template; if (n.converted) converted.push(provider); }
+    try { const n = normalizeTemplate(raw, provider); buildPaymentUrl(n.template, { amount: 1, ref: "TEST" }, provider === "orange"); norm[key] = n.template; if (n.converted) converted.push(provider); }
     catch (e) { throw new HttpError(400, `Lien ${label} : ${(e as Error).message}`); }
   }
   const id = ctx.shopId.slice(0, 36);
@@ -137,10 +137,10 @@ export async function createPaymentLink(store: Store, ctx: Ctx, b: { provider: Q
   const template = b.provider === "wave" ? s.waveTemplate : s.orangeTemplate;
   if (!template) throw new HttpError(409, `Lien ${b.provider} non configuré dans les réglages`);
   const id = newId(), reference = linkRef(id);
-  let url: string; try { url = buildPaymentUrl(template, { amount, ref: reference }); } catch { throw new HttpError(409, "Le lien enregistré pour cet opérateur est invalide : corrigez-le dans Réglages → Paiements QR."); }
+  let url: string; try { url = buildPaymentUrl(template, { amount, ref: reference }, b.provider === "orange"); } catch { throw new HttpError(409, "Le lien enregistré pour cet opérateur est invalide : corrigez-le dans Réglages → Paiements QR."); }
   const expiresAt = new Date(Date.now() + Number(s.expiryMinutes ?? 15) * 60_000).toISOString();
   await store.create("payment_links", id, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, provider: b.provider, amount, reference, url, status: "pending", saleId: "", txRef: "", expiresAt, createdBy: ctx.userId, confirmedBy: "" });
-  return { id, url, reference, amount, expiresAt }; // le QR est dessiné côté client à partir de l'URL
+  return { id, url, reference, amount, expiresAt, fixedLink: isStaticTemplate(String(template)) }; // le QR est dessiné côté client à partir de l'URL
 }
 
 /** Confirmation manuelle : l'opérateur saisit l'ID de transaction reçu par SMS/app Business.
