@@ -1,6 +1,7 @@
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { lineKey } from "../../../src/domain/variants";
 import { trackingOf } from "../../../src/domain/tracking";
+import { refuseBundle } from "./bundles";
 import { stockFor, stockScaledVariant } from "./checkout";
 import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 import { assertQuota, getSub, grantLifetime } from "./subscriptions";
@@ -134,6 +135,7 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
     const src = await store.get("products", l.productId);
     if (!src || src.tenantId !== ctx.tenantId || src.shopId !== ctx.shopId) throw new HttpError(404, "Produit introuvable");
     let qty: number; try { qty = qtyFor(l.qty, scaleOf(src)); } catch (e) { throw new HttpError(400, `${src.name} : ${(e as Error).message}`); }
+    refuseBundle(src, "il ne se transfère pas (son stock se déduit de ses composants).");
     if (trackingOf(src)) throw new HttpError(409, `${src.name} : le transfert des articles suivis par lot ou par numéro de série n'est pas encore disponible`);
     let variant: any = null;
     if (src.hasVariants) { variant = l.variantId ? await store.get("article_variants", l.variantId) : null; if (!variant || variant.tenantId !== ctx.tenantId || variant.shopId !== ctx.shopId || variant.productId !== src.$id) throw new HttpError(400, `Choisissez une variante pour ${src.name}`); }

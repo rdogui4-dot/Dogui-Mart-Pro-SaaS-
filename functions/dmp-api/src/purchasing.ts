@@ -1,3 +1,4 @@
+import { refuseBundle } from "./bundles";
 import { ACCOUNTS, purchaseJournal } from "../../../src/domain/accounting";
 import { toFcfa } from "../../../src/domain/money";
 import { invoiceStatus, invoiceTtc, lineHt, paidOf, poStatus, toInvoice, toReceive, validateQuantities, type Payment, type PoLine } from "../../../src/domain/purchasing";
@@ -43,6 +44,7 @@ export async function createPo(store: Store, ctx: Ctx, b: { clientId: string; su
     seen.add(lineKey(l));
     const p = must(await store.get("products", l.productId), "Produit introuvable");
     if (!mine(ctx, p)) throw new HttpError(403, "Accès refusé");
+    refuseBundle(p, "il ne se commande pas : commandez ses composants.");
     let v: Row | null = null;
     if (p.hasVariants) { v = l.variantId ? await store.get("article_variants", l.variantId) : null; if (!v || !mine(ctx, v) || v.productId !== p.$id) throw new HttpError(400, `Choisissez une variante pour ${p.name}`); }
     else if (l.variantId) throw new HttpError(400, `${p.name} n'a pas de variantes`);

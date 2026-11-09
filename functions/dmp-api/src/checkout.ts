@@ -10,6 +10,8 @@ import { resolvePrice } from "../../../src/domain/pricing";
 import { loadRules } from "./pricing";
 import { allocateFefo, parseSerials, trackingOf, warrantyEnd } from "../../../src/domain/tracking";
 import { expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
+import { kindOf } from "../../../src/domain/bundles";
+import { loadComponents } from "./bundles";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
 export type CheckoutInput = {
@@ -62,14 +64,45 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   let tiered: boolean | undefined; // tarifs avancés : fonction Pro (retour en Business : on repasse au prix de base)
 
   // 1) Prix et stock vérifiés en base
-  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] })[] = [];
+  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; name: string; qty: number; unitCost: number }[] })[] = [];
   const scales = new Map<string, number>(); const seenKeys = new Set<string>();
   let packagingOk: boolean | undefined;
-  const prevLines: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[] = (() => { try { return existing ? JSON.parse(String(existing.lines)) : []; } catch { return []; } })();
+  const compDemand = new Map<string, number>(); let bundlesOk: boolean | undefined;
+  const prevLines: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; name: string; qty: number; unitCost: number }[] }[] = (() => { try { return existing ? JSON.parse(String(existing.lines)) : []; } catch { return []; } })();
   const today = soldAt.slice(0, 10); let policy: Awaited<ReturnType<typeof expiredPolicyOf>> | undefined; const reserved = new Map<string, number>(); const serialRows = new Map<string, Row>();
   for (const [li, l] of input.lines.entries()) {
     const p = await store.get("products", l.productId);
     if (!p || p.tenantId !== ctx.tenantId || p.shopId !== ctx.shopId || p.archived) throw new HttpError(404, "Produit introuvable");
+    if (kindOf(p) === "bundle") { // bundle virtuel : prix propre, sort ses composants du stock (aucun stock propre)
+      if (l.variantId) throw new HttpError(400, `${p.name} n'a pas de variantes`);
+      if (l.unit && l.unit !== (p.unit || "piece")) throw new HttpError(400, `${p.name} : un bundle se vend à la pièce`);
+      bundlesOk ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "bundles");
+      if (!bundlesOk) throw new HttpError(402, "Les bundles sont réservés à la formule Pro.");
+      const bkey = `${p.$id}||`; if (seenKeys.has(bkey)) throw new HttpError(400, `Ligne en double : ${p.name}`); seenKeys.add(bkey);
+      let bq: number; try { bq = qtyFor(l.qty, 0); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
+      let comps: { productId: string; name: string; qty: number; unitCost: number }[];
+      if (existing) comps = prevLines[li]?.components ?? []; // reprise : la composition figée à la vente fait foi
+      else {
+        const defs = await loadComponents(store, ctx, p.$id);
+        if (!defs.length) throw new HttpError(409, `${p.name} : bundle sans composants`);
+        comps = [];
+        for (const c of defs) {
+          const cp = await store.get("products", c.productId);
+          if (!cp || cp.tenantId !== ctx.tenantId || cp.shopId !== ctx.shopId || cp.archived) throw new HttpError(409, `${p.name} : un composant n'est plus disponible (modifiez le bundle)`);
+          const need = c.qty * bq, used = compDemand.get(cp.$id) ?? 0, plain = lines.filter((x) => x.productId === cp.$id && !x.components).reduce((a, x) => a + x.qty, 0);
+          const have = await stockFor(store, cp.$id, 0);
+          if (have < used + plain + need) throw new HttpError(409, `Stock insuffisant : ${p.name} (composant ${cp.name} : ${have} en stock)`);
+          compDemand.set(cp.$id, used + need); comps.push({ productId: cp.$id, name: String(cp.name), qty: c.qty, unitCost: Number(cp.cost ?? 0) });
+        }
+      }
+      const bDisc = Number(l.discountPct ?? 0); if (bDisc > 0) need(ctx, "manager");
+      const bcost = comps.reduce((a, c) => a + c.unitCost * c.qty, 0);
+      tiered ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "tieredPricing");
+      const brules = tiered ? await loadRules(store, ctx, p.$id, "") : [];
+      const bprice = resolvePrice(brules, { basePrice: Number(p.price), unit: "", factor: undefined, qty: bq, baseQty: bq, customerCategory: category, at: soldAt });
+      lines.push({ productId: p.$id, name: String(p.name), unitPrice: bprice.unitPrice, amount: bprice.amount, qty: bq, discountPct: bDisc, ...(bcost > 0 ? { unitCost: bcost } : {}), components: comps, ...(bprice.source !== "base" ? { priceSource: bprice.source, priceRuleId: bprice.ruleId, basePrice: Number(p.price) } : {}) });
+      continue;
+    }
     const scale = scaleOf(p); scales.set(p.$id, scale);
     // Article décliné : la vente porte sur UNE variante (prix, coût, stock propres). Les ventes d'un article simple ne peuvent pas citer de variante.
     const variantId = l.variantId ? String(l.variantId) : "";
@@ -132,7 +165,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
       }
     } else if (!existing) { // le stock a déjà été décrémenté lors d'une reprise
       const have = v ? fromScaled(await stockScaledVariant(store, v.$id), scale) : await stockFor(store, p.$id, scale);
-      const already = lines.filter((x) => x.productId === p.$id && (x.variantId ?? "") === variantId).reduce((a, x) => a + x.qty, 0); // deux unités du même article : cumul
+      const already = lines.filter((x) => x.productId === p.$id && (x.variantId ?? "") === variantId).reduce((a, x) => a + x.qty, 0) + (compDemand.get(p.$id) ?? 0); // deux unités du même article : cumul
       if (have < already + qty) throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${have})`);
     }
     // Remise > 0 réservée aux managers
@@ -199,6 +232,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   });
   const base = saleId.slice(0, 28);
   for (const [i, l] of lines.entries()) { // mouvements en entiers de sous-unités ; l'unité vendue est tracée sur le mouvement
+    if (l.components?.length) { for (const [k, c] of l.components.entries()) await store.create("stock_moves", `${base}_m${i}_c${k}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: c.productId, kind: "sale", refId: number, userId: ctx.userId, qty: c.qty * l.qty }); continue; } // bundle : un mouvement par composant
     if (l.serials?.length) continue; // les séries sont déjà tracées par leurs mouvements de réservation
     const scale = scales.get(l.productId) ?? 0; const common = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, kind: "sale", refId: number, userId: ctx.userId, ...(l.variantId ? { variantId: l.variantId } : {}) };
     if (l.lots?.length) { for (const [k, a] of l.lots.entries()) await store.create("stock_moves", `${base}_m${i}_${k}`, ctx.tenantId, { ...common, lotId: a.lotId, qty: scaledInt(a.qty, scale), ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) }); continue; }

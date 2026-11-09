@@ -1,6 +1,7 @@
 import { UNITS } from "../../../src/domain/articles";
 import { scaleOf, unitRowId, validFactor } from "../../../src/domain/quantity";
 import { needFeature } from "./articles";
+import { refuseBundle } from "./bundles";
 import { HttpError, needModule, type Ctx, type Store } from "./store";
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
@@ -13,6 +14,7 @@ export async function saveUnits(store: Store, ctx: Ctx, b: { productId: string; 
   const p = await store.get("products", b.productId);
   if (!p || p.tenantId !== ctx.tenantId || p.shopId !== ctx.shopId) throw new HttpError(404, "Article introuvable");
   if (!Array.isArray(b.units) || b.units.length > MAX_UNITS) throw new HttpError(400, `${MAX_UNITS} conditionnements au maximum`);
+  refuseBundle(p, "il ne peut pas avoir de conditionnements.");
   const base = String(p.unit || "piece"), scale = scaleOf(p);
   const next = new Map<string, number>();
   for (const u of b.units) {

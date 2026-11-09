@@ -2,6 +2,7 @@ import { BUSINESS_FIELDS, normalizeArticle, normalizePatch, type Article } from 
 import { FEATURES, planAllows, type FeatureKey } from "../../../src/domain/features";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { trackingOf } from "../../../src/domain/tracking";
+import { kindOf } from "../../../src/domain/bundles";
 import { readRoles } from "./permissions";
 import { assertQuota, entitlementOf } from "./subscriptions";
 import { HttpError, need, needModule, type Ctx, type Row, type Store } from "./store";
@@ -11,7 +12,7 @@ const mine = (ctx: Ctx, r: Row | null): r is Row => !!r && r.tenantId === ctx.te
 const must = (r: Row | null, msg = "Article introuvable"): Row => { if (!r) throw new HttpError(404, msg); return r; };
 const INITIAL = "stock-initial";
 /** Champs que le client peut envoyer. imageFileId n'en fait pas partie : la photo passe uniquement par article.image. */
-const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId", "qtyScale", "tracking"] as const;
+const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId", "qtyScale", "tracking", "kind"] as const;
 const MAX_IMAGE_BYTES = 450_000;
 
 /** Droit lié à la FORMULE (distinct du rôle de l'employé). 402 = « passez à l'offre supérieure ». */
@@ -86,6 +87,8 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
       if ((await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id }, { maxRows: 1 })).rows.length) throw new HttpError(409, "La précision des quantités ne peut plus changer : cet article a déjà des mouvements de stock.");
       if ((await store.list("article_units", { productId: row.$id, active: true }, 1)).length) throw new HttpError(409, "Retirez d'abord les conditionnements de cet article.");
     }
+    if (patch.kind !== undefined && patch.kind !== kindOf(row)) throw new HttpError(409, "Le type d'article (simple ou bundle) ne peut pas changer : créez un nouvel article.");
+    if (kindOf(row) === "bundle" && ((patch.tracking ?? "") !== "" || (patch.qtyScale ?? 0) !== 0)) throw new HttpError(409, "Un bundle n'a pas de stock propre : ni suivi par lot/série, ni décimales.");
     if (patch.tracking !== undefined && patch.tracking !== trackingOf(row)) {
       if (patch.tracking) await needFeature(store, ctx, patch.tracking === "lot" ? "lots" : "serials");
       // Le suivi change la nature du stock (lots / séries) : seulement sur un article sans aucun mouvement.
@@ -110,6 +113,11 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
   const a = full!;
   // Identifiant dérivé de la demande du client : un nouvel envoi après coupure réseau ne crée jamais de doublon.
   const id = b.requestId ? `a${String(b.requestId).replace(/[^A-Za-z0-9]/g, "").slice(0, 28)}` : newId();
+  if (a.kind === "bundle") {
+    await needFeature(store, ctx, "bundles");
+    if (a.tracking || a.qtyScale !== 0) throw new HttpError(400, "Un bundle n'a pas de stock propre : ni suivi par lot/série, ni décimales.");
+    if (b.initialQty !== undefined && String(b.initialQty).trim() !== "" && Number(b.initialQty) !== 0) throw new HttpError(400, "Un bundle n'a pas de stock propre : son stock se déduit de ses composants.");
+  }
   if (a.qtyScale !== 0) await needFeature(store, ctx, "packaging");
   if (a.tracking) {
     await needFeature(store, ctx, a.tracking === "lot" ? "lots" : "serials");
@@ -147,6 +155,12 @@ export async function archiveArticle(store: Store, ctx: Ctx, b: { id: string; ar
 export async function deleteArticle(store: Store, ctx: Ctx, b: { id: string }) {
   needModule(ctx, "stock"); await needFeature(store, ctx, "articles"); need(ctx, "manager");
   const row = must(await store.get("products", b.id)); if (!mine(ctx, row)) throw new HttpError(403, "Accès refusé");
+  if ((await store.list("article_components", { tenantId: ctx.tenantId, shopId: ctx.shopId, componentId: row.$id }, 1)).length) throw new HttpError(409, "Cet article compose un bundle : retirez-le du bundle (ou archivez-le) avant de le supprimer.");
+  if (kindOf(row) === "bundle") {
+    const sold = (await store.scan("sales", { tenantId: ctx.tenantId, shopId: ctx.shopId })).rows.some((x) => String(x.lines).includes(row.$id));
+    if (sold) throw new HttpError(409, "Ce bundle a déjà été vendu : archivez-le plutôt que de le supprimer.");
+    for (const r of await store.list("article_components", { tenantId: ctx.tenantId, shopId: ctx.shopId, bundleId: row.$id }, 50)) await store.remove("article_components", r.$id);
+  }
   if (row.hasVariants) throw new HttpError(409, "Cet article a des variantes : supprimez ou archivez-les d'abord.");
   const moves = (await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id })).rows;
   const used = moves.some((m) => !(m.kind === "adjust" && m.refId === INITIAL));

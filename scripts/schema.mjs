@@ -12,7 +12,7 @@ const base = [s("tenantId", 64, true), s("shopId", 64, true)];
 
 export const TABLES = {
   shops: { cols: [s("tenantId", 64, true), s("costMethod", 16), s("expiredPolicy", 8), s("name", 120, true), s("city"), s("phone", 32), i("vatRatePct"), s("address", 160), s("legal", 120)], idx: [["tenant", ["tenantId"]]] },
-  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64), t("description"), s("unit", 16), s("supplierId", 64), s("imageFileId", 64), i("qtyScale"), b("hasVariants"), s("tracking", 8)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]], ["name_ft", ["name"], "fulltext"], ["sku", ["sku"]], ["category", ["tenantId", "shopId", "category"]]] },
+  products: { cols: [...base, s("sku", 64), s("barcode", 64), s("name", 160, true), s("category", 80), i("price", true), i("cost"), i("minStock"), b("archived"), s("originId", 64), t("description"), s("unit", 16), s("supplierId", 64), s("imageFileId", 64), i("qtyScale"), b("hasVariants"), s("tracking", 8), s("kind", 8)], idx: [["shop", ["tenantId", "shopId"]], ["barcode", ["barcode"]], ["origin", ["originId"]], ["tenant", ["tenantId"]], ["name_ft", ["name"], "fulltext"], ["sku", ["sku"]], ["category", ["tenantId", "shopId", "category"]]] },
   // Historique des modifications de prix d'un article (les ventes gardent leur propre prix figé).
   // Conditionnements d'un article (1 unité = `factor` unités de base). Une ligne par (article, unité) ; retirée = active:false.
   article_units: { cols: [...base, s("productId", 64, true), s("unit", 16, true), f("factor", true), b("active")], idx: [["product", ["productId"]]] },
@@ -25,6 +25,8 @@ export const TABLES = {
   // Évolution des coûts d'achat : une ligne par article reçu (prix payé, coût de revient avec frais, coût du stock avant/après).
   article_cost_events: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("supplierId", 64), s("kind", 16, true), i("unitCost"), i("landedCost"), f("qty"), i("costBefore"), i("costAfter"), s("method", 16), s("ref", 64)], idx: [["product", ["productId"]]] },
   // Lots (péremption) : quantité d'un lot = somme des mouvements portant son lotId. unitCost = coût de revient du lot (valorisation par lot).
+  // Bundles virtuels : composition d'un article `kind = bundle` (une ligne par composant ; qty entière en unité de base du composant).
+  article_components: { cols: [...base, s("bundleId", 64, true), s("componentId", 64, true), i("qty", true)], idx: [["bundle", ["bundleId"]], ["component", ["componentId"]], ["shop", ["tenantId", "shopId"]]] },
   article_lots: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("lotNo", 40, true), d("manufacturedAt"), d("expiresAt"), d("receivedAt"), s("supplierId", 64), i("unitCost"), s("status", 16)], idx: [["product", ["productId"]], ["shop", ["tenantId", "shopId"]]] },
   // Numéros de série : une ligne par unité ; `cycle` compte les retours remis en stock (verrou de vente atomique par identifiant de mouvement).
   article_serials: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("serial", 64, true), s("status", 16, true), d("receivedAt"), s("supplierId", 64), i("unitCost"), i("warrantyMonths"), s("saleId", 64), s("saleRef", 64), d("soldAt"), d("warrantyUntil"), i("cycle"), s("entryRef", 64)], idx: [["product", ["productId"]], ["serial", ["serial"]], ["shop", ["tenantId", "shopId"]]] },

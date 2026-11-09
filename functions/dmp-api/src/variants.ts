@@ -2,6 +2,7 @@ import { cleanText, parseAmount } from "../../../src/domain/articles";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { MAX_VARIANTS, normalizeAttributes } from "../../../src/domain/variants";
 import { assertUnique, freeSku, needFeature } from "./articles";
+import { refuseBundle } from "./bundles";
 import { stockScaled } from "./checkout";
 import { HttpError, need, needModule, type Ctx, type Row, type Store } from "./store";
 
@@ -27,6 +28,7 @@ export async function saveVariant(store: Store, ctx: Ctx, b: VariantInput) {
   const p = await store.get("products", b.productId);
   if (!mine(ctx, p)) throw new HttpError(404, "Article introuvable");
   if (p.archived) throw new HttpError(409, "Article archivé : restaurez-le avant de modifier ses variantes");
+  refuseBundle(p, "il ne peut pas avoir de variantes.");
   const siblings = (await store.list("article_variants", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id }, MAX_VARIANTS + 1));
   let attrs: ReturnType<typeof normalizeAttributes> | null = null;
   try { if (!b.id || b.attributes !== undefined) attrs = normalizeAttributes(b.attributes); } catch (e) { throw new HttpError(400, (e as Error).message); }

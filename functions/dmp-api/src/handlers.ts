@@ -15,6 +15,7 @@ import { deletePriceRule, savePriceRule } from "./pricing";
 import { addSerials, receiveLot, setSerialStatus, updateLot, writeOffLot } from "./tracking";
 import { articleProfitability, deleteSupplierLink, saveSupplierLink } from "./costing";
 import { archiveVariant, deleteVariant, saveVariant } from "./variants";
+import { refuseBundle, saveComponents } from "./bundles";
 import { isCategory } from "../../../src/domain/pricing";
 import { archiveArticle, needFeature, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
@@ -62,6 +63,7 @@ export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string
   needModule(ctx, "stock");
   const p = must(await store.get("products", b.productId), "Produit introuvable");
   if (!mine(ctx, p)) throw new HttpError(403, "Accès refusé");
+  refuseBundle(p, "son stock se déduit de ses composants, il ne se compte pas.");
   const scale = scaleOf(p);
   let counted: number;
   try { counted = String(b.counted).trim() === "0" ? 0 : qtyFor(b.counted, scale); } catch (e) { throw new HttpError(400, (e as Error).message); }
@@ -177,7 +179,7 @@ export const TENANT_LEVEL = new Set(["report.consolidated", "subscription.get", 
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
-  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "lot.receive": receiveLot, "lot.update": updateLot, "lot.writeoff": writeOffLot, "serial.add": addSerials, "serial.status": setSerialStatus, "supplier.link.save": saveSupplierLink, "supplier.link.delete": deleteSupplierLink, "article.profitability": articleProfitability, "price.rule.save": savePriceRule, "price.rule.delete": deletePriceRule, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
+  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "bundle.components": saveComponents, "lot.receive": receiveLot, "lot.update": updateLot, "lot.writeoff": writeOffLot, "serial.add": addSerials, "serial.status": setSerialStatus, "supplier.link.save": saveSupplierLink, "supplier.link.delete": deleteSupplierLink, "article.profitability": articleProfitability, "price.rule.save": savePriceRule, "price.rule.delete": deletePriceRule, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
