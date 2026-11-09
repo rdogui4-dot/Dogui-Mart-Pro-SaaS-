@@ -22,6 +22,7 @@ const TILES: { to: string; label: string; hint: string; icon: typeof ScanLine; p
   { to: "/articles", label: "Articles", hint: "Catalogue, photos & prix", icon: Tags, perm: "stock" },
   { to: "/promotions", label: "Promotions", hint: "Remises, codes & résultats", icon: Percent, perm: "stock" },
   { to: "/activite", label: "Tableau de bord", hint: "Ventes, marge, stock & alertes", icon: LayoutDashboard, perm: "reports" },
+  { to: "/pilotage", label: "Pilotage Pro", hint: "Rentabilité, stocks, prévisions, exports", icon: TrendingUp, perm: "reports" },
   { to: "/tableau", label: "Alertes articles", hint: "Péremption, marges, meilleurs articles (Pro)", icon: AlertTriangle, perm: "stock" },
   { to: "/bundles", label: "Bundles", hint: "Packs d'articles à prix propre", icon: Layers, perm: "stock" },
   { to: "/stock", label: "Stock", hint: "Produits & inventaire", icon: Boxes, perm: "stock" },
@@ -46,7 +47,7 @@ export function HomePage() {
   ];
   const low = lowNames;
   const ent = sub.data?.entitlement;
-  const visible = (to: string) => to !== "/articles" || planAllows(ent?.plan.id, "articles"); // Articles : Business ou Pro uniquement
+  const visible = (to: string) => (to !== "/articles" || planAllows(ent?.plan.id, "articles")) && (to !== "/pilotage" || planAllows(ent?.plan.id, "proDashboard")); // Articles : Business ou Pro uniquement
   const shopName = s.shops.find((x) => x.id === s.shopId)?.name;
   return (
     <div className="flex flex-col gap-4">
@@ -89,7 +90,7 @@ export function PlusPage() {
       <h1 className="text-2xl font-bold">Plus</h1>
       <RejectedSales />
       <div className="card text-sm"><b>{s.name}</b><br /><span className="text-white/50">{s.role === "owner" ? "Gérant principal (propriétaire)" : s.role}</span></div>
-      {TILES.filter((t) => can(s, t.perm) && (t.to !== "/articles" || planAllows(plan, "articles"))).map(({ to, label, hint, icon: I }) => (
+      {TILES.filter((t) => can(s, t.perm) && (t.to !== "/articles" || planAllows(plan, "articles")) && (t.to !== "/pilotage" || planAllows(plan, "proDashboard"))).map(({ to, label, hint, icon: I }) => (
         <Link key={to} to={to} className="card flex items-center gap-3"><I className="text-[var(--gold)]" /><span><b>{label}</b><br /><span className="text-xs text-white/50">{hint}</span></span></Link>
       ))}
       <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => void logout()}><LogOut size={18} />Se déconnecter</button>

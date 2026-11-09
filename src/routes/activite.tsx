@@ -36,7 +36,7 @@ function Kpi({ label, value, sub, to, tone }: { label: string; value: string; su
 const Section = ({ title, children, empty }: { title: string; children: React.ReactNode; empty?: string }) => <section className="card flex flex-col gap-2"><h2 className="font-semibold text-sm">{title}</h2>{empty ? <p className="text-sm text-white/50">{empty}</p> : children}</section>;
 
 /** Tableau de bord de l'activité (Business) : tout vient d'une seule action serveur (`dashboard.business`) calculée sur les ventes, achats, stock et mouvements réellement enregistrés. */
-export function ActivitePage() {
+export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useSession(); const s = session!; const sub = useSubscription(); const allowed = planAllows(sub.data?.entitlement.plan.id, "businessDashboard");
   const [preset, setPreset] = useState<PresetId>("last30"); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [shop, setShop] = useState(s.shopId); const [tab, setTab] = useState<"sales" | "purchases" | "moves" | "created" | "important">("sales"); const [open, setOpen] = useState<string | null>(null);
   const custom = preset === "custom"; const ready = !custom || (!!from && !!to && from <= to);
@@ -45,15 +45,16 @@ export function ActivitePage() {
     <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Tableau de bord</h1>
       <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-[var(--gold)]" />Réservé à la formule Business</span><span className="text-white/60">Chiffre d'affaires, marge, stock, graphiques et alertes sur vos données réelles.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>
   );
-  const d = q.data; const tz = d?.tz ?? "UTC"; const offline = typeof navigator !== "undefined" && !navigator.onLine; const k = d?.kpis; const per = k?.period;
+  const proOn = planAllows(sub.data?.entitlement.plan.id, "proDashboard"); const d = q.data; const tz = d?.tz ?? "UTC"; const offline = typeof navigator !== "undefined" && !navigator.onLine; const k = d?.kpis; const per = k?.period;
   const periodTxt = d ? (d.period.from === d.period.to ? dd(d.period.from) : `${dd(d.period.from)} → ${dd(d.period.to)}`) : "";
   const shortcuts = [{ to: "/pos", l: "Nouvelle vente", i: ScanLine, p: "pos" }, { to: "/articles", l: "Ajouter un article", i: Plus, p: "stock" }, { to: "/achats", l: "Enregistrer un achat", i: Receipt, p: "purchases" }, { to: "/stock", l: "Consulter le stock", i: Boxes, p: "stock" }, { to: "/stock", l: "Effectuer un inventaire", i: ClipboardList, p: "stock" }, { to: "/compta", l: "Consulter les rapports", i: FileBarChart, p: "finance" }] as const;
   const sale = d?.activity.sales.find((x) => x.id === open);
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2"><h1 className="text-2xl font-bold">Tableau de bord</h1>
+      <div className="flex items-center justify-between gap-2">{embedded ? <h2 className="text-lg font-semibold">Activité (essentiel)</h2> : <h1 className="text-2xl font-bold">Tableau de bord</h1>}
         <button className="btn-ghost !px-3 !py-2 flex items-center gap-1 text-sm" aria-label="Actualiser" onClick={() => void q.refetch()} disabled={q.isFetching}><RefreshCw size={16} className={q.isFetching ? "animate-spin" : ""} />Actualiser</button></div>
       <p className="text-xs text-white/50">{d ? `Mis à jour à ${new Date(d.asOf).toLocaleTimeString("fr-FR", { timeZone: tz, hour: "2-digit", minute: "2-digit" })} · jours en heure de l'entreprise (${tz})` : "Chargement des données réelles…"}</p>
+      {proOn && !embedded && <Link to="/pilotage" className="card flex items-center justify-between text-sm border border-[var(--gold)]/40"><span><b>Tableau de bord Pro</b><br /><span className="text-white/50 text-xs">Rentabilité, stocks, achats, magasins, prévisions, exports</span></span><span className="text-[var(--gold)]">Ouvrir ›</span></Link>}
       <nav aria-label="Période" className="scroll-x">{PRESETS.map((p) => <button key={p.id} className="chip" aria-current={preset === p.id} onClick={() => setPreset(p.id)}>{p.label}</button>)}</nav>
       {custom && <div className="grid grid-cols-2 gap-2"><label className="text-xs text-white/60">Du<input className="input mt-1" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs text-white/60">Au<input className="input mt-1" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></label>{!ready && <p className="col-span-2 text-xs text-white/50">Choisissez deux dates (92 jours au plus).</p>}</div>}
       {d?.scope.many && <label className="text-xs text-white/60 flex flex-col gap-1">Boutique<select className="input" value={shop} onChange={(e) => setShop(e.target.value)}>{d.scope.shops.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="all">Toutes mes boutiques</option></select></label>}

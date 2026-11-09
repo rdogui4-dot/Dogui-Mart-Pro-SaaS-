@@ -111,7 +111,7 @@ function exec(w: World) {
   const t = A.totalsOf(w.facts); const pt = w.compare !== "none" ? A.totalsOf(w.prevFacts) : null; const st = stockAnalysis(w); const svr = stockValueRotation(w, st, t.cogs);
   const journal = w.perShop.length ? null : null; void journal;
   return { ...head(w, "exec"), totals: t, previous: pt, comparison: cmp(t, pt), comparisonNote: w.compare === "none" ? null : pt && pt.count > 0 ? "Comparaison descriptive : elle n'établit pas de lien de cause." : "Aucune vente sur la période de comparaison : pas de comparaison.",
-    series: A.series(w.facts, w.period, w.gran), stock: { ...svr, partialShops: st.partialShops, methodLabel: methodLabel(String(w.home.costMethod ?? "cmup")) },
+    series: A.series(w.facts, w.period, w.gran), previousSeries: w.prev ? A.series(w.prevFacts, { from: w.prev.from, to: w.prev.to }, w.gran) : null, stock: { ...svr, partialShops: st.partialShops, methodLabel: methodLabel(String(w.home.costMethod ?? "cmup")) },
     unavailable: [
       { id: "refunds", label: "Remboursements", reason: "Aucun remboursement ni annulation de vente n'existe dans l'application : le montant n'est pas calculable (et non « zéro »)." },
       { id: "expenses", label: "Dépenses d'exploitation", reason: "Les dépenses hors achats de marchandises ne sont pas saisies dans l'application." },
@@ -291,3 +291,13 @@ export async function proReport(store: Store, ctx: Ctx, b: Params & { kind?: str
 }
 const w2 = (d: Record<string, any>, shopId: string) => d.scope.shops.find((s: any) => s.id === shopId)?.name ?? shopId;
 void monthStart;
+
+/** Listes pour les filtres avancés (catégories, articles, fournisseurs, vendeurs, modes de paiement) des boutiques accessibles. */
+export async function proOptions(store: Store, ctx: Ctx, b: { shopId?: string } = {}) {
+  const w = await world(store, ctx, { preset: "today", shopId: b.shopId ?? "all", space: "sales" }, false);
+  const cats = new Set<string>(), arts: { id: string; name: string }[] = [], sup = new Map<string, string>();
+  for (const p of w.products.values()) { if (p.archived) continue; cats.add(String(p.category ?? "") || "Sans catégorie"); arts.push({ id: String(p.$id), name: String(p.name) }); }
+  for (const [id, name] of w.suppliers) sup.set(id, name);
+  const sellers = new Map<string, string>(); for (const s of w.sales) sellers.set(s.cashierId, w.sellerName(s.cashierId)); for (const f of w.factsAll) sellers.set(f.cashierId, w.sellerName(f.cashierId));
+  return { categories: [...cats].sort((a, c) => a.localeCompare(c, "fr")), articles: arts.sort((a, c) => a.name.localeCompare(c.name, "fr")).slice(0, 3000), suppliers: [...sup].map(([id, name]) => ({ id, name })).sort((a, c) => a.name.localeCompare(c.name, "fr")), sellers: [...sellers].filter(([id]) => id).map(([id, name]) => ({ id, name })).sort((a, c) => a.name.localeCompare(c.name, "fr")), methods: ["cash", "wave", "orange", "card", "credit"], shops: w.allowed.map((s) => ({ id: String(s.$id), name: String(s.name ?? s.$id) })) };
+}
