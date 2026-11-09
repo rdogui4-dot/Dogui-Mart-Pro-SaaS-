@@ -22,7 +22,7 @@ export async function loadEnabledPromotions(store: Store, ctx: Ctx): Promise<Pro
 }
 /** Évaluation côté serveur : charge les promotions actives, les utilisations du client, la marge minimale de la boutique. L'interface ne calcule jamais seule. */
 export async function evaluateForSale(store: Store, ctx: Ctx, lines: EvalLine[], o: { customerId?: string; now: Date }): Promise<EvalResult & { promos: Promo[] }> {
-  const promos = await loadEnabledPromotions(store, ctx); if (!promos.length) return { lines: lines.map((l) => ({ index: l.index, discount: 0 })), applied: [], skipped: [], promos };
+  const promos = await loadEnabledPromotions(store, ctx); if (!promos.length) return { lines: lines.map((l) => ({ index: l.index, discount: 0, parts: [] })), applied: [], skipped: [], decisions: [], notes: [], promos };
   const shop = await store.get("shops", ctx.shopId.slice(0, 36)); const uses = new Map<string, number>();
   if (o.customerId) for (const p of promos.filter((x) => x.perCustomerLimit !== undefined)) uses.set(p.id, (await store.list("promotion_usage", { promotionId: p.id, customerId: o.customerId }, 1000)).length);
   return { ...evaluatePromotions(promos, lines, { now: o.now, customerId: o.customerId, minMarginPct: Number(shop?.minMarginPct ?? 0), customerUses: (id) => uses.get(id) ?? 0 }), promos };
