@@ -31,6 +31,9 @@ export function SettingsPage() {
   const [costMsg, setCostMsg] = useState(""); const [costBusy, setCostBusy] = useState(false);
   const expiredPolicy = isExpiredPolicy((shop.data as { expiredPolicy?: string } | null)?.expiredPolicy) ? (shop.data as { expiredPolicy: string }).expiredPolicy : "block";
   const [polMsg, setPolMsg] = useState("");
+  const [mm, setMm] = useState(""); const [mmMsg, setMmMsg] = useState("");
+  useEffect(() => { setMm(String((shop.data as { minMarginPct?: number } | null)?.minMarginPct ?? 0)); }, [shop.data]);
+  async function saveMargin() { setMmMsg(""); try { await api(s, "shop.save", { minMarginPct: Number(mm) }); setMmMsg("Marge minimale enregistrée."); await qc.invalidateQueries({ queryKey: ["shop"] }); } catch (x) { setMmMsg((x as Error).message); } }
   async function savePolicy(v: string) {
     setPolMsg("");
     try { await api(s, "shop.save", { expiredPolicy: v }); setPolMsg("Politique enregistrée."); await qc.invalidateQueries({ queryKey: ["shop"] }); } catch (x) { setPolMsg((x as Error).message); }
@@ -107,6 +110,14 @@ export function SettingsPage() {
           <select className="input" aria-label="Politique des lots périmés" value={expiredPolicy} disabled={!planAllows(sub.data?.entitlement.plan.id, "lots")} onChange={(e) => void savePolicy(e.target.value)}>{EXPIRED_POLICIES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
           {!planAllows(sub.data?.entitlement.plan.id, "lots") && <p className="text-xs text-amber-300">Les lots et dates d'expiration sont réservés à la formule Pro.</p>}
           {polMsg && <p className="text-sm text-amber-300" role="status">{polMsg}</p>}
+        </div>
+      )}
+      {tab === "shop" && can(s, "settings") && planAllows(sub.data?.entitlement.plan.id, "promotions") && (
+        <div className="card flex flex-col gap-2">
+          <h2 className="font-semibold">Promotions : marge minimale</h2>
+          <p className="text-xs text-white/50">Une promotion est refusée à la création, et ignorée à la caisse, si le prix final passe sous « coût × (1 + marge) ». 0 = seulement interdire de vendre sous le coût.</p>
+          <div className="flex gap-2"><input className="input" inputMode="numeric" aria-label="Marge minimale (%)" value={mm} onChange={(e) => setMm(e.target.value)} /><button className="btn" onClick={() => void saveMargin()}>Enregistrer</button></div>
+          {mmMsg && <p className="text-sm text-amber-300" role="status">{mmMsg}</p>}
         </div>
       )}
       {tab === "payments" && can(s, "settings") && (
