@@ -1,6 +1,7 @@
 import { aggregateSales, mergeAggregates, parsePeriod, type SaleRow, type SalesAggregate } from "../../../src/domain/reports";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
 import { fromScaled, scaleOf } from "../../../src/domain/quantity";
+import { trackingOf } from "../../../src/domain/tracking";
 import { HttpError, roleOf, type Ctx, type Store, needModule } from "./store";
 
 const parse = <T,>(s: unknown, fb: T): T => { try { return JSON.parse(String(s)) as T; } catch { return fb; } };
@@ -35,17 +36,21 @@ export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: stri
     // Stock valorisé au coût moyen et ruptures : impossibles à calculer honnêtement si l'historique a été tronqué.
     let stockValue: number | null = null, stockouts: number | null = null;
     if (!moves.truncated && !products.truncated) {
-      const byProduct = new Map<string, StockMove[]>(), byVariant = new Map<string, StockMove[]>();
+      const byProduct = new Map<string, StockMove[]>(), byVariant = new Map<string, StockMove[]>(), byLot = new Map<string, StockMove[]>();
       for (const m of moves.rows) {
         const mv = { productId: String(m.productId), qty: Number(m.qty), kind: m.kind as StockMove["kind"] };
         const [map, k] = m.variantId ? [byVariant, String(m.variantId)] : [byProduct, String(m.productId)];
         (map.get(k) ?? map.set(k, []).get(k)!).push(mv);
+        if (m.lotId) (byLot.get(String(m.lotId)) ?? byLot.set(String(m.lotId), []).get(String(m.lotId))!).push(mv);
       }
+      // Articles suivis par lot : valorisés au coût de chaque lot (coût de revient de sa réception) ; le coût de l'article sert de repli.
+      const lotRows = (await store.scan("article_lots", where, { maxRows: 20_000 })).rows;
+      const lotValue = (productId: string, variantId: string, scale: number, fallback: number) => lotRows.filter((l) => l.productId === productId && String(l.variantId ?? "") === variantId).reduce((a, l) => a + Math.max(0, fromScaled(stockOf(byLot.get(String(l.$id)) ?? []), scale)) * (Number(l.unitCost) > 0 ? Number(l.unitCost) : fallback), 0);
       stockValue = 0; stockouts = 0;
       const productRows = products.rows.filter((x) => !x.archived);
       for (const p of productRows.filter((x) => !x.hasVariants)) {
         const n = fromScaled(stockOf(byProduct.get(String(p.$id)) ?? []), scaleOf(p)); // décimal pour les articles au kilo / au litre
-        stockValue += Math.max(0, n) * Number(p.cost ?? 0);
+        stockValue += trackingOf(p) === "lot" ? lotValue(String(p.$id), "", scaleOf(p), Number(p.cost ?? 0)) : Math.max(0, n) * Number(p.cost ?? 0);
         if (n <= Number(p.minStock ?? 0)) stockouts++;
       }
       // Articles déclinés : chaque variante active a son stock, son coût et son seuil.
@@ -53,7 +58,8 @@ export async function consolidatedReport(store: Store, ctx: Ctx, b: { from: stri
       const live = new Set(productRows.filter((x) => x.hasVariants).map((x) => String(x.$id)));
       for (const v of variants.rows.filter((x) => !x.archived && live.has(String(x.productId)))) {
         const n = fromScaled(stockOf(byVariant.get(String(v.$id)) ?? []), scaleOf(products.rows.find((x) => x.$id === v.productId)));
-        stockValue += Math.max(0, n) * Number(v.cost ?? 0);
+        const parent = products.rows.find((x) => x.$id === v.productId);
+        stockValue += trackingOf(parent) === "lot" ? lotValue(String(v.productId), String(v.$id), scaleOf(parent), Number(v.cost ?? 0)) : Math.max(0, n) * Number(v.cost ?? 0);
         if (n <= Number(v.minStock ?? 0)) stockouts++;
       }
     }

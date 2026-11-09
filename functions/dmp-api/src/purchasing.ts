@@ -9,6 +9,8 @@ import { MAX_AMOUNT } from "../../../src/domain/articles";
 import { needFeature } from "./articles";
 import { entitlementOf } from "./subscriptions";
 import { linkId } from "./costing";
+import { assertSerialsFree, checkLot, createSerials, ensureLot, normalizeLotParts, type LotPart } from "./tracking";
+import { parseSerials, trackingOf } from "../../../src/domain/tracking";
 import { lineKey } from "../../../src/domain/variants";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
@@ -65,16 +67,30 @@ export async function cancelPo(store: Store, ctx: Ctx, b: { poId: string }) {
 
 /** Réception (totale ou partielle) : mouvements de stock + coût moyen pondéré.
  *  Ordre sûr en cas de reprise : la commande est mise à jour d'abord (receiptId mémorisé), puis les mouvements sont écrits avec des identifiants déterministes. */
-export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; receiptId: string; fees?: number | string; lines: { productId: string; variantId?: string; qty: number }[] }) {
+export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; receiptId: string; fees?: number | string; lines: { productId: string; variantId?: string; qty: number; lots?: unknown; serials?: unknown }[] }) {
   needModule(ctx, "purchases");
   const rid = safeId(b.receiptId); if (rid.length < 8) throw new HttpError(400, "receiptId invalide");
   const { po, lines, receipts } = await loadPo(store, ctx, b.poId);
   if (po.status === "cancelled") throw new HttpError(409, "Commande annulée");
   const duplicate = receipts.includes(rid);
-  const wanted = (b.lines ?? []).map((w) => ({ productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), qty: Number(String(w.qty).replace(",", ".")) }));
+  const wanted = (b.lines ?? []).map((w) => ({ productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), qty: Number(String(w.qty).replace(",", ".")), lots: w.lots, serials: w.serials }));
   const scales = new Map<string, number>();
   for (const w of wanted) scales.set(w.productId, scaleOf(await store.get("products", w.productId)));
+  // Articles suivis : une réception précise les lots (numéro, quantité, péremption) ou les numéros de série reçus. Tout est validé AVANT la moindre écriture.
+  const entryRef = `p${rid.slice(0, 28)}`;
+  const tracked = new Map<string, { p: Row; mode: "lot" | "serial"; parts?: LotPart[]; serials?: string[] }>();
+  for (const w of wanted) {
+    const p = await store.get("products", w.productId); if (!p) continue; /* produit hors commande : refusé plus bas par la validation des quantités */ const mode = trackingOf(p); if (!mode) continue;
+    if (mode === "lot") tracked.set(lineKey(w), { p, mode, parts: normalizeLotParts(w.lots, w.qty, scales.get(w.productId) ?? 0) });
+    else {
+      let serials: string[]; try { serials = parseSerials(w.serials); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
+      if (!Number.isInteger(w.qty) || serials.length !== w.qty) throw new HttpError(400, `${p.name} : indiquez exactement ${w.qty} numéro(s) de série`);
+      tracked.set(lineKey(w), { p, mode, serials });
+    }
+  }
+  const landedByKey = new Map<string, number>();
   if (!duplicate) {
+    for (const [k, t] of tracked) { const w = wanted.find((x) => lineKey(x) === k)!; if (t.mode === "lot") for (const part of t.parts!) await checkLot(store, ctx, t.p, w.variantId ?? "", part); else await assertSerialsFree(store, ctx, t.p, t.serials!, entryRef); }
     const v = validateQuantities(lines, wanted, toReceive, (id) => scales.get(id) ?? 0); if (!v.ok) throw new HttpError(409, v.error);
     // Coût de revient de chaque ligne = prix payé + frais proportionnels du fournisseur + part des frais de la réception (transport, douane…), puis méthode de valorisation de la boutique.
     const fees = b.fees === undefined || String(b.fees).trim() === "" ? 0 : Number(String(b.fees).replace(/\s/g, ""));
@@ -94,7 +110,7 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
       const pct = link && link.status !== "inactive" ? Math.round(values[i]! * Number(link.feePct ?? 0) / 100) : 0;
       const landed = pct + alloc[i]! === 0 ? line.unitCost : landedUnitCost(values[i]!, w.qty, pct, alloc[i]!);
       const before = Number((v ?? p).cost ?? 0), after = nextCost(method, stock, before, w.qty, landed);
-      costs.set(lineKey(w), { table: v ? "article_variants" : "products", id: v ? v.$id : p.$id, cost: after });
+      costs.set(lineKey(w), { table: v ? "article_variants" : "products", id: v ? v.$id : p.$id, cost: after }); landedByKey.set(lineKey(w), landed);
       events.push({ productId: p.$id, variantId: w.variantId ?? "", supplierId: String(po.supplierId), kind: "receipt", unitCost: line.unitCost, landedCost: landed, qty: w.qty, costBefore: before, costAfter: after, method, ref: String(po.number) });
       if (pro) links.push({ id: link?.$id ?? linkId(w.productId, w.variantId ?? "", String(po.supplierId)), price: line.unitCost, supplierId: String(po.supplierId), productId: w.productId, variantId: w.variantId ?? "" });
       line.received = Math.round((line.received + w.qty) * 1e6) / 1e6;
@@ -110,8 +126,14 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
     }
   }
   const base = rid.slice(0, 28);
-  for (const [i, w] of wanted.entries())
-    await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), qty: scaledInt(w.qty, scales.get(w.productId) ?? 0), kind: "purchase", refId: String(po.number), userId: ctx.userId });
+  for (const [i, w] of wanted.entries()) {
+    const t = tracked.get(lineKey(w)); const scale = scales.get(w.productId) ?? 0; const vid = w.variantId ?? "";
+    const common = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), kind: "purchase", refId: String(po.number), userId: ctx.userId };
+    if (t?.mode === "lot") { // un mouvement par lot reçu ; le coût du lot est le coût de revient de la réception
+      for (const [j, part] of t.parts!.entries()) { const lot = await ensureLot(store, ctx, t.p, vid, part, { supplierId: String(po.supplierId), unitCost: landedByKey.get(lineKey(w)) }); await store.create("stock_moves", `${base}_m${i}_${j}`, ctx.tenantId, { ...common, lotId: lot.$id, qty: scaledInt(part.qty, scale) }); }
+    } else if (t?.mode === "serial") await createSerials(store, ctx, t.p, vid, t.serials!, { entryRef, supplierId: String(po.supplierId), unitCost: landedByKey.get(lineKey(w)), moveBase: `${base}_s${i}`, kind: "purchase", refId: String(po.number) });
+    else await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { ...common, qty: scaledInt(w.qty, scale) });
+  }
   return { status: poStatus(lines), duplicate };
 }
 

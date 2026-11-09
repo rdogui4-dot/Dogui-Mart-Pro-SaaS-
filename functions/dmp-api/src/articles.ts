@@ -1,6 +1,7 @@
 import { BUSINESS_FIELDS, normalizeArticle, normalizePatch, type Article } from "../../../src/domain/articles";
 import { FEATURES, planAllows, type FeatureKey } from "../../../src/domain/features";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
+import { trackingOf } from "../../../src/domain/tracking";
 import { readRoles } from "./permissions";
 import { assertQuota, entitlementOf } from "./subscriptions";
 import { HttpError, need, needModule, type Ctx, type Row, type Store } from "./store";
@@ -10,7 +11,7 @@ const mine = (ctx: Ctx, r: Row | null): r is Row => !!r && r.tenantId === ctx.te
 const must = (r: Row | null, msg = "Article introuvable"): Row => { if (!r) throw new HttpError(404, msg); return r; };
 const INITIAL = "stock-initial";
 /** Champs que le client peut envoyer. imageFileId n'en fait pas partie : la photo passe uniquement par article.image. */
-const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId", "qtyScale"] as const;
+const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId", "qtyScale", "tracking"] as const;
 const MAX_IMAGE_BYTES = 450_000;
 
 /** Droit lié à la FORMULE (distinct du rôle de l'employé). 402 = « passez à l'offre supérieure ». */
@@ -73,6 +74,15 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
       if ((await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id }, { maxRows: 1 })).rows.length) throw new HttpError(409, "La précision des quantités ne peut plus changer : cet article a déjà des mouvements de stock.");
       if ((await store.list("article_units", { productId: row.$id, active: true }, 1)).length) throw new HttpError(409, "Retirez d'abord les conditionnements de cet article.");
     }
+    if (patch.tracking !== undefined && patch.tracking !== trackingOf(row)) {
+      if (patch.tracking) await needFeature(store, ctx, patch.tracking === "lot" ? "lots" : "serials");
+      // Le suivi change la nature du stock (lots / séries) : seulement sur un article sans aucun mouvement.
+      if ((await store.scan("stock_moves", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: row.$id }, { maxRows: 1 })).rows.length) throw new HttpError(409, "Le mode de suivi ne peut plus changer : cet article a déjà des mouvements de stock.");
+    }
+    if ((patch.tracking ?? trackingOf(row)) === "serial") {
+      if ((patch.qtyScale ?? scaleOf(row)) !== 0) throw new HttpError(400, "Un article suivi par numéro de série se vend à l'unité entière");
+      if ((await store.list("article_units", { productId: row.$id, active: true }, 1)).length) throw new HttpError(409, "Retirez d'abord les conditionnements : un article suivi par série ne se vend qu'à l'unité");
+    }
     if (patch.sku !== undefined) await assertUnique(store, ctx, "sku", patch.sku, { productId: row.$id });
     if (patch.barcode !== undefined) await assertUnique(store, ctx, "barcode", patch.barcode, { productId: row.$id });
     if (!Object.keys(patch).length) return { id: row.$id };
@@ -88,6 +98,11 @@ export async function saveProduct(store: Store, ctx: Ctx, b: { id?: string; requ
   // Identifiant dérivé de la demande du client : un nouvel envoi après coupure réseau ne crée jamais de doublon.
   const id = b.requestId ? `a${String(b.requestId).replace(/[^A-Za-z0-9]/g, "").slice(0, 28)}` : newId();
   if (a.qtyScale !== 0) await needFeature(store, ctx, "packaging");
+  if (a.tracking) {
+    await needFeature(store, ctx, a.tracking === "lot" ? "lots" : "serials");
+    if (a.tracking === "serial" && a.qtyScale !== 0) throw new HttpError(400, "Un article suivi par numéro de série se vend à l'unité entière");
+    if (b.initialQty !== undefined && String(b.initialQty).trim() !== "" && Number(b.initialQty) !== 0) throw new HttpError(400, a.tracking === "lot" ? "Article suivi par lot : saisissez le stock initial par lot (Lots → Entrée de stock)" : "Article suivi par numéro de série : saisissez les numéros (Séries → Ajouter)");
+  }
   let qty = 0; // stock initial en entiers de sous-unités
   if (b.initialQty !== undefined && String(b.initialQty).trim() !== "" && Number(b.initialQty) !== 0) {
     try { qty = scaledInt(qtyFor(b.initialQty, a.qtyScale), a.qtyScale); } catch (e) { throw new HttpError(400, `Quantité en stock : ${(e as Error).message}`); }

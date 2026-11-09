@@ -1,4 +1,5 @@
 import { isCostMethod } from "../../../src/domain/costing";
+import { isExpiredPolicy } from "../../../src/domain/tracking";
 import { needFeature } from "./articles";
 import { ACCOUNTS, saleJournal } from "../../../src/domain/accounting";
 import { toFcfa } from "../../../src/domain/money";
@@ -12,8 +13,16 @@ const parse = <T,>(s: unknown, fallback: T): T => { try { return JSON.parse(Stri
 const ymd = (iso: string) => iso.slice(0, 10).replace(/-/g, "");
 const TREASURY = { cash: ACCOUNTS.cash, wave: ACCOUNTS.wave, orange: ACCOUNTS.orange, card: ACCOUNTS.bank } as const;
 
-export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; address?: string; city?: string; phone?: string; legal?: string; vatRatePct?: number; costMethod?: string }) {
+export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; address?: string; city?: string; phone?: string; legal?: string; vatRatePct?: number; costMethod?: string; expiredPolicy?: string }) {
   need(ctx, "owner");
+  if (b.expiredPolicy !== undefined) { // vente des lots périmés : interdite par défaut ; la rendre possible est un choix du propriétaire (Pro), journalisé
+    if (!isExpiredPolicy(b.expiredPolicy)) throw new HttpError(400, "Politique inconnue");
+    const cur = await store.get("shops", ctx.shopId.slice(0, 36));
+    if ((cur?.expiredPolicy || "block") !== b.expiredPolicy) {
+      await needFeature(store, ctx, "lots");
+      await store.create("audit_log", crypto.randomUUID().replace(/-/g, "").slice(0, 30), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "shop.expiredPolicy", detail: `${cur?.expiredPolicy || "block"} → ${b.expiredPolicy}` });
+    }
+  }
   if (b.costMethod !== undefined) { // méthode de valorisation : une par boutique, journalisée, effective pour les réceptions suivantes (Pro)
     if (!isCostMethod(b.costMethod)) throw new HttpError(400, "Méthode de valorisation inconnue");
     const cur = await store.get("shops", ctx.shopId.slice(0, 36));
@@ -25,7 +34,7 @@ export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; addre
   const vat = b.vatRatePct === undefined ? undefined : Number(b.vatRatePct);
   if (vat !== undefined && !(vat >= 0 && vat <= 30)) throw new HttpError(400, "TVA invalide (0 à 30 %)");
   const clean = (v: unknown, n: number) => (v === undefined ? undefined : String(v).slice(0, n));
-  const data: Record<string, unknown> = { ...(b.costMethod !== undefined ? { costMethod: b.costMethod } : {}), name: clean(b.name, 120), address: clean(b.address, 160), city: clean(b.city, 80), phone: clean(b.phone, 32), legal: clean(b.legal, 120), vatRatePct: vat };
+  const data: Record<string, unknown> = { ...(b.costMethod !== undefined ? { costMethod: b.costMethod } : {}), ...(b.expiredPolicy !== undefined ? { expiredPolicy: b.expiredPolicy } : {}), name: clean(b.name, 120), address: clean(b.address, 160), city: clean(b.city, 80), phone: clean(b.phone, 32), legal: clean(b.legal, 120), vatRatePct: vat };
   for (const k of Object.keys(data)) if (data[k] === undefined) delete data[k];
   if (data.name === "") throw new HttpError(400, "Nom requis");
   const id = ctx.shopId.slice(0, 36);

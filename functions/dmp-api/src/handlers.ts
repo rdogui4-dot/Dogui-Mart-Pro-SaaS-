@@ -1,6 +1,8 @@
 import { buildPaymentUrl, isExpired, linkRef, normalizeTemplate, type QrProvider } from "../../../src/domain/payment-links";
 import { toFcfa } from "../../../src/domain/money";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
+import { trackingOf } from "../../../src/domain/tracking";
+import { lotsWithStock } from "./tracking";
 import { ACCOUNTS } from "../../../src/domain/accounting";
 import { checkout, stockScaled, stockScaledVariant, type CheckoutInput } from "./checkout";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
@@ -10,6 +12,7 @@ import { assertQuota, platformGrant, platformLifetime, platformMarkReminded, pla
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
 import { saveUnits } from "./units";
 import { deletePriceRule, savePriceRule } from "./pricing";
+import { addSerials, receiveLot, setSerialStatus, updateLot, writeOffLot } from "./tracking";
 import { articleProfitability, deleteSupplierLink, saveSupplierLink } from "./costing";
 import { archiveVariant, deleteVariant, saveVariant } from "./variants";
 import { isCategory } from "../../../src/domain/pricing";
@@ -55,7 +58,7 @@ export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeo
 }
 
 /** Inventaire : écrit un mouvement d'ajustement égal à l'écart, jamais un écrasement du stock. */
-export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string; variantId?: string; counted: number | string }) {
+export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string; variantId?: string; lotId?: string; counted: number | string }) {
   needModule(ctx, "stock");
   const p = must(await store.get("products", b.productId), "Produit introuvable");
   if (!mine(ctx, p)) throw new HttpError(403, "Accès refusé");
@@ -67,9 +70,15 @@ export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string
     variant = b.variantId ? await store.get("article_variants", b.variantId) : null;
     if (!variant || !mine(ctx, variant) || variant.productId !== p.$id) throw new HttpError(400, "Choisissez la variante à compter");
   } else if (b.variantId) throw new HttpError(400, "Cet article n'a pas de variantes");
-  const current = variant ? await stockScaledVariant(store, variant.$id) : await stockScaled(store, p.$id);
+  const mode = trackingOf(p); let lot: Row | null = null;
+  if (mode === "serial") throw new HttpError(409, "Article suivi par numéro de série : le stock se corrige par le statut de chaque numéro (Séries)");
+  if (mode === "lot") { // l'inventaire d'un article suivi par lot se fait lot par lot
+    lot = b.lotId ? await store.get("article_lots", b.lotId) : null;
+    if (!lot || !mine(ctx, lot) || lot.productId !== p.$id || String(lot.variantId ?? "") !== (variant?.$id ?? "")) throw new HttpError(400, "Choisissez le lot à compter");
+  }
+  const current = lot ? ((await lotsWithStock(store, ctx, p.$id, String(lot.variantId ?? ""))).find((x) => x.id === lot!.$id)?.qty ?? 0) : variant ? await stockScaledVariant(store, variant.$id) : await stockScaled(store, p.$id);
   const diff = scaledInt(counted, scale) - current; // écart en sous-unités : jamais un écrasement du stock
-  if (diff !== 0) await store.create("stock_moves", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, ...(variant ? { variantId: variant.$id } : {}), qty: diff, kind: "adjust", refId: "inventaire", userId: ctx.userId });
+  if (diff !== 0) await store.create("stock_moves", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, ...(variant ? { variantId: variant.$id } : {}), ...(lot ? { lotId: lot.$id } : {}), qty: diff, kind: "adjust", refId: "inventaire", userId: ctx.userId });
   return { diff: fromScaled(diff, scale) };
 }
 
@@ -168,7 +177,7 @@ export const TENANT_LEVEL = new Set(["report.consolidated", "subscription.get", 
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
-  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "supplier.link.save": saveSupplierLink, "supplier.link.delete": deleteSupplierLink, "article.profitability": articleProfitability, "price.rule.save": savePriceRule, "price.rule.delete": deletePriceRule, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
+  "entity.save": saveEntity, "article.save": saveArticle, "article.archive": archiveArticle, "article.delete": deleteArticle, "article.image": setArticleImage, "article.units.save": saveUnits, "lot.receive": receiveLot, "lot.update": updateLot, "lot.writeoff": writeOffLot, "serial.add": addSerials, "serial.status": setSerialStatus, "supplier.link.save": saveSupplierLink, "supplier.link.delete": deleteSupplierLink, "article.profitability": articleProfitability, "price.rule.save": savePriceRule, "price.rule.delete": deletePriceRule, "variant.save": saveVariant, "variant.archive": archiveVariant, "variant.delete": deleteVariant, "stock.adjust": adjustStock, "credit.repay": repayCredit,
   "payments.settings.save": savePaymentSettings, "payments.settings.get": (s: Store, c: Ctx) => getPaymentSettings(s, c),
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,

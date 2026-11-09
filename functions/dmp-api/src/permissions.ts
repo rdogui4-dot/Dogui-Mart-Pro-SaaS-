@@ -43,6 +43,9 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   // Conditions fournisseurs et évolution des coûts d'achat : module Stock de la boutique (le prix d'achat n'est pas pour les caissiers)
   article_suppliers: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
   article_cost_events: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
+  // Lots et numéros de série : lisibles par les employés de la boutique (la caisse choisit les séries)
+  article_lots: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
+  article_serials: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_price_rules: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_variants: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   article_units: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
