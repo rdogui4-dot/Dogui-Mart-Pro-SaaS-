@@ -33,11 +33,11 @@ export async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barco
   if (hit) throw new HttpError(409, `${field === "sku" ? "Référence déjà utilisée" : "Code-barres déjà utilisé"} par « ${dup ? dup.name : `${(await store.get("products", String(vdup!.productId)))?.name ?? "article"} — ${vdup!.label}`} »`);
 }
 
-/** Référence automatique « DMP-000123-2026 » : numéro suivant le plus grand déjà attribué dans la boutique (articles et variantes, toutes années), suivi de l'année en cours. Unicité revérifiée par l'appelant. */
+/** Référence automatique « DMP-000123-26 » : numéro suivant le plus grand déjà attribué dans la boutique (articles et variantes, toutes années), suivi de l'année en cours. Unicité revérifiée par l'appelant. */
 export async function nextSku(store: Store, ctx: Ctx, skip = 0, now = new Date()): Promise<string> {
-  const re = /^DMP-(\d+)-\d{4}$/; let max = 0;
+  const re = /^DMP-(\d+)-\d{2}$/; let max = 0;
   for (const t of ["products", "article_variants"]) for (const r of (await store.scan(t, { tenantId: ctx.tenantId, shopId: ctx.shopId }, { maxRows: 200_000 })).rows) { const m = re.exec(String(r.sku ?? "")); if (m) max = Math.max(max, Number(m[1])); }
-  return `DMP-${String(max + 1 + skip).padStart(6, "0")}-${now.getUTCFullYear()}`;
+  return `DMP-${String(max + 1 + skip).padStart(6, "0")}-${String(now.getUTCFullYear() % 100).padStart(2, "0")}`;
 }
 /** Attribue une référence libre ; quelques essais si deux créations simultanées visent le même numéro. */
 export async function freeSku(store: Store, ctx: Ctx): Promise<string> {
