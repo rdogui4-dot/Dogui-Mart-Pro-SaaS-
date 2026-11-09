@@ -227,8 +227,8 @@ describe("archivage, suppression, droits de formule, isolation", () => {
   });
   it("référence automatique des variantes : référence de l'article + numéro", async () => {
     const pid = await mkProduct({ name: "Polo", price: 5000 }); const base = st.rows("products").find((p) => p.$id === pid)!.sku;
-    expect(base).toBe("ART-000001");
+    expect(base).toBe(`DMP-000001-${new Date().getUTCFullYear()}`);
     const v1 = await mkVariant(pid, { attributes: attrs("S") }); const v2 = await mkVariant(pid, { attributes: attrs("M") });
-    expect(st.rows("article_variants").find((v) => v.$id === v1)!.sku).toBe("ART-000001-01"); expect(st.rows("article_variants").find((v) => v.$id === v2)!.sku).toBe("ART-000001-02");
+    expect(st.rows("article_variants").find((v) => v.$id === v1)!.sku).toBe(`DMP-000001-${new Date().getUTCFullYear()}-01`); expect(st.rows("article_variants").find((v) => v.$id === v2)!.sku).toBe(`DMP-000001-${new Date().getUTCFullYear()}-02`);
   });
 });

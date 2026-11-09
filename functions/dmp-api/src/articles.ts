@@ -33,15 +33,15 @@ export async function assertUnique(store: Store, ctx: Ctx, field: "sku" | "barco
   if (hit) throw new HttpError(409, `${field === "sku" ? "Référence déjà utilisée" : "Code-barres déjà utilisé"} par « ${dup ? dup.name : `${(await store.get("products", String(vdup!.productId)))?.name ?? "article"} — ${vdup!.label}`} »`);
 }
 
-/** Référence automatique « ART-000123 » : numéro suivant le plus grand déjà attribué dans la boutique (articles et variantes). Unicité revérifiée par l'appelant. */
-export async function nextSku(store: Store, ctx: Ctx, prefix = "ART-", skip = 0): Promise<string> {
-  const re = new RegExp(`^${prefix.replace(/[^A-Za-z0-9]/g, "\\$&")}(\\d+)$`); let max = 0;
+/** Référence automatique « DMP-000123-2026 » : numéro suivant le plus grand déjà attribué dans la boutique (articles et variantes, toutes années), suivi de l'année en cours. Unicité revérifiée par l'appelant. */
+export async function nextSku(store: Store, ctx: Ctx, skip = 0, now = new Date()): Promise<string> {
+  const re = /^DMP-(\d+)-\d{4}$/; let max = 0;
   for (const t of ["products", "article_variants"]) for (const r of (await store.scan(t, { tenantId: ctx.tenantId, shopId: ctx.shopId }, { maxRows: 200_000 })).rows) { const m = re.exec(String(r.sku ?? "")); if (m) max = Math.max(max, Number(m[1])); }
-  return `${prefix}${String(max + 1 + skip).padStart(6, "0")}`;
+  return `DMP-${String(max + 1 + skip).padStart(6, "0")}-${now.getUTCFullYear()}`;
 }
 /** Attribue une référence libre ; quelques essais si deux créations simultanées visent le même numéro. */
-export async function freeSku(store: Store, ctx: Ctx, prefix = "ART-"): Promise<string> {
-  for (let i = 0; i < 5; i++) { const sku = await nextSku(store, ctx, prefix, i); try { await assertUnique(store, ctx, "sku", sku); return sku; } catch (e) { if (i === 4) throw e; } }
+export async function freeSku(store: Store, ctx: Ctx): Promise<string> {
+  for (let i = 0; i < 5; i++) { const sku = await nextSku(store, ctx, i); try { await assertUnique(store, ctx, "sku", sku); return sku; } catch (e) { if (i === 4) throw e; } }
   throw new HttpError(409, "Référence automatique indisponible, réessayez");
 }
 

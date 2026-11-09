@@ -321,7 +321,7 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved }: { initial: Article
         </div>
         {lbl("Désignation *", <input className="input" required maxLength={160} value={f.name} onChange={set("name")} />)}
         <div className="grid grid-cols-2 gap-2">
-          {lbl("Référence / SKU", <input className="input" maxLength={64} placeholder={initial?.sku ? "" : "Automatique"} value={f.sku} onChange={set("sku")} />)}
+          {lbl("Référence / SKU", <input className="input" maxLength={64} placeholder={initial?.sku ? "" : "Automatique (DMP-000001-2026)"} value={f.sku} onChange={set("sku")} />)}
           {lbl("Catégorie", <><input className="input" list="cats" maxLength={80} value={f.category} onChange={set("category")} /><datalist id="cats">{categories.map((c) => <option key={c} value={c} />)}</datalist></>)}
         </div>
         {lbl("Code-barres", <div className="flex gap-2"><input className="input" maxLength={64} value={f.barcode} onChange={set("barcode")} /><button type="button" className="btn-ghost" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine size={20} /></button></div>)}
