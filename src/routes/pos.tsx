@@ -125,7 +125,7 @@ export function PosPage() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2">
-        <input className="input" placeholder="Rechercher (nom, référence, code-barres)" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="input" placeholder="Nom, référence, code-barres" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -158,7 +158,7 @@ export function PosPage() {
           </select>
           <div className="grid grid-cols-4 gap-1 text-sm">
             {(["cash", "wave", "orange", "credit"] as const).map((m) => (
-              <button key={m} onClick={() => setPay(m)} className={pay === m ? "btn !py-2" : "btn-ghost !py-2"}>{{ cash: "Espèces", wave: "Wave", orange: "Orange", card: "Carte", credit: "Crédit" }[m]}</button>
+              <button key={m} onClick={() => setPay(m)} className={`${pay === m ? "btn" : "btn-ghost"} !py-2 !px-1 text-[13px]`}>{{ cash: "Espèces", wave: "Wave", orange: "Orange", card: "Carte", credit: "Crédit" }[m]}</button>
             ))}
           </div>
           {pay === "cash" && <input className="input" inputMode="numeric" placeholder="Montant reçu" value={given} onChange={(e) => setGiven(e.target.value)} />}

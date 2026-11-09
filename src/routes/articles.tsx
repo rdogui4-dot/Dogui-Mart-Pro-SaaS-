@@ -90,7 +90,7 @@ function Catalogue() {
       </div>
       <div className="flex gap-2">
         <label className="relative flex-1"><Search size={18} className="absolute left-3 top-3.5 text-white/40" />
-          <input className="input !pl-10" type="search" aria-label="Rechercher" placeholder="Nom, référence ou code-barres" value={qInput} onChange={(e) => setQInput(e.target.value)} /></label>
+          <input className="input !pl-10" type="search" aria-label="Rechercher" placeholder="Rechercher un article" value={qInput} onChange={(e) => setQInput(e.target.value)} /></label>
         <button className="btn-ghost !px-3" aria-label="Scanner un code-barres" onClick={() => setScan(true)}><ScanLine size={20} /></button>
         <button className="btn-ghost !px-3" aria-label={grid ? "Affichage en liste" : "Affichage en grille"} onClick={() => setGrid(!grid)}>{grid ? <List size={20} /> : <Grid2x2 size={20} />}</button>
       </div>

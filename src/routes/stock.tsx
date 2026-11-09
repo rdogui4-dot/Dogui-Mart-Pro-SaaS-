@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
 import { formatQty } from "@/domain/quantity";
 import { isLow, reorderQty } from "@/domain/stock";
-import { list, listAll, qtyOf, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
+import { list, listAll, qtyOf, saveEntity, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
@@ -25,6 +25,17 @@ export function StockPage() {
   const levels = useStockLevels();
   const variants = useQuery({ queryKey: ["variants-stock", s.shopId], queryFn: () => listAll<VariantRow>("article_variants", s) });
   const [scan, setScan] = useState(false); const [note, setNote] = useState(""); const [q, setQ] = useState(""); const [pick, setPick] = useState<(Product & { $id: string }) | null>(null);
+  // Formule Starter : pas d'écran Articles (Business et +), la fiche simple d'un produit se crée donc ici.
+  const hasArticles = planAllows(useSubscription().data?.entitlement.plan.id, "articles");
+  const [nf, setNf] = useState({ name: "", barcode: "", price: "", cost: "", minStock: "5", qty: "" }); const [nfErr, setNfErr] = useState("");
+  const create = useMutation({
+    mutationFn: async () => {
+      const p = await saveEntity(s, "products", { name: nf.name, barcode: nf.barcode || undefined, price: Number(nf.price), cost: Number(nf.cost) || 0, minStock: Number(nf.minStock) || 0, archived: false });
+      if (Number(nf.qty) > 0) await api(s, "stock.adjust", { productId: p.id, counted: Number(nf.qty) });
+    },
+    onSuccess: () => { setNf({ name: "", barcode: "", price: "", cost: "", minStock: "5", qty: "" }); setNfErr(""); void qc.invalidateQueries(); },
+    onError: (e) => setNfErr((e as Error).message),
+  });
   const adjust = useMutation({
     mutationFn: ({ id, counted }: { id: string; counted: string }) => api(s, "stock.adjust", { productId: id, counted }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["stock"] }),
@@ -48,7 +59,22 @@ export function StockPage() {
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
       {note && <p className="text-sm text-amber-300" role="status">{note}</p>}
-      <p className="text-xs text-white/50">Touchez un article pour ajuster son stock. Pour créer un article, utilisez l'écran Articles.</p>
+      {!hasArticles && can(s, "stock") && (
+        <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
+          <h2 className="font-semibold">Nouveau produit</h2>
+          <input className="input" placeholder="Nom" required value={nf.name} onChange={(e) => setNf({ ...nf, name: e.target.value })} />
+          <input className="input" placeholder="Code-barres (facultatif)" value={nf.barcode} onChange={(e) => setNf({ ...nf, barcode: e.target.value })} />
+          <div className="grid grid-cols-2 gap-2">
+            <input className="input" inputMode="numeric" placeholder="Prix de vente" required value={nf.price} onChange={(e) => setNf({ ...nf, price: e.target.value })} />
+            <input className="input" inputMode="numeric" placeholder="Prix d'achat" value={nf.cost} onChange={(e) => setNf({ ...nf, cost: e.target.value })} />
+            <input className="input" inputMode="numeric" placeholder="Stock initial" value={nf.qty} onChange={(e) => setNf({ ...nf, qty: e.target.value })} />
+            <input className="input" inputMode="numeric" placeholder="Seuil d'alerte" value={nf.minStock} onChange={(e) => setNf({ ...nf, minStock: e.target.value })} />
+          </div>
+          <button className="btn" disabled={create.isPending}>Ajouter</button>
+          {nfErr && <p className="text-red-400 text-sm" role="alert">{nfErr}</p>}
+        </form>
+      )}
+      <p className="text-xs text-white/50">Touchez un article pour ajuster son stock.{hasArticles ? " Pour créer un article, utilisez l'écran Articles." : ""}</p>
       {s.shops.length > 1 && can(s, "stock") && <Transfer products={(products.data ?? []).filter((p) => p.kind !== "bundle")} variants={variants.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">
         {shown.map((p) => {

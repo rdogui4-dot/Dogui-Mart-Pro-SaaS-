@@ -85,18 +85,19 @@ export async function adjustStock(store: Store, ctx: Ctx, b: { productId: string
   return { diff: fromScaled(diff, scale) };
 }
 
-export async function repayCredit(store: Store, ctx: Ctx, b: { customerId: string; amount: number; method: "cash" | "wave" | "orange" }) {
+export async function repayCredit(store: Store, ctx: Ctx, b: { customerId: string; amount: number; method: "cash" | "wave" | "orange"; repayId?: string }) {
   needModule(ctx, "pos");
   const c = must(await store.get("customers", b.customerId), "Client introuvable");
   if (!mine(ctx, c)) throw new HttpError(403, "Accès refusé");
   const amount = Math.min(toFcfa(b.amount), Number(c.creditBalance ?? 0));
   if (!(amount > 0)) throw new HttpError(400, "Rien à encaisser");
   const acct = { cash: ACCOUNTS.cash, wave: ACCOUNTS.wave, orange: ACCOUNTS.orange }[b.method]; if (!acct) throw new HttpError(400, "Mode invalide");
-  const id = newId(), ref = `R-${id.slice(0, 6).toUpperCase()}`, date = new Date().toISOString();
+  // Identifiant fourni par l'appareil : un double appui ou un nouvel envoi après coupure n'encaisse jamais deux fois.
+  const rid = String(b.repayId ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 28); const id = rid.length >= 8 ? `r${rid}` : newId(); const ref = `R-${id.slice(0, 6).toUpperCase()}`, date = new Date().toISOString();
+  const base = { tenantId: ctx.tenantId, shopId: ctx.shopId, ref, date };
+  if (!(await store.create("journal_entries", `${id}_j0`, ctx.tenantId, { ...base, account: acct, debit: amount, credit: 0, label: `Remboursement crédit ${c.name}` }))) { const j = await store.get("journal_entries", `${id}_j0`); if (!mine(ctx, j)) throw new HttpError(409, "Demande déjà utilisée"); return { repaid: amount, balance: Number(c.creditBalance), duplicate: true }; }
   const balance = Number(c.creditBalance) - amount;
   await store.update("customers", c.$id, { creditBalance: balance });
-  const base = { tenantId: ctx.tenantId, shopId: ctx.shopId, ref, date };
-  await store.create("journal_entries", `${id}_j0`, ctx.tenantId, { ...base, account: acct, debit: amount, credit: 0, label: `Remboursement crédit ${c.name}` });
   await store.create("journal_entries", `${id}_j1`, ctx.tenantId, { ...base, account: ACCOUNTS.customers, debit: 0, credit: amount, label: `Remboursement crédit ${c.name}` });
   return { repaid: amount, balance };
 }
