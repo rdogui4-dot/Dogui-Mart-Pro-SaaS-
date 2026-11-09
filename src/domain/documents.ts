@@ -14,6 +14,7 @@ export type DocModel = {
   rows: DocRow[];
   totals: { label: string; value: number; strong?: boolean }[];
   footer: string[];
+  /** Code de vérification imprimé en QR sur le ticket (Pro) : fourni par le serveur après confirmation de la vente. */ qr?: string;
 };
 export type Shop = { name?: string; address?: string; city?: string; phone?: string; legal?: string; vatRatePct?: number };
 
@@ -72,7 +73,7 @@ export type ReceiptSale = {
 };
 const METHOD: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "Crédit", voucher: "Bon d'achat" };
 
-export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: string, opts: { duplicate?: boolean; refunded?: number } = {}): DocModel {
+export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: string, opts: { duplicate?: boolean; refunded?: number; verifyCode?: string; pending?: boolean } = {}): DocModel {
   const totals = [{ label: "TOTAL", value: sale.total, strong: true }, ...sale.payments.map((p) => ({ label: METHOD[p.method] ?? p.method, value: p.amount }))];
   if (sale.change) totals.push({ label: "Monnaie rendue", value: sale.change });
   if (opts.refunded) totals.push({ label: "Remboursé", value: -opts.refunded });
@@ -81,7 +82,7 @@ export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: st
     kind: "receipt", title: opts.duplicate ? "DUPLICATA - TICKET DE CAISSE" : "TICKET DE CAISSE", number: sale.number, date: new Date(sale.soldAt).toLocaleString("fr-FR"),
     issuer: issuerOf(shop), partyLabel: "Client", party: { name: customer || "Client comptoir" },
     rows: sale.lines.map((l) => ({ label: l.name, qty: l.qty, unit: l.unitPrice, total: lineTotal({ productId: "", name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct, amount: l.amount }) })),
-    totals, footer: [...refs, ...(opts.duplicate ? ["Copie du ticket d'origine : aucune nouvelle vente"] : []), "Merci de votre visite !"],
+    totals, ...(opts.verifyCode && !opts.pending ? { qr: opts.verifyCode } : {}), footer: [...refs, ...(opts.pending ? ["EN ATTENTE DE SYNCHRONISATION : vente non encore confirmée par le serveur"] : []), ...(opts.duplicate ? ["Copie du ticket d'origine : aucune nouvelle vente"] : []), "Merci de votre visite !"],
   };
 }
 

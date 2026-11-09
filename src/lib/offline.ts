@@ -6,8 +6,8 @@ import type { Session } from "./session";
 /** Ce que le caissier a saisi. Les prix, le stock et la comptabilité sont recalculés par le serveur. */
 export type PendingSale = {
   clientId: string; soldAt: string; customerId?: string; redeemPoints?: number; couponCode?: string;
-  lines: { productId: string; qty: number | string; unit?: string; variantId?: string; serials?: string[] }[];
-  payments: (Payment & { linkId?: string })[];
+  lines: { productId: string; qty: number | string; unit?: string; variantId?: string; serials?: string[]; discountPct?: number }[];
+  payments: (Payment & { linkId?: string; reference?: string })[]; approvals?: { discount?: string; margin?: string };
   session: Session;
   error?: string; // refus définitif du serveur (stock, plafond…) : à traiter par un humain
 };
@@ -22,6 +22,17 @@ export async function rejectedSales(): Promise<PendingSale[]> { return ((await (
 export async function retryRejected(clientId: string): Promise<void> { const d = await db(); const p = (await d.get("sales", clientId)) as PendingSale | undefined; if (p) { const { error: _e, ...rest } = p; await d.put("sales", rest); } }
 export async function discardRejected(clientId: string): Promise<void> { await (await db()).delete("sales", clientId); }
 
+/** Issue d'une vente envoyée : la vente n'est « synchronisée » que lorsque le SERVEUR l'a confirmée (numéro et code de vérification renvoyés). */
+export type SyncResult = { clientId: string; status: "synced"; number: string; verifyCode?: string } | { clientId: string; status: "rejected"; error: string };
+const results = new Map<string, SyncResult>(); const listeners = new Set<(r: SyncResult) => void>();
+export const syncResultOf = (clientId: string): SyncResult | undefined => results.get(clientId);
+export function onSyncResult(cb: (r: SyncResult) => void): () => void { listeners.add(cb); return () => { listeners.delete(cb); }; }
+const emit = (r: SyncResult) => { results.set(r.clientId, r); for (const l of listeners) l(r); };
+/** État affiché pour une vente : « pending » tant que le serveur n'a pas répondu (hors ligne, coupure, file), « synced » seulement après confirmation, « rejected » après refus définitif. */
+export async function saleStatus(clientId: string): Promise<"pending" | "synced" | "rejected" | "unknown"> {
+  const r = results.get(clientId); if (r) return r.status; const p = (await (await db()).get("sales", clientId)) as PendingSale | undefined; return p ? (p.error ? "rejected" : "pending") : "unknown";
+}
+
 let syncing = false;
 export async function syncPending(): Promise<number> {
   if (syncing || !navigator.onLine) return 0;
@@ -32,13 +43,13 @@ export async function syncPending(): Promise<number> {
       if (p.error) continue;
       try {
         const { session, error: _e, ...payload } = p;
-        await api(session, "checkout", payload);
-        await d.delete("sales", p.clientId); done++;
+        const res = await api<{ number?: string; verifyCode?: string }>(session, "checkout", payload);
+        await d.delete("sales", p.clientId); done++; emit({ clientId: p.clientId, status: "synced", number: String(res?.number ?? ""), ...(res?.verifyCode ? { verifyCode: res.verifyCode } : {}) });
       } catch (e) {
         // Refus métier (4xx) : on garde la vente marquée en erreur au lieu de boucler indéfiniment.
         // Abonnement expiré : la vente reste en attente et partira après le renouvellement (ce n'est pas un refus définitif).
         if (e instanceof ApiError && e.status === 402 && e.message.startsWith("Abonnement expiré")) break;
-        if (e instanceof ApiError && e.status >= 400 && e.status < 500) await d.put("sales", { ...p, error: e.message });
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500) { await d.put("sales", { ...p, error: e.message }); emit({ clientId: p.clientId, status: "rejected", error: e.message }); }
         else break; // réseau / 5xx : on réessaiera
       }
     }

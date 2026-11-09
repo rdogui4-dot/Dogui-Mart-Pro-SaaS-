@@ -7,13 +7,14 @@ const GOLD: [number, number, number] = [201, 162, 39];
 /** Construit le PDF (A4 pour factures et bons de commande, rouleau 80 mm pour le ticket). */
 export async function buildPdf(m: DocModel, width: 58 | 80 = 80): Promise<jsPDF> {
   const { jsPDF } = await import("jspdf");
-  return m.kind === "receipt" ? receipt(new jsPDF({ unit: "mm", format: [width, receiptHeight(m)] }), m) : a4(new jsPDF({ unit: "mm", format: "a4" }), m);
+  if (m.kind === "receipt") { const doc = new jsPDF({ unit: "mm", format: [width, receiptHeight(m)] }); const qr = m.qr ? (await import("qrcode")).default : null; return receipt(doc, m, qr ? await qr.toDataURL(m.qr!, { margin: 1, width: 240 }) : undefined); }
+  return a4(new jsPDF({ unit: "mm", format: "a4" }), m);
 }
 export async function pdfBlob(m: DocModel, width: 58 | 80 = 80): Promise<Blob> { return (await buildPdf(m, width)).output("blob"); }
 
-const receiptHeight = (m: DocModel) => 40 + (m.issuer.lines?.length ?? 0) * 4 + m.rows.length * 9 + m.totals.length * 5 + m.footer.length * 5;
+const receiptHeight = (m: DocModel) => 40 + (m.issuer.lines?.length ?? 0) * 4 + m.rows.length * 9 + m.totals.length * 5 + m.footer.length * 5 + (m.qr ? 34 : 0);
 
-function receipt(doc: jsPDF, m: DocModel): jsPDF {
+function receipt(doc: jsPDF, m: DocModel, qrImg?: string): jsPDF {
   const W = doc.internal.pageSize.getWidth(), M = 4; let y = 8;
   const center = (t: string, size = 9, bold = false) => { doc.setFont("helvetica", bold ? "bold" : "normal").setFontSize(size); doc.text(t, W / 2, y, { align: "center" }); y += size * 0.45 + 1; };
   center(m.issuer.name, 12, true); for (const l of m.issuer.lines ?? []) center(l, 8);
@@ -27,6 +28,7 @@ function receipt(doc: jsPDF, m: DocModel): jsPDF {
   doc.setLineDashPattern([0.6, 0.6], 0).line(M, y - 2, W - M, y - 2); y += 2; doc.setLineDashPattern([], 0);
   for (const t of m.totals) { doc.setFont("helvetica", t.strong ? "bold" : "normal").setFontSize(t.strong ? 10 : 8.5); doc.text(t.label, M, y); doc.text(pdfMoney(t.value), W - M, y, { align: "right" }); y += 5; }
   y += 2; for (const f of m.footer) center(f, 8);
+  if (qrImg) { const q = Math.min(28, W - 2 * M); doc.addImage(qrImg, "PNG", (W - q) / 2, y, q, q); y += q + 3; doc.setFontSize(6); doc.text("Vérifier ce ticket dans Dogui Mart Pro", W / 2, y, { align: "center" }); }
   return doc;
 }
 

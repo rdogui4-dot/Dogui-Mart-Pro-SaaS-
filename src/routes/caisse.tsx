@@ -10,7 +10,7 @@ import { METHOD_LABEL } from "@/domain/pay";
 import { useSubscription } from "./subscription";
 
 type Totals = { float: number; sales: { count: number; total: number; byMethod: Record<string, number> }; refunds: { count: number; total: number; byMethod: Record<string, number> }; movements: { out: number; in: number; pending: number }; theoreticalCash: number; nonCash: Record<string, number> };
-type Sess = { id: string; userId: string; seller?: string; status: string; openedAt: string; closedAt: string | null; openingFloat: number; countedCash: number | null; theoreticalCash: number | null; variance: number | null; note: string; totals?: Totals | null };
+type Sess = { register?: string; varianceStatus?: string; handoverFrom?: string; id: string; userId: string; seller?: string; status: string; openedAt: string; closedAt: string | null; openingFloat: number; countedCash: number | null; theoreticalCash: number | null; variance: number | null; note: string; totals?: Totals | null };
 type Move = { id: string; kind: string; amount: number; reason: string; status: string; at: string };
 type Current = { session: Sess | null; totals?: Totals; movements?: Move[]; required: boolean };
 const dt = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -48,10 +48,11 @@ function Required({ required, onDone }: { required: boolean; onDone: () => void 
   return <div className="card flex items-center justify-between gap-2 text-sm"><span><b>Session obligatoire pour vendre</b><br /><span className="text-xs text-white/50">{required ? "Activée : aucune vente sans caisse ouverte." : "Désactivée : on peut vendre sans ouvrir la caisse."}</span></span><button className="btn-ghost !py-2" disabled={m.isPending} onClick={() => m.mutate()}>{required ? "Désactiver" : "Activer"}</button>{m.error && <Err e={m.error} />}</div>;
 }
 function OpenForm({ onDone }: { onDone: () => void }) {
-  const { session } = useSession(); const s = session!; const [f, setF] = useState(""); const [note, setNote] = useState(""); const requestId = useState(() => crypto.randomUUID())[0];
-  const m = useMutation({ mutationFn: () => api(s, "cash.open", { openingFloat: num(f), note, requestId }), onSuccess: onDone });
+  const { session } = useSession(); const s = session!; const [f, setF] = useState(""); const [note, setNote] = useState(""); const [register, setRegister] = useState(""); const proReg = planAllows(useSubscription().data?.entitlement.plan.id, "smartPosPro"); const requestId = useState(() => crypto.randomUUID())[0];
+  const m = useMutation({ mutationFn: () => api(s, "cash.open", { openingFloat: num(f), note, requestId, ...(proReg && register.trim() ? { register: register.trim() } : {}) }), onSuccess: onDone });
   const ok = f.trim() !== "" && Number.isInteger(num(f)) && num(f) >= 0;
   return <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}><b>Ouvrir la caisse</b><p className="text-xs text-white/50">Comptez les espèces présentes dans le tiroir : c'est le fond initial.</p>
+    {proReg && <input className="input" aria-label="Nom de la caisse" maxLength={40} placeholder="Nom de la caisse (ex. Caisse 1) — une seule session par caisse" value={register} onChange={(e) => setRegister(e.target.value)} />}
     <input className="input" inputMode="numeric" aria-label="Fond initial" placeholder="Fond initial (FCFA)" value={f} onChange={(e) => setF(e.target.value)} /><input className="input" aria-label="Note" maxLength={200} placeholder="Note (facultatif)" value={note} onChange={(e) => setNote(e.target.value)} />
     <Err e={m.error} /><button className="btn" disabled={!ok || m.isPending}>{m.isPending ? "Ouverture…" : "Ouvrir la caisse"}</button></form>;
 }
@@ -68,7 +69,7 @@ function Active({ c, manager, onChanged }: { c: Required<Current>; manager: bool
   const close = useMutation({ mutationFn: () => api<{ variance: number; theoreticalCash: number }>(s, "cash.close", { sessionId: c.session!.id, counted: num(counted) }), onSuccess: (r) => { setAsk(false); setDone(r); onChanged(); }, onError: () => setAsk(false) });
   const t = c.totals; const cn = counted.trim() !== "" && Number.isInteger(num(counted)) && num(counted) >= 0 ? num(counted) : null; const variance = cn === null ? null : cn - t.theoreticalCash;
   return <>
-    <div className="card text-sm flex justify-between"><span><b className="text-emerald-300">● Caisse ouverte</b><br /><span className="text-white/50 text-xs">depuis {dt(c.session!.openedAt)}</span></span><span className="text-right text-white/60 text-xs">Fond<br /><b className="text-white text-sm">{formatFcfa(c.session!.openingFloat)}</b></span></div>
+    <div className="card text-sm flex justify-between"><span><b className="text-emerald-300">● Caisse ouverte{c.session!.register ? ` · ${c.session!.register}` : ""}</b><br /><span className="text-white/50 text-xs">depuis {dt(c.session!.openedAt)}</span></span><span className="text-right text-white/60 text-xs">Fond<br /><b className="text-white text-sm">{formatFcfa(c.session!.openingFloat)}</b></span></div>
     <Totals t={t} />
     <section className="card flex flex-col gap-2" aria-label="Mouvements de caisse"><b className="text-sm">Sorties et entrées d'espèces</b>
       <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); mv.mutate(); }}>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScanLine, Minus, Plus, Search, X } from "lucide-react";
@@ -14,7 +14,8 @@ import { planAllows } from "@/domain/features";
 import { resolvePrice, ruleFromRow, categoryLabel, KIND_LABEL } from "@/domain/pricing";
 import { useSubscription } from "./subscription";
 import { useStockLevels } from "@/lib/queries";
-import { queueSale, syncPending } from "@/lib/offline";
+import { onSyncResult, queueSale, syncPending, type SyncResult } from "@/lib/offline";
+import { FavStar, SimPanel, SuggestStrip, useDensity, useFavorites, useShortcuts, type ApprovalKind, type Sim, type Suggest } from "@/components/PosPro";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { trackingOf } from "@/domain/tracking";
@@ -43,6 +44,7 @@ export function PosPage() {
   const unitsOf = (id: string) => (unitsQ.data ?? []).filter((u) => u.productId === id);
   const [cart, setCart] = useState<PosLine[]>([]); const [pick, setPick] = useState<{ p: Product & { $id: string }; v?: VariantRow } | null>(null);
   const [q, setQ] = useState(""); const [scan, setScan] = useState(false);
+  const favs = useFavorites(s.shopId); const dens = useDensity(); const searchRef = useRef<HTMLInputElement>(null); const [favOnly, setFavOnly] = useState(false);
   const [payLines, setPayLines] = useState<PayLine[]>(() => [newPayLine("cash")]); const [confirm, setConfirm] = useState(false); const [qrLine, setQrLine] = useState<string | null>(null); const [cat, setCat] = useState(""); const [custQ, setCustQ] = useState(""); const [busy, setBusy] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [msg, setMsg] = useState(""); const [couponIn, setCouponIn] = useState(""); const [coupon, setCoupon] = useState("");
@@ -99,7 +101,7 @@ export function PosPage() {
     setScan(false);
   };
   const categories = useMemo(() => [...new Set((products.data ?? []).filter((p) => !p.archived).map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "fr")), [products.data]);
-  const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && (!cat || p.category === cat) && [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))).slice(0, 60), [products.data, q, cat]);
+  const shown = useMemo(() => (products.data ?? []).filter((p) => !p.archived && (!cat || p.category === cat) && (!favOnly || favs.ids.includes(p.$id)) && [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))).slice(0, 60), [products.data, q, cat, favOnly, favs.ids]);
   const customer = customers.data?.find((c) => c.$id === customerId);
   // Tarifs avancés (Pro) : mêmes règles et même moteur que le serveur, évalués à l'instant de la vente. Le serveur recalcule et fait foi.
   const tiered = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing");
@@ -107,13 +109,23 @@ export function PosPage() {
   const pricedAt = (at: string) => cart.map((l) => {
     const rules = tiered ? (rulesQ.data ?? []).filter((r) => r.productId === l.productId && (r.variantId ?? "") === (l.variantId ?? "")).map((r) => ruleFromRow(r as never)) : [];
     const res = resolvePrice(rules, { basePrice: l.basePrice, unit: l.unit ?? "", factor: l.factor, qty: l.unit ? l.unitQty! : l.qty, baseQty: l.qty, customerCategory: customer?.category ?? "", at });
-    return { ...l, unitPrice: res.unitPrice, amount: res.amount, source: res.source, discountPct: manager ? l.discountPct : 0 };
+    return { ...l, unitPrice: res.unitPrice, amount: res.amount, source: res.source, discountPct: manager || pro ? l.discountPct : 0 };
   });
   const priced = pricedAt(new Date().toISOString());
   // Promotions (Business) : le SERVEUR calcule remises et total (aperçu = même calcul qu'une vraie vente, rien n'est écrit) ; hors ligne, elles sont appliquées à la synchronisation.
   const promoOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotions"); 
-  const apiLines = cart.map((l) => ({ productId: l.productId, ...(manager && (l.discountPct ?? 0) > 0 ? { discountPct: l.discountPct } : {}), ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.serials ? { qty: l.serials.length, serials: l.serials } : l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) }));
-  const proOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotionsPro");
+  const apiLines = cart.map((l) => ({ productId: l.productId, ...((manager || pro) && (l.discountPct ?? 0) > 0 ? { discountPct: l.discountPct } : {}), ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.serials ? { qty: l.serials.length, serials: l.serials } : l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) }));
+  const proOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotionsPro"); const pro = planAllows(useSubscription().data?.entitlement.plan.id, "smartPosPro");
+  const [approvals, setApprovals] = useState<Partial<Record<ApprovalKind, string>>>({}); const [asked, setAsked] = useState<Partial<Record<ApprovalKind, string>>>({}); const [askBusy, setAskBusy] = useState(false);
+  const cartSig = JSON.stringify(apiLines) + customerId + coupon; useEffect(() => { setApprovals({}); setAsked({}); }, [cartSig]); // une approbation ne vaut que pour CE panier
+  const sugg = useQuery({ queryKey: ["pos-suggest", s.shopId, [...new Set(cart.map((l) => l.productId))].sort().join(","), customerId], enabled: pro && navigator.onLine, staleTime: 60_000, retry: 0, queryFn: () => api<Suggest>(s, "pos.suggest", { productIds: [...new Set(cart.map((l) => l.productId))], customerId: customerId || undefined }) });
+  const sim = useQuery({ queryKey: ["pos-sim", s.shopId, cartSig], enabled: pro && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Sim>(s, "pos.simulate", { lines: apiLines, customerId: customerId || undefined, ...(coupon ? { couponCode: coupon } : {}) }) });
+  const simD = sim.data && !sim.isFetching ? sim.data : undefined; const blockedSim = pro && !!simD && (!simD.ok || ((simD.needsApproval.margin && !approvals.margin) || (simD.needsApproval.discount && !approvals.discount)));
+  const pendingIds = Object.values(asked).filter(Boolean); const apprQ = useQuery({ queryKey: ["pos-approvals", s.shopId, pendingIds.join(",")], enabled: pendingIds.length > 0, refetchInterval: 4000, queryFn: () => api<{ approvals: { id: string; status: string }[] }>(s, "approval.list", {}) });
+  useEffect(() => { for (const k of ["margin", "discount"] as const) { const id = asked[k]; const r = id ? apprQ.data?.approvals.find((a) => a.id === id) : undefined; if (r?.status === "approved") { setApprovals((a) => ({ ...a, [k]: id })); setAsked((a) => ({ ...a, [k]: undefined })); } else if (r && (r.status === "rejected" || r.status === "expired")) { setMsg(`Demande d'approbation ${r.status === "rejected" ? "refusée" : "expirée"}`); setAsked((a) => ({ ...a, [k]: undefined })); } } }, [apprQ.data]);
+  async function requestApproval(kind: ApprovalKind) { if (!simD?.ok) return; setAskBusy(true); try { const r = await api<{ id: string }>(s, "approval.request", { kind, refId: simD.fp, amount: simD.total, details: { total: simD.total, alertes: simD.alerts.map((a) => a.message).slice(0, 5) } }); setAsked((a) => ({ ...a, [kind]: r.id })); setMsg("Demande envoyée : un responsable doit l'approuver dans Caisse Pro › Approbations"); } catch (e) { setMsg((e as Error).message); } finally { setAskBusy(false); } }
+  const [lastId, setLastId] = useState(""); const [lastSync, setLastSync] = useState<SyncResult | undefined>();
+  useEffect(() => onSyncResult((r) => { if (r.clientId === lastId) setLastSync(r); }), [lastId]);
   const preview = useQuery({ queryKey: ["promo-preview", s.shopId, JSON.stringify(apiLines), customerId, coupon], enabled: promoOn && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Preview>(s, "promotions.preview", { lines: apiLines, customerId: customerId || undefined, ...(coupon ? { couponCode: coupon } : {}) }) });
   const pv = promoOn && preview.data && !preview.isFetching ? preview.data : undefined; const waiting = promoOn && cart.length > 0 && navigator.onLine && preview.isFetching;
   const total = pv ? pv.total : cartTotal(priced);
@@ -127,14 +139,15 @@ export function PosPage() {
       const clientId = crypto.randomUUID(); const soldAt = new Date().toISOString();
       const linesAt = pricedAt(soldAt).map((l, i) => (pv?.lines[i] ? { ...l, amount: pv.lines[i]!.amount, name: pv.lines[i]!.promo ? `${l.name} (promo ${pv.lines[i]!.promo!.name})` : l.name } : l)); const tot = pv ? pv.total : cartTotal(linesAt); // prix évalués à la date de la vente envoyée au serveur
       const st2 = evaluatePay(tot, payLines, { hasCustomer: !!customer, credit: customer ? { balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 } : undefined }); if (!st2.ok) return setMsg(st2.errors[0] ?? "Paiement incohérent");
-      await queueSale({ clientId, soldAt, customerId: customerId || undefined, ...(coupon && pv?.coupon?.ok ? { couponCode: coupon } : {}), lines: apiLines, payments: st2.payments, session: s });
+      await queueSale({ clientId, soldAt, customerId: customerId || undefined, ...(coupon && pv?.coupon?.ok ? { couponCode: coupon } : {}), lines: apiLines, payments: st2.payments, ...(approvals.margin || approvals.discount ? { approvals } : {}), session: s }); setLastId(clientId); setLastSync(undefined);
       // Même formule de numéro que le serveur : le ticket imprimé hors ligne porte le bon numéro.
       setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total: tot, change: st2.change, lines: linesAt.map((l) => ({ name: l.unit ? `${l.name} (${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()})` : l.name, qty: l.qty, unitPrice: l.unitPrice, amount: l.amount, discountPct: l.discountPct })), payments: st2.payments.map((p) => ({ method: p.method, amount: p.amount, reference: p.reference })) });
-      setLastName(customer?.name); setCart([]); resetPay(); setConfirm(false); setCoupon(""); setCouponIn(""); setMsg(st2.change ? `Vente enregistrée · monnaie à rendre ${formatFcfa(st2.change)}` : "Vente enregistrée");
+      setLastName(customer?.name); setCart([]); resetPay(); setConfirm(false); setCoupon(""); setCouponIn(""); setMsg((st2.change ? `Vente enregistrée · monnaie à rendre ${formatFcfa(st2.change)}` : "Vente enregistrée") + " · en attente de confirmation du serveur");
       void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); void qc.invalidateQueries({ queryKey: ["cash-current"] }); } });
     } finally { setBusy(false); setConfirm(false); }
   }
-  const checkout = () => { setMsg(""); if (needSession) return setMsg("Ouvrez la caisse avant de vendre (session de caisse obligatoire)"); if (!payState.ok) return setMsg(payState.errors[0] ?? "Paiement incohérent"); setConfirm(true); };
+  useShortcuts(pro ? { F2: () => searchRef.current?.focus(), F4: () => { if (cart.length && payState.ok && !busy) checkout(); }, F8: () => { if (cart.length) { setCart([]); resetPay(); } } } : {});
+  const checkout = () => { setMsg(""); if (blockedSim) return setMsg(simD && !simD.ok ? simD.blocked : "Approbation d'un responsable requise avant de valider"); if (needSession) return setMsg("Ouvrez la caisse avant de vendre (session de caisse obligatoire)"); if (!payState.ok) return setMsg(payState.errors[0] ?? "Paiement incohérent"); setConfirm(true); };
 
   return (
     <div className="flex flex-col gap-3">
@@ -142,19 +155,21 @@ export function PosPage() {
         ? <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-emerald-400/30"><span className="text-emerald-300">● Caisse ouverte depuis {new Date(cashQ.data.session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span><span className="text-white/50">Gérer ›</span></Link>
         : <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-amber-400/30"><span className="text-amber-300">○ Caisse fermée{cashQ.data.required ? " — ouverture obligatoire pour vendre" : ""}</span><span className="text-white/50">Ouvrir ›</span></Link>)}
       <div className="flex gap-2">
-        <div className="relative flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" /><input className="input !pl-9" aria-label="Rechercher" placeholder="Nom, référence, code-barres" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && q.trim()) { const hit = (products.data ?? []).find((p) => !p.archived && (p.barcode === q.trim() || p.sku === q.trim())); if (hit) { add(hit as Product & { $id: string }); setQ(""); } else if (shown.length === 1) { add(shown[0] as Product & { $id: string }); setQ(""); } } }} />{q && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40" aria-label="Effacer la recherche" onClick={() => setQ("")}><X size={16} /></button>}</div>
+        <div className="relative flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" /><input ref={searchRef} className="input !pl-9" aria-label="Rechercher" placeholder="Nom, référence, code-barres" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && q.trim()) { const hit = (products.data ?? []).find((p) => !p.archived && (p.barcode === q.trim() || p.sku === q.trim())); if (hit) { add(hit as Product & { $id: string }); setQ(""); } else if (shown.length === 1) { add(shown[0] as Product & { $id: string }); setQ(""); } } }} />{q && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40" aria-label="Effacer la recherche" onClick={() => setQ("")}><X size={16} /></button>}</div>
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
+      {pro && <div className="flex items-center gap-2 text-xs text-white/50"><button className="chip" aria-pressed={favOnly} onClick={() => setFavOnly(!favOnly)}>★ Favoris ({favs.ids.length})</button><button className="chip" onClick={dens.toggle}>{dens.density === "compact" ? "Cartes larges" : "Cartes compactes"}</button><span className="hidden sm:inline">F2 recherche · F4 encaisser · F8 vider</span></div>}
+      {pro && <SuggestStrip data={sugg.data} hasCart={cart.length > 0} onAdd={(id) => { const p = (products.data ?? []).find((x) => x.$id === id); if (p) add(p as Product & { $id: string }); }} />}
       {categories.length > 0 && <div className="scroll-x"><button className="chip" aria-current={!cat} onClick={() => setCat("")}>Tout</button>{categories.map((c) => <button key={c} className="chip" aria-current={cat === c} onClick={() => setCat(cat === c ? "" : c)}>{c}</button>)}</div>}
       {products.isLoading && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-24 animate-pulse bg-white/5" />)}</div>}
       {products.error && <p className="text-red-400 text-sm" role="alert">Impossible de charger le catalogue : {(products.error as Error).message} <button className="underline" onClick={() => void products.refetch()}>Réessayer</button></p>}
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`grid gap-2 ${dens.density === "compact" ? "grid-cols-3" : "grid-cols-2"}`}>
         {shown.map((p) => {
           const n = qtyOf(stock.data, p); const tracked = !p.hasVariants && !isVirtualBundle(p); const out = tracked && n <= 0;
           return (
             <button key={p.$id} disabled={out} onClick={() => add(p as Product & { $id: string })} className="card text-left active:scale-[.98] flex gap-2 items-start disabled:opacity-40">
               <Thumb id={p.imageFileId} size={48} className="shrink-0" />
-              <span className="min-w-0 flex-1"><span className="block font-medium leading-tight">{p.name}</span>
+              <span className="min-w-0 flex-1"><span className="flex items-start justify-between gap-1 font-medium leading-tight"><span>{p.name}</span>{pro && <FavStar on={favs.ids.includes(p.$id)} name={p.name} onClick={() => favs.toggle(p.$id)} />}</span>
               <span className="block text-[var(--gold)]">{p.hasVariants ? `dès ${formatFcfa(Math.min(...(variantsOf(p.$id).length ? variantsOf(p.$id).map((v) => v.price) : [p.price])))}` : formatFcfa(p.price)}</span>{p.hasVariants && <span className="block text-xs text-white/50">Choisir une variante</span>}
               <span className={`block text-xs ${out ? "text-red-400" : n <= (p.minStock ?? 0) ? "text-amber-300" : "text-white/50"}`}>{out ? "Rupture" : `Stock ${formatQty(n)}${(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}`}</span></span>
             </button>
@@ -170,7 +185,7 @@ export function PosPage() {
               {l.serials ? <><span className="text-xs text-white/60 max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost !p-2" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
               <button className="btn-ghost !p-2" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
-              <button className="btn-ghost !p-2" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{manager && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</>}
+              <button className="btn-ghost !p-2" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{(manager || pro) && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</>}
             </div>
           ))}
           {promoOn && <>
@@ -180,14 +195,16 @@ export function PosPage() {
             {pv && !!pv.decisions?.length && <details className="text-xs text-white/60"><summary className="cursor-pointer">Pourquoi ces remises ? ({pv.decisions.length})</summary><ul className="pt-1 flex flex-col gap-0.5">{pv.decisions.map((d) => <li key={d.promoId + d.outcome}><span className={d.outcome === "applied" ? "text-emerald-300" : "text-white/50"}>{d.outcome === "applied" ? "✓" : "✗"} {d.name}</span> — {d.message}</li>)}{(pv.notes ?? []).map((n) => <li key={n}>ℹ {n}</li>)}</ul></details>}
             {preview.isError && <p className="text-xs text-amber-300">Aperçu des promotions indisponible : {(preview.error as Error).message}</p>}
           </>}
+          {pro && <SimPanel sim={simD} manager={manager} approvals={approvals} pending={asked} onRequest={(k) => void requestApproval(k)} busy={askBusy} />}
           <CustomerPick customers={customers.data ?? []} value={customerId} onChange={(id) => { setCustomerId(id); setMsg(""); }} q={custQ} setQ={setCustQ} loading={customers.isLoading} />
-          <PayPanel total={total} lines={payLines} onChange={(l) => { setPayLines(l); setMsg(""); }} hasCustomer={!!customer} credit={customer ? { balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 } : undefined} qrConfigured={qrConfigured} onQr={(id) => (navigator.onLine ? setQrLine(id) : setMsg("Le QR nécessite une connexion"))} disabled={busy} />
-          <button className="btn text-lg disabled:opacity-40" disabled={waiting || busy || !payState.ok || needSession} onClick={checkout}>{waiting ? "Calcul des remises…" : `Encaisser ${formatFcfa(total)}`}</button>
+          <PayPanel total={total} lines={payLines} onChange={(l) => { setPayLines(l); setMsg(""); }} voucherOk={pro} onCheckVoucher={(code) => api<{ balance: number; usable: boolean; reason: string }>(s, "voucher.check", { code, customerId: customerId || undefined }).then((v) => (v.usable ? `Bon valable : solde ${formatFcfa(v.balance)}` : `Bon inutilisable : ${v.reason}`)).catch((e: Error) => e.message)} hasCustomer={!!customer} credit={customer ? { balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 } : undefined} qrConfigured={qrConfigured} onQr={(id) => (navigator.onLine ? setQrLine(id) : setMsg("Le QR nécessite une connexion"))} disabled={busy} />
+          <button className="btn text-lg disabled:opacity-40" disabled={waiting || busy || !payState.ok || needSession || blockedSim} onClick={checkout}>{waiting ? "Calcul des remises…" : `Encaisser ${formatFcfa(total)}`}</button>
           {needSession && <p className="text-xs text-amber-300 text-center">Caisse fermée : <Link to="/caisse" className="underline">ouvrir la caisse</Link> pour vendre.</p>}
         </section>
       )}
       {msg && <p className="text-center text-amber-300">{msg}</p>}
-      {last && cart.length === 0 && <div className="grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, lastName), w).then((b) => deliverPdf(b, `${last.number}-${w}mm.pdf`))}>Ticket {w} mm</button>)}</div>}
+      {lastId && cart.length === 0 && <p className={`text-center text-sm ${lastSync?.status === "synced" ? "text-emerald-300" : lastSync?.status === "rejected" ? "text-red-300" : "text-amber-300"}`} role="status" data-sync={lastSync?.status ?? "pending"}>{lastSync?.status === "synced" ? `✓ Vente confirmée par le serveur${lastSync.number ? ` (n° ${lastSync.number})` : ""}` : lastSync?.status === "rejected" ? `✗ Vente refusée par le serveur : ${lastSync.error} — voir les ventes en attente` : navigator.onLine ? "⏳ En attente de synchronisation : le serveur n'a pas encore confirmé cette vente" : "⏳ Hors ligne — vente conservée sur cet appareil, en attente de synchronisation"}</p>}
+      {last && cart.length === 0 && <div className="grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, lastName, { verifyCode: lastSync?.status === "synced" ? lastSync.verifyCode : undefined, pending: lastSync?.status !== "synced" }), w).then((b) => deliverPdf(b, `${last.number}-${w}mm.pdf`))}>Ticket {w} mm</button>)}</div>}
       {qrLine && (() => { const ln = payLines.find((x) => x.id === qrLine); return ln && (ln.method === "wave" || ln.method === "orange") ? <QrPay session={s} provider={ln.method} amount={Number(ln.amount.replace(/\s/g, ""))} onPaid={(id) => { setPayLines((ls) => ls.map((x) => (x.id === qrLine ? { ...x, linkId: id } : x))); setQrLine(null); }} onCancel={() => setQrLine(null)} /> : null; })()}
       {confirm && <Confirm text={`Valider la vente de ${formatFcfa(total)} ? ${payLines.map((l) => `${METHOD_LABEL[l.method]} ${formatFcfa(Number(l.amount.replace(/\s/g, "")) || 0)}`).join(" + ")}${payState.change ? ` · monnaie à rendre ${formatFcfa(payState.change)}` : ""}${customer ? ` · client ${customer.name}` : ""}. Le stock sera décrémenté à la confirmation.`} confirmLabel={busy ? "Validation…" : "Valider la vente"} onNo={() => setConfirm(false)} onYes={() => void submit()} />}
       {pickVar && <VariantDialog p={pickVar} variants={variantsOf(pickVar.$id)} levels={stock.data} onClose={() => setPickVar(null)} onPick={(v) => { const p = pickVar; setPickVar(null); add(p, v); }} />}
