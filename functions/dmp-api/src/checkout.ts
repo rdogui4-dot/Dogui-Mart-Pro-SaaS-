@@ -13,15 +13,17 @@ import { allocateFefo, parseSerials, trackingOf, warrantyEnd } from "../../../sr
 import { expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
 import { isVirtualBundle } from "../../../src/domain/bundles";
 import { loadComponents } from "./bundles";
-import { evaluateForSale, recordUsage } from "./promotions";
+import { evaluateForSale, recordUsage, releaseUsage, useCoupon, releaseCoupon, logInvalidCoupon, type CouponCheck } from "./promotions";
+import type { Decision, EvalResult, Promo } from "../../../src/domain/promotions";
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 
-type PromoSnap = { id: string; name: string; code?: string; kind: string; value: number; discount: number };
+type PromoPart = { id: string; name: string; code?: string; kind: string; value: number; family?: string; discount: number };
+type PromoSnap = PromoPart;
 export type CheckoutInput = {
   clientId: string; soldAt?: string; customerId?: string; redeemPoints?: number;
   lines: { productId: string; variantId?: string; qty: number | string; unit?: string; discountPct?: number; serials?: unknown }[];
   payments: (Payment & { linkId?: string })[];
-  /** Aperçu : calcule prix, promotions et total comme une vraie vente, sans rien écrire. */ dryRun?: boolean;
+  /** Aperçu : calcule prix, promotions et total comme une vraie vente, sans rien écrire. */ dryRun?: boolean; /** Coupon saisi à la caisse (Pro). */ couponCode?: string;
 };
 const moveId = (saleId: string, ...parts: number[]): string => `m${createHash("sha1").update(`${saleId}|${parts.join("|")}`).digest("hex").slice(0, 30)}`; // identifiant déterministe ≤ 36 caractères
 const MAX_FUTURE_MS = 10 * 60_000, MAX_AGE_MS = 45 * 86_400_000;
@@ -71,8 +73,8 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   let tiered: boolean | undefined; // tarifs avancés : fonction Pro (retour en Business : on repasse au prix de base)
 
   // 1) Prix et stock vérifiés en base
-  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[]; promo?: PromoSnap; baseAmount?: number })[] = [];
-  const pcat = new Map<string, string>(); const scales = new Map<string, number>(); const seenKeys = new Set<string>();
+  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[]; promo?: PromoSnap; promos?: PromoPart[]; couponRef?: { id: string; code: string }; baseAmount?: number })[] = [];
+  const pcat = new Map<string, string>(); const psku = new Map<string, string>(); const scales = new Map<string, number>(); const seenKeys = new Set<string>();
   let packagingOk: boolean | undefined; let promoOn: boolean | undefined;
   const demand = new Map<string, number>(); const takenSerials = new Set<string>(); let bundlesOk: boolean | undefined;
   const prevLines: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[] }[] = (() => { try { return existing ? JSON.parse(String(existing.lines)) : []; } catch { return []; } })();
@@ -129,7 +131,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   for (const [li, l] of input.lines.entries()) {
     const p = await store.get("products", l.productId);
     if (!p || p.tenantId !== ctx.tenantId || p.shopId !== ctx.shopId || p.archived) throw new HttpError(404, "Produit introuvable");
-    pcat.set(p.$id, String(p.category ?? ""));
+    pcat.set(p.$id, String(p.category ?? "")); if (p.sku) psku.set(p.$id, String(p.sku));
     if (isVirtualBundle(p)) { // bundle virtuel : prix propre, sort ses composants du stock (aucun stock propre)
       if (l.variantId) throw new HttpError(400, `${p.name} n'a pas de variantes`);
       if (l.unit && l.unit !== (p.unit || "piece")) throw new HttpError(400, `${p.name} : un bundle se vend à la pièce`);
@@ -197,25 +199,36 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     const price = resolvePrice(rules, { basePrice: Number((v ?? p).price), unit: soldUnit, factor, qty: soldUnit ? unitQty! : qty, baseQty: qty, customerCategory: category, at: soldAt });
     lines.push({ productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: price.unitPrice, amount: price.amount, qty, ...(v ? { variantId: v.$id } : {}), discountPct, ...(cost > 0 ? { unitCost: cost } : {}), ...(soldUnit ? { unit: soldUnit, unitQty, factor } : {}), ...(lots?.length ? { lots: lots.map((x) => ({ lotId: x.lotId, lotNo: x.lotNo, qty: x.qty })) } : {}), ...(serials?.length ? { serials } : {}), ...(price.source !== "base" ? { priceSource: price.source, priceRuleId: price.ruleId, basePrice: Number((v ?? p).price) } : {}) });
   }
-  // Promotions (Business) : calculées ICI, à la date de la vente ; une seule par ligne, jamais cumulées avec un prix de tarification spécial ni une remise manuelle.
-  // Une reprise réutilise la remise déjà figée dans la vente : une vente confirmée n'est jamais recalculée.
-  let promoApplied: { promoId: string; name: string; code?: string; discount: number; lineIndexes: number[] }[] = []; let promoMeta: Map<string, { id: string; usageLimit?: number; usageCount: number; code?: string }> = new Map();
+  // Promotions : calculées ICI, à la date de la vente, par le moteur partagé (Business : remises simples ; Pro : familles avancées, cumul, coupon, ciblage, budgets).
+  // Jamais cumulées avec un prix de tarification spécial ni une remise manuelle. Une reprise réutilise l'instantané déjà figé dans la vente : une vente confirmée n'est jamais recalculée.
+  type Applied = EvalResult["applied"][number];
+  let promoApplied: Applied[] = []; let promoMeta: Map<string, { id: string; usageLimit?: number; usageCount: number; code?: string; budget?: number; storeBudget?: number }> = new Map();
+  let promoDecisions: Decision[] = []; let promoNotes: string[] = []; let couponInfo: (CouponCheck & { coupon?: Record<string, unknown> & { $id: string } }) | undefined; const promoById = new Map<string, Promo>(); let couponRef: { id: string; code: string } | undefined; let promoPro = false;
+  const metaOf = (pr: Record<string, unknown> | null | undefined, id: string, code?: string, storeBudget?: number) => ({ id, usageLimit: pr?.usageLimit == null ? undefined : Number(pr.usageLimit), usageCount: Number(pr?.usageCount ?? 0), code, budget: pr?.budget == null ? undefined : Number(pr.budget), storeBudget });
   if (existing) {
-    for (const [i, l] of lines.entries()) { const pr = (prevLines[i] as { promo?: PromoSnap; baseAmount?: number; amount?: number } | undefined); if (pr?.promo) { l.promo = pr.promo; l.baseAmount = pr.baseAmount; l.amount = pr.amount; } }
-    const by = new Map<string, { promoId: string; name: string; code?: string; discount: number; lineIndexes: number[] }>();
-    for (const [i, l] of lines.entries()) if (l.promo) { const a = by.get(l.promo.id) ?? { promoId: l.promo.id, name: l.promo.name, ...(l.promo.code ? { code: l.promo.code } : {}), discount: 0, lineIndexes: [] }; a.discount += l.promo.discount; a.lineIndexes.push(i); by.set(l.promo.id, a); }
+    for (const [i, l] of lines.entries()) { const pr = (prevLines[i] as { promo?: PromoSnap; promos?: PromoPart[]; couponRef?: { id: string; code: string }; baseAmount?: number; amount?: number } | undefined); if (pr?.promo) { l.promo = pr.promo; l.promos = pr.promos ?? [pr.promo]; l.baseAmount = pr.baseAmount; l.amount = pr.amount; if (pr.couponRef) couponRef = pr.couponRef; } }
+    const by = new Map<string, Applied>();
+    for (const [i, l] of lines.entries()) for (const pt of l.promos ?? []) { const a = by.get(pt.id) ?? { promoId: pt.id, name: pt.name, ...(pt.code ? { code: pt.code } : {}), family: (pt.family ?? "simple") as Applied["family"], discount: 0, lineIndexes: [] }; a.discount += pt.discount; a.lineIndexes.push(i); by.set(pt.id, a); }
     promoApplied = [...by.values()];
-    for (const a of promoApplied) { const pr = await store.get("promotions", a.promoId); promoMeta.set(a.promoId, { id: a.promoId, usageLimit: pr?.usageLimit == null ? undefined : Number(pr.usageLimit), usageCount: Number(pr?.usageCount ?? 0), code: a.code }); }
+    for (const a of promoApplied) { const pr = await store.get("promotions", a.promoId); promoMeta.set(a.promoId, metaOf(pr, a.promoId, a.code)); }
   } else {
-    promoOn ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "promotions");
+    const planId = (await entitlementOf(store, ctx.tenantId)).plan.id; promoOn ??= planAllows(planId, "promotions"); promoPro = planAllows(planId, "promotionsPro");
+    if (input.couponCode && !promoPro) throw new HttpError(402, "Les coupons sont réservés à la formule Pro.");
     if (promoOn) {
-      const ev = await evaluateForSale(store, ctx, lines.map((l, i) => ({ index: i, productId: l.productId, category: pcat.get(l.productId), qty: l.qty, baseAmount: Number(l.amount ?? Math.round(l.unitPrice * l.qty)), unitCost: l.unitCost, eligible: !(Number(l.discountPct ?? 0) > 0) && (!l.priceSource || l.priceSource === "base") })), { customerId: customer?.$id, now: new Date(soldAt) });
-      for (const r of ev.lines) if (r.promoId && r.discount > 0) { const l = lines[r.index]!; const pr = ev.promos.find((x) => x.id === r.promoId)!; const base = Number(l.amount ?? Math.round(l.unitPrice * l.qty)); l.baseAmount = base; l.amount = base - r.discount; l.promo = { id: pr.id, name: pr.name, ...(pr.code ? { code: pr.code } : {}), kind: pr.kind, value: pr.value, discount: r.discount }; }
-      promoApplied = ev.applied; promoMeta = new Map(ev.promos.map((x) => [x.id, { id: x.id, usageLimit: x.usageLimit, usageCount: x.usageCount, code: x.code }]));
+      const ev = await evaluateForSale(store, ctx, lines.map((l, i) => ({ index: i, productId: l.productId, keys: [...(l.variantId ? [l.variantId] : []), ...(psku.get(l.productId) ? [`sku:${psku.get(l.productId)}`] : [])], category: pcat.get(l.productId), qty: l.qty, baseAmount: Number(l.amount ?? Math.round(l.unitPrice * l.qty)), unitCost: l.unitCost, eligible: !(Number(l.discountPct ?? 0) > 0) && (!l.priceSource || l.priceSource === "base") })), { customerId: customer?.$id, now: new Date(soldAt), couponCode: input.couponCode, pro: promoPro });
+      couponInfo = ev.coupon; for (const p of ev.promos) promoById.set(p.id, p);
+      if (input.couponCode && ev.coupon && !ev.coupon.ok && !input.dryRun) { await logInvalidCoupon(store, ctx, ev.coupon, customer?.$id); throw new HttpError(409, ev.coupon.message); }
+      for (const r of ev.lines) if (r.discount > 0 && r.parts.length) { const l = lines[r.index]!; const base = Number(l.amount ?? Math.round(l.unitPrice * l.qty)); l.baseAmount = base; l.amount = base - r.discount;
+        l.promos = r.parts.map((pt) => { const pr = promoById.get(pt.promoId)!; return { id: pr.id, name: pr.name, ...(pr.code ? { code: pr.code } : {}), kind: pr.kind, value: pr.value, family: pr.family ?? "simple", discount: pt.discount }; }); l.promo = { ...l.promos[0]!, discount: r.discount }; }
+      promoApplied = ev.applied; promoDecisions = ev.decisions; promoNotes = ev.notes;
+      promoMeta = new Map(ev.promos.map((x) => [x.id, metaOf({ usageLimit: x.usageLimit, usageCount: x.usageCount, budget: x.budget }, x.id, x.code, x.storeOverrides?.[ctx.shopId]?.budget)]));
+      if (ev.coupon?.ok && promoApplied.some((a) => a.promoId === ev.coupon!.promotionId)) { couponRef = { id: ev.coupon.couponId!, code: ev.coupon.code }; for (const l of lines) if (l.promos?.length) l.couponRef = couponRef; }
     }
   }
   let total = cartTotal(lines);
-  if (input.dryRun) return { dryRun: true as const, total, discountTotal: lines.reduce((a, l) => a + (l.promo?.discount ?? 0), 0), promotions: promoApplied, lines: lines.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), name: l.name, qty: l.qty, amount: l.amount ?? Math.round(l.unitPrice * l.qty), ...(l.promo ? { baseAmount: l.baseAmount, promo: l.promo } : {}) })) };
+  if (input.dryRun) return { dryRun: true as const, total, discountTotal: lines.reduce((a, l) => a + (l.promo?.discount ?? 0), 0), promotions: promoApplied, decisions: promoDecisions, notes: promoNotes, pro: promoPro,
+    coupon: couponInfo ? { ok: couponInfo.ok, code: couponInfo.code, message: couponInfo.message, applied: !!couponRef } : undefined,
+    lines: lines.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), name: l.name, qty: l.qty, amount: l.amount ?? Math.round(l.unitPrice * l.qty), ...(l.promo ? { baseAmount: l.baseAmount, promo: l.promo, promos: l.promos } : {}) })) };
 
   // 2) Client, points
   let redeem = 0;
@@ -258,15 +271,20 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     else if ((await store.get("stock_moves", cid))?.refId !== number) { for (const c of claimed) await store.remove("stock_moves", c); throw new HttpError(409, `Numéro de série déjà vendu : ${sn}`); }
   }
 
-  // Promotions : chaque utilisation est réservée (limite globale atomique) et liée à CETTE vente ; en cas d'échec, les réservations de séries et de promotions sont annulées.
-  const usageCreated: string[] = [];
+  // Promotions : chaque utilisation est réservée (limite globale et budget atomiques) et liée à CETTE vente, avec l'instantané des règles ; en cas d'échec, séries, promotions et coupon sont annulés.
+  const usageCreated: { promoId: string; id: string }[] = []; let couponUsage: { couponId: string; id: string } | undefined;
+  const ruleSnap = (p?: Promo) => (p ? { name: p.name, code: p.code, family: p.family ?? "simple", kind: p.kind, value: p.value, scope: p.scope, category: p.category, tiers: p.tiers, bogo: p.bogo, comboItems: p.comboItems, requireItems: p.requireItems, stackable: p.stackable, priority: p.priority, minQty: p.minQty, minCart: p.minCart, maxLinePct: p.maxLinePct, maxCartDiscount: p.maxCartDiscount, budget: p.budget, minMarginPct: p.minMarginPct, startAt: p.startAt, endAt: p.endAt, storeScope: p.storeScope, homeShopId: p.homeShopId, requiresCoupon: p.requiresCoupon, customerRules: p.customerRules, allowBelowMargin: p.allowBelowMargin } : {});
   try {
     for (const a of promoApplied) {
-      const id = await recordUsage(store, ctx, promoMeta.get(a.promoId)!, { saleId, saleNumber: number, customerId: customer?.$id, discount: a.discount, usedAt: soldAt, baseAmount: a.lineIndexes.reduce((s, i) => s + (lines[i]!.baseAmount ?? 0), 0),
-        lines: a.lineIndexes.map((i) => ({ index: i, productId: lines[i]!.productId, name: lines[i]!.name, base: lines[i]!.baseAmount, discount: lines[i]!.promo!.discount })) });
-      if (id) usageCreated.push(id);
+      const id = await recordUsage(store, ctx, promoMeta.get(a.promoId)!, { saleId, saleNumber: number, customerId: customer?.$id, discount: a.discount, usedAt: soldAt, baseAmount: a.lineIndexes.reduce((s, i) => s + (lines[i]!.baseAmount ?? 0), 0), family: a.family, rules: ruleSnap(promoById.get(a.promoId)), decisions: promoDecisions.slice(0, 40),
+        ...(couponRef && couponInfo?.promotionId === a.promoId ? { couponId: couponRef.id } : {}),
+        lines: a.lineIndexes.map((i) => ({ index: i, productId: lines[i]!.productId, name: lines[i]!.name, category: pcat.get(lines[i]!.productId) ?? "", qty: lines[i]!.qty, base: lines[i]!.baseAmount, discount: lines[i]!.promos?.find((x) => x.id === a.promoId)?.discount ?? 0, cost: lines[i]!.unitCost ? Math.round(lines[i]!.unitCost! * lines[i]!.qty) : null })) });
+      if (id) usageCreated.push({ promoId: a.promoId, id });
     }
-  } catch (e) { for (const c of claimed) await store.remove("stock_moves", c); for (const u of usageCreated) await store.remove("promotion_usage", u); throw e; }
+    if (couponRef && !input.dryRun) {
+      const crow = couponInfo?.coupon ?? (await store.get("promotion_coupons", couponRef.id)); if (crow) { const cu = await useCoupon(store, ctx, crow as never, { saleId, customerId: customer?.$id, usedAt: soldAt }); if (cu) couponUsage = { couponId: couponRef.id, id: cu }; }
+    }
+  } catch (e) { for (const c of claimed) await store.remove("stock_moves", c); for (const u of usageCreated) await releaseUsage(store, u.promoId, u.id); if (couponUsage) await releaseCoupon(store, couponUsage.couponId, couponUsage.id); throw e; }
 
   // 4) Écritures idempotentes : la vente passe "pending" -> "posted" -> "paid"
   const shop = await store.get("shops", ctx.shopId);
