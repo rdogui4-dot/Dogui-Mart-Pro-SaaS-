@@ -1,0 +1,307 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Fiche de formation — Promotions, Bundles et Coupons</title>
+<style>
+@page{size:A4;margin:16mm 14mm 16mm 14mm}
+*{box-sizing:border-box}body{font-family:"DejaVu Sans",Arial,sans-serif;font-size:10pt;line-height:1.45;color:#1b1b1f}
+h1{font-size:24pt;margin:0 0 4mm;color:#7a5a00}h2{font-size:15pt;margin:8mm 0 3mm;padding-bottom:1.5mm;border-bottom:2px solid #c9a227;color:#7a5a00;break-after:avoid}
+h3{font-size:11.5pt;margin:5mm 0 1.5mm;color:#222;break-after:avoid}p{margin:1.5mm 0}ul,ol{margin:1.5mm 0 1.5mm 5mm;padding-left:4mm}li{margin:.7mm 0}
+table{border-collapse:collapse;width:100%;margin:2mm 0;font-size:9pt;break-inside:avoid}th,td{border:1px solid #bbb;padding:1.6mm 2mm;vertical-align:top;text-align:left}th{background:#f3ead0}
+.box{border-left:4px solid #c9a227;background:#fbf6e6;padding:2mm 3mm;margin:2.5mm 0;break-inside:avoid}.warn{border-left-color:#c0392b;background:#fdeeee}.ok{border-left-color:#2e8b57;background:#eef8f1}
+.pro{display:inline-block;background:#7a5a00;color:#fff;border-radius:3px;font-size:7.5pt;padding:0 1.5mm;margin-left:1mm}.biz{display:inline-block;background:#2b6cb0;color:#fff;border-radius:3px;font-size:7.5pt;padding:0 1.5mm;margin-left:1mm}
+.cover{height:250mm;display:flex;flex-direction:column;justify-content:center;break-after:page}.cover .sub{font-size:13pt;color:#444}.cover small{color:#777;margin-top:12mm}
+code{background:#eee;padding:0 1mm;border-radius:2px;font-size:9pt}.step{break-inside:avoid}.toc li{margin:1mm 0}.pb{break-before:page}
+</style></head><body>
+
+<div class="cover"><h1>Promotions, Bundles et Coupons</h1><div class="sub">Fiche de formation et tutoriel complet — Dogui Mart Pro<br>Gérants, propriétaires et caissiers</div>
+<p style="margin-top:10mm">Cette fiche explique <b>tout</b> : comment fonctionnent les bundles (virtuels et kits), les six types de promotion, les coupons, le ciblage des clients, les budgets, les magasins multiples, le calendrier, les analyses, les conseils, le journal, les réglages, la caisse, le hors-ligne, le changement de formule — avec des exemples chiffrés, des exercices pas à pas et un guide de dépannage.</p>
+<p><span class="biz">Business</span> = fonction incluse dans la formule Business (et Pro). <span class="pro">Pro</span> = réservée à la formule Pro (comptes à vie inclus).</p><small>Les chiffres des exemples sont en FCFA. Les montants de l'application sont toujours des entiers.</small></div>
+
+<h2>Sommaire</h2>
+<ol class="toc"><li>Les idées à retenir (5 règles d'or)</li><li>Vocabulaire : bundle, kit, pack, conditionnée, panier, coupon, code de campagne</li><li>Qui peut faire quoi (rôles) et selon quelle formule</li><li>Les Bundles : virtuels et kits — tutoriel complet</li><li>Les Promotions : cycle de vie et statuts</li><li>Créer une campagne : tous les champs</li><li>Les six types de promotion, avec exemples chiffrés</li><li>Conditions, limites, priorité, marge minimale</li><li>Plusieurs promotions en même temps : choix, cumul, plafonds</li><li>Budgets</li><li>Ciblage des clients</li><li>Coupons</li><li>Plusieurs magasins</li><li>Calendrier, fuseau horaire, chevauchements</li><li>À la caisse : ce que voit et fait le caissier</li><li>Suivi : résultats, performance, magasins, conseils, journal</li><li>Réglages des promotions</li><li>Changer de formule (Pro → Business) : ce qui se passe</li><li>Sécurité, historique et ce qui ne change jamais</li><li>Tutoriels pas à pas (8 exercices)</li><li>Dépannage : « pourquoi ma promotion ne s'applique pas ? »</li><li>Questions fréquentes, glossaire, aide-mémoire</li></ol>
+
+<h2 class="pb">1. Les idées à retenir</h2>
+<div class="box"><b>1. Un seul moteur.</b> Business et Pro utilisent le même moteur de calcul. Pro ajoute des fonctions ; il ne change jamais le résultat d'une promotion simple.</div>
+<div class="box"><b>2. Le serveur décide.</b> Aucune remise n'est appliquée par l'application seule : à la caisse, le prix affiché est un aperçu calculé par le serveur avec le même calcul qu'une vraie vente (rien n'est enregistré pendant l'aperçu).</div>
+<div class="box"><b>3. Automatique.</b> Une campagne active s'applique toute seule : le client ne donne pas de code, le caissier n'en saisit pas. Seule exception : une campagne qui <i>exige un coupon</i> (Pro).</div>
+<div class="box"><b>4. Une vente confirmée ne bouge jamais.</b> Le prix de base, la remise et les règles de la campagne sont « photographiés » dans la vente. Modifier ou terminer la campagne ensuite ne change pas l'historique.</div>
+<div class="box"><b>5. Jamais de remise inventée.</b> Pas de chiffre simulé : les analyses viennent des ventes réelles ; si le coût de revient est inconnu, la marge est déclarée « non calculable » et aucune remise exigeant une marge n'est accordée.</div>
+
+<h2>2. Vocabulaire</h2>
+<table><tr><th>Terme</th><th>Ce que c'est</th><th>Exemple</th></tr>
+<tr><td><b>Bundle virtuel</b> <span class="pro">Pro</span></td><td>Un <b>article</b> vendable avec son propre prix, sans stock propre : il retire les composants du stock à chaque vente.</td><td>« Coffret petit-déjeuner » = 1 café + 1 sucre + 1 biscuit</td></tr>
+<tr><td><b>Kit physique</b> <span class="pro">Pro</span></td><td>Un bundle qui a <b>son propre stock</b>, alimenté par un ordre d'assemblage (les composants sortent, le kit entre).</td><td>Panier cadeau préparé à l'avance</td></tr>
+<tr><td><b>Pack</b> <span class="pro">Pro</span></td><td>Une <b>promotion</b> : prix fixe pour un ensemble d'articles vendus séparément.</td><td>Eau + Jus à 1 200 au lieu de 1 500</td></tr>
+<tr><td><b>Promotion conditionnée</b> <span class="pro">Pro</span></td><td>Une promotion qui ne s'applique que si des <b>articles requis</b> sont dans le panier.</td><td>−10 % sur le Savon si 2 Jus achetés</td></tr>
+<tr><td><b>Remise panier</b> <span class="pro">Pro</span></td><td>Une promotion sur <b>tout le ticket</b> à partir d'un montant minimum.</td><td>−10 % dès 5 000 FCFA</td></tr>
+<tr><td><b>Remise simple</b> <span class="biz">Business</span></td><td>Un seul type de remise (%, montant ou prix) sur des articles ou une catégorie.</td><td>−20 % sur l'Eau</td></tr>
+<tr><td><b>Prix dégressifs</b> <span class="pro">Pro</span></td><td>Remise par paliers de quantité.</td><td>Dès 3 : −10 %, dès 10 : −20 %</td></tr>
+<tr><td><b>Achetez X, obtenez Y</b> <span class="pro">Pro</span></td><td>Parmi un lot, les articles les moins chers sont offerts ou remisés.</td><td>2 achetés, 1 offert</td></tr>
+<tr><td><b>Code de campagne</b></td><td>L'identifiant de la campagne (ex. RENTREE26). Il sert au suivi ; il ne se saisit pas à la caisse.</td><td>SOLDES482 (généré)</td></tr>
+<tr><td><b>Coupon</b> <span class="pro">Pro</span></td><td>Un code que le client donne et que le caissier saisit, lié à une campagne ; peut être à usage unique, limité, daté, réservé à un client.</td><td>MERCI20</td></tr>
+<tr><td><b>Campagne gelée</b></td><td>Campagne avancée conservée mais plus appliquée, car la formule n'inclut plus Pro.</td><td>Après un retour en Business</td></tr></table>
+<div class="box warn"><b>Ne pas confondre.</b> Le <b>code de campagne</b> est automatique et identifie la campagne. Le <b>coupon</b> est un code <i>saisi</i> à la caisse. Un <b>bundle</b> est un article ; un <b>pack</b> est une remise.</div>
+
+<h2>3. Rôles et formules</h2>
+<table><tr><th>Fonction</th><th>Caissier</th><th>Gérant</th><th>Propriétaire</th><th>Formule</th></tr>
+<tr><td>Vendre (promotions et coupon appliqués)</td><td>Oui</td><td>Oui</td><td>Oui</td><td>Business (coupon : Pro)</td></tr>
+<tr><td>Créer/modifier/activer/suspendre une campagne</td><td>Non</td><td>Oui</td><td>Oui</td><td>Business ; types avancés : Pro</td></tr>
+<tr><td>Coupons, budgets, analyses, conseils</td><td>Non</td><td>Oui</td><td>Oui</td><td>Pro</td></tr>
+<tr><td>Comparer tous les magasins</td><td>Non</td><td>Non</td><td>Oui</td><td>Pro</td></tr>
+<tr><td>Journal des actions, réglages (fuseau, marge)</td><td>Non</td><td>Oui</td><td>Oui</td><td>Business</td></tr>
+<tr><td>Plafonds, stratégie, priorité par type</td><td>Non</td><td>Oui</td><td>Oui</td><td>Pro</td></tr>
+<tr><td>Bundles : créer, kit, assembler</td><td>Non</td><td>Selon l'accès Stock</td><td>Oui</td><td>Pro</td></tr></table>
+<p>Si une fonction Pro est demandée avec une formule inférieure, le serveur répond « réservé à la formule Pro » : même en contournant l'écran, rien ne passe.</p>
+
+<h2 class="pb">4. Les Bundles — tutoriel complet <span class="pro">Pro</span></h2>
+<h3>4.1 Bundle virtuel ou kit ?</h3>
+<table><tr><th></th><th>Virtuel</th><th>Kit physique</th></tr>
+<tr><td>Stock propre</td><td>Non : disponibilité calculée</td><td>Oui</td></tr>
+<tr><td>Quand les composants sortent du stock</td><td>À chaque vente</td><td>À l'assemblage</td></tr>
+<tr><td>Préparation</td><td>Aucune</td><td>Ordre d'assemblage (et démontage possible)</td></tr>
+<tr><td>Quand l'utiliser</td><td>Offre composée à la demande</td><td>Produits préparés/emballés à l'avance</td></tr>
+<tr><td>Mode modifiable après création ?</td><td colspan="2">Non : choisissez bien à la création.</td></tr></table>
+<h3>4.2 Créer un bundle</h3>
+<ol><li>Ouvrez la tuile <b>Bundles</b> → <b>Nouveau bundle</b>.</li><li>Saisissez le <b>nom</b>, le <b>prix de vente</b> (propre au bundle), la référence (générée automatiquement si vide) et, si vous voulez, une photo.</li><li>Choisissez <b>Virtuel</b> ou <b>Kit</b>.</li><li>Composez : ajoutez de <b>1 à 20 composants</b> parmi <b>tous</b> les articles du commerce, avec la quantité de chacun. Un composant peut être un article simple, une <b>variante précise</b>, un article au kilo/litre (quantités décimales), suivi par lot ou par numéro de série.</li><li>Enregistrez. L'écran affiche la <b>disponibilité</b>, le <b>coût</b> et la <b>marge indicative</b>.</li></ol>
+<div class="box ok"><b>Disponibilité d'un bundle virtuel</b> = le plus petit résultat de « stock du composant ÷ quantité requise » (arrondi vers le bas). Ex. : 1 café + 2 biscuits ; 10 cafés et 7 biscuits → min(10 ; 3) = <b>3 bundles</b> vendables.</div>
+<h3>4.3 Vendre un bundle</h3>
+<ul><li>À la caisse, il se choisit ou se scanne comme n'importe quel article : <b>une seule ligne</b>, au prix du bundle.</li><li>Bundle virtuel : le serveur retire chaque composant du stock (un mouvement par composant). Il respecte les <b>variantes</b>, les <b>lots (le plus proche de la péremption d'abord ; lots périmés ou bloqués exclus)</b> et attribue automatiquement les <b>numéros de série</b>.</li><li>La <b>composition et le coût sont figés</b> dans la ligne de vente : changer la composition plus tard ne modifie pas l'historique.</li><li>Kit : la vente retire le stock du kit ; les composants ne bougent pas (ils sont sortis à l'assemblage).</li></ul>
+<h3>4.4 Assembler et démonter un kit</h3>
+<ol><li>Ouvrez le kit → <b>Assembler</b> → indiquez la quantité à fabriquer.</li><li>Les composants sortent du stock (mouvement « assemblage — sortie »), les kits entrent (« assemblage — entrée »). Le <b>coût du kit</b> devient le coût moyen pondéré.</li><li><b>Démonter</b> fait l'inverse. L'historique des ordres est conservé.</li><li>Une coupure réseau en cours d'ordre se reprend sans rien doubler.</li></ol>
+<h3>4.5 Ce que le serveur refuse</h3>
+<ul><li>Stock insuffisant d'un composant (le composant fautif est nommé).</li><li>Bundle sans composants, composant archivé, <b>bundle dans un bundle</b>.</li><li>Un kit : ne se commande pas aux fournisseurs, ne se transfère pas entre boutiques (on l'assemble dans la boutique de destination) ; il ne se supprime plus une fois assemblé ; il peut être compté à l'inventaire.</li></ul>
+<h3>4.6 Bundles et promotions</h3>
+<p>Le sélecteur d'articles d'une campagne ne propose pas les bundles. Pour faire une offre sur un ensemble <b>sans créer d'article</b>, utilisez un <b>pack</b> (promotion). Pour un produit à part entière (code-barres, photo, stock de kit), faites un <b>bundle</b>.</p>
+<p>Retour en Business : les bundles existants et leur historique sont conservés ; leur gestion est verrouillée.</p>
+
+<h2 class="pb">5. Les Promotions : cycle de vie</h2>
+<table><tr><th>Statut affiché</th><th>Signification</th><th>Actions possibles</th></tr>
+<tr><td><b>Brouillon</b></td><td>Créée, jamais appliquée.</td><td>Modifier, activer, supprimer</td></tr>
+<tr><td><b>Programmée</b></td><td>Activée, mais la date de début est future.</td><td>Suspendre, terminer, modifier</td></tr>
+<tr><td><b>Active</b></td><td>Dans sa période : s'applique aux ventes.</td><td>Suspendre, terminer, modifier</td></tr>
+<tr><td><b>Suspendue</b></td><td>Mise en pause manuellement.</td><td>Reprendre, terminer</td></tr>
+<tr><td><b>Terminée</b></td><td>Date de fin dépassée ou fin anticipée. Définitive.</td><td>Consulter l'historique</td></tr>
+<tr><td><b>Gelée</b></td><td>Campagne avancée dont la formule n'inclut plus Pro.</td><td>Suspendre, terminer</td></tr></table>
+<ul><li>L'activation et l'expiration sont <b>automatiques</b> : le serveur contrôle la date <b>à chaque vente</b> (aucune tâche planifiée à surveiller).</li><li>« Terminer maintenant » arrête la période à l'instant présent ; c'est définitif, l'historique reste.</li><li><b>Supprimer</b> n'est possible que si la campagne n'a jamais servi ; sinon, terminez-la.</li><li>Une campagne <b>déjà utilisée</b> garde sa définition : type, valeur, portée, code, articles, paliers et lots ne changent plus. Vous pouvez encore changer le nom, la période, les limites, le budget, la priorité et le ciblage. Pour une autre remise : créez une nouvelle campagne.</li></ul>
+
+<h2>6. Créer une campagne : tous les champs</h2>
+<p>Promotions → <b>Campagnes</b> → <b>Nouvelle campagne</b>. La campagne est créée en <b>brouillon</b> ; il faut ensuite l'<b>activer</b> (avec confirmation).</p>
+<table><tr><th>Champ</th><th>Règle</th></tr>
+<tr><td>Nom *</td><td>2 à 120 caractères.</td></tr>
+<tr><td>Objectif commercial</td><td>Facultatif (200 car.) : ex. « écouler le stock de saison ». Pour votre suivi.</td></tr>
+<tr><td>Description</td><td>Facultatif (500 car.).</td></tr>
+<tr><td>Code de campagne</td><td>3 à 20 caractères (lettres, chiffres, - ou _). Généré si vide (ex. SOLDES482). Unique parmi les campagnes non terminées du commerce. Non modifiable une fois utilisée.</td></tr>
+<tr><td>Type de promotion *</td><td>Voir chapitre 7. Les types Pro sont grisés en Business.</td></tr>
+<tr><td>Type de remise et valeur *</td><td>Pourcentage (1 à 100) · Montant fixe <b>par unité</b> · Prix promotionnel <b>par unité</b> (0 autorisé).</td></tr>
+<tr><td>Articles / catégorie *</td><td>« Articles choisis » (jusqu'à 200) ou « Catégorie d'articles » (tous les articles actuels et futurs de la catégorie). Le prix promotionnel exige des articles choisis.</td></tr>
+<tr><td>Début / Fin *</td><td>À l'heure de l'entreprise. La fin suit le début ; durée maximale 366 jours.</td></tr>
+<tr><td>Quantité minimale</td><td>Facultatif ; décimales permises (ex. 1,5 kg).</td></tr>
+<tr><td>Panier minimal</td><td>Facultatif (obligatoire pour une remise panier).</td></tr>
+<tr><td>Utilisations maximales</td><td>Limite globale de la campagne (nombre de ventes concernées).</td></tr>
+<tr><td>Maximum par client</td><td>Exige un client identifié à la caisse.</td></tr>
+<tr><td>Priorité</td><td>0 à 100 ; sert à départager (chapitre 9).</td></tr>
+<tr><td>Autoriser sous la marge</td><td>Voir chapitre 8.</td></tr>
+<tr><td>Options avancées <span class="pro">Pro</span></td><td>Cumulable, coupon exigé, budget, marge minimale de campagne, plafond par article, plafond par panier, articles exclus, magasins, clients ciblés.</td></tr></table>
+<div class="box">Une campagne qui touche aux options avancées est dite « avancée » : elle exige la formule Pro pour être créée, modifiée ou activée.</div>
+
+<h2 class="pb">7. Les six types de promotion</h2>
+<h3>7.1 Remise simple <span class="biz">Business</span></h3>
+<p>Un type de remise sur des articles ou une catégorie. Appliquée ligne par ligne.</p>
+<table><tr><th>Type</th><th>Exemple</th><th>Résultat</th></tr>
+<tr><td>Pourcentage</td><td>Eau 500 FCFA, −20 %, 2 unités</td><td>Base 1 000 → remise 200 → 800</td></tr>
+<tr><td>Montant fixe par unité</td><td>Jus 1 000, −100 par unité, 3 unités</td><td>Remise 300 → 2 700</td></tr>
+<tr><td>Prix promotionnel par unité</td><td>Savon 800 → prix 600, 2 unités</td><td>Remise 400 → 1 200</td></tr></table>
+<p>Avec « Quantité minimale » = 3, la remise ne joue qu'à partir de 3 unités de la ligne.</p>
+<h3>7.2 Prix dégressifs <span class="pro">Pro</span></h3>
+<p>Des paliers (jusqu'à 10). Chaque palier a une quantité de départ, un type et une valeur. Le palier atteint le plus haut s'applique.</p>
+<table><tr><th>Réglage</th><th>Exemple (Eau 500)</th></tr>
+<tr><td>Dès 3 : −10 % · Dès 10 : −20 %</td><td>2 unités : 0 · 3 unités (1 500) : −150 · 10 unités (5 000) : −1 000</td></tr>
+<tr><td>Quantité comptée « par article »</td><td>Chaque ligne atteint son palier séparément.</td></tr>
+<tr><td>Quantité comptée « cumulée »</td><td>Les quantités de tous les articles de la campagne s'additionnent : 2 Eau + 2 Jus = 4 pour le palier.</td></tr></table>
+<p>Deux paliers ne peuvent pas avoir la même quantité.</p>
+<h3>7.3 Achetez X, obtenez Y <span class="pro">Pro</span></h3>
+<p>Réglez X (achetés), Y (remisés) et le pourcentage de remise sur Y (100 % = gratuit). Parmi les articles de la campagne, chaque lot de X+Y unités remise les Y <b>moins chers</b>.</p>
+<ul><li>« 2 achetés, 1 offert » sur Eau (500) et Jus (1 000) : panier 1 Jus + 2 Eau → 3 unités = 1 lot → l'Eau (500) est offerte : <b>−500</b>.</li><li>6 Eau → 2 lots → −1 000. Avec 2 Eau seulement : aucun lot complet, aucune remise (le caissier voit « il faut 3 articles du lot »).</li></ul>
+<div class="box warn">Un article offert est vendu en dessous du coût : cochez « Autoriser la vente sous la marge » pour ce type, sinon le moteur refuse le lot (voir chapitre 8).</div>
+<h3>7.4 Pack — prix fixe pour un ensemble <span class="pro">Pro</span></h3>
+<p>Choisissez les articles du pack (1 à 10 articles, avec quantité) et le <b>prix de l'ensemble</b>. Le pack s'applique si tous les articles sont dans le panier, dans les quantités prévues, et autant de fois que possible.</p>
+<ul><li>Pack Eau + Jus à 1 200 (normal 1 500) : 1 Eau + 1 Jus → <b>−300</b> ; 3 Eau + 2 Jus → 2 packs → <b>−600</b> ; 1 Eau seule → rien.</li><li>Si le prix du pack n'est pas inférieur au prix normal, il est refusé (« pas de gain »).</li><li>La remise est répartie entre les lignes au prorata de leur valeur (somme exacte au franc).</li></ul>
+<h3>7.5 Remise conditionnée <span class="pro">Pro</span></h3>
+<p>Choisissez les <b>articles requis</b> (avec quantités) et les <b>articles remisés</b>. Si aucun article remisé n'est choisi, ce sont les articles requis qui reçoivent la remise.</p>
+<ul><li>« −10 % sur le Savon si 2 Jus » : Savon seul → 0 ; Savon + 1 Jus → 0 ; Savon + 2 Jus → −80 (10 % de 800). Les Jus ne sont pas remisés.</li></ul>
+<h3>7.6 Remise sur le panier <span class="pro">Pro</span></h3>
+<p>Pourcentage ou montant sur <b>tout</b> le ticket (hors lignes non éligibles), avec <b>panier minimal obligatoire</b>. Le prix promotionnel n'existe pas pour ce type.</p>
+<ul><li>−10 % dès 5 000 : panier à 4 000 → 0 ; panier à 5 000 → −500, réparti sur les lignes.</li><li>Montant fixe : −1 000 sur le panier (jamais plus que le panier).</li></ul>
+<h3>7.7 Articles exclus <span class="pro">Pro</span></h3>
+<p>Dans une campagne sur catégorie, vous pouvez exclure des articles précis (ex. « Hygiène −10 % sauf Savon luxe »).</p>
+<h3>7.8 Lignes jamais remisées</h3>
+<p>Une ligne qui a déjà un <b>prix spécial de tarification</b> (prix de gros, prix par quantité…) ou une <b>remise manuelle</b> n'est pas éligible aux promotions : jamais de double remise.</p>
+
+<h2 class="pb">8. Conditions, limites, priorité, marge</h2>
+<table><tr><th>Réglage</th><th>Effet</th></tr>
+<tr><td>Quantité minimale</td><td>Ligne sous le seuil : pas de remise.</td></tr>
+<tr><td>Panier minimal</td><td>Panier sous le seuil : campagne refusée avec message « panier minimal non atteint ».</td></tr>
+<tr><td>Utilisations maximales</td><td>Quand la limite est atteinte, la campagne cesse de s'appliquer. Réservation atomique : deux ventes simultanées ne peuvent pas dépasser la limite.</td></tr>
+<tr><td>Maximum par client</td><td>Après N utilisations par un même client, refus. Sans client identifié : refus « identifiez le client ».</td></tr>
+<tr><td>Priorité (0–100)</td><td>Départage les campagnes concurrentes (voir 9).</td></tr></table>
+<h3>Marge minimale — protection de la rentabilité</h3>
+<ul><li>Réglage de la boutique : <b>Réglages → Promotions : marge minimale</b> (en %). Chaque campagne Pro peut avoir la sienne.</li><li>Règle : prix final ≥ <b>coût de revient × (1 + marge)</b>. Le coût utilisé est le coût réel figé de l'article.</li><li><b>À la création</b> : la campagne est refusée si elle ferait vendre un article sous la marge (message avec prix final et coût).</li><li><b>À la vente</b> : une remise par ligne est ignorée ligne par ligne si elle passe sous la marge ; un lot (X+Y, pack, panier, conditionnée) est refusé en entier.</li><li><b>Coût inconnu</b> (0) et marge exigée : aucune remise. Jamais d'approximation.</li><li>« Autoriser la vente sous la marge » lève ce contrôle pour la campagne (indispensable pour offrir un article).</li><li>Les ventes en promotion sous la marge sont listées dans l'onglet Performance.</li></ul>
+
+<h2>9. Plusieurs promotions en même temps</h2>
+<h3>9.1 Règle par défaut : une seule par ligne</h3>
+<p>Si plusieurs campagnes visent le même article, le moteur retient la <b>plus avantageuse pour le client</b>. À égalité : la plus haute priorité, puis le rang du type (voir Réglages), puis la plus ancienne. Les autres sont notées « refusées : une autre promotion est plus avantageuse » — visible dans « Pourquoi ces remises ? » à la caisse.</p>
+<h3>9.2 Cumul <span class="pro">Pro</span></h3>
+<ul><li>Deux campagnes se cumulent <b>seulement si les deux sont marquées « cumulable »</b>. Une non-cumulable n'est jamais empilée automatiquement.</li><li>Les remises cumulées s'appliquent dans l'ordre de priorité, chacune sur le <b>montant restant</b>. Ex. Eau 1 000 : −10 % puis −10 % du reste → 100 + 90 = <b>190</b> (et non 200).</li><li>Le moteur compare le cumul à la meilleure offre non cumulable et garde la plus avantageuse pour le client.</li><li>Les lots (X+Y, pack) ne sont jamais cumulables.</li></ul>
+<h3>9.3 Stratégie : meilleure offre ou priorité <span class="pro">Pro</span></h3>
+<p><b>Meilleure offre</b> (par défaut) : la plus forte remise gagne. <b>Priorité</b> : la campagne de priorité la plus haute gagne même si elle remise moins. Exemple : −30 % (priorité 1) contre −10 % (priorité 50) sur Eau 1 000 → meilleure offre : 300 ; priorité : 100.</p>
+<h3>9.4 Plafonds <span class="pro">Pro</span></h3>
+<table><tr><th>Plafond</th><th>Où le régler</th><th>Effet</th></tr>
+<tr><td>Par article (%)</td><td>Campagne ou Réglages (toutes campagnes)</td><td>La remise d'une ligne ne dépasse pas ce % du prix.</td></tr>
+<tr><td>Par panier (FCFA)</td><td>Campagne</td><td>La remise totale de cette campagne est limitée.</td></tr>
+<tr><td>Par panier (%)</td><td>Réglages</td><td>Toutes campagnes confondues, la remise du ticket est limitée à ce % du panier.</td></tr></table>
+<p>Chaque plafonnement est signalé par une note explicative à la caisse.</p>
+
+<h2>10. Budgets <span class="pro">Pro</span></h2>
+<ul><li>Un <b>budget</b> est un montant total de remises que la campagne peut accorder (en FCFA).</li><li>À chaque vente, le moteur vérifie que la remise tient dans le budget restant ; sinon : « budget épuisé » ou « le budget restant ne couvre pas cette remise ».</li><li>Après enregistrement, une seconde vérification annule l'utilisation si deux ventes simultanées dépassaient le budget : jamais de dépassement silencieux.</li><li>Un <b>budget local</b> par magasin peut être défini pour une campagne multi-magasins (comptabilisé magasin par magasin).</li><li>L'onglet <b>Budgets</b> montre pour chaque campagne : dépensé, budget, reste, et la ventilation par magasin.</li></ul>
+
+<h2 class="pb">11. Ciblage des clients <span class="pro">Pro</span></h2>
+<p>Dans les options avancées, restreignez la campagne. Vide = tous les clients. Les critères sont combinés en « ou » : il suffit d'en remplir un.</p>
+<table><tr><th>Critère</th><th>Détail</th></tr>
+<tr><td>Catégorie de clients</td><td>Gros, Revendeur (catégories de la fiche client ; la catégorie « Détail » est la valeur par défaut).</td></tr>
+<tr><td>Fidélité</td><td>Bronze, Argent, Or, calculé sur les achats annuels du client.</td></tr>
+<tr><td>Nouveaux clients</td><td>Inscrits depuis moins de N jours (1 à 365).</td></tr>
+<tr><td>Clients précis</td><td>Une liste choisie un par un.</td></tr></table>
+<p>À la caisse, <b>identifiez le client</b> (liste « Client »). Sans client, une campagne ciblée est refusée avec le message « réservée à certains clients : identifiez le client ».</p>
+
+<h2>12. Coupons <span class="pro">Pro</span></h2>
+<h3>12.1 À quoi servent-ils ?</h3>
+<p>Un coupon est un code remis au client (SMS, flyer, fidélité) que le caissier saisit. Il est lié à <b>une campagne</b>. Deux usages :</p>
+<ul><li><b>Campagne avec « Coupon exigé »</b> : sans coupon valide, elle ne s'applique jamais.</li><li><b>Campagne ouverte avec coupons de suivi</b> : le coupon trace l'usage ; la remise s'applique de toute façon.</li></ul>
+<h3>12.2 Créer des coupons</h3>
+<ol><li>Promotions → <b>Coupons</b>. Choisissez la <b>campagne liée</b> (non terminée).</li><li><b>Code</b> : personnalisé (3–20 caractères) ou laissé vide pour un code généré (CP + 6 caractères). Unique dans le commerce.</li><li>Options : <b>usage unique</b> · <b>utilisations maximales</b> · <b>réservé au client</b> · <b>valable du … au …</b> (heure de l'entreprise).</li><li><b>Série</b> : « Nombre de codes » de 2 à 50 génère autant de coupons <b>à usage unique</b> aux codes uniques (sans client réservé).</li><li>Désactivez/réactivez un coupon à tout moment (sans perdre son historique).</li></ol>
+<h3>12.3 Les contrôles à la saisie</h3>
+<table><tr><th>Message</th><th>Cause</th></tr>
+<tr><td>code inconnu</td><td>Faute de frappe ou coupon d'un autre commerce</td></tr><tr><td>coupon désactivé</td><td>Désactivé par un gérant</td></tr>
+<tr><td>pas encore valable / expiré</td><td>Hors de sa période</td></tr><tr><td>réservé à un autre client / identifiez-le</td><td>Coupon nominatif</td></tr>
+<tr><td>déjà utilisé (limite atteinte)</td><td>Usage unique consommé ou maximum atteint</td></tr>
+<tr><td>campagne liée indisponible</td><td>Campagne suspendue, terminée, hors période ou hors magasin</td></tr></table>
+<h3>12.4 Suivi et traçabilité</h3>
+<ul><li>Chaque utilisation est enregistrée avec la vente, le client, le magasin, l'heure et le caissier.</li><li>Chaque <b>tentative invalide</b> est aussi enregistrée (code, raison). L'onglet Coupons affiche le nombre de tentatives et les plus récentes ; l'onglet Performance, les coupons les plus utilisés.</li><li>Un coupon valide dont la campagne ne s'applique pas à ce panier n'est <b>pas consommé</b>.</li><li>Rejouer la même vente (coupure réseau, double clic) ne consomme le coupon qu'une fois ; si la vente échoue, l'utilisation du coupon est annulée.</li></ul>
+
+<h2 class="pb">13. Plusieurs magasins <span class="pro">Pro</span></h2>
+<table><tr><th>Portée</th><th>Effet</th></tr><tr><td>Ce magasin seulement</td><td>Cas normal (Business).</td></tr><tr><td>Tous les magasins</td><td>S'applique dans chaque magasin du commerce.</td></tr><tr><td>Magasins choisis</td><td>Seulement ceux cochés.</td></tr></table>
+<ul><li>Chaque magasin <b>garde son stock et ses ventes</b> ; seules les règles de remise sont partagées.</li><li>Les articles des autres magasins sont reconnus par leur <b>référence (SKU)</b>. <b>Donnez la même référence</b> à un article dans tous les magasins, sinon la campagne ne l'atteindra pas.</li><li><b>Autorisation locale</b> (fiche de la campagne) : le gérant d'un magasin peut <b>suspendre</b> la campagne chez lui, définir une <b>valeur locale</b> (pourcentage, montant ou prix) et un <b>budget local</b>. Le gérant du magasin d'origine peut régler les autres magasins ; un gérant ne règle que le sien.</li><li>Les campagnes d'autres magasins apparaissent dans la liste avec la mention « autre magasin » (hors brouillons).</li><li>Le propriétaire compare les magasins dans l'onglet <b>Magasins</b> (utilisations, remises, chiffre d'affaires des lignes en promotion).</li></ul>
+
+<h2>14. Calendrier, fuseau horaire, chevauchements</h2>
+<ul><li><b>Fuseau horaire de l'entreprise</b> (Promotions → Réglages) : toutes les dates se saisissent et s'affichent dans ce fuseau (ex. Africa/Dakar, Africa/Abidjan, Europe/Paris…). Le serveur stocke l'instant exact (UTC) : pas d'erreur d'heure d'été ou de décalage.</li><li><b>Calendrier</b> : liste chronologique des campagnes avec statut et type.</li><li><b>Chevauchements</b> : le calendrier signale deux campagnes dont les périodes se recouvrent et qui visent des articles, catégories (ou le panier) et magasins communs. Ce n'est pas une erreur : le moteur n'en applique qu'une par article (sauf cumul autorisé) — mais cela vous aide à vérifier votre intention.</li><li><b>Expirations proches</b> : les campagnes actives qui finissent dans moins de 3 jours sont mises en évidence.</li><li>Programmation à l'avance : activez une campagne dont le début est futur ; elle est « Programmée » puis devient « Active » toute seule.</li></ul>
+
+<h2 class="pb">15. À la caisse</h2>
+<h3>15.1 Ce que voit le caissier</h3>
+<ul><li>Dès qu'un article est ajouté, la caisse affiche « Calcul des remises… » puis : prix de base barré, remise, prix final et nom de la promotion (avec son code).</li><li>Ligne « <b>Remises : −X FCFA (noms)</b> ».</li><li><b>Pourquoi ces remises ?</b> (déroulant) : ✓ appliquées et ✗ refusées, avec la raison, et les notes (plafonds…).</li><li>Le bouton <b>Encaisser</b> affiche le total après remises.</li></ul>
+<h3>15.2 Saisir un coupon <span class="pro">Pro</span></h3>
+<ol><li>Champ <b>Coupon (facultatif)</b> → saisir le code (majuscules automatiques) → <b>Appliquer</b>.</li><li>Message vert « Coupon … accepté » et la remise apparaît ; ou message d'erreur expliquant le refus.</li><li><b>Retirer</b> annule le coupon avant l'encaissement.</li><li>Si le coupon est valide mais que la campagne ne s'applique pas au panier : « coupon accepté, mais la campagne liée ne s'applique pas à ce panier ».</li></ol>
+<p>Choisissez aussi le <b>client</b> si une campagne est ciblée ou limitée par client.</p>
+<h3>15.3 Hors ligne</h3>
+<ul><li>Sans connexion, l'aperçu des remises est indisponible : la vente est enregistrée et envoyée plus tard ; <b>les promotions sont calculées par le serveur à la synchronisation</b>, à la date réelle de la vente.</li><li>Un coupon saisi hors ligne n'est pas validé sur place : s'il est refusé à la synchronisation, la vente apparaît parmi les ventes refusées à traiter.</li></ul>
+<h3>15.4 Ce qui est enregistré dans la vente</h3>
+<p>Par ligne : prix de base, remise, montant final, et pour chaque promotion appliquée son nom, son code, son type, sa valeur et sa part de remise. Par campagne utilisée : une ligne d'utilisation avec les règles et décisions de ce moment-là. Le ticket et la comptabilité reprennent le total remisé.</p>
+
+<h2>16. Suivi : résultats, performance, conseils, journal</h2>
+<h3>16.1 Fiche d'une campagne</h3>
+<p>Période, portée, conditions, limites, budget consommé, historique des utilisations (numéro de vente, date, remise, montant encaissé). Le « CA net » est le montant encaissé sur les lignes en promotion après remise : <b>ce n'est pas un bénéfice</b>.</p>
+<h3>16.2 Onglet Résultats <span class="biz">Business</span></h3>
+<p>Nombre de campagnes par statut, utilisations, remises accordées et CA net, par période et par campagne.</p>
+<h3>16.3 Onglet Performance <span class="pro">Pro</span></h3>
+<ul><li>Campagnes créées/actives, utilisations, <b>clients bénéficiaires</b>, remises, CA des lignes en promotion et sa part dans les ventes.</li><li><b>Comparaison</b> avec la période précédente de même durée, en %. Elle est <b>descriptive</b> : elle ne prouve pas que les promotions ont causé la variation (saison, prix, stock…).</li><li><b>Marge brute</b> : calculée seulement sur les lignes dont le coût est connu ; sinon « non calculable » avec l'explication. Les lignes sans coût sont comptées à part.</li><li><b>Ventes sous la marge minimale</b> listées (vente, article, prix final, coût, marge %).</li><li>Découpages : par jour (heure de l'entreprise), campagne, article, catégorie ; coupons les plus utilisés et tentatives invalides.</li></ul>
+<h3>16.4 Onglet Conseils <span class="pro">Pro</span></h3>
+<p>Suggestions fondées sur vos ventes des 60 derniers jours, avec <b>justification, données utilisées et limites</b>. Rien n'est créé ni activé automatiquement : « Préparer une campagne » ouvre un formulaire pré-rempli à vérifier.</p>
+<table><tr><th>Conseil</th><th>Déclencheur</th></tr>
+<tr><td>Faible rotation</td><td>Article en stock, créé depuis plus de 60 jours, sans aucune vente en 60 jours</td></tr>
+<tr><td>Surstock</td><td>Stock couvrant plus de 120 jours au rythme des 60 derniers jours</td></tr>
+<tr><td>Vente liée (pack)</td><td>Deux articles présents ensemble dans au moins 5 tickets, sans pack existant</td></tr>
+<tr><td>Campagne bientôt terminée</td><td>Active et finit dans moins de 3 jours</td></tr>
+<tr><td>Peu utilisée</td><td>Active depuis au moins 7 jours avec 2 utilisations ou moins</td></tr>
+<tr><td>Marge insuffisante</td><td>Lignes vendues sous la marge minimale ces 30 derniers jours</td></tr>
+<tr><td>Forte demande</td><td>Jours de semaine 25 % au-dessus de la moyenne (il faut 4 semaines d'historique et 30 ventes ; sinon l'écran dit « historique insuffisant »)</td></tr></table>
+<h3>16.5 Onglet Journal</h3>
+<p>Qui a fait quoi et quand : création, modification, activation, suspension, fin, suppression, règle de magasin, réglages, création/modification de coupon. Le plus récent d'abord.</p>
+
+<h2 class="pb">17. Réglages des promotions</h2>
+<table><tr><th>Réglage</th><th>Où</th><th>Formule</th></tr>
+<tr><td>Fuseau horaire de l'entreprise</td><td>Promotions → Réglages</td><td>Business</td></tr>
+<tr><td>Marge minimale de la boutique (%)</td><td>Réglages généraux → Promotions</td><td>Business</td></tr>
+<tr><td>Plafond par article (%) et par panier (%)</td><td>Promotions → Réglages</td><td>Pro</td></tr>
+<tr><td>Stratégie : meilleure offre ou priorité</td><td>Promotions → Réglages</td><td>Pro</td></tr>
+<tr><td>Priorité par type de remise (flèches ↑ ↓)</td><td>Promotions → Réglages</td><td>Pro</td></tr></table>
+<p>Ordre par défaut des types en cas d'égalité : pack, achetez X obtenez Y, prix dégressifs, conditionnée, panier, simple.</p>
+
+<h2>18. Changer de formule (Pro → Business)</h2>
+<table><tr><th>Élément</th><th>Après le retour en Business</th></tr>
+<tr><td>Campagnes simples</td><td>Continuent normalement.</td></tr>
+<tr><td>Campagnes avancées</td><td><b>Gelées</b> : conservées avec tout leur historique, mais <b>plus appliquées</b> (motif expliqué). Badge « Gelée » dans la liste. Même programmées à l'avance : elles ne s'appliqueront pas.</td></tr>
+<tr><td>Créer/modifier/activer une règle Pro</td><td>Refusé (« réservé à la formule Pro »).</td></tr>
+<tr><td>Suspendre ou terminer une campagne avancée</td><td>Toujours possible.</td></tr>
+<tr><td>Coupons, budgets, analyses, conseils, magasins</td><td>Écrans verrouillés (cadenas). Les données restent conservées.</td></tr>
+<tr><td>Ventes, utilisations, journaux</td><td>Jamais supprimés ni recalculés.</td></tr>
+<tr><td>Retour en Pro</td><td>Les campagnes gelées <b>reprennent</b> automatiquement (si leurs dates le permettent).</td></tr>
+<tr><td>Bundles</td><td>Conservés ; gestion verrouillée.</td></tr></table>
+
+<h2>19. Sécurité et garanties</h2>
+<ul><li>Aucune écriture directe depuis l'application : tout passe par le serveur avec contrôle du commerce, du rôle et de la formule. Aucune clé privilégiée sur le téléphone.</li><li>Chaque commerce ne voit que ses propres données ; chaque boutique, que ses lignes.</li><li><b>Idempotence</b> : un double clic, une coupure réseau ou une renvoyée de vente ne crée qu'une vente, une utilisation de campagne et une utilisation de coupon.</li><li>Échec de vente (stock insuffisant…) : toutes les réservations (série, campagne, coupon) sont annulées et les compteurs recalculés.</li><li>Une vente confirmée n'est jamais modifiée par une campagne.</li></ul>
+
+<h2 class="pb">20. Tutoriels pas à pas</h2>
+<div class="step"><h3>Exercice 1 — Remise simple de rentrée <span class="biz">Business</span></h3><ol><li>Promotions → Campagnes → Nouvelle campagne.</li><li>Nom « Rentrée Eau », type « Remise simple », pourcentage 20.</li><li>Cochez l'article « Eau ». Début : aujourd'hui ; fin : dans 7 jours. Créer.</li><li>Ouvrez la campagne → Activer → Confirmer.</li><li>À la caisse : ajoutez 2 Eau. Vous voyez 1 000 barré, −200, 800 et « Rentrée Eau ». Encaissez.</li><li>Fiche de la campagne : 1 utilisation, −200.</li></ol></div>
+<div class="step"><h3>Exercice 2 — Prix dégressifs <span class="pro">Pro</span></h3><ol><li>Type « Prix dégressifs ». Palier 1 : dès 3, −10 %. Ajoutez un palier : dès 10, −20 %.</li><li>Cochez l'Eau ; créez et activez.</li><li>Caisse : 3 Eau → −150 ; 10 Eau → −1 000.</li></ol></div>
+<div class="step"><h3>Exercice 3 — Trois pour deux <span class="pro">Pro</span></h3><ol><li>Type « Achetez X, obtenez Y » : X = 2, Y = 1, remise 100 %. Articles : Eau et Jus.</li><li>Cochez « Autoriser la vente sous la marge » (article offert).</li><li>Caisse : 1 Jus + 2 Eau → −500 (l'Eau la moins chère est offerte).</li></ol></div>
+<div class="step"><h3>Exercice 4 — Pack <span class="pro">Pro</span></h3><ol><li>Type « Pack ». Prix de l'ensemble 1 200. Articles : Eau ×1 et Jus ×1.</li><li>Activez. Caisse : Eau + Jus → −300 ; 3 Eau + 2 Jus → −600.</li></ol></div>
+<div class="step"><h3>Exercice 5 — Coupon VIP <span class="pro">Pro</span></h3><ol><li>Créez une campagne −20 % sur le Jus avec l'option « Coupon exigé » ; activez-la.</li><li>Onglet Coupons → campagne liée → code MERCI20 → Créer.</li><li>Caisse : ajoutez un Jus : aucune remise. Saisissez « merci20 » → Appliquer : « Coupon MERCI20 accepté », −200. Encaissez.</li><li>Réessayez le même coupon (usage unique) : refus « déjà utilisé » ; la tentative apparaît dans les tentatives invalides.</li></ol></div>
+<div class="step"><h3>Exercice 6 — Série de 20 coupons nominatifs <span class="pro">Pro</span></h3><ol><li>Onglet Coupons → campagne → « Nombre de codes » = 20 → Créer.</li><li>20 codes à usage unique sont générés ; transmettez-les. Suivez les utilisations dans la liste.</li></ol></div>
+<div class="step"><h3>Exercice 7 — Campagne commune à deux magasins <span class="pro">Pro</span></h3><ol><li>Vérifiez que l'article a la même <b>référence (SKU)</b> dans les deux magasins.</li><li>Créez la campagne avec « Magasins : tous ». Activez-la.</li><li>Dans le second magasin, ouvrez la campagne (mention « autre magasin ») → Autorisation locale : valeur locale 20 % et budget local 50 000. Enregistrez.</li><li>Le propriétaire compare dans l'onglet Magasins.</li></ol></div>
+<div class="step"><h3>Exercice 8 — Créer un kit et le vendre <span class="pro">Pro</span></h3><ol><li>Bundles → Nouveau bundle → mode Kit ; prix 4 500 ; composants : 1 Café, 1 Sucre, 1 Biscuit.</li><li>Ouvrez le kit → Assembler 10 : les composants baissent de 10, le kit passe à 10.</li><li>Caisse : vendez 2 kits. Le stock du kit passe à 8 ; les composants ne bougent pas.</li><li>Démonter 3 si besoin : les composants reviennent.</li></ol></div>
+
+<h2 class="pb">21. Dépannage : « pourquoi ma promotion ne s'applique pas ? »</h2>
+<p>Ouvrez à la caisse « <b>Pourquoi ces remises ?</b> » : la raison est écrite. Correspondances :</p>
+<table><tr><th>Message</th><th>Que faire</th></tr>
+<tr><td>pas encore commencée / terminée / suspendue / brouillon</td><td>Vérifier le statut et les dates (heure de l'entreprise) ; activer.</td></tr>
+<tr><td>campagne avancée gelée</td><td>Repasser à la formule Pro.</td></tr>
+<tr><td>non applicable dans ce magasin / suspendue dans ce magasin</td><td>Portée « magasins » ou autorisation locale à vérifier. Même SKU dans les deux magasins ?</td></tr>
+<tr><td>un coupon valide est nécessaire</td><td>Créer/saisir un coupon, ou décocher « Coupon exigé ».</td></tr>
+<tr><td>réservée à d'autres clients / identifiez le client</td><td>Choisir le client dans la caisse ; vérifier le ciblage.</td></tr>
+<tr><td>limite d'utilisation atteinte / limite par client atteinte</td><td>Augmenter la limite (pas en dessous des utilisations déjà faites) ou créer une nouvelle campagne.</td></tr>
+<tr><td>budget épuisé / ne couvre pas cette remise</td><td>Augmenter le budget ou terminer.</td></tr>
+<tr><td>panier minimal non atteint</td><td>Normal ; informer le client.</td></tr>
+<tr><td>quantité minimale / premier palier non atteint</td><td>Normal ; vérifier le seuil.</td></tr>
+<tr><td>aucun article concerné</td><td>Les articles de la campagne ne sont pas dans le panier (ou ils sont exclus).</td></tr>
+<tr><td>un article requis est absent</td><td>Ajouter l'article requis, dans la bonne quantité.</td></tr>
+<tr><td>il faut N articles du lot</td><td>Pas assez d'unités pour un lot complet (X+Y).</td></tr>
+<tr><td>prix final sous la marge minimale / coût indisponible</td><td>Réduire la remise, renseigner le coût de l'article, ou autoriser la vente sous la marge.</td></tr>
+<tr><td>une autre promotion est plus avantageuse</td><td>Normal ; ou marquer les campagnes cumulables, ou changer la stratégie.</td></tr>
+<tr><td>articles déjà couverts par « … »</td><td>Un autre lot occupe déjà ces articles ; ajuster les campagnes.</td></tr></table>
+<div class="box warn"><b>Aussi :</b> une ligne avec prix de tarification spécial ou remise manuelle n'est jamais remisée ; l'aperçu est indisponible hors ligne ; une campagne est liée à une boutique : vérifiez la boutique active.</div>
+<h3>Messages à la création</h3>
+<table><tr><th>Message</th><th>Cause</th></tr>
+<tr><td>serait vendu sous la marge minimale</td><td>Remise trop forte par rapport au coût</td></tr>
+<tr><td>Le code … est déjà utilisé</td><td>Code identique à une campagne non terminée</td></tr>
+<tr><td>a déjà été utilisée : … ne changent plus</td><td>Définition verrouillée : créer une nouvelle campagne</td></tr>
+<tr><td>réservé à la formule Pro</td><td>Option avancée avec une formule Business</td></tr>
+<tr><td>Un lot (X+Y, pack) ne se cumule pas</td><td>Cumul interdit pour les lots</td></tr></table>
+
+<h2>22. Questions fréquentes</h2>
+<p><b>Le client peut-il saisir un code ?</b> Non, sauf coupon (Pro) saisi par le caissier. Le code de campagne est automatique.</p>
+<p><b>Une promotion modifie-t-elle une vente passée ?</b> Jamais.</p>
+<p><b>Puis-je mettre un bundle en promotion ?</b> Pas directement (il n'est pas proposé dans les sélecteurs) : utilisez un pack sur ses composants, ou changez son prix.</p>
+<p><b>Peut-on offrir un article ?</b> Oui : « Achetez X, obtenez Y » à 100 % (autorisation sous la marge), ou prix promotionnel à 0.</p>
+<p><b>Pourquoi 190 et non 200 en cumulant 10 % + 10 % ?</b> Chaque remise se calcule sur le montant restant.</p>
+<p><b>Que devient une campagne si je supprime un article ?</b> Les articles ne se suppriment pas s'ils ont un historique ; archiver un article le rend indisponible (la création d'une campagne le refuse).</p>
+<p><b>Combien de campagnes puis-je avoir ?</b> Aucune limite imposée par le module ; 200 articles maximum par campagne.</p>
+<p><b>Les ventes hors ligne reçoivent-elles les promotions ?</b> Oui, calculées à la synchronisation, à la date de la vente (dans la limite de 45 jours).</p>
+<p><b>Comment arrêter tout de suite une promotion ?</b> Suspendre (réversible) ou Terminer maintenant (définitif).</p>
+
+<h2>23. Glossaire et aide-mémoire</h2>
+<table><tr><th>Terme</th><th>Définition courte</th></tr>
+<tr><td>Aperçu</td><td>Calcul des remises par le serveur sans rien enregistrer</td></tr><tr><td>Instantané</td><td>Copie figée des prix, remises et règles au moment de la vente</td></tr>
+<tr><td>Cumulable</td><td>Peut se combiner avec une autre campagne cumulable</td></tr><tr><td>Campagne gelée</td><td>Avancée, conservée, non appliquée hors Pro</td></tr>
+<tr><td>Budget</td><td>Total de remises autorisé pour une campagne</td></tr><tr><td>Plafond</td><td>Limite de remise par article ou par panier</td></tr>
+<tr><td>Marge minimale</td><td>Prix final ≥ coût × (1 + marge)</td></tr><tr><td>SKU</td><td>Référence article, lien entre magasins</td></tr>
+<tr><td>FEFO</td><td>Premier périmé, premier sorti (lots)</td></tr><tr><td>Slot</td><td>Place numérotée réservée atomiquement pour respecter une limite</td></tr></table>
+<h3>Aide-mémoire en 10 lignes</h3>
+<ol><li>Bundle = article (virtuel : sans stock ; kit : avec stock et assemblage).</li><li>Pack = prix fixe d'un ensemble ; conditionnée = remise si article requis ; panier = remise sur le ticket dès un montant.</li><li>Créer → brouillon → activer.</li><li>Automatique : aucun code à saisir (sauf coupon).</li><li>Une promotion par ligne, la meilleure ; cumul seulement si tout est cumulable.</li><li>Marge minimale et coût réel protègent le gérant.</li><li>Budget, plafonds et limites bornent les remises.</li><li>Même SKU pour les campagnes multi-magasins.</li><li>« Pourquoi ces remises ? » explique tout.</li><li>Retour en Business : gelées, jamais supprimées.</li></ol>
+</body></html>
