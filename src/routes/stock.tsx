@@ -3,10 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
 import { formatQty } from "@/domain/quantity";
 import { isLow, reorderQty } from "@/domain/stock";
-import { list, listAll, qtyOf, saveEntity, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
+import { list, listAll, qtyOf, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
+import { ScanLine } from "lucide-react";
+import { Sheet } from "@/components/ui";
+import { unitLabel } from "@/domain/articles";
 import { useRef } from "react";
 import { planAllows } from "@/domain/features";
 import { ExpiryAlerts, LotsSheet, SerialsSheet } from "./tracking";
@@ -19,20 +22,14 @@ export function StockPage() {
   const products = useQuery({ queryKey: ["products"], queryFn: () => list<Product>("products", s, [], 500) });
   const levels = useQuery({ queryKey: ["stock"], queryFn: () => stockLevels(s) });
   const variants = useQuery({ queryKey: ["variants-stock", s.shopId], queryFn: () => listAll<VariantRow>("article_variants", s) });
-  const [f, setF] = useState({ name: "", barcode: "", price: "", cost: "", minStock: "5", qty: "" });
-  const [scan, setScan] = useState(false);
-  const add = useMutation({
-    mutationFn: async () => {
-      const p = await saveEntity(s, "products", { name: f.name, barcode: f.barcode || undefined, price: Number(f.price), cost: Number(f.cost) || 0, minStock: Number(f.minStock) || 0, archived: false });
-      if (Number(f.qty) > 0) await api(s, "stock.adjust", { productId: p.id, counted: Number(f.qty) });
-    },
-    onSuccess: () => { setF({ name: "", barcode: "", price: "", cost: "", minStock: "5", qty: "" }); void qc.invalidateQueries(); },
-  });
+  const [scan, setScan] = useState(false); const [q, setQ] = useState(""); const [pick, setPick] = useState<(Product & { $id: string }) | null>(null);
   const adjust = useMutation({
     mutationFn: ({ id, counted }: { id: string; counted: string }) => api(s, "stock.adjust", { productId: id, counted }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["stock"] }),
   });
   const sub = useSubscription(); const [track, setTrack] = useState<Product & { $id: string } | null>(null);
+  const openStock = (p: Product & { $id: string }) => { if (trackingOf(p)) setTrack(p); else if (p.hasVariants) alert("Cet article a des variantes : comptez chaque variante depuis l'écran Articles."); else setPick(p); };
+  const shown = (products.data ?? []).filter((p) => !p.archived && (!q.trim() || [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()))));
   const low = (products.data ?? []).filter((p) => isLow(qtyOf(levels.data, p), p.minStock ?? 0));
   const value = (products.data ?? []).filter((p) => !p.hasVariants).reduce((a, p) => a + qtyOf(levels.data, p) * (p.cost ?? 0), 0) + (variants.data ?? []).filter((v) => !v.archived).reduce((a, v) => a + variantQty(levels.data, v, products.data?.find((p) => p.$id === v.productId)?.qtyScale ?? 0) * (v.cost ?? 0), 0);
 
@@ -44,42 +41,44 @@ export function StockPage() {
         <div className="card"><div className="text-white/50 text-xs">Valeur du stock</div><div className="font-semibold">{formatFcfa(value)}</div></div>
         <div className="card"><div className="text-white/50 text-xs">Ruptures / alertes</div><div className="font-semibold text-red-400">{low.length}</div></div>
       </div>
-      {can(s, "stock") && (
-        <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
-          <h2 className="font-semibold">Nouveau produit</h2>
-          <input className="input" placeholder="Nom" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          <div className="flex gap-2">
-            <input className="input" placeholder="Code-barres" value={f.barcode} onChange={(e) => setF({ ...f, barcode: e.target.value })} />
-            <button type="button" className="btn-ghost" onClick={() => setScan(true)}>Scan</button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="input" inputMode="numeric" placeholder="Prix de vente" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} />
-            <input className="input" inputMode="numeric" placeholder="Prix d'achat" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} />
-            <input className="input" inputMode="numeric" placeholder="Stock initial" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
-            <input className="input" inputMode="numeric" placeholder="Seuil d'alerte" value={f.minStock} onChange={(e) => setF({ ...f, minStock: e.target.value })} />
-          </div>
-          <button className="btn" disabled={add.isPending}>Ajouter</button>
-          {add.error && <p className="text-red-400 text-sm">{(add.error as Error).message}</p>}
-        </form>
-      )}
+      <div className="flex gap-2">
+        <input className="input" placeholder="Rechercher un article (nom, référence, code-barres)" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
+      </div>
+      <p className="text-xs text-white/50">Touchez un article pour ajuster son stock. Pour créer un article, utilisez l'écran Articles.</p>
       {s.shops.length > 1 && can(s, "stock") && <Transfer products={products.data ?? []} variants={variants.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">
-        {(products.data ?? []).map((p) => {
+        {shown.map((p) => {
           const n = qtyOf(levels.data, p);
           return (
-            <li key={p.$id} className="card flex items-center justify-between gap-2">
+            <li key={p.$id} className="card flex items-center justify-between gap-2 cursor-pointer active:scale-[.99]" onClick={() => can(s, "stock") && openStock(p as Product & { $id: string })}>
               <div className="min-w-0">
                 <div className="truncate font-medium">{p.name}</div>
                 <div className="text-xs text-white/50">{formatFcfa(p.price)} · seuil {p.minStock ?? 0}{isLow(n, p.minStock ?? 0) && ` · à commander : ${reorderQty(n, 0, 14) || "à voir"}`}</div>
               </div>
               <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{formatQty(n)}</div>
-              {can(s, "stock") && <button className="btn-ghost !px-3 !py-2" onClick={() => { if (trackingOf(p)) { setTrack(p as Product & { $id: string }); return; } if (p.hasVariants) { alert("Cet article a des variantes : comptez chaque variante depuis l'écran Articles."); return; } const v = prompt(`Inventaire « ${p.name} » : stock réel ?`); if (v !== null && v !== "" && !Number.isNaN(Number(v.replace(",", ".")))) adjust.mutate({ id: p.$id, counted: v }); }}>{trackingOf(p) === "lot" ? "Lots" : trackingOf(p) === "serial" ? "Séries" : "Compter"}</button>}
+              {can(s, "stock") && <span className="text-[var(--gold)] text-sm">Ajuster</span>}
             </li>
           );
         })}
       </ul>
-      {scan && <Scanner onCode={(c) => { setF((x) => ({ ...x, barcode: c })); setScan(false); }} onClose={() => setScan(false)} />}
+      {scan && <Scanner onCode={(c) => { const hit = (products.data ?? []).find((p) => !p.archived && (p.barcode === c || p.sku === c)); setScan(false); if (hit) openStock(hit as Product & { $id: string }); else setQ(c); }} onClose={() => setScan(false)} />}
+      {pick && <CountSheet p={pick} n={qtyOf(levels.data, pick)} busy={adjust.isPending} error={adjust.error ? (adjust.error as Error).message : ""} onClose={() => { setPick(null); adjust.reset(); }} onCount={(counted) => adjust.mutate({ id: pick.$id, counted }, { onSuccess: () => setPick(null) })} />}
     </div>
+  );
+}
+
+/** Inventaire d'un article simple : l'écart avec le stock enregistré devient un mouvement tracé. */
+function CountSheet({ p, n, busy, error, onClose, onCount }: { p: Product & { $id: string }; n: number; busy: boolean; error: string; onClose: () => void; onCount: (counted: string) => void }) {
+  const [v, setV] = useState(String(n).replace(".", ","));
+  return (
+    <Sheet title={p.name} onClose={onClose} back>
+      <div className="card text-sm">Stock enregistré : <b>{formatQty(n)}</b>{(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}</div>
+      <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Quantité réellement comptée</span><input className="input" inputMode="decimal" autoFocus value={v} onChange={(e) => setV(e.target.value)} /></label>
+      <p className="text-xs text-white/50">L'écart sera enregistré comme mouvement d'inventaire (historique conservé).</p>
+      {error && <p className="text-red-400 text-sm" role="alert">{error}</p>}
+      <button className="btn" disabled={busy || !/^\d+([.,]\d{1,3})?$/.test(v.trim())} onClick={() => onCount(v.trim())}>Valider l'inventaire</button>
+    </Sheet>
   );
 }
 
