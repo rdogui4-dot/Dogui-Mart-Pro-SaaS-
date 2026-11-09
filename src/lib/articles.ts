@@ -19,6 +19,7 @@ export function articleQueries(s: Session, f: Filters, cursor?: string): string[
   return [
     Query.equal("tenantId", s.tenantId), Query.equal("shopId", s.shopId),
     ...(f.status === "all" ? [] : [Query.equal("archived", f.status === "archived")]),
+    Query.or([Query.isNull("kind"), Query.equal("kind", "simple")]), // les bundles ont leur propre module
     ...(f.category ? [Query.equal("category", f.category)] : []),
     ...(q ? [Query.or([Query.search("name", q), Query.startsWith("sku", q), Query.equal("barcode", q)])] : []),
     f.sort === "name_asc" ? Query.orderAsc("name") : f.sort === "name_desc" ? Query.orderDesc("name") : f.sort === "old" ? Query.orderAsc("$createdAt") : Query.orderDesc("$createdAt"),
