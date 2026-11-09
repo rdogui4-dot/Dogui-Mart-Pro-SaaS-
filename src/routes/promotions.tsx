@@ -12,7 +12,7 @@ import { formatFcfa } from "@/domain/money";
 import { PROMO_KINDS, PROMO_SCOPES, STATUS_LABEL, describeDiscount, promoStatus, type PromoStatus } from "@/domain/promotions";
 import { useSubscription } from "./subscription";
 
-type PromoRow = Row<{ name: string; description?: string; code?: string; kind: "percent" | "amount" | "price"; scope: "items" | "category" | "cart"; discountValue: number; category?: string; startAt: string; endAt: string; status: "draft" | "enabled" | "suspended" | "ended"; minQty?: number; minCart?: number; usageLimit?: number; usageCount?: number; perCustomerLimit?: number; priority?: number; allowBelowMargin?: boolean }>;
+type PromoRow = Row<{ name: string; description?: string; code?: string; kind: "percent" | "amount" | "price"; scope: "items" | "category"; discountValue: number; category?: string; startAt: string; endAt: string; status: "draft" | "enabled" | "suspended" | "ended"; minQty?: number; minCart?: number; usageLimit?: number; usageCount?: number; perCustomerLimit?: number; priority?: number; allowBelowMargin?: boolean }>;
 type ItemRow = Row<{ promotionId: string; productId: string }>;
 type UsageRow = Row<{ promotionId: string; saleNumber?: string; customerId?: string; discount: number; baseAmount?: number; finalAmount?: number; usedAt?: string; code?: string }>;
 type Stats = { period: { from: string; to: string }; created: number; byStatus: Record<PromoStatus, number>; uses: number; discountTotal: number; promoRevenue: number; items: { id: string; name: string; status: PromoStatus; uses: number; discount: number; revenue: number }[]; note: string };
@@ -89,12 +89,12 @@ function PromotionForm({ initial, itemIds, products, categories, onClose, onSave
         {locked && <p className="text-xs text-amber-300">Cette promotion a déjà été utilisée : son type, sa valeur, sa portée, son code et ses articles ne changent plus (l'historique reste fidèle). Vous pouvez ajuster le nom, la période et les limites.</p>}
         {lbl("Nom de la promotion *", <input className="input" required minLength={2} maxLength={120} value={f.name} onChange={set("name")} />)}
         {lbl("Description", <textarea className="input" rows={2} maxLength={500} value={f.description} onChange={set("description")} />)}
-        {lbl("Code promotionnel (facultatif)", <input className="input" maxLength={20} autoCapitalize="characters" disabled={locked} placeholder="Ex. ETE10 — le client doit le donner" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} />)}
-        {lbl("Type de remise *", <select className="input" disabled={locked} value={f.kind} onChange={set("kind")}>{PROMO_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}</select>)}
+        {lbl("Code promo", <input className="input" maxLength={20} autoCapitalize="characters" disabled={locked} placeholder="Ex. RENTREE26 (généré si vide)" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} />)}
+        <p className="text-xs text-white/50 -mt-2">Le code regroupe les articles ci-dessous. Il s'applique automatiquement à la caisse : le client n'a rien à donner ni le caissier à saisir.</p>
+        {lbl("Type de remise (un seul pour tout le code) *", <select className="input" disabled={locked} value={f.kind} onChange={set("kind")}>{PROMO_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}</select>)}
         {lbl(f.kind === "percent" ? "Pourcentage (1 à 100) *" : f.kind === "amount" ? "Montant de la remise (FCFA, par unité) *" : "Prix promotionnel (FCFA, par unité) *", <input className="input" inputMode="numeric" required disabled={locked} value={f.value} onChange={set("value")} />)}
-        {lbl("Concerne *", <select className="input" disabled={locked} value={f.scope} onChange={set("scope")}>{PROMO_SCOPES.filter((x) => !(f.kind === "price" && x.id !== "items")).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>)}
+        {lbl("Le code regroupe *", <select className="input" disabled={locked} value={f.scope} onChange={set("scope")}>{PROMO_SCOPES.filter((x) => !(f.kind === "price" && x.id !== "items")).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>)}
         {f.scope === "category" && lbl("Catégorie *", <select className="input" disabled={locked} value={f.category} onChange={set("category")}><option value="">Choisir…</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>)}
-        {f.scope === "cart" && <p className="text-xs text-white/50">Un code promotionnel est obligatoire : la remise s'applique à toute la vente quand le client le donne.</p>}
         {f.scope === "items" && (
           <div className="card flex flex-col gap-2"><b className="text-sm">Articles concernés ({ids.length}) *</b>
             <input className="input" placeholder="Rechercher un article" value={find} onChange={(e) => setFind(e.target.value)} />
@@ -131,7 +131,7 @@ function PromotionDetail({ p, itemIds, products, manager, onClose, onEdit, onCha
       <div className="flex items-center gap-2"><span className={`text-xs rounded-full px-2 py-0.5 ${TONE[st]}`}>{STATUS_LABEL[st]}</span><b className="gold-text">{describeDiscount({ kind: p.kind, value: p.discountValue })}</b></div>
       {p.description && <p className="text-sm text-white/70">{p.description}</p>}
       <div className="card">
-        {row("Code", p.code)}{row("Période", `${fmtDate(p.startAt)} → ${fmtDate(p.endAt)}`)}{row("Concerne", p.scope === "items" ? itemIds.map(name).join(", ") : p.scope === "category" ? `Catégorie « ${p.category} »` : "Toute la vente (avec code)")}
+        {row("Code", p.code)}{row("Période", `${fmtDate(p.startAt)} → ${fmtDate(p.endAt)}`)}{row("Concerne", p.scope === "items" ? itemIds.map(name).join(", ") : `Catégorie « ${p.category} »`)}
         {row("Quantité minimale", p.minQty ? String(p.minQty) : "")}{row("Panier minimal", p.minCart ? formatFcfa(p.minCart) : "")}{row("Limite d'utilisation", p.usageLimit ? `${p.usageCount ?? 0} / ${p.usageLimit}` : `${p.usageCount ?? 0} (illimitée)`)}{row("Limite par client", p.perCustomerLimit ? String(p.perCustomerLimit) : "")}{row("Priorité", String(p.priority ?? 0))}{row("Sous la marge minimale", p.allowBelowMargin ? "Autorisée" : "Interdite")}
       </div>
       {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}

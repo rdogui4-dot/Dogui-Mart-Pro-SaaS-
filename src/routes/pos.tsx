@@ -22,7 +22,7 @@ import { canExtendCredit } from "@/domain/credit";
 
 
 /** Ligne du panier : quantité de base (pour le prix et le stock) + unité vendue si un conditionnement est choisi. */
-type Preview = { total: number; discountTotal: number; promotions: { promoId: string; name: string; code?: string; discount: number }[]; lines: { amount: number; baseAmount?: number; promo?: { name: string; discount: number } }[] };
+type Preview = { total: number; discountTotal: number; promotions: { promoId: string; name: string; code?: string; discount: number }[]; lines: { amount: number; baseAmount?: number; promo?: { name: string; code?: string; discount: number } }[] };
 type PosLine = CartLine & { key: string; scale: number; basePrice: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; serials?: string[] };
 const keyOf = (productId: string, unit?: string, variantId?: string) => `${productId}|${unit ?? ""}|${variantId ?? ""}`;
 const plus = (a: number, b: number, scale: number) => fromScaled(scaledInt(a, scale) + scaledInt(b, scale), scale);
@@ -101,9 +101,9 @@ export function PosPage() {
   });
   const priced = pricedAt(new Date().toISOString());
   // Promotions (Business) : le SERVEUR calcule remises et total (aperçu = même calcul qu'une vraie vente, rien n'est écrit) ; hors ligne, elles sont appliquées à la synchronisation.
-  const promoOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotions"); const [promoCode, setPromoCode] = useState("");
+  const promoOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotions"); 
   const apiLines = cart.map((l) => ({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.serials ? { qty: l.serials.length, serials: l.serials } : l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) }));
-  const preview = useQuery({ queryKey: ["promo-preview", s.shopId, JSON.stringify(apiLines), customerId, promoCode.trim().toUpperCase()], enabled: promoOn && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Preview>(s, "promotions.preview", { lines: apiLines, customerId: customerId || undefined, promoCode: promoCode.trim() || undefined }) });
+  const preview = useQuery({ queryKey: ["promo-preview", s.shopId, JSON.stringify(apiLines), customerId], enabled: promoOn && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Preview>(s, "promotions.preview", { lines: apiLines, customerId: customerId || undefined }) });
   const pv = promoOn && preview.data && !preview.isFetching ? preview.data : undefined; const waiting = promoOn && cart.length > 0 && navigator.onLine && preview.isFetching;
   const total = pv ? pv.total : cartTotal(priced); const cashGiven = Number(given.replace(/\s/g, "")) || 0;
 
@@ -122,10 +122,10 @@ export function PosPage() {
       const c = canExtendCredit({ balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 }, tot);
       if (!c.ok) return setMsg(c.error);
     }
-    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: apiLines, ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}), payments, session: s });
+    await queueSale({ clientId, soldAt, customerId: customerId || undefined, lines: apiLines, payments, session: s });
     // Même formule de numéro que le serveur : le ticket imprimé hors ligne porte le bon numéro.
     setLast({ number: `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${clientId.slice(0, 6).toUpperCase()}`, soldAt, total: tot, change: r.change, lines: linesAt.map((l) => ({ name: l.unit ? `${l.name} (${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()})` : l.name, qty: l.qty, unitPrice: l.unitPrice, amount: l.amount })), payments: payments.map((p) => ({ method: p.method, amount: p.amount })) });
-    setCart([]); setGiven(""); setPromoCode(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
+    setCart([]); setGiven(""); setQr(false); setMsg(r.change ? `Vente enregistrée · monnaie ${formatFcfa(r.change)}` : "Vente enregistrée");
     void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); } });
   }
   const checkout = () => (isQrMethod(pay) ? (navigator.onLine ? setQr(true) : setMsg("Le paiement QR nécessite une connexion")) : void submit());
@@ -153,7 +153,7 @@ export function PosPage() {
         <section className="card flex flex-col gap-2">
           {priced.map((l, i) => (
             <div key={l.key} className="flex items-center justify-between gap-2">
-              <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-white/50">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-white/40">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-emerald-300">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-emerald-300">Promotion : {pv.lines[i]!.promo!.name}</span>}{l.source !== "base" && <b className="ml-1 text-emerald-300">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
+              <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-white/50">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-white/40">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-emerald-300">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-emerald-300">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-emerald-300">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
               {l.serials ? <><span className="text-xs text-white/60 max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost !p-2" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
               <button className="btn-ghost !p-2" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
@@ -161,9 +161,7 @@ export function PosPage() {
             </div>
           ))}
           {promoOn && <>
-            <input className="input" aria-label="Code promo" placeholder="Code promo (facultatif)" autoCapitalize="characters" value={promoCode} onChange={(e) => setPromoCode(e.target.value.toUpperCase())} />
-            {promoCode.trim() && pv && !pv.promotions.some((p) => p.code) && <p className="text-xs text-amber-300" role="status">Code non appliqué : invalide, expiré ou conditions non remplies.</p>}
-            {pv && pv.discountTotal > 0 && <p className="text-sm text-emerald-300" role="status">Remises : −{formatFcfa(pv.discountTotal)} ({pv.promotions.map((p) => p.name).join(", ")})</p>}
+            {pv && pv.discountTotal > 0 && <p className="text-sm text-emerald-300" role="status">Remises : −{formatFcfa(pv.discountTotal)} ({pv.promotions.map((p) => (p.code ? `${p.name} · ${p.code}` : p.name)).join(", ")})</p>}
             {preview.isError && <p className="text-xs text-amber-300">Aperçu des promotions indisponible : {(preview.error as Error).message}</p>}
           </>}
           <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>

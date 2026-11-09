@@ -28,13 +28,9 @@ describe("évaluation", () => {
     expect(disc(evaluatePromotions([P({})], [L(0, "a", 1000), L(1, "b", 1000)], ctx))).toEqual([100, 0]);
     for (const bad of [{ status: "suspended" as const }, { status: "draft" as const }, { status: "ended" as const }, { startAt: "2026-11-11T00:00:00Z" }, { endAt: "2026-11-10T12:00:00Z" }]) expect(disc(evaluatePromotions([P(bad)], [L(0, "a", 1000)], ctx))).toEqual([0]);
   });
-  it("catégorie (sans tenir compte de la casse) et toute la vente avec code", () => {
+  it("catégorie (sans tenir compte de la casse) ; un code promo s'applique automatiquement, sans saisie", () => {
     const cat = P({ scope: "category", category: "Boissons", itemIds: [] }); expect(disc(evaluatePromotions([cat], [L(0, "x", 1000, { category: "boissons" }), L(1, "y", 1000, { category: "Pain" })], ctx))).toEqual([100, 0]);
-    const cart = P({ scope: "cart", code: "ETE10", itemIds: [] }); expect(disc(evaluatePromotions([cart], [L(0, "x", 1000), L(1, "y", 3000)], ctx))).toEqual([0, 0]); expect(disc(evaluatePromotions([cart], [L(0, "x", 1000), L(1, "y", 3000)], { ...ctx, code: " ete10 " }))).toEqual([100, 300]);
-  });
-  it("remise fixe sur toute la vente : répartie au prorata, somme exacte, plafonnée à la vente", () => {
-    const cart = P({ scope: "cart", kind: "amount", value: 1000, code: "BON1000", itemIds: [] }); const r = evaluatePromotions([cart], [L(0, "x", 1000), L(1, "y", 2000), L(2, "z", 3000)], { ...ctx, code: "BON1000" }); expect(r.lines.reduce((a, l) => a + l.discount, 0)).toBe(1000); expect(r.applied[0]!.discount).toBe(1000);
-    expect(evaluatePromotions([cart], [L(0, "x", 600)], { ...ctx, code: "BON1000" }).lines[0]!.discount).toBe(600);
+    const coded = P({ code: "RENTREE26", itemIds: ["a", "b", "c"] }); expect(disc(evaluatePromotions([coded], [L(0, "a", 1000), L(1, "b", 3000), L(2, "z", 500)], ctx))).toEqual([100, 300, 0]); // aucun code à fournir
   });
   it("conditions : quantité minimale, panier minimal, limite globale, limite par client", () => {
     expect(disc(evaluatePromotions([P({ minQty: 3 })], [L(0, "a", 3000, { qty: 2 })], ctx))).toEqual([0]); expect(disc(evaluatePromotions([P({ minQty: 3 })], [L(0, "a", 3000, { qty: 3 })], ctx))).toEqual([300]);
@@ -59,8 +55,8 @@ describe("validation de la saisie", () => {
   const ok = { name: "Soldes", kind: "percent", scope: "items", value: 10, startAt: "2026-11-10T08:00", endAt: "2026-11-20T20:00" };
   it("accepte une promotion valide et nettoie les champs", () => { expect(parsePromotion({ ...ok, code: " soldes10 ", minQty: "2", usageLimit: "100" })).toMatchObject({ name: "Soldes", code: "SOLDES10", value: 10, minQty: 2, usageLimit: 100, priority: 0 }); });
   it("refuse les saisies incohérentes", () => {
-    for (const bad of [{ name: "x" }, { kind: "bof" }, { scope: "monde" }, { value: 0 }, { value: 101 }, { value: 1.5 }, { code: "a b" }, { startAt: "" }, { endAt: "2026-11-10T07:00" }, { endAt: "2028-01-01T00:00" }, { kind: "price", scope: "category", category: "X" }, { scope: "cart" }, { scope: "category" }, { category: "X" }, { minQty: "0" }, { minCart: "-5" }, { usageLimit: "0" }, { perCustomerLimit: "1.5" }, { priority: 500 }])
+    for (const bad of [{ name: "x" }, { kind: "bof" }, { scope: "monde" }, { value: 0 }, { value: 101 }, { value: 1.5 }, { code: "a b" }, { startAt: "" }, { endAt: "2026-11-10T07:00" }, { endAt: "2028-01-01T00:00" }, { kind: "price", scope: "category", category: "X" }, { scope: "category" }, { category: "X" }, { minQty: "0" }, { minCart: "-5" }, { usageLimit: "0" }, { perCustomerLimit: "1.5" }, { priority: 500 }])
       expect(() => parsePromotion({ ...ok, ...bad }), JSON.stringify(bad)).toThrow();
-    expect(parsePromotion({ ...ok, kind: "price", value: 0 }).value).toBe(0); expect(() => parsePromotion({ ...ok, kind: "price", scope: "cart", code: "ABC" })).toThrow();
+    expect(parsePromotion({ ...ok, kind: "price", value: 0 }).value).toBe(0); 
   });
 });

@@ -76,11 +76,16 @@ describe("application aux ventes", () => {
     st.rows("promotions").find((p) => p.$id === id)!.endAt = iso(-0.1); await sell([{ productId: eau, qty: 1 }]); expect(lastLine().promo).toBeUndefined(); // expirée
     await ok(sell([{ productId: eau, qty: 1 }], { soldAt: iso(-0.5) })); expect(lastLine().promo?.id).toBe(id); // mais encore applicable à une vente hors ligne antérieure à la fin
   });
-  it("code promotionnel : exigé, insensible à la casse ; toute la vente ; remise fixe répartie", async () => {
-    const id = await promo({ code: "BON500", scope: "cart", kind: "amount", value: 500 }, []); await enable(id);
-    await sell([{ productId: eau, qty: 2 }, { productId: jus, qty: 1 }]); expect(lastSale().total).toBe(2000); await ok(sell([{ productId: eau, qty: 2 }, { productId: jus, qty: 1 }], { promoCode: " bon500 " }));
-    expect(lastSale().total).toBe(1500); expect(JSON.parse(String(lastSale().lines)).reduce((a: number, l: any) => a + (l.promo?.discount ?? 0), 0)).toBe(500); expect(usage()[0]).toMatchObject({ discount: 500, code: "BON500" });
-    await sell([{ productId: eau, qty: 1 }], { promoCode: "FAUX" }); expect(lastLine().promo).toBeUndefined();
+  it("code promo : regroupe plusieurs articles et s'applique AUTOMATIQUEMENT à la caisse (aucun code à saisir) ; un seul type de remise pour tout le code", async () => {
+    const id = await promo({ code: "rentree26", kind: "percent", value: 10 }, [eau, jus, savon]); expect(row(id).code).toBe("RENTREE26"); await enable(id);
+    await ok(sell([{ productId: eau, qty: 2 }, { productId: jus, qty: 1 }, { productId: savon, qty: 1 }, { productId: await mk("Hors code", 700, 300, 10), qty: 1 }]));
+    expect([0, 1, 2, 3].map((i) => lastLine(i).promo?.id)).toEqual([id, id, id, undefined]); expect(lastSale().total).toBe(900 + 900 + 720 + 700);
+    expect(usage()).toHaveLength(1); expect(usage()[0]).toMatchObject({ code: "RENTREE26", discount: 100 + 100 + 80 }); expect(row(id).usageCount).toBe(1); // une utilisation par vente, même avec plusieurs articles du code
+    const p = await ok(call("own", "promotions.preview", { lines: [{ productId: eau, qty: 1 }] })); expect(p.promotions[0]).toMatchObject({ promoId: id, code: "RENTREE26" });
+  });
+  it("le code est généré s'il n'est pas saisi, unique, et plus aucune promotion « toute la vente »", async () => {
+    const a = await promo({ name: "Soldes d'hiver" }); const b = await promo({ name: "Soldes d'hiver" }); expect(row(a).code).toMatch(/^SOLDES\d{3}$/); expect(row(b).code).not.toBe(row(a).code);
+    await err(call("own", "promotion.save", { data: { name: "Tout", kind: "percent", scope: "cart", value: 10, startAt: iso(-1), endAt: iso(5) }, productIds: [] }), 400, "Portée inconnue");
   });
   it("catégorie, quantité minimale, panier minimal", async () => {
     const cat = await promo({ scope: "category", category: "hygiène", value: 50 }, []); await enable(cat); await ok(sell([{ productId: savon, qty: 1 }, { productId: eau, qty: 1 }])); expect(lastLine(0).promo?.id).toBe(cat); expect(lastLine(1).promo).toBeUndefined(); expect(lastSale().total).toBe(400 + 500);

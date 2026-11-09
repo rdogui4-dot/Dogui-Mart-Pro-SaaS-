@@ -21,7 +21,6 @@ export type CheckoutInput = {
   clientId: string; soldAt?: string; customerId?: string; redeemPoints?: number;
   lines: { productId: string; variantId?: string; qty: number | string; unit?: string; discountPct?: number; serials?: unknown }[];
   payments: (Payment & { linkId?: string })[];
-  /** Code promotionnel saisi à la caisse (facultatif). */ promoCode?: string;
   /** Aperçu : calcule prix, promotions et total comme une vraie vente, sans rien écrire. */ dryRun?: boolean;
 };
 const moveId = (saleId: string, ...parts: number[]): string => `m${createHash("sha1").update(`${saleId}|${parts.join("|")}`).digest("hex").slice(0, 30)}`; // identifiant déterministe ≤ 36 caractères
@@ -210,7 +209,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   } else {
     promoOn ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "promotions");
     if (promoOn) {
-      const ev = await evaluateForSale(store, ctx, lines.map((l, i) => ({ index: i, productId: l.productId, category: pcat.get(l.productId), qty: l.qty, baseAmount: Number(l.amount ?? Math.round(l.unitPrice * l.qty)), unitCost: l.unitCost, eligible: !(Number(l.discountPct ?? 0) > 0) && (!l.priceSource || l.priceSource === "base") })), { customerId: customer?.$id, code: input.promoCode, now: new Date(soldAt) });
+      const ev = await evaluateForSale(store, ctx, lines.map((l, i) => ({ index: i, productId: l.productId, category: pcat.get(l.productId), qty: l.qty, baseAmount: Number(l.amount ?? Math.round(l.unitPrice * l.qty)), unitCost: l.unitCost, eligible: !(Number(l.discountPct ?? 0) > 0) && (!l.priceSource || l.priceSource === "base") })), { customerId: customer?.$id, now: new Date(soldAt) });
       for (const r of ev.lines) if (r.promoId && r.discount > 0) { const l = lines[r.index]!; const pr = ev.promos.find((x) => x.id === r.promoId)!; const base = Number(l.amount ?? Math.round(l.unitPrice * l.qty)); l.baseAmount = base; l.amount = base - r.discount; l.promo = { id: pr.id, name: pr.name, ...(pr.code ? { code: pr.code } : {}), kind: pr.kind, value: pr.value, discount: r.discount }; }
       promoApplied = ev.applied; promoMeta = new Map(ev.promos.map((x) => [x.id, { id: x.id, usageLimit: x.usageLimit, usageCount: x.usageCount, code: x.code }]));
     }

@@ -2,8 +2,9 @@ import { MAX_AMOUNT } from "./articles";
 
 /** Promotions (Business) : règles pures partagées par le serveur (qui fait foi) et l'interface (aperçu, formulaires). Montants en FCFA entiers. */
 export const PROMO_KINDS = [{ id: "percent", label: "Remise en pourcentage" }, { id: "amount", label: "Remise en montant fixe" }, { id: "price", label: "Prix promotionnel" }] as const;
-export const PROMO_SCOPES = [{ id: "items", label: "Articles choisis" }, { id: "category", label: "Catégorie d'articles" }, { id: "cart", label: "Toute la vente (avec code)" }] as const;
-export type PromoKind = (typeof PROMO_KINDS)[number]["id"]; export type PromoScope = (typeof PROMO_SCOPES)[number]["id"];
+/** Un code promo regroupe 1 à N articles (ou toute une catégorie) avec UN type de remise ; il s'applique automatiquement à la caisse, sans saisie du client. */
+export const PROMO_SCOPES = [{ id: "items", label: "Articles choisis" }, { id: "category", label: "Catégorie d'articles" }] as const;
+export type PromoKind = (typeof PROMO_KINDS)[number]["id"]; export type PromoScope = "items" | "category";
 export type StoredStatus = "draft" | "enabled" | "suspended" | "ended";
 export type PromoStatus = "draft" | "scheduled" | "active" | "suspended" | "ended";
 export const STATUS_LABEL: Record<PromoStatus, string> = { draft: "Brouillon", scheduled: "Programmée", active: "Active", suspended: "Suspendue", ended: "Terminée" };
@@ -34,11 +35,9 @@ const iso = (raw: unknown, label: string): string => { const ms = Date.parse(Str
 export function parsePromotion(raw: Record<string, unknown>): PromoInput {
   const name = String(raw.name ?? "").trim(); if (name.length < 2 || name.length > 120) throw new Error("Nom de la promotion : 2 à 120 caractères");
   const description = String(raw.description ?? "").trim(); if (description.length > 500) throw new Error("Description : 500 caractères au plus");
-  const code = normalizeCode(raw.code); if (code && !/^[A-Z0-9_-]{3,20}$/.test(code)) throw new Error("Code promotionnel : 3 à 20 caractères (lettres, chiffres, - ou _)");
+  const code = normalizeCode(raw.code); if (code && !/^[A-Z0-9_-]{3,20}$/.test(code)) throw new Error("Code promo : 3 à 20 caractères (lettres, chiffres, - ou _)");
   const kind = raw.kind as PromoKind; if (!PROMO_KINDS.some((k) => k.id === kind)) throw new Error("Type de remise inconnu");
   const scope = (raw.scope ?? "items") as PromoScope; if (!PROMO_SCOPES.some((s) => s.id === scope)) throw new Error("Portée inconnue");
-  if (scope === "cart" && kind === "price") throw new Error("Un prix promotionnel ne peut pas s'appliquer à toute la vente");
-  if (scope === "cart" && !code) throw new Error("Une promotion sur toute la vente exige un code promotionnel");
   if (kind === "price" && scope === "category") throw new Error("Un prix promotionnel se définit pour des articles précis, pas pour une catégorie");
   const value = kind === "percent" ? intIn(raw.value, "Pourcentage", 1, 100) : kind === "amount" ? intIn(raw.value, "Montant de la remise", 1, MAX_AMOUNT) : intIn(raw.value, "Prix promotionnel", 0, MAX_AMOUNT);
   const category = String(raw.category ?? "").trim(); if (scope === "category" && !category) throw new Error("Choisissez la catégorie concernée"); if (scope !== "category" && category) throw new Error("La catégorie ne concerne que les promotions sur catégorie");
@@ -56,38 +55,35 @@ export function parsePromotion(raw: Record<string, unknown>): PromoInput {
 export const describeDiscount = (p: { kind: PromoKind; value: number }): string => (p.kind === "percent" ? `−${p.value} %` : p.kind === "amount" ? `−${p.value.toLocaleString("fr-FR")} FCFA` : `prix ${p.value.toLocaleString("fr-FR")} FCFA`);
 
 export type EvalLine = { index: number; productId: string; category?: string; qty: number; baseAmount: number; unitCost?: number; eligible: boolean };
-export type EvalCtx = { now: Date; code?: string; customerId?: string; minMarginPct: number; customerUses?: (promoId: string) => number };
+export type EvalCtx = { now: Date; customerId?: string; minMarginPct: number; customerUses?: (promoId: string) => number };
 export type EvalResult = { lines: { index: number; promoId?: string; discount: number }[]; applied: { promoId: string; name: string; code?: string; discount: number; lineIndexes: number[] }[]; skipped: { promoId: string; reason: string }[] };
 
 const round = Math.round;
-/** Remise d'une promotion sur UNE ligne (jamais plus que la ligne, jamais négative). `share` : part déjà calculée pour une remise fixe sur toute la vente. */
-export function lineDiscount(p: Pick<Promo, "kind" | "value">, l: Pick<EvalLine, "qty" | "baseAmount">, share?: number): number {
+/** Remise d'une promotion sur UNE ligne (jamais plus que la ligne, jamais négative). */
+export function lineDiscount(p: Pick<Promo, "kind" | "value">, l: Pick<EvalLine, "qty" | "baseAmount">): number {
   const base = l.baseAmount; if (!(base > 0)) return 0;
   let d = 0;
   if (p.kind === "percent") d = round(base * p.value / 100);
-  else if (p.kind === "amount") d = share ?? round(p.value * l.qty);
+  else if (p.kind === "amount") d = round(p.value * l.qty);
   else d = base - round(p.value * l.qty);
   return Math.max(0, Math.min(base, d));
 }
 
 /** Choisit, pour chaque ligne, LA meilleure promotion applicable (jamais deux : pas de cumul). Départage : plus forte remise, puis priorité, puis la plus ancienne.
- *  Une promotion n'est applicable que si : active à cet instant, limite globale non atteinte, code saisi (si elle en exige un), limite par client, panier minimal,
+ *  Le code promo n'est PAS saisi par le client : il s'applique automatiquement aux articles qu'il regroupe. Une promotion n'est applicable que si : active à cet instant, limite globale non atteinte, limite par client, panier minimal,
  *  quantité minimale, ligne éligible (prix de base, sans remise manuelle) et prix final au moins égal à la marge minimale (sauf autorisation explicite). */
 export function evaluatePromotions(promos: Promo[], lines: EvalLine[], ctx: EvalCtx): EvalResult {
-  const code = normalizeCode(ctx.code); const cartBase = lines.reduce((a, l) => a + l.baseAmount, 0); const skipped: EvalResult["skipped"] = [];
+  const cartBase = lines.reduce((a, l) => a + l.baseAmount, 0); const skipped: EvalResult["skipped"] = [];
   const usable = promos.filter((p) => {
-    const why = promoStatus(p, ctx.now) !== "active" ? "non active" : p.usageLimit !== undefined && p.usageCount >= p.usageLimit ? "limite d'utilisation atteinte" : p.code && p.code !== code ? "code non saisi"
+    const why = promoStatus(p, ctx.now) !== "active" ? "non active" : p.usageLimit !== undefined && p.usageCount >= p.usageLimit ? "limite d'utilisation atteinte"
       : p.perCustomerLimit !== undefined && (!ctx.customerId || (ctx.customerUses?.(p.id) ?? 0) >= p.perCustomerLimit) ? "limite par client" : p.minCart !== undefined && cartBase < p.minCart ? "panier minimal non atteint" : "";
-    if (why && p.code && why === "code non saisi") return false; if (why) skipped.push({ promoId: p.id, reason: why }); return !why;
+    if (why) skipped.push({ promoId: p.id, reason: why }); return !why;
   });
   const cand = new Map<number, { p: Promo; discount: number }[]>();
   for (const p of usable) {
-    const elig = lines.filter((l) => l.eligible && l.baseAmount > 0 && (p.scope === "cart" || (p.scope === "items" ? p.itemIds.includes(l.productId) : (l.category ?? "").toLowerCase() === (p.category ?? "").toLowerCase())) && (p.minQty === undefined || l.qty >= p.minQty));
-    // remise fixe sur toute la vente : répartie au prorata de la valeur des lignes (somme exacte)
-    const shares = new Map<number, number>();
-    if (p.scope === "cart" && p.kind === "amount") { const sum = elig.reduce((a, l) => a + l.baseAmount, 0); let left = Math.min(p.value, sum); elig.forEach((l, i) => { const s = i === elig.length - 1 ? left : Math.min(left, round(Math.min(p.value, sum) * l.baseAmount / sum)); shares.set(l.index, s); left -= s; }); }
+    const elig = lines.filter((l) => l.eligible && l.baseAmount > 0 && (p.scope === "items" ? p.itemIds.includes(l.productId) : (l.category ?? "").toLowerCase() === (p.category ?? "").toLowerCase()) && (p.minQty === undefined || l.qty >= p.minQty));
     for (const l of elig) {
-      const d = lineDiscount(p, l, shares.get(l.index)); if (d <= 0) continue;
+      const d = lineDiscount(p, l); if (d <= 0) continue;
       if (!p.allowBelowMargin && l.unitCost && l.unitCost > 0 && (l.baseAmount - d) / l.qty < l.unitCost * (1 + ctx.minMarginPct / 100)) { skipped.push({ promoId: p.id, reason: "marge minimale" }); continue; }
       (cand.get(l.index) ?? cand.set(l.index, []).get(l.index)!).push({ p, discount: d });
     }

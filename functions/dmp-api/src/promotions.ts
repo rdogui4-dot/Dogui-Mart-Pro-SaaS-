@@ -21,11 +21,11 @@ export async function loadEnabledPromotions(store: Store, ctx: Ctx): Promise<Pro
   return rows.map((r) => rowToPromo(r, by.get(r.$id) ?? []));
 }
 /** Évaluation côté serveur : charge les promotions actives, les utilisations du client, la marge minimale de la boutique. L'interface ne calcule jamais seule. */
-export async function evaluateForSale(store: Store, ctx: Ctx, lines: EvalLine[], o: { customerId?: string; code?: string; now: Date }): Promise<EvalResult & { promos: Promo[] }> {
+export async function evaluateForSale(store: Store, ctx: Ctx, lines: EvalLine[], o: { customerId?: string; now: Date }): Promise<EvalResult & { promos: Promo[] }> {
   const promos = await loadEnabledPromotions(store, ctx); if (!promos.length) return { lines: lines.map((l) => ({ index: l.index, discount: 0 })), applied: [], skipped: [], promos };
   const shop = await store.get("shops", ctx.shopId.slice(0, 36)); const uses = new Map<string, number>();
   if (o.customerId) for (const p of promos.filter((x) => x.perCustomerLimit !== undefined)) uses.set(p.id, (await store.list("promotion_usage", { promotionId: p.id, customerId: o.customerId }, 1000)).length);
-  return { ...evaluatePromotions(promos, lines, { now: o.now, code: o.code, customerId: o.customerId, minMarginPct: Number(shop?.minMarginPct ?? 0), customerUses: (id) => uses.get(id) ?? 0 }), promos };
+  return { ...evaluatePromotions(promos, lines, { now: o.now, customerId: o.customerId, minMarginPct: Number(shop?.minMarginPct ?? 0), customerUses: (id) => uses.get(id) ?? 0 }), promos };
 }
 
 /** Réserve l'utilisation d'une promotion pour une vente et l'enregistre (traçable, liée à la vente). Limite globale : réservation par « slot » à identifiant unique (deux ventes simultanées ne peuvent pas dépasser la limite).
@@ -56,10 +56,12 @@ export async function savePromotion(store: Store, ctx: Ctx, b: SaveInput) {
   if (ids.length > MAX_PROMO_ITEMS) throw new HttpError(400, `${MAX_PROMO_ITEMS} articles au maximum`);
   const prods: Row[] = [];
   for (const pid of ids) { const p = await store.get("products", pid); if (!mine(ctx, p)) throw new HttpError(404, "Article introuvable dans cette boutique"); if (p.archived) throw new HttpError(409, `${p.name} est archivé`); prods.push(p); }
-  // code unique parmi les promotions non terminées de la boutique
+  // Le code promo est l'identifiant de la campagne (appliquée automatiquement) : généré s'il n'est pas saisi, unique parmi les promotions non terminées de la boutique
+  if (!input.code && b.id) { const c0 = await store.get("promotions", b.id); if (mine(ctx, c0) && c0.code) input.code = String(c0.code); } // modification : le code existant est conservé
+  if (!input.code) { const base = input.name.normalize("NFD").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6) || "PROMO"; for (let i = 0; i < 20 && !input.code; i++) { const c = `${base}${String(Math.floor(Math.random() * 900) + 100)}`; if (!(await store.list("promotions", { tenantId: ctx.tenantId, shopId: ctx.shopId, code: c }, 1)).length) input.code = c; } if (!input.code) throw new HttpError(409, "Code promo indisponible : saisissez-en un"); }
   if (input.code) { const same = (await store.list("promotions", { tenantId: ctx.tenantId, shopId: ctx.shopId, code: input.code }, 20)).filter((r) => r.$id !== b.id && r.status !== "ended"); if (same.length) throw new HttpError(409, `Le code ${input.code} est déjà utilisé par « ${same[0]!.name} »`); }
   // contrôle de marge à l'enregistrement : le prix final ne doit pas passer sous coût × (1 + marge minimale), sauf autorisation explicite
-  if (!input.allowBelowMargin && input.scope !== "cart") {
+  if (!input.allowBelowMargin) {
     const shop = await store.get("shops", ctx.shopId.slice(0, 36)); const m = 1 + Number(shop?.minMarginPct ?? 0) / 100;
     const targets = input.scope === "items" ? prods : (await store.scan("products", { tenantId: ctx.tenantId, shopId: ctx.shopId }, { maxRows: 10_000 })).rows.filter((p) => !p.archived && String(p.category ?? "").toLowerCase() === input.category.toLowerCase());
     for (const p of targets) {
