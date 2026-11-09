@@ -37,13 +37,15 @@ export async function articleDashboard(store: Store, ctx: Ctx, b: { days?: numbe
   const qtyP = (p: Row) => fromScaled(stockOf(byProduct.get(String(p.$id)) ?? []), scaleOf(p));
   const stockItems: StockItem[] = []; const lots: LotItem[] = []; const prices: PriceItem[] = [];
   let stockValue = 0, bundles = 0, simple = 0;
-  const compsBy = new Map<string, { productId: string; qty: number }[]>();
-  for (const c of comps.rows) compsBy.set(String(c.bundleId), [...(compsBy.get(String(c.bundleId)) ?? []), { productId: String(c.componentId), qty: Number(c.qty) }]);
+  const compsBy = new Map<string, { productId: string; variantId?: string; qty: number }[]>();
+  const prodById = new Map(products.rows.map((p) => [String(p.$id), p]));
+  for (const c of comps.rows) compsBy.set(String(c.bundleId), [...(compsBy.get(String(c.bundleId)) ?? []), { productId: String(c.componentId), ...(c.variantId ? { variantId: String(c.variantId) } : {}), qty: fromScaled(Number(c.qty), scaleOf(prodById.get(String(c.componentId)))) }]);
+  const stockReadable = (id: string, vid?: string) => fromScaled(stockOf((vid ? byVariant.get(vid) : byProduct.get(id)) ?? []), scaleOf(prodById.get(id)));
   if (!partial) {
     for (const p of live) {
       const name = String(p.name);
       if (kindOf(p) === "bundle") bundles++;
-      if (isVirtualBundle(p)) { stockItems.push({ productId: p.$id, label: name, qty: bundleAvailable(compsBy.get(p.$id) ?? [], (id) => stockOf(byProduct.get(id) ?? [])), minStock: Number(p.minStock ?? 0), bundle: true }); continue; }
+      if (isVirtualBundle(p)) { stockItems.push({ productId: p.$id, label: name, qty: bundleAvailable(compsBy.get(p.$id) ?? [], stockReadable), minStock: Number(p.minStock ?? 0), bundle: true }); continue; }
       simple++;
       if (!p.hasVariants) {
         const n = qtyP(p);

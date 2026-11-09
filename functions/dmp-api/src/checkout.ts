@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cartTotal, isQrMethod, settle, toFcfa, type CartLine, type Payment, type PaymentMethod } from "../../../src/domain/money";
 import { canExtendCredit } from "../../../src/domain/credit";
 import { DEFAULT_RULES, earnedPoints, redeemablePoints, tierFor } from "../../../src/domain/loyalty";
@@ -19,6 +20,7 @@ export type CheckoutInput = {
   lines: { productId: string; variantId?: string; qty: number | string; unit?: string; discountPct?: number; serials?: unknown }[];
   payments: (Payment & { linkId?: string })[];
 };
+const moveId = (saleId: string, ...parts: number[]): string => `m${createHash("sha1").update(`${saleId}|${parts.join("|")}`).digest("hex").slice(0, 30)}`; // identifiant déterministe ≤ 36 caractères
 const MAX_FUTURE_MS = 10 * 60_000, MAX_AGE_MS = 45 * 86_400_000;
 const safeId = (s: string) => s.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 
@@ -64,12 +66,61 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   let tiered: boolean | undefined; // tarifs avancés : fonction Pro (retour en Business : on repasse au prix de base)
 
   // 1) Prix et stock vérifiés en base
-  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; name: string; qty: number; unitCost: number }[] })[] = [];
+  const lines: (CartLine & { unitCost?: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; priceSource?: string; priceRuleId?: string; basePrice?: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[] })[] = [];
   const scales = new Map<string, number>(); const seenKeys = new Set<string>();
   let packagingOk: boolean | undefined;
-  const compDemand = new Map<string, number>(); let bundlesOk: boolean | undefined;
-  const prevLines: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; name: string; qty: number; unitCost: number }[] }[] = (() => { try { return existing ? JSON.parse(String(existing.lines)) : []; } catch { return []; } })();
+  const demand = new Map<string, number>(); const takenSerials = new Set<string>(); let bundlesOk: boolean | undefined;
+  const prevLines: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] }[] }[] = (() => { try { return existing ? JSON.parse(String(existing.lines)) : []; } catch { return []; } })();
   const today = soldAt.slice(0, 10); let policy: Awaited<ReturnType<typeof expiredPolicyOf>> | undefined; const reserved = new Map<string, number>(); const serialRows = new Map<string, Row>();
+  /** Affecte le stock d'un article (ou variante) pour `qty` unités lisibles : lots en FEFO, numéros de série (donnés ou les plus anciens disponibles), ou simple vérification du stock.
+   *  `demand` cumule les besoins de toute la vente (lignes et composants de bundles) ; une reprise (`existing`) réutilise l'affectation déjà enregistrée. */
+  const allocate = async (p: Row, v: Row | null, variantId: string, qty: number, scale: number, prev: { lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] } | undefined, givenSerials: unknown, soldUnit: string): Promise<{ lots?: { lotId: string; lotNo: string; qty: number; unitCost: number }[]; serials?: string[]; trackedCost?: number }> => {
+    const mode = trackingOf(p); let lots: { lotId: string; lotNo: string; qty: number; unitCost: number }[] | undefined; let serials: string[] | undefined; let trackedCost: number | undefined;
+    const dkey = `${p.$id}|${variantId}`;
+    if (mode === "lot") {
+      if (existing) lots = (prev?.lots ?? []).map((x) => ({ ...x, unitCost: 0 }));
+      else {
+        policy ??= await expiredPolicyOf(store, ctx);
+        const stocks = (await lotsWithStock(store, ctx, p.$id, variantId)).map((x) => ({ id: x.id, qty: x.qty - (reserved.get(x.id) ?? 0), expiresAt: x.row.expiresAt ? String(x.row.expiresAt) : null, receivedAt: x.row.receivedAt ? String(x.row.receivedAt) : "", status: String(x.row.status ?? "active"), lotNo: String(x.row.lotNo), cost: Number(x.row.unitCost ?? 0) }));
+        const need = scaledInt(qty, scale), fefo = allocateFefo(stocks, need, today, policy);
+        if (fefo.shortage > 0) { const avail = fromScaled(need - fefo.shortage, scale); throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${avail} vendable${fefo.expiredQty ? `, ${fromScaled(fefo.expiredQty, scale)} périmé(s)` : ""}${fefo.blockedQty ? `, ${fromScaled(fefo.blockedQty, scale)} bloqué(s)` : ""})`); }
+        lots = fefo.allocations.map((a) => { const st = stocks.find((x) => x.id === a.lotId)!; reserved.set(a.lotId, (reserved.get(a.lotId) ?? 0) + a.qty); return { lotId: a.lotId, lotNo: st.lotNo, qty: fromScaled(a.qty, scale), unitCost: st.cost }; });
+        const tot = lots.reduce((a, x) => a + x.qty, 0), known = lots.reduce((a, x) => a + x.qty * (x.unitCost > 0 ? x.unitCost : Number((v ?? p).cost ?? 0)), 0);
+        if (tot > 0 && known > 0) trackedCost = known / tot; // coût figé = coût moyen des lots réellement sortis
+      }
+    } else if (mode === "serial") {
+      if (soldUnit) throw new HttpError(400, `${p.name} : un article suivi par numéro de série se vend à l'unité`);
+      const given = (() => { if (existing || givenSerials === undefined || givenSerials === null || (Array.isArray(givenSerials) && !givenSerials.length) || String(givenSerials).trim() === "") return null; try { return parseSerials(givenSerials); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); } })();
+      if (existing) serials = prev?.serials ?? [];
+      else if (given) serials = given;
+      else { // attribution automatique : les plus anciennes unités disponibles d'abord (le caissier n'a rien à mémoriser)
+        if (!Number.isInteger(qty) || qty < 1) throw new HttpError(400, `${p.name} : quantité invalide`);
+        const taken = takenSerials;
+        const pool = (await store.scan("article_serials", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, status: "available" }, { maxRows: 5000 })).rows
+          .filter((r) => String(r.variantId ?? "") === variantId && !taken.has(String(r.serial))).sort((a, b) => String(a.receivedAt ?? "").localeCompare(String(b.receivedAt ?? "")) || String(a.serial).localeCompare(String(b.serial)));
+        if (pool.length < qty) throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${pool.length} unité${pool.length > 1 ? "s" : ""} disponible${pool.length > 1 ? "s" : ""})`);
+        serials = pool.slice(0, qty).map((r) => String(r.serial));
+      }
+      if (serials.length !== qty) throw new HttpError(400, `${p.name} : indiquez exactement ${qty} numéro${qty > 1 ? "s" : ""} de série`);
+      if (!existing) {
+        let sum = 0;
+        for (const sn of serials) {
+          const row = await store.get("article_serials", serialRowId(p.$id, sn));
+          if (!row || row.tenantId !== ctx.tenantId || row.shopId !== ctx.shopId || row.productId !== p.$id || String(row.variantId ?? "") !== variantId) throw new HttpError(404, `Numéro de série inconnu : ${sn}`);
+          if (row.status !== "available") throw new HttpError(409, `Numéro de série indisponible : ${sn} (${row.status})`);
+          serialRows.set(sn, row); sum += Number(row.unitCost ?? 0) > 0 ? Number(row.unitCost) : Number((v ?? p).cost ?? 0);
+        }
+        if (sum > 0) trackedCost = sum / serials.length;
+      }
+      for (const sn of serials) takenSerials.add(sn);
+    } else if (!existing) { // le stock a déjà été décrémenté lors d'une reprise
+      const have = v ? fromScaled(await stockScaledVariant(store, v.$id), scale) : await stockFor(store, p.$id, scale);
+      const already = demand.get(dkey) ?? 0; // le même article peut figurer sur plusieurs lignes ou dans des bundles : cumul
+      if (have < already + qty) throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${have})`);
+      demand.set(dkey, already + qty);
+    }
+    return { lots, serials, trackedCost };
+  };
   for (const [li, l] of input.lines.entries()) {
     const p = await store.get("products", l.productId);
     if (!p || p.tenantId !== ctx.tenantId || p.shopId !== ctx.shopId || p.archived) throw new HttpError(404, "Produit introuvable");
@@ -80,23 +131,23 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
       if (!bundlesOk) throw new HttpError(402, "Les bundles sont réservés à la formule Pro.");
       const bkey = `${p.$id}||`; if (seenKeys.has(bkey)) throw new HttpError(400, `Ligne en double : ${p.name}`); seenKeys.add(bkey);
       let bq: number; try { bq = qtyFor(l.qty, 0); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
-      let comps: { productId: string; name: string; qty: number; unitCost: number }[];
-      if (existing) comps = prevLines[li]?.components ?? []; // reprise : la composition figée à la vente fait foi
+      type Comp = { productId: string; variantId?: string; name: string; qty: number; perBundle: number; unitCost: number; lots?: { lotId: string; lotNo: string; qty: number }[]; serials?: string[] };
+      let comps: Comp[];
+      if (existing) comps = (prevLines[li]?.components ?? []) as Comp[]; // reprise : la composition et les affectations figées à la vente font foi
       else {
         const defs = await loadComponents(store, ctx, p.$id);
         if (!defs.length) throw new HttpError(409, `${p.name} : bundle sans composants`);
         comps = [];
-        for (const c of defs) {
-          const cp = await store.get("products", c.productId);
-          if (!cp || cp.tenantId !== ctx.tenantId || cp.shopId !== ctx.shopId || cp.archived) throw new HttpError(409, `${p.name} : un composant n'est plus disponible (modifiez le bundle)`);
-          const need = c.qty * bq, used = compDemand.get(cp.$id) ?? 0, plain = lines.filter((x) => x.productId === cp.$id && !x.components).reduce((a, x) => a + x.qty, 0);
-          const have = await stockFor(store, cp.$id, 0);
-          if (have < used + plain + need) throw new HttpError(409, `Stock insuffisant : ${p.name} (composant ${cp.name} : ${have} en stock)`);
-          compDemand.set(cp.$id, used + need); comps.push({ productId: cp.$id, name: String(cp.name), qty: c.qty, unitCost: Number(cp.cost ?? 0) });
+        for (const d of defs) { // chaque composant passe par la même affectation qu'une ligne de vente : variante, lots FEFO, numéros de série, stock cumulé
+          const cp = d.product, cv = d.variant;
+          if (!cp || cp.archived || (d.variantId && (!cv || cv.archived))) throw new HttpError(409, `${p.name} : un composant n'est plus disponible (modifiez le bundle)`);
+          const csc = scaleOf(cp); scales.set(cp.$id, csc); const total = fromScaled(d.qtyScaled * bq, csc);
+          const al = await allocate(cp, cv, d.variantId, total, csc, undefined, undefined, "").catch((e) => { throw e instanceof HttpError && e.status === 409 ? new HttpError(409, `${p.name} : composant — ${e.message}`) : e; });
+          comps.push({ productId: cp.$id, ...(d.variantId ? { variantId: d.variantId } : {}), name: cv ? `${cp.name} — ${cv.label}` : String(cp.name), qty: total, perBundle: d.qty, unitCost: al.trackedCost ?? Number((cv ?? cp).cost ?? 0), ...(al.lots?.length ? { lots: al.lots.map((x) => ({ lotId: x.lotId, lotNo: x.lotNo, qty: x.qty })) } : {}), ...(al.serials?.length ? { serials: al.serials } : {}) });
         }
       }
       const bDisc = Number(l.discountPct ?? 0); if (bDisc > 0) need(ctx, "manager");
-      const bcost = comps.reduce((a, c) => a + c.unitCost * c.qty, 0);
+      const bcost = Math.round(comps.reduce((a, c) => a + c.unitCost * c.perBundle, 0));
       tiered ??= planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "tieredPricing");
       const brules = tiered ? await loadRules(store, ctx, p.$id, "") : [];
       const bprice = resolvePrice(brules, { basePrice: Number(p.price), unit: "", factor: undefined, qty: bq, baseQty: bq, customerCategory: category, at: soldAt });
@@ -126,48 +177,8 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
       } else qty = qtyFor(l.qty, scale);
     } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
     const key = `${p.$id}|${soldUnit}|${variantId}`; if (seenKeys.has(key)) throw new HttpError(400, `Ligne en double : ${p.name}`); seenKeys.add(key);
-    // Articles suivis (Pro) : le stock vendable est celui des lots (FEFO) ou des numéros de série disponibles. Une reprise réutilise l'affectation déjà enregistrée dans la vente.
-    const mode = trackingOf(p); let lots: { lotId: string; lotNo: string; qty: number; unitCost: number }[] | undefined; let serials: string[] | undefined; let trackedCost: number | undefined;
-    if (mode === "lot") {
-      if (existing) lots = (prevLines[li]?.lots ?? []).map((x) => ({ ...x, unitCost: 0 }));
-      else {
-        policy ??= await expiredPolicyOf(store, ctx);
-        const stocks = (await lotsWithStock(store, ctx, p.$id, variantId)).map((x) => ({ id: x.id, qty: x.qty - (reserved.get(x.id) ?? 0), expiresAt: x.row.expiresAt ? String(x.row.expiresAt) : null, receivedAt: x.row.receivedAt ? String(x.row.receivedAt) : "", status: String(x.row.status ?? "active"), lotNo: String(x.row.lotNo), cost: Number(x.row.unitCost ?? 0) }));
-        const need = scaledInt(qty, scale), fefo = allocateFefo(stocks, need, today, policy);
-        if (fefo.shortage > 0) { const avail = fromScaled(need - fefo.shortage, scale); throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${avail} vendable${fefo.expiredQty ? `, ${fromScaled(fefo.expiredQty, scale)} périmé(s)` : ""}${fefo.blockedQty ? `, ${fromScaled(fefo.blockedQty, scale)} bloqué(s)` : ""})`); }
-        lots = fefo.allocations.map((a) => { const st = stocks.find((x) => x.id === a.lotId)!; reserved.set(a.lotId, (reserved.get(a.lotId) ?? 0) + a.qty); return { lotId: a.lotId, lotNo: st.lotNo, qty: fromScaled(a.qty, scale), unitCost: st.cost }; });
-        const tot = lots.reduce((a, x) => a + x.qty, 0), known = lots.reduce((a, x) => a + x.qty * (x.unitCost > 0 ? x.unitCost : Number((v ?? p).cost ?? 0)), 0);
-        if (tot > 0 && known > 0) trackedCost = known / tot; // coût figé = coût moyen des lots réellement sortis
-      }
-    } else if (mode === "serial") {
-      if (soldUnit) throw new HttpError(400, `${p.name} : un article suivi par numéro de série se vend à l'unité`);
-      const given = (() => { if (existing || l.serials === undefined || l.serials === null || (Array.isArray(l.serials) && !l.serials.length) || String(l.serials).trim() === "") return null; try { return parseSerials(l.serials); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); } })();
-      if (existing) serials = prevLines[li]?.serials ?? [];
-      else if (given) serials = given;
-      else { // attribution automatique : les plus anciennes unités disponibles d'abord (le caissier n'a rien à mémoriser)
-        if (!Number.isInteger(qty) || qty < 1) throw new HttpError(400, `${p.name} : quantité invalide`);
-        const taken = new Set([...serialRows.keys()]); for (const x of lines) for (const sn of x.serials ?? []) taken.add(sn);
-        const pool = (await store.scan("article_serials", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, status: "available" }, { maxRows: 5000 })).rows
-          .filter((r) => String(r.variantId ?? "") === variantId && !taken.has(String(r.serial))).sort((a, b) => String(a.receivedAt ?? "").localeCompare(String(b.receivedAt ?? "")) || String(a.serial).localeCompare(String(b.serial)));
-        if (pool.length < qty) throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${pool.length} unité${pool.length > 1 ? "s" : ""} disponible${pool.length > 1 ? "s" : ""})`);
-        serials = pool.slice(0, qty).map((r) => String(r.serial));
-      }
-      if (serials.length !== qty) throw new HttpError(400, `${p.name} : indiquez exactement ${qty} numéro${qty > 1 ? "s" : ""} de série`);
-      if (!existing) {
-        let sum = 0;
-        for (const sn of serials) {
-          const row = await store.get("article_serials", serialRowId(p.$id, sn));
-          if (!row || row.tenantId !== ctx.tenantId || row.shopId !== ctx.shopId || row.productId !== p.$id || String(row.variantId ?? "") !== variantId) throw new HttpError(404, `Numéro de série inconnu : ${sn}`);
-          if (row.status !== "available") throw new HttpError(409, `Numéro de série indisponible : ${sn} (${row.status})`);
-          serialRows.set(sn, row); sum += Number(row.unitCost ?? 0) > 0 ? Number(row.unitCost) : Number((v ?? p).cost ?? 0);
-        }
-        if (sum > 0) trackedCost = sum / serials.length;
-      }
-    } else if (!existing) { // le stock a déjà été décrémenté lors d'une reprise
-      const have = v ? fromScaled(await stockScaledVariant(store, v.$id), scale) : await stockFor(store, p.$id, scale);
-      const already = lines.filter((x) => x.productId === p.$id && (x.variantId ?? "") === variantId).reduce((a, x) => a + x.qty, 0) + (compDemand.get(p.$id) ?? 0); // deux unités du même article : cumul
-      if (have < already + qty) throw new HttpError(409, `Stock insuffisant : ${p.name}${v ? ` — ${v.label}` : ""} (${have})`);
-    }
+    const al = await allocate(p, v, variantId, qty, scale, prevLines[li], l.serials, soldUnit);
+    const lots = al.lots, serials = al.serials, trackedCost = al.trackedCost;
     // Remise > 0 réservée aux managers
     const discountPct = Number(l.discountPct ?? 0);
     if (discountPct > 0) need(ctx, "manager");
@@ -214,7 +225,8 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   const number = existing?.number ?? `V-${soldAt.slice(0, 10).replace(/-/g, "")}-${saleId.slice(0, 6).toUpperCase()}`;
   // Numéros de série : chaque vente « réserve » son numéro par un mouvement à identifiant unique (numéro + cycle) ; le deuxième vendeur échoue, quel que soit le moment.
   const claimed: string[] = [];
-  for (const l of lines) for (const sn of l.serials ?? []) {
+  const serialEntries = lines.flatMap((l) => (l.components ? l.components.map((c) => ({ productId: c.productId, variantId: c.variantId, serials: c.serials })) : [{ productId: l.productId, variantId: l.variantId, serials: l.serials }])); // séries des lignes ET des composants de bundles
+  for (const l of serialEntries) for (const sn of l.serials ?? []) {
     const rid = serialRowId(l.productId, sn); const cur = serialRows.get(sn) ?? (await store.get("article_serials", rid));
     const cid = `${rid}_${Number(cur?.cycle ?? 0)}`.slice(0, 36);
     const ok = await store.create("stock_moves", cid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), serial: sn, qty: 1, kind: "sale", refId: number, userId: ctx.userId });
@@ -232,14 +244,22 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   });
   const base = saleId.slice(0, 28);
   for (const [i, l] of lines.entries()) { // mouvements en entiers de sous-unités ; l'unité vendue est tracée sur le mouvement
-    if (l.components?.length) { for (const [k, c] of l.components.entries()) await store.create("stock_moves", `${base}_m${i}_c${k}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: c.productId, kind: "sale", refId: number, userId: ctx.userId, qty: c.qty * l.qty }); continue; } // bundle : un mouvement par composant
+    if (l.components?.length) { // bundle : un mouvement de vente par composant (et par lot) ; les séries sont déjà tracées par leurs réservations
+      for (const [k, c] of l.components.entries()) {
+        if (c.serials?.length) continue;
+        const csc = scales.get(c.productId) ?? 0; const cm = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: c.productId, kind: "sale", refId: number, userId: ctx.userId, ...(c.variantId ? { variantId: c.variantId } : {}) };
+        if (c.lots?.length) for (const [m, a] of c.lots.entries()) await store.create("stock_moves", moveId(saleId, i, k, m), ctx.tenantId, { ...cm, lotId: a.lotId, qty: scaledInt(a.qty, csc) });
+        else await store.create("stock_moves", moveId(saleId, i, k), ctx.tenantId, { ...cm, qty: scaledInt(c.qty, csc) });
+      }
+      continue;
+    }
     if (l.serials?.length) continue; // les séries sont déjà tracées par leurs mouvements de réservation
     const scale = scales.get(l.productId) ?? 0; const common = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, kind: "sale", refId: number, userId: ctx.userId, ...(l.variantId ? { variantId: l.variantId } : {}) };
     if (l.lots?.length) { for (const [k, a] of l.lots.entries()) await store.create("stock_moves", `${base}_m${i}_${k}`, ctx.tenantId, { ...common, lotId: a.lotId, qty: scaledInt(a.qty, scale), ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) }); continue; }
     await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { ...common, qty: scaledInt(l.qty, scale), ...(l.unit ? { unit: l.unit, unitQty: l.unitQty } : {}) });
   }
   // Les numéros vendus passent « vendu », avec la référence de vente et la fin de garantie.
-  for (const l of lines) for (const sn of l.serials ?? []) {
+  for (const l of serialEntries) for (const sn of l.serials ?? []) {
     const rid = serialRowId(l.productId, sn); const row = await store.get("article_serials", rid); if (!row) continue;
     const months = Number(row.warrantyMonths ?? 0);
     await store.update("article_serials", rid, { status: "sold", saleId, saleRef: number, soldAt, ...(months > 0 ? { warrantyUntil: warrantyEnd(soldAt, months) } : {}) });

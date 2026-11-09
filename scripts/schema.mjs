@@ -26,7 +26,7 @@ export const TABLES = {
   article_cost_events: { cols: [...base, s("productId", 64, true), s("variantId", 64), s("supplierId", 64), s("kind", 16, true), i("unitCost"), i("landedCost"), f("qty"), i("costBefore"), i("costAfter"), s("method", 16), s("ref", 64)], idx: [["product", ["productId"]]] },
   // Lots (péremption) : quantité d'un lot = somme des mouvements portant son lotId. unitCost = coût de revient du lot (valorisation par lot).
   // Bundles virtuels : composition d'un article `kind = bundle` (une ligne par composant ; qty entière en unité de base du composant).
-  article_components: { cols: [...base, s("bundleId", 64, true), s("componentId", 64, true), i("qty", true)], idx: [["bundle", ["bundleId"]], ["component", ["componentId"]], ["shop", ["tenantId", "shopId"]]] },
+  article_components: { cols: [...base, s("bundleId", 64, true), s("componentId", 64, true), s("variantId", 64), i("qty", true)], idx: [["bundle", ["bundleId"]], ["component", ["componentId"]], ["shop", ["tenantId", "shopId"]]] },
   // Alertes du jour : une ligne par (type, objet, jour) à identifiant déterministe ; `status` open → read (accusé de lecture tracé).
   article_alerts: { cols: [...base, s("day", 10, true), s("type", 24, true), s("productId", 64), s("refId", 64, true), s("severity", 10), s("label", 255), s("detail", 500), s("status", 10), s("readBy", 64), d("readAt")], idx: [["shop_day", ["tenantId", "shopId", "day"]]] },
   // Ordres d'assemblage / démontage d'un kit physique : composants sortis (ou rendus) et kit entré (ou sorti) par mouvements tracés.

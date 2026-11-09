@@ -41,12 +41,14 @@ export async function stockLevels(s: Session): Promise<Map<string, number>> {
     if (x.variantId) m.set(`v:${x.variantId}`, (m.get(`v:${x.variantId}`) ?? 0) + d); // stock propre à la variante
   }
   // Bundles virtuels : pas de stock propre, la disponibilité se déduit des composants (composant le plus limitant).
-  const comps = await listAll<{ bundleId: string; componentId: string; qty: number }>("article_components", s);
-  const by = new Map<string, { productId: string; qty: number }[]>();
-  for (const c of comps) by.set(c.bundleId, [...(by.get(c.bundleId) ?? []), { productId: c.componentId, qty: c.qty }]);
-  if (by.size) {
-    const virtual = new Set((await listAll<{ kind?: string; bundleMode?: string }>("products", s)).filter(isVirtualBundle).map((p) => p.$id)); // un kit physique a son propre stock : il n'est pas recalculé
-    for (const [bundleId, list] of by) if (virtual.has(bundleId)) m.set(bundleId, bundleAvailable(list, (id) => m.get(id) ?? 0));
+  const comps = await listAll<{ bundleId: string; componentId: string; variantId?: string; qty: number }>("article_components", s);
+  if (comps.length) {
+    const prods = await listAll<{ kind?: string; bundleMode?: string; qtyScale?: number }>("products", s); const byId = new Map(prods.map((p) => [p.$id, p]));
+    const virtual = new Set(prods.filter(isVirtualBundle).map((p) => p.$id)); // un kit physique a son propre stock : il n'est pas recalculé
+    const by = new Map<string, { productId: string; variantId?: string; qty: number }[]>();
+    for (const c of comps) if (virtual.has(c.bundleId)) by.set(c.bundleId, [...(by.get(c.bundleId) ?? []), { productId: c.componentId, ...(c.variantId ? { variantId: c.variantId } : {}), qty: fromScaled(c.qty, byId.get(c.componentId)?.qtyScale ?? 0) }]);
+    const readable = (id: string, vid?: string) => fromScaled(m.get(vid ? `v:${vid}` : id) ?? 0, byId.get(id)?.qtyScale ?? 0);
+    for (const [bundleId, list] of by) m.set(bundleId, bundleAvailable(list, readable));
   }
   return m;
 }
