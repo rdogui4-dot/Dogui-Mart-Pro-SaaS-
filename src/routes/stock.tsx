@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
 import { formatQty } from "@/domain/quantity";
 import { isLow, reorderQty } from "@/domain/stock";
-import { list, listAll, qtyOf, saveEntity, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
+import { list, listAll, qtyOf, saveEntity, variantQty, type Product, type VariantRow } from "@/lib/data";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
@@ -48,6 +48,7 @@ export function StockPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <h1 className="sr-only">Stock</h1>
       {track && (trackingOf(track) === "lot" ? <LotsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "lots")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} /> : <SerialsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "serials")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} />)}
       {planAllows(sub.data?.entitlement.plan.id, "lots") && <ExpiryAlerts />}
       <div className="grid grid-cols-2 gap-2">
@@ -55,20 +56,20 @@ export function StockPage() {
         <div className="card"><div className="text-white/50 text-xs">Ruptures / alertes</div><div className="font-semibold text-red-400">{low.length}</div></div>
       </div>
       <div className="flex gap-2">
-        <input className="input" placeholder="Rechercher un article (nom, référence, code-barres)" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input aria-label="Rechercher un article (nom, référence, code-barres)" className="input" placeholder="Rechercher un article (nom, référence, code-barres)" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
       {note && <p className="text-sm text-amber-300" role="status">{note}</p>}
       {!hasArticles && can(s, "stock") && (
         <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
           <h2 className="font-semibold">Nouveau produit</h2>
-          <input className="input" placeholder="Nom" required value={nf.name} onChange={(e) => setNf({ ...nf, name: e.target.value })} />
-          <input className="input" placeholder="Code-barres (facultatif)" value={nf.barcode} onChange={(e) => setNf({ ...nf, barcode: e.target.value })} />
+          <input aria-label="Nom" className="input" placeholder="Nom" required value={nf.name} onChange={(e) => setNf({ ...nf, name: e.target.value })} />
+          <input aria-label="Code-barres (facultatif)" className="input" placeholder="Code-barres (facultatif)" value={nf.barcode} onChange={(e) => setNf({ ...nf, barcode: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
-            <input className="input" inputMode="numeric" placeholder="Prix de vente" required value={nf.price} onChange={(e) => setNf({ ...nf, price: e.target.value })} />
-            <input className="input" inputMode="numeric" placeholder="Prix d'achat" value={nf.cost} onChange={(e) => setNf({ ...nf, cost: e.target.value })} />
-            <input className="input" inputMode="numeric" placeholder="Stock initial" value={nf.qty} onChange={(e) => setNf({ ...nf, qty: e.target.value })} />
-            <input className="input" inputMode="numeric" placeholder="Seuil d'alerte" value={nf.minStock} onChange={(e) => setNf({ ...nf, minStock: e.target.value })} />
+            <input aria-label="Prix de vente" className="input" inputMode="numeric" placeholder="Prix de vente" required value={nf.price} onChange={(e) => setNf({ ...nf, price: e.target.value })} />
+            <input aria-label="Prix d'achat" className="input" inputMode="numeric" placeholder="Prix d'achat" value={nf.cost} onChange={(e) => setNf({ ...nf, cost: e.target.value })} />
+            <input aria-label="Stock initial" className="input" inputMode="numeric" placeholder="Stock initial" value={nf.qty} onChange={(e) => setNf({ ...nf, qty: e.target.value })} />
+            <input aria-label="Seuil d'alerte" className="input" inputMode="numeric" placeholder="Seuil d'alerte" value={nf.minStock} onChange={(e) => setNf({ ...nf, minStock: e.target.value })} />
           </div>
           <button className="btn" disabled={create.isPending}>Ajouter</button>
           {nfErr && <p className="text-red-400 text-sm" role="alert">{nfErr}</p>}
@@ -134,7 +135,7 @@ function Transfer({ products, variants, levels, onDone }: { products: { $id: str
           {rows.map((r, i) => (
             <div key={i} className="grid grid-cols-[1fr_5rem] gap-1">
               <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value })}><option value="">Produit…</option>{products.flatMap((p) => p.hasVariants ? variants.filter((v) => v.productId === p.$id && !v.archived).map((v) => <option key={v.$id} value={`${p.$id}:${v.$id}`}>{p.name} — {v.label} ({formatQty(variantQty(levels, v, p.qtyScale ?? 0))})</option>) : [<option key={p.$id} value={p.$id}>{p.name} ({formatQty(qtyOf(levels, p))})</option>])}</select>
-              <input className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+              <input aria-label="Qté" className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
               {(() => { const mode = products.find((p) => p.$id === r.productId.split(":")[0])?.tracking; return mode === "lot" ? <p className="col-span-2 text-xs text-white/50">Lots prélevés automatiquement, les plus proches de la péremption d'abord ; ils sont recréés à l'identique (numéro, péremption, coût) dans la boutique de destination.</p> : mode === "serial" ? <textarea className="input col-span-2" rows={2} placeholder="Numéros de série à transférer (facultatif : sinon les plus anciens disponibles)" aria-label="Numéros de série à transférer" value={r.serials} onChange={(e) => set(i, { serials: e.target.value })} /> : null; })()}
             </div>
           ))}

@@ -12,7 +12,7 @@ import { checkout, stockScaled, stockScaledVariant, type CheckoutInput } from ".
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 import { createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
 import { consolidatedReport } from "./reports";
-import { assertQuota, platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
+import { platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
 import { saveUnits } from "./units";
 import { deletePriceRule, savePriceRule } from "./pricing";

@@ -23,10 +23,10 @@ export function ShopsSection() {
     <>
       <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
         <h2 className="font-semibold">Nouvelle boutique</h2>
-        <input className="input" placeholder="Nom de la boutique" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <input aria-label="Nom de la boutique" className="input" placeholder="Nom de la boutique" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <div className="grid grid-cols-2 gap-2">
-          <input className="input" placeholder="Ville" value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} />
-          <input className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+          <input aria-label="Ville" className="input" placeholder="Ville" value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} />
+          <input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         </div>
         <button className="btn" disabled={add.isPending}>Créer la boutique</button>
         {err && <p className="text-red-400 text-sm">{err}</p>}
@@ -102,9 +102,9 @@ function NewStaff({ onDone }: { onDone: () => void }) {
   return (
     <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
       <h2 className="font-semibold">Nouvel employé</h2>
-      <input className="input" placeholder="Nom complet" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-      <input className="input" autoCapitalize="none" placeholder="Identifiant de connexion (ex. awa.ndiaye)" required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} />
-      <input className="input" type="text" autoComplete="off" placeholder="Mot de passe initial (8 caractères min.)" required minLength={8} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+      <input aria-label="Nom complet" className="input" placeholder="Nom complet" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+      <input aria-label="Identifiant de connexion (ex. awa.ndiaye)" className="input" autoCapitalize="none" placeholder="Identifiant de connexion (ex. awa.ndiaye)" required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} />
+      <input aria-label="Mot de passe initial (8 caractères min.)" className="input" type="text" autoComplete="off" placeholder="Mot de passe initial (8 caractères min.)" required minLength={8} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
       <AccessPicker role={f.role} modules={modules} onChange={(r, m) => { setF({ ...f, role: r }); setModules(m); }} />
       <ShopChecks value={shopIds} onChange={setShopIds} />
       <button className="btn" disabled={add.isPending || !shopIds.length || !modules.length}>Créer le compte</button>

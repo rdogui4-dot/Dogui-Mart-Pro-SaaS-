@@ -168,7 +168,7 @@ export async function decideExpense(store: Store, ctx: Ctx, b: { id?: string; ap
   await gate(store, ctx); await needR(store, ctx, "approve"); const r = await store.get("expenses", String(b.id ?? "")); if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId) throw new HttpError(404, "Dépense introuvable");
   if (r.status !== "pending") throw new HttpError(409, `Dépense déjà ${r.status === "approved" ? "validée" : r.status === "rejected" ? "rejetée" : "annulée"}`);
   if (r.createdBy === ctx.userId && roleOf(ctx.roles) !== "owner") throw new HttpError(403, "Vous ne pouvez pas valider votre propre dépense");
-  const note = oneLine(b.note, 200); const now = new Date().toISOString(); const meta = parse<Record<string, unknown>>(r.meta, {}); const amount = Number(r.amount);
+  const note = oneLine(b.note, 200); const now = new Date().toISOString(); const meta = parse<Record<string, unknown>>(r.meta, {});
   if (b.approve === false) { if (note.length < 3) throw new HttpError(400, "Motif du rejet obligatoire (3 caractères au moins)"); meta.decisionNote = note;
     await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { status: "rejected", decidedBy: ctx.userId, meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "reject", { note }, now), aud(ctx, "expense.reject", `${r.number} ${note}`)]); return { id: r.$id, status: "rejected" }; }
   return advance(store, ctx, r, meta, { id: ctx.userId, tier: roleOf(ctx.roles) === "owner" ? "owner" : "manager" }, "decision", note, b);

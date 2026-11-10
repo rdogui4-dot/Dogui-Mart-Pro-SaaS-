@@ -8,7 +8,6 @@ import { aud, expenseRights, fcfa, iso, needR, nameMap, newId, oneLine, parse, s
 import { budgetRows, cfgList, needPro, shopsOf, type Plan } from "./expenses-pro";
 import { HttpError, roleOf, type Ctx, type Row, type Store } from "./store";
 
-const DAY = 864e5;
 const owner = (ctx: Ctx) => roleOf(ctx.roles) === "owner";
 const catLabel = (id: string) => DEFAULT_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 type ERow = { id: string; number: string; label: string; beneficiary: string; category: string; amount: number; spentOn: string; createdBy: string; shopId: string; status: string; payMode: string; dueOn: string; paid: number; recurringId: string; meta: Record<string, unknown>; receipts: number };

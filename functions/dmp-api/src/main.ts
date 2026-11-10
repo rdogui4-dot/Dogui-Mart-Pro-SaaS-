@@ -12,8 +12,9 @@ export async function handle(store: Store, userId: string | undefined, body: any
   try {
     if (!userId) throw new HttpError(401, "Connexion requise");
     const { action, tenantId, shopId, payload } = body ?? {};
-    const fn = (ACTIONS as Record<string, (s: Store, c: Ctx, p: any) => Promise<unknown>>)[action];
-    if (!fn) throw new HttpError(400, "Action inconnue");
+    // Seules les actions déclarées existent : « constructor », « toString », « __proto__ »… viendraient du prototype de l'objet et exposeraient l'état interne du serveur.
+    if (typeof action !== "string" || !Object.hasOwn(ACTIONS, action)) throw new HttpError(400, "Action inconnue");
+    const fn = (ACTIONS as Record<string, (s: Store, c: Ctx, p: any) => Promise<unknown>>)[action]!;
     const admin = !!env.admins?.includes(userId);
     if (typeof action === "string" && action.startsWith("platform.")) { // administration de la plateforme : aucune appartenance à un commerce
       return { status: 200, body: { ok: true, data: await fn(store, { userId, tenantId: "", shopId: "", roles: [], admin }, payload ?? {}) } };

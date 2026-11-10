@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Camera, Image as ImageIcon, Lock, Plus, Trash2, Undo2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Query } from "@/lib/appwrite";
-import { list, listAll, stockLevels, qtyOf, variantQty, type Product, type Row, type VariantRow } from "@/lib/data";
+import { list, listAll, qtyOf, variantQty, type Product, type Row, type VariantRow } from "@/lib/data";
 import { can, useSession } from "@/lib/session";
 import { Confirm, Sheet, Thumb } from "@/components/ui";
 import { compressImage, useArticleImage } from "@/lib/articles";
@@ -41,7 +41,7 @@ export function BundlesPage() {
       <p className="text-sm text-white/60">Un bundle est un pack d'articles vendu à son propre prix. Il n'a pas de stock : chaque vente retire ses composants du stock.</p>
       {!pro && <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-[var(--gold)]" />Réservé à la formule Pro</span><span className="text-white/60">Vos bundles existants restent visibles ; leur création, leur modification et leur vente reviennent avec Pro.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div>}
       {canManage && <button className="btn flex items-center justify-center gap-2" onClick={() => setEdit("new")}><Plus size={18} />Nouveau bundle</button>}
-      {(prods.data ?? []).some((p) => p.kind === "bundle") && <input className="input" placeholder="Rechercher un bundle" value={q} onChange={(e) => setQ(e.target.value)} />}
+      {(prods.data ?? []).some((p) => p.kind === "bundle") && <input aria-label="Rechercher un bundle" className="input" placeholder="Rechercher un bundle" value={q} onChange={(e) => setQ(e.target.value)} />}
       {prods.isLoading && <p className="text-white/50 text-sm">Chargement…</p>}
       {!prods.isLoading && bundles.length === 0 && <p className="text-center text-white/50 text-sm py-6">{q ? "Aucun résultat." : "Aucun bundle."}</p>}
       <ul className="flex flex-col gap-2">

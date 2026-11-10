@@ -81,14 +81,14 @@ export function SettingsPage() {
       {tab === "shop" && can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={saveShop}>
           <h2 className="font-semibold">Ma boutique (en-tête des factures et tickets)</h2>
-          <input className="input" placeholder="Nom commercial" required value={sh.name} onChange={(e) => setSh({ ...sh, name: e.target.value })} />
-          <input className="input" placeholder="Adresse" value={sh.address} onChange={(e) => setSh({ ...sh, address: e.target.value })} />
+          <input aria-label="Nom commercial" className="input" placeholder="Nom commercial" required value={sh.name} onChange={(e) => setSh({ ...sh, name: e.target.value })} />
+          <input aria-label="Adresse" className="input" placeholder="Adresse" value={sh.address} onChange={(e) => setSh({ ...sh, address: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
-            <input className="input" placeholder="Ville" value={sh.city} onChange={(e) => setSh({ ...sh, city: e.target.value })} />
-            <input className="input" inputMode="tel" placeholder="Téléphone" value={sh.phone} onChange={(e) => setSh({ ...sh, phone: e.target.value })} />
+            <input aria-label="Ville" className="input" placeholder="Ville" value={sh.city} onChange={(e) => setSh({ ...sh, city: e.target.value })} />
+            <input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={sh.phone} onChange={(e) => setSh({ ...sh, phone: e.target.value })} />
           </div>
-          <input className="input" placeholder="NINEA / RCCM (mentions légales)" value={sh.legal} onChange={(e) => setSh({ ...sh, legal: e.target.value })} />
-          <input className="input" inputMode="numeric" placeholder="TVA (%)" value={sh.vatRatePct} onChange={(e) => setSh({ ...sh, vatRatePct: e.target.value })} />
+          <input aria-label="NINEA / RCCM (mentions légales)" className="input" placeholder="NINEA / RCCM (mentions légales)" value={sh.legal} onChange={(e) => setSh({ ...sh, legal: e.target.value })} />
+          <input aria-label="TVA (%)" className="input" inputMode="numeric" placeholder="TVA (%)" value={sh.vatRatePct} onChange={(e) => setSh({ ...sh, vatRatePct: e.target.value })} />
           <button className="btn">Enregistrer</button>
           {shMsg && <p className="text-sm text-amber-300">{shMsg}</p>}
         </form>
@@ -125,9 +125,9 @@ export function SettingsPage() {
           <h2 className="font-semibold">Paiement par QR code</h2>
           <p className="text-xs text-white/50">Collez un lien de paiement généré par votre compte Wave Business / Orange Business pour un montant d'essai (ex. 1000) : l'application remplace ce montant par le vrai montant de chaque vente. Vous pouvez aussi écrire vous-même <code>{"{amount}"}</code> (et <code>{"{ref}"}</code>) dans le lien. Un lien déjà enregistré n'est jamais réaffiché ; un champ laissé vide reste inchangé.</p>
           <div className="flex gap-2 flex-wrap text-xs">{(["wave", "orange"] as const).map((p) => <span key={p} className="flex items-center gap-2 rounded-full border border-[var(--line)] px-3 py-1">{p === "wave" ? "Wave" : "Orange"} : {pay.data ? (pay.data[p] ? <><b className="text-emerald-300">configuré</b><button type="button" className="text-red-300 underline" onClick={() => void removeLink(p)}>retirer</button></> : "non configuré") : "…"}</span>)}</div>
-          <input className="input" placeholder="Modèle de lien Wave Business (https://…{amount}…)" value={f.waveTemplate} onChange={(e) => setF({ ...f, waveTemplate: e.target.value })} />
-          <input className="input" placeholder="Modèle de lien Orange Business (https://…{amount}…)" value={f.orangeTemplate} onChange={(e) => setF({ ...f, orangeTemplate: e.target.value })} />
-          <input className="input" inputMode="numeric" placeholder="Validité du lien (minutes)" value={f.expiryMinutes} onChange={(e) => setF({ ...f, expiryMinutes: e.target.value })} />
+          <input aria-label="Modèle de lien Wave Business (https://…{amount}…)" className="input" placeholder="Modèle de lien Wave Business (https://…{amount}…)" value={f.waveTemplate} onChange={(e) => setF({ ...f, waveTemplate: e.target.value })} />
+          <input aria-label="Modèle de lien Orange Business (https://…{amount}…)" className="input" placeholder="Modèle de lien Orange Business (https://…{amount}…)" value={f.orangeTemplate} onChange={(e) => setF({ ...f, orangeTemplate: e.target.value })} />
+          <input aria-label="Validité du lien (minutes)" className="input" inputMode="numeric" placeholder="Validité du lien (minutes)" value={f.expiryMinutes} onChange={(e) => setF({ ...f, expiryMinutes: e.target.value })} />
           <button className="btn">Enregistrer</button>
           {msg && <p className="text-sm text-amber-300" role="status">{msg}</p>}
         </form>

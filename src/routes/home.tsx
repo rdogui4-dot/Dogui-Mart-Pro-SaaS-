@@ -5,7 +5,7 @@ import { formatFcfa } from "@/domain/money";
 import { isLow } from "@/domain/stock";
 import { isVirtualBundle } from "@/domain/bundles";
 import { Query } from "@/lib/appwrite";
-import { list, listAll, qtyOf, stockLevels, variantQty, type Product, type VariantRow } from "@/lib/data";
+import { list, qtyOf, variantQty } from "@/lib/data";
 import { can, useSession, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
 import { stateLabel } from "@/domain/reminders";

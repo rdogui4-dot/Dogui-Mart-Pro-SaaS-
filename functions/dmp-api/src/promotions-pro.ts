@@ -1,4 +1,4 @@
-import { DEFAULT_TIMEZONE, describeDiscount, findOverlaps, isAdvanced, promoStatus, utcToZoned, zonedToUtc, familyOf, type Promo } from "../../../src/domain/promotions";
+import { DEFAULT_TIMEZONE, describeDiscount, findOverlaps, isAdvanced, promoStatus, utcToZoned, zonedToUtc, familyOf } from "../../../src/domain/promotions";
 import { fromScaled, scaleOf } from "../../../src/domain/quantity";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
 import { isVirtualBundle } from "../../../src/domain/bundles";

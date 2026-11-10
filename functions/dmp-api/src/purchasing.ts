@@ -13,7 +13,7 @@ import { linkId } from "./costing";
 import { assertSerialsFree, checkLot, createSerials, ensureLot, normalizeLotParts, type LotPart } from "./tracking";
 import { parseSerials, trackingOf } from "../../../src/domain/tracking";
 import { lineKey } from "../../../src/domain/variants";
-import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
+import { HttpError, type Ctx, type Row, type Store, needModule } from "./store";
 
 const safeId = (s: string) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 const must = <T,>(v: T | null | undefined, msg: string, status = 404): T => { if (v == null) throw new HttpError(status, msg); return v; };

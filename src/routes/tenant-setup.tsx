@@ -20,7 +20,7 @@ export function CreateTenantPage() {
     <form onSubmit={submit} className="min-h-full flex flex-col justify-center gap-3 p-6 max-w-sm mx-auto">
       <h1 className="text-2xl font-bold text-[var(--gold)]">Bienvenue {s.name}</h1>
       <p className="text-white/60">Votre compte est créé, mais il n'est rattaché à aucun commerce. Donnez un nom à votre commerce pour commencer (essai gratuit de 14 jours).</p>
-      <input className="input" placeholder="Nom de votre commerce" required minLength={2} value={name} onChange={(e) => setName(e.target.value)} />
+      <input aria-label="Nom de votre commerce" className="input" placeholder="Nom de votre commerce" required minLength={2} value={name} onChange={(e) => setName(e.target.value)} />
       {err && <p className="text-red-400 text-sm">{err}</p>}
       <button className="btn" disabled={busy || name.trim().length < 2}>Créer mon commerce</button>
       <button type="button" className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button>

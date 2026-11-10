@@ -6,18 +6,18 @@ import { cartTotal, formatFcfa, type CartLine } from "@/domain/money";
 import { evaluatePay, METHOD_LABEL, type PayLine } from "@/domain/pay";
 import { PayPanel, newPayLine } from "@/components/PayPanel";
 import { Confirm, Thumb } from "@/components/ui";
-import { getShop, list, qtyOf, stockLevels, variantQty, type Product, type Customer, type UnitRow, type VariantRow, type RuleRow } from "@/lib/data";
+import { getShop, list, qtyOf, variantQty, type Product, type Customer, type UnitRow, type VariantRow, type RuleRow } from "@/lib/data";
 import { Query } from "@/lib/appwrite";
 import { convertQty, formatQty, fromScaled, qtyFor, scaleOf, scaledInt } from "@/domain/quantity";
 import { unitLabel } from "@/domain/articles";
 import { planAllows } from "@/domain/features";
-import { resolvePrice, ruleFromRow, categoryLabel, KIND_LABEL } from "@/domain/pricing";
+import { resolvePrice, ruleFromRow, categoryLabel } from "@/domain/pricing";
 import { useSubscription } from "./subscription";
 import { useStockLevels } from "@/lib/queries";
 import { onSyncResult, queueSale, syncPending, type SyncResult } from "@/lib/offline";
 import { FavStar, SimPanel, SuggestStrip, useDensity, useFavorites, useShortcuts, type ApprovalKind, type Sim, type Suggest } from "@/components/PosPro";
 import { api } from "@/lib/api";
-import { can, useSession } from "@/lib/session";
+import { useSession } from "@/lib/session";
 import { trackingOf } from "@/domain/tracking";
 import { Scanner } from "@/components/Scanner";
 import { QrPay } from "@/components/QrPay";
@@ -151,6 +151,7 @@ export function PosPage() {
 
   return (
     <div className="flex flex-col gap-3">
+      <h1 className="sr-only">Caisse</h1>
       {smart && cashQ.data && (cashQ.data.session
         ? <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-emerald-400/30"><span className="text-emerald-300">● Caisse ouverte depuis {new Date(cashQ.data.session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span><span className="text-white/50">Gérer ›</span></Link>
         : <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-amber-400/30"><span className="text-amber-300">○ Caisse fermée{cashQ.data.required ? " — ouverture obligatoire pour vendre" : ""}</span><span className="text-white/50">Ouvrir ›</span></Link>)}

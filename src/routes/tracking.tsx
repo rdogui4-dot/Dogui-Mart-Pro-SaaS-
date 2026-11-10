@@ -80,10 +80,10 @@ export function LotsSheet({ a, canManage, onClose, onChanged }: { a: ArticleRow;
       {entry && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4"><form className="card w-full max-w-sm flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
           <b>Entrée dans un lot</b>
-          <input className="input" placeholder="N° de lot *" required maxLength={40} value={f.lotNo} onChange={(e) => setF({ ...f, lotNo: e.target.value })} />
-          <input className="input" inputMode="decimal" placeholder="Quantité *" required value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
+          <input aria-label="N° de lot *" className="input" placeholder="N° de lot *" required maxLength={40} value={f.lotNo} onChange={(e) => setF({ ...f, lotNo: e.target.value })} />
+          <input aria-label="Quantité *" className="input" inputMode="decimal" placeholder="Quantité *" required value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
           <label className="text-xs text-white/60">Date de péremption<input className="input mt-1" type="date" value={f.expiresAt} onChange={(e) => setF({ ...f, expiresAt: e.target.value })} /></label>
-          <input className="input" inputMode="numeric" placeholder="Coût unitaire (FCFA, facultatif)" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} />
+          <input aria-label="Coût unitaire (FCFA, facultatif)" className="input" inputMode="numeric" placeholder="Coût unitaire (FCFA, facultatif)" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} />
           {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
           <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={() => { setEntry(false); setErr(""); }}>Annuler</button><button className="btn flex-1" disabled={save.isPending || !f.lotNo.trim() || !f.qty.trim()}>Enregistrer</button></div>
         </form></div>
@@ -92,7 +92,7 @@ export function LotsSheet({ a, canManage, onClose, onChanged }: { a: ArticleRow;
         <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4"><div className="card w-full max-w-sm flex flex-col gap-2">
           <b>Mise au rebut · lot {off.lot.lotNo}</b>
           <input className="input" inputMode="decimal" aria-label="Quantité à retirer" value={offQty} onChange={(e) => setOffQty(e.target.value)} />
-          <input className="input" placeholder="Motif (périmé, cassé…)" maxLength={200} value={offWhy} onChange={(e) => setOffWhy(e.target.value)} />
+          <input aria-label="Motif (périmé, cassé…)" className="input" placeholder="Motif (périmé, cassé…)" maxLength={200} value={offWhy} onChange={(e) => setOffWhy(e.target.value)} />
           <p className="text-xs text-white/50">Sortie de stock tracée (perte) avec le motif. Disponible : {formatQty(off.max)}.</p>
           {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
           <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => { setOff(null); setErr(""); }}>Annuler</button><button className="btn flex-1" disabled={writeOff.isPending || !offQty.trim() || !offWhy.trim()} onClick={() => writeOff.mutate()}>Retirer</button></div>
@@ -123,7 +123,7 @@ export function SerialsSheet({ a, canManage, onClose, onChanged }: { a: ArticleR
   return (
     <Sheet title={`Numéros de série · ${a.name}`} onClose={onClose} back>
       <p className="text-sm text-white/60">{count("available")} disponible(s) · {count("sold")} vendu(s) · {count("warranty") + count("returned") + count("defective")} autre(s).</p>
-      <input className="input" placeholder="Rechercher un numéro" value={find} onChange={(e) => setFind(e.target.value)} />
+      <input aria-label="Rechercher un numéro" className="input" placeholder="Rechercher un numéro" value={find} onChange={(e) => setFind(e.target.value)} />
       {canManage && <button className="btn flex items-center justify-center gap-2" onClick={() => setAdding(true)}><Plus size={18} />Ajouter des numéros</button>}
       {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
       {!q.isLoading && rows.length === 0 && <p className="text-center text-white/50 text-sm py-4">Aucun numéro de série.</p>}
@@ -142,9 +142,9 @@ export function SerialsSheet({ a, canManage, onClose, onChanged }: { a: ArticleR
       {adding && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4"><form className="card w-full max-w-sm flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
           <b>Ajouter des numéros de série</b>
-          <div className="flex gap-2"><textarea className="input flex-1" rows={4} placeholder="Un numéro par ligne (ou séparés par espace / virgule)" value={txt} onChange={(e) => setTxt(e.target.value)} /><button type="button" className="btn-ghost self-start" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine size={20} /></button></div>
+          <div className="flex gap-2"><textarea aria-label="Un numéro par ligne (ou séparés par espace / virgule)" className="input flex-1" rows={4} placeholder="Un numéro par ligne (ou séparés par espace / virgule)" value={txt} onChange={(e) => setTxt(e.target.value)} /><button type="button" className="btn-ghost self-start" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine size={20} /></button></div>
           <p className={`text-xs ${parseErr ? "text-red-300" : "text-white/50"}`}>{parseErr || `${parsed.length} numéro(s) reconnu(s).`}</p>
-          <div className="grid grid-cols-2 gap-2"><input className="input" inputMode="numeric" aria-label="Garantie (mois)" placeholder="Garantie (mois)" value={months} onChange={(e) => setMonths(e.target.value)} /><input className="input" inputMode="numeric" placeholder="Coût unitaire" value={cost} onChange={(e) => setCost(e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-2"><input className="input" inputMode="numeric" aria-label="Garantie (mois)" placeholder="Garantie (mois)" value={months} onChange={(e) => setMonths(e.target.value)} /><input aria-label="Coût unitaire" className="input" inputMode="numeric" placeholder="Coût unitaire" value={cost} onChange={(e) => setCost(e.target.value)} /></div>
           {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
           <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={() => { setAdding(false); setErr(""); }}>Annuler</button><button className="btn flex-1" disabled={add.isPending || !parsed.length || !!parseErr}>Enregistrer</button></div>
         </form></div>

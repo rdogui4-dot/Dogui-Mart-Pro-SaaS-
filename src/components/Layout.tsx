@@ -32,7 +32,7 @@ export function Layout() {
   return (
     <div className="h-full flex flex-col pt-[env(safe-area-inset-top)]">
       <header className="flex items-center gap-3 px-4 py-2 border-b border-[var(--line)] bg-[var(--surface)]">
-        <Link to="/accueil" aria-label="Accueil"><LogoMark size={34} /></Link>
+        <Link to="/accueil" aria-label="Accueil" className="p-1.5 -m-1.5"><LogoMark size={34} /></Link>
         <div className="flex-1 min-w-0">
           {session && session.shops.length > 1
             ? <select aria-label="Boutique" className="bg-transparent font-semibold w-full outline-none truncate" value={session.shopId} onChange={(e) => switchShop(e.target.value)}>{session.shops.map((x) => <option key={x.id} value={x.id} className="bg-[#141416]">{x.name}</option>)}</select>

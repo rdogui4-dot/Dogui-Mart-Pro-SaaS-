@@ -38,7 +38,7 @@ function Card({ label, value, sub, kind, method, delta, tone }: { label: string;
   const [open, setOpen] = useState(false);
   return <div className="card flex flex-col gap-0.5"><div className="flex justify-between gap-1 items-start"><span className="text-white/50 text-xs">{label}</span>{kind && <span className={`text-[10px] rounded-full px-1.5 py-0.5 shrink-0 ${KIND_TONE[kind] ?? ""}`}>{kind}</span>}</div>
     <div className={`font-semibold text-lg leading-tight ${tone ?? ""}`}>{value}</div><div className="flex gap-2 items-center"><Delta v={delta} />{sub && <span className="text-[11px] text-white/40 leading-snug">{sub}</span>}</div>
-    {method && <button className="text-[11px] text-[var(--gold)] text-left flex items-center gap-0.5" onClick={() => setOpen(!open)} aria-expanded={open}><ChevronDown size={11} className={open ? "rotate-180" : ""} />Méthode</button>}{open && <p className="text-[11px] text-white/60">{method}</p>}</div>;
+    {method && <button className="text-[11px] text-[var(--gold)] text-left flex items-center gap-0.5 py-2" onClick={() => setOpen(!open)} aria-expanded={open}><ChevronDown size={11} className={open ? "rotate-180" : ""} />Méthode</button>}{open && <p className="text-[11px] text-white/60">{method}</p>}</div>;
 }
 /** Dépenses d'exploitation et résultat : chiffres du module Dépenses ; le résultat n'est affiché que si le serveur confirme que toutes les données nécessaires existent. */
 function ExpenseCards({ from, to }: { from: string; to: string }) {

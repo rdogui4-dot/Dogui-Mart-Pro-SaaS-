@@ -165,8 +165,8 @@ function PayModal({ plan, period, onClose }: { plan: Plan; period: Period; onClo
             <li>Saisissez-la ci-dessous avec l'e-mail utilisé sur Selar. Notre équipe vérifie que la commande correspond bien à la période <b>{PERIOD_LABEL[period]}</b> puis active votre formule.</li>
           </ol>
           <p className="text-xs text-white/40">Réf. interne {link.reference}</p>
-          <input className="input max-w-xs" type="email" inputMode="email" autoCapitalize="none" placeholder="E-mail utilisé sur Selar" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input className="input max-w-xs" placeholder="Référence de commande Selar" value={tx} onChange={(e) => setTx(e.target.value)} />
+          <input aria-label="E-mail utilisé sur Selar" className="input max-w-xs" type="email" inputMode="email" autoCapitalize="none" placeholder="E-mail utilisé sur Selar" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input aria-label="Référence de commande Selar" className="input max-w-xs" placeholder="Référence de commande Selar" value={tx} onChange={(e) => setTx(e.target.value)} />
           <button className="btn w-full max-w-xs" disabled={busy || tx.trim().length < 6 || !email.includes("@")} onClick={() => void submit()}>J'ai payé</button>
         </>}
         {err && <p className="text-red-400 text-center">{err}</p>}
@@ -324,13 +324,13 @@ function GrantForm() {
   return (
     <form className="card flex flex-col gap-2" onSubmit={submit}>
       <h2 className="font-semibold">Attribuer un abonnement (espèces, geste commercial)</h2>
-      <input className="input" placeholder="Identifiant du commerce (tenantId)" required value={f.tenantId} onChange={(e) => setF({ ...f, tenantId: e.target.value })} />
+      <input aria-label="Identifiant du commerce (tenantId)" className="input" placeholder="Identifiant du commerce (tenantId)" required value={f.tenantId} onChange={(e) => setF({ ...f, tenantId: e.target.value })} />
       <div className="grid grid-cols-3 gap-2">
         <select className="input !px-2" value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })}><option value="starter">Starter</option><option value="business">Business</option><option value="pro">Pro</option></select>
         <select className="input !px-2" value={f.period} onChange={(e) => setF({ ...f, period: e.target.value as Period })}>{PERIODS.map((p) => <option key={p} value={p}>{PERIOD_LABEL[p]}</option>)}</select>
         <input className="input !px-2" inputMode="numeric" value={f.count} onChange={(e) => setF({ ...f, count: e.target.value })} />
       </div>
-      <input className="input" placeholder="Motif (ex. paiement espèces reçu le…)" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+      <input aria-label="Motif (ex. paiement espèces reçu le…)" className="input" placeholder="Motif (ex. paiement espèces reçu le…)" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
       <button className="btn">Attribuer</button>
       {msg && <p className="text-sm text-amber-300">{msg}</p>}
     </form>
@@ -350,7 +350,7 @@ function LifetimeForm() {
     <form className="card flex flex-col gap-2" onSubmit={submit}>
       <h2 className="font-semibold">Accès à vie</h2>
       <p className="text-xs text-white/50">Votre propre commerce (créé avec votre compte administrateur) a déjà l'accès à vie. Ce formulaire sert à l'accorder ou le retirer à un autre commerce.</p>
-      <input className="input" placeholder="Identifiant du commerce (tenantId)" required value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
+      <input aria-label="Identifiant du commerce (tenantId)" className="input" placeholder="Identifiant du commerce (tenantId)" required value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
       <label className="text-sm flex items-center gap-2"><input type="checkbox" checked={revoke} onChange={(e) => setRevoke(e.target.checked)} /> Retirer l'accès à vie</label>
       <button className="btn">{revoke ? "Retirer" : "Accorder"}</button>
       {msg && <p className="text-sm text-amber-300">{msg}</p>}

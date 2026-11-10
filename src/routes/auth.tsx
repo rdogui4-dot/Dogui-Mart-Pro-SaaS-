@@ -2,6 +2,7 @@ import { useState } from "react";
 import { account, ID, teams } from "@/lib/appwrite";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
+import { authMessage } from "@/lib/auth-errors";
 import { Logo } from "@/components/Logo";
 import { ScanLine, Boxes, WifiOff } from "lucide-react";
 
@@ -19,14 +20,14 @@ export function AuthPage() {
       try {
         if (!f.email.includes("@")) setInfo("Un identifiant d'employé n'a pas d'e-mail : demandez à votre gérant de réinitialiser votre mot de passe (Réglages → Équipe & accès).");
         else { await account.createRecovery({ email: f.email.trim(), url: `${window.location.origin}${import.meta.env.BASE_URL}` }); setInfo("Si un compte existe pour cette adresse, un e-mail de réinitialisation vient d'être envoyé (valable 1 heure)."); }
-      } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+      } catch (x) { setErr(authMessage(x)); } finally { setBusy(false); }
       return;
     }
     if (mode === "reset" && recoveryParams) {
       try {
         await account.updateRecovery({ ...recoveryParams, password: f.password });
         window.history.replaceState(null, "", `${window.location.pathname}`); setMode("login"); setF({ ...f, password: "" }); setInfo("Mot de passe modifié : connectez-vous avec le nouveau.");
-      } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+      } catch (x) { setErr(authMessage(x)); } finally { setBusy(false); }
       return;
     }
     // Les employés se connectent avec un identifiant (sans @) : il correspond à une adresse technique @staff.invalid.
@@ -42,7 +43,7 @@ export function AuthPage() {
       } else await account.createEmailPasswordSession({ email: login, password: f.password });
       // Pas de redirection forcée : la page demandée (par exemple le retour de Selar) s'affiche dès que la session est chargée.
       await refresh();
-    } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+    } catch (x) { setErr(authMessage(x)); } finally { setBusy(false); }
   }
   return (
     <div className="min-h-full flex flex-col justify-center gap-6 p-6 max-w-sm mx-auto" style={{ background: "radial-gradient(120% 60% at 50% 0%, rgba(212,175,55,.14), transparent 60%)" }}>
@@ -58,11 +59,11 @@ export function AuthPage() {
       <form onSubmit={submit} className="card flex flex-col gap-3">
         <h1 className="text-lg font-bold">{mode === "login" ? "Connexion" : mode === "signup" ? "Créer mon commerce" : mode === "forgot" ? "Mot de passe oublié" : "Nouveau mot de passe"}</h1>
         {mode === "signup" && <>
-          <input className="input" placeholder="Votre nom" value={f.name} onChange={set("name")} required />
-          <input className="input" placeholder="Nom de la boutique" value={f.shop} onChange={set("shop")} required />
+          <input aria-label="Votre nom" autoComplete="name" className="input" placeholder="Votre nom" value={f.name} onChange={set("name")} required />
+          <input aria-label="Nom de la boutique" autoComplete="organization" className="input" placeholder="Nom de la boutique" value={f.shop} onChange={set("shop")} required />
         </>}
-        {mode !== "reset" && <input className="input" type={mode === "login" ? "text" : "email"} autoCapitalize="none" placeholder={mode === "login" ? "E-mail ou identifiant" : "E-mail"} value={f.email} onChange={set("email")} required />}
-        {mode !== "forgot" && <input className="input" type="password" placeholder={mode === "reset" ? "Nouveau mot de passe (8+)" : "Mot de passe (8+)"} minLength={8} value={f.password} onChange={set("password")} required />}
+        {mode !== "reset" && <input className="input" aria-label={mode === "login" ? "E-mail ou identifiant" : "E-mail"} autoComplete={mode === "login" ? "username" : "email"} type={mode === "login" ? "text" : "email"} autoCapitalize="none" placeholder={mode === "login" ? "E-mail ou identifiant" : "E-mail"} value={f.email} onChange={set("email")} required />}
+        {mode !== "forgot" && <input className="input" aria-label="Mot de passe" autoComplete={mode === "login" ? "current-password" : "new-password"} type="password" placeholder={mode === "reset" ? "Nouveau mot de passe (8+)" : "Mot de passe (8+)"} minLength={8} value={f.password} onChange={set("password")} required />}
         {info && <p className="text-emerald-300 text-sm" role="status">{info}</p>}
         {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
         <button className="btn" disabled={busy}>{mode === "login" ? "Se connecter" : mode === "signup" ? "Créer mon commerce" : mode === "forgot" ? "Envoyer le lien" : "Enregistrer le mot de passe"}</button>

@@ -51,9 +51,9 @@ export function ClientsPage() {
     <Page title="Clients & fidélité">
       <div className="card">Créances clients : <b className="text-[var(--gold)]">{formatFcfa(owing)}</b></div>
       <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
-        <input className="input" placeholder="Nom" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        <input className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-        <input className="input" inputMode="numeric" placeholder="Plafond de crédit (FCFA)" value={f.creditLimit} onChange={(e) => setF({ ...f, creditLimit: e.target.value })} />
+        <input aria-label="Nom" className="input" placeholder="Nom" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+        <input aria-label="Plafond de crédit (FCFA)" className="input" inputMode="numeric" placeholder="Plafond de crédit (FCFA)" value={f.creditLimit} onChange={(e) => setF({ ...f, creditLimit: e.target.value })} />
         <button className="btn">Ajouter le client</button>
       </form>
       {catErr && <p className="text-red-400 text-sm" role="alert">{catErr}</p>}

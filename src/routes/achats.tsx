@@ -49,8 +49,8 @@ function Suppliers() {
   return (
     <>
       <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
-        <input className="input" placeholder="Fournisseur" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        <input className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+        <input aria-label="Fournisseur" className="input" placeholder="Fournisseur" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         <button className="btn">Ajouter le fournisseur</button>
         {add.error && <p className="text-red-400 text-sm">{(add.error as Error).message}</p>}
       </form>
@@ -106,8 +106,8 @@ function NewPo({ suppliers, products, variants, links, onDone }: { suppliers: Ro
           <select className="input !px-2" value={r.productId} onChange={(e) => { const [pid, vid] = e.target.value.split(":"); const offer = links.find((l) => l.supplierId === supplierId && l.productId === pid && (l.variantId ?? "") === (vid ?? "") && l.status !== "inactive"); set(i, { productId: e.target.value, unitCost: String(offer?.price ?? options.find((o) => o.value === e.target.value)?.cost ?? "") }); }}>
             <option value="">Produit…</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <input className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
-          <input className="input !px-2" inputMode="numeric" placeholder="Prix HT" value={r.unitCost} onChange={(e) => set(i, { unitCost: e.target.value })} />
+          <input aria-label="Qté" className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+          <input aria-label="Prix HT" className="input !px-2" inputMode="numeric" placeholder="Prix HT" value={r.unitCost} onChange={(e) => set(i, { unitCost: e.target.value })} />
           {(() => { const [pid, vid] = r.productId.split(":"); const o = r.productId ? links.find((l) => l.supplierId === supplierId && l.productId === pid && (l.variantId ?? "") === (vid ?? "")) : undefined; const short = o?.minQty && Number(r.qty.replace(",", ".")) > 0 && Number(r.qty.replace(",", ".")) < o.minQty; return o && (o.minQty || o.leadDays) ? <p className={`col-span-3 text-xs ${short ? "text-amber-300" : "text-white/40"}`}>{o.minQty ? `Minimum chez ce fournisseur : ${o.minQty}${short ? " (quantité insuffisante)" : ""}` : ""}{o.minQty && o.leadDays ? " · " : ""}{o.leadDays ? `délai ${o.leadDays} j` : ""}</p> : null; })()}
         </div>
       ))}

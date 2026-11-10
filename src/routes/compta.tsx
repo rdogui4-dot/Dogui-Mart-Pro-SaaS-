@@ -94,13 +94,13 @@ function FreeForm({ customers, onDone }: { customers: Row<Customer>[]; onDone: (
       </select>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[1fr_3.5rem_6rem] gap-1">
-          <input className="input !px-2" placeholder="Désignation" required value={r.description} onChange={(e) => set(i, { description: e.target.value })} />
-          <input className="input !px-2" inputMode="numeric" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
-          <input className="input !px-2" inputMode="numeric" placeholder="Prix HT" required value={r.unitPrice} onChange={(e) => set(i, { unitPrice: e.target.value })} />
+          <input aria-label="Désignation" className="input !px-2" placeholder="Désignation" required value={r.description} onChange={(e) => set(i, { description: e.target.value })} />
+          <input aria-label="Qté" className="input !px-2" inputMode="numeric" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+          <input aria-label="Prix HT" className="input !px-2" inputMode="numeric" placeholder="Prix HT" required value={r.unitPrice} onChange={(e) => set(i, { unitPrice: e.target.value })} />
         </div>
       ))}
       <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { description: "", qty: "1", unitPrice: "" }])}>+ Ligne</button>
-      <input className="input" placeholder="Référence / note (optionnel)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <input aria-label="Référence / note (optionnel)" className="input" placeholder="Référence / note (optionnel)" value={note} onChange={(e) => setNote(e.target.value)} />
       <button className="btn" disabled={submit.isPending || !customerId}>Créer la facture · {formatFcfa(ht)} HT</button>
       {err && <p className="text-red-400 text-sm">{err}</p>}
     </form>

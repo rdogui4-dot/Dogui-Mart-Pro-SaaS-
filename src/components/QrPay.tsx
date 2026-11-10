@@ -30,7 +30,7 @@ export function QrPay({ session, provider, amount, onPaid, onCancel }: {
       {link && <>
         {link.fixedLink && <p className="text-lg font-bold text-[var(--gold)] text-center">Le client saisit le montant : {formatFcfa(amount)}</p>}
         <p className="text-sm text-white/60">Réf. {link.reference} — le client scanne, paie, puis saisissez l'ID de transaction reçu.</p>
-        <input className="input max-w-xs" placeholder="ID de transaction (SMS / app Business)" value={tx} onChange={(e) => setTx(e.target.value)} />
+        <input aria-label="ID de transaction (SMS / app Business)" className="input max-w-xs" placeholder="ID de transaction (SMS / app Business)" value={tx} onChange={(e) => setTx(e.target.value)} />
         <button className="btn w-full max-w-xs" disabled={busy || tx.trim().length < 6} onClick={confirm}>Paiement reçu</button>
       </>}
       {err && <p className="text-red-400 text-center">{err}</p>}

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Pencil, Plus, Star, Trash2, TrendingDown, TrendingUp } from "lucide-react";
 import { api } from "@/lib/api";
