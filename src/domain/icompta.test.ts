@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ACCOUNTS, balanceOf, canValidate, checkLines, entryNumber, isCode, periodOf, periodsOfYear, swap, validDay } from "./icompta";
+import { balanceOf, canValidate, checkLines, entryNumber, isCode, periodOf, periodsOfYear, swap, validDay } from "./icompta";
 
-const act = new Set(DEFAULT_ACCOUNTS.map((a) => a.code));
+const act = new Set(["571", "701", "401", "411"]);
 describe("ICompta — domaine", () => {
   it("écriture équilibrée acceptée, déséquilibre/zéro/compte inconnu/ligne mixte refusés", () => {
     expect(checkLines([{ account: "571", debit: 1000, credit: 0 }, { account: "701", debit: 0, credit: 1000 }], act)).toMatchObject({ ok: true, total: 1000 });

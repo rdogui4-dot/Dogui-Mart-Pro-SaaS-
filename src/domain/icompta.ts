@@ -1,13 +1,6 @@
 /** ICompta Business : règles pures (écritures, équilibre, périodes, droits de validation). Aucun taux, compte ou règle fiscale n'est inventé : tout paramétrage est à confirmer par un professionnel. */
 export type Line = { account: string; debit: number; credit: number; label?: string };
 export const MAX_LINES = 50;
-/** Comptes déjà utilisés par l'application pour ses écritures automatiques (libellés d'usage, à confirmer par un expert-comptable). */
-export const DEFAULT_ACCOUNTS: { code: string; label: string }[] = [
-  { code: "571", label: "Caisse (espèces)" }, { code: "5722", label: "Mobile money — Wave" }, { code: "5723", label: "Mobile money — Orange Money" }, { code: "521", label: "Banque" },
-  { code: "411", label: "Clients" }, { code: "4191", label: "Bons d'achat / avoirs clients" }, { code: "401", label: "Fournisseurs" },
-  { code: "701", label: "Ventes de marchandises" }, { code: "601", label: "Achats de marchandises" }, { code: "31", label: "Marchandises (stock)" },
-  { code: "4431", label: "TVA collectée" }, { code: "4452", label: "TVA déductible" },
-];
 /** Codes de journaux conventionnels (à confirmer). */
 export const JOURNALS: Record<string, string> = { VE: "Ventes", AC: "Achats", CA: "Caisse", BQ: "Banque", OD: "Opérations diverses" };
 export const isJournal = (j: unknown): j is string => typeof j === "string" && Object.hasOwn(JOURNALS, j);
