@@ -79,6 +79,9 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   payment_links: (t, d) => [owner(t), `label:${staffLabel(shopOf(d))}`],
   // Données sensibles d'une boutique : réservées aux employés qui ont le module correspondant
   purchase_receipts: (t, d) => [owner(t), `label:${moduleLabel("purchases", shopOf(d))}`],
+  inventories: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
+  inventory_lines: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
+  inventory_events: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`],
   purchase_events: (t, d) => [owner(t), `label:${moduleLabel("purchases", shopOf(d))}`],
   suppliers: (t, d) => [owner(t), `label:${moduleLabel("purchases", shopOf(d))}`],
   purchase_orders: (t, d) => [owner(t), `label:${moduleLabel("purchases", shopOf(d))}`],

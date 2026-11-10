@@ -49,7 +49,7 @@ export async function businessDashboard(store: Store, ctx: Ctx, b: { preset?: st
     for (const s of [...pend.rows, ...post.rows]) if (now.getTime() - Date.parse(String(s.soldAt)) > STUCK_MS) stuck.push(s);
     for (const m of moves.rows) { const nm = nameOf.get(String(m.productId)) ?? "Article"; const e = { id: m.$id, productId: String(m.productId), name: nm, kind: String(m.kind), label: MOVE_LABEL[String(m.kind)] ?? String(m.kind), qty: Number(m.qty), at: at(m), shop: sname };
       if (Date.parse(e.at) >= Date.parse(since7)) recentMoves.push(e);
-      if (m.kind === "loss" || m.kind === "transfer_out" || m.kind === "transfer_in" || (m.kind === "adjust" && m.refId === "inventaire")) important.push({ ...e, label: m.kind === "adjust" ? "Inventaire : écart constaté" : e.label });
+      if (m.kind === "loss" || m.kind === "transfer_out" || m.kind === "transfer_in" || (m.kind === "adjust" && String(m.refId ?? "").startsWith("inventaire"))) important.push({ ...e, label: m.kind === "adjust" ? "Inventaire : écart constaté" : e.label });
     }
     for (const x of snap.products.filter((x) => Date.parse(at(x)) >= Date.parse(since30))) created.push({ id: x.$id, name: String(x.name), price: Number(x.price ?? 0), at: at(x), shop: sname });
   }
