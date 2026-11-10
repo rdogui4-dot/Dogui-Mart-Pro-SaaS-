@@ -18,8 +18,16 @@ import { isVirtualBundle } from "@/domain/bundles";
 import type { ArticleRow } from "@/lib/articles";
 import { useSubscription } from "./subscription";
 import { useStockLevels } from "@/lib/queries";
+import { StockHub } from "./stock-business";
 
+/** Formule Business et + : hub Stock intelligent (tableau, articles, mouvements, transferts, alertes) ; sinon la page simple. */
 export function StockPage() {
+  const plan = useSubscription().data?.entitlement.plan.id;
+  if (!plan || !planAllows(plan, "stockIntel")) return <StockLegacy />;
+  return <StockHub legacy={(onCard) => <StockLegacy onCard={onCard} />} />;
+}
+
+function StockLegacy({ onCard }: { onCard?: (productId: string, variantId?: string) => void } = {}) {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
   const products = useQuery({ queryKey: ["products"], queryFn: () => list<Product>("products", s, [], 500) });
   const levels = useStockLevels();
@@ -48,7 +56,7 @@ export function StockPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="sr-only">Stock</h1>
+      {!onCard && <h1 className="sr-only">Stock</h1>}
       {track && (trackingOf(track) === "lot" ? <LotsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "lots")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} /> : <SerialsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "serials")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} />)}
       {planAllows(sub.data?.entitlement.plan.id, "lots") && <ExpiryAlerts />}
       <div className="grid grid-cols-2 gap-2">
@@ -88,6 +96,8 @@ export function StockPage() {
               </div>
               <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{formatQty(n)}</div>
               {can(s, "stock") && <span className="text-[var(--gold)] text-sm">Ajuster</span>}
+              {onCard && !p.hasVariants && !isVirtualBundle(p) && <button className="btn-ghost !py-1 !px-2 text-sm" aria-label={`Fiche de stock ${p.name}`} onClick={(e) => { e.stopPropagation(); onCard(p.$id); }}>Fiche</button>}
+              {onCard && p.hasVariants && (variants.data ?? []).filter((v) => v.productId === p.$id && !v.archived).map((v) => <button key={v.$id} className="btn-ghost !py-1 !px-2 text-xs" aria-label={`Fiche de stock ${p.name} ${v.label}`} onClick={(e) => { e.stopPropagation(); onCard(p.$id, v.$id); }}>{v.label}</button>)}
             </li>
           );
         })}
