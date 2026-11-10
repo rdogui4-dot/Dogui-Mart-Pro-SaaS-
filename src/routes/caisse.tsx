@@ -1,3 +1,4 @@
+import { AmountInput } from "@/components/AmountInput";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,7 +55,7 @@ function OpenForm({ onDone }: { onDone: () => void }) {
   const ok = f.trim() !== "" && Number.isInteger(num(f)) && num(f) >= 0;
   return <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}><b>Ouvrir la caisse</b><p className="text-xs text-white/50">Comptez les espèces présentes dans le tiroir : c'est le fond initial.</p>
     {proReg && <input className="input" aria-label="Nom de la caisse" maxLength={40} placeholder="Nom de la caisse (ex. Caisse 1) — une seule session par caisse" value={register} onChange={(e) => setRegister(e.target.value)} />}
-    <input className="input" inputMode="numeric" aria-label="Fond initial" placeholder="Fond initial (FCFA)" value={f} onChange={(e) => setF(e.target.value)} /><input className="input" aria-label="Note" maxLength={200} placeholder="Note (facultatif)" value={note} onChange={(e) => setNote(e.target.value)} />
+    <AmountInput aria-label="Fond initial" placeholder="Fond initial" hint={f.trim() === "" ? "Montant des espèces dans le tiroir, en FCFA (0 si le tiroir est vide)." : undefined} value={f} onChange={setF} /><input className="input" aria-label="Note" maxLength={200} placeholder="Note (facultatif)" value={note} onChange={(e) => setNote(e.target.value)} />
     <Err e={m.error} /><button className="btn" disabled={!ok || m.isPending}>{m.isPending ? "Ouverture…" : "Ouvrir la caisse"}</button></form>;
 }
 function Totals({ t }: { t: Totals }) {
@@ -76,7 +77,7 @@ function Active({ c, manager, onChanged }: { c: Required<Current>; manager: bool
     <section className="card flex flex-col gap-2" aria-label="Mouvements de caisse"><b className="text-sm">Sorties et entrées d'espèces</b>
       <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); setAskMv(true); }}>
         <div className="flex gap-2">{(["out", "in"] as const).map((k) => <button key={k} type="button" className="chip" aria-current={kind === k} onClick={() => setKind(k)}>{k === "out" ? "Sortie" : "Entrée"}</button>)}</div>
-        <input className="input" inputMode="numeric" aria-label="Montant du mouvement" placeholder="Montant (FCFA)" value={amount} onChange={(e) => setAmount(e.target.value)} /><input className="input" aria-label="Motif" maxLength={200} placeholder="Motif obligatoire (ex. achat de sacs)" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <AmountInput aria-label="Montant du mouvement" placeholder="Montant" value={amount} onChange={setAmount} /><input className="input" aria-label="Motif" maxLength={200} placeholder="Motif obligatoire (ex. achat de sacs)" value={reason} onChange={(e) => setReason(e.target.value)} />
         <input className="input" aria-label="Bénéficiaire" maxLength={120} placeholder="Bénéficiaire (à qui l'argent est remis)" value={who} onChange={(e) => setWho(e.target.value)} /><Err e={mv.error} /><button className="btn-ghost" disabled={mv.isPending || !(num(amount) > 0) || reason.trim().length < 3}>{mv.isPending ? "Enregistrement…" : manager ? "Enregistrer (autorisé)" : "Enregistrer (à faire autoriser)"}</button></form>
       {c.movements.map((m) => <div key={m.id} className="flex justify-between gap-2 text-sm border-t border-[var(--line)] pt-1"><span>{m.kind === "out" ? "Sortie" : "Entrée"} · {m.reason}{m.beneficiary ? ` — ${m.beneficiary}` : ""}<span className="text-xs text-white/50 block">{m.expenseId ? "Dépense · " : ""}{dt(m.at)} · {STATUS[m.status] ?? m.status}</span></span><span className="text-right shrink-0"><b>{m.kind === "out" ? "−" : "+"}{formatFcfa(m.amount)}</b>
         {manager && m.status === "pending" && <span className="flex gap-1 pt-1"><button className="btn !py-1 !px-2 text-xs" disabled={auth.isPending} onClick={() => auth.mutate({ id: m.id, approve: true })}>Autoriser</button><button className="btn-ghost !py-1 !px-2 text-xs" disabled={auth.isPending} onClick={() => auth.mutate({ id: m.id, approve: false })}>Refuser</button></span>}</span></div>)}
@@ -85,7 +86,7 @@ function Active({ c, manager, onChanged }: { c: Required<Current>; manager: bool
     {t.movements.expenseOut ? <p className="text-xs text-white/50">dont {formatFcfa(t.movements.expenseOut)} de dépenses payées depuis la caisse. <Link to="/depenses" className="underline">Voir les dépenses</Link></p> : null}
     <section className="card flex flex-col gap-2" aria-label="Fermeture"><b className="text-sm">Fermer la caisse</b>
       {t.movements.pending > 0 && <p className="text-xs text-amber-300 flex gap-1"><AlertTriangle size={14} />{t.movements.pending} mouvement(s) en attente d'autorisation : à traiter avant la fermeture.</p>}
-      <input className="input" inputMode="numeric" aria-label="Montant compté" placeholder="Espèces comptées dans le tiroir (FCFA)" value={counted} onChange={(e) => setCounted(e.target.value)} />
+      <AmountInput aria-label="Montant compté" placeholder="Espèces comptées dans le tiroir" value={counted} onChange={setCounted} />
       {variance !== null && <p className={`text-sm ${variance === 0 ? "text-emerald-300" : "text-amber-300"}`} role="status">{variance === 0 ? "Aucun écart" : variance > 0 ? `Excédent de ${formatFcfa(variance)}` : `Manque de ${formatFcfa(-variance)}`} (théorique {formatFcfa(t.theoreticalCash)})</p>}
       <Err e={close.error} /><button className="btn" disabled={cn === null || close.isPending || t.movements.pending > 0} onClick={() => setAsk(true)}>Fermer la caisse</button>
       {done && <p className="text-sm text-emerald-300" role="status">Caisse fermée. Écart : {done.variance === 0 ? "aucun" : formatFcfa(done.variance)}.</p>}</section>

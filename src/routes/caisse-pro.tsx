@@ -1,3 +1,4 @@
+import { AmountInput } from "@/components/AmountInput";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
@@ -111,7 +112,7 @@ function Handover() {
   return <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}><p className="text-xs text-white/50">Passation contrôlée : la session sortante est comptée et fermée (écart tracé), la suivante s'ouvre au nom du repreneur avec le montant compté.</p>
     <select className="input" aria-label="Session à transférer" value={sid} onChange={(e) => setSid(e.target.value)}><option value="">Session à transférer…</option>{open.map((o) => <option key={o.id} value={o.id}>{o.seller} {o.register ? `· ${o.register}` : ""} (depuis {dt(o.openedAt)})</option>)}</select>
     <select className="input" aria-label="Vendeur repreneur" value={to} onChange={(e) => setTo(e.target.value)}><option value="">Vendeur qui reprend…</option>{cand.map((x) => <option key={x.userId} value={x.userId}>{x.name}</option>)}</select>
-    <input className="input" inputMode="numeric" aria-label="Espèces comptées" placeholder="Espèces comptées (FCFA)" value={counted} onChange={(e) => setCounted(e.target.value)} /><input className="input" aria-label="Note" maxLength={200} placeholder="Note (facultatif)" value={note} onChange={(e) => setNote(e.target.value)} />
+    <AmountInput aria-label="Espèces comptées" placeholder="Espèces comptées" value={counted} onChange={setCounted} /><input className="input" aria-label="Note" maxLength={200} placeholder="Note (facultatif)" value={note} onChange={(e) => setNote(e.target.value)} />
     <Err e={m.error} /><button className="btn" disabled={m.isPending || !sid || !to || !(num(counted) >= 0) || counted.trim() === ""}>{m.isPending ? "Transfert…" : "Transférer la caisse"}</button>{m.data && <p className="text-sm text-emerald-300" role="status">Caisse transférée. Écart constaté : {m.data.variance === 0 ? "aucun" : formatFcfa(m.data.variance)}.</p>}</form>;
 }
 
