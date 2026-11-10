@@ -50,7 +50,7 @@ describe("zones, agents, classes ABC et ordre de comptage", () => {
     await mv("p2", 40, "sale", -60); await mv("p1", 5, "sale", -60); const id = await started();
     const z = await ok(call("ger", "scount.zones", { id, zones: [{ name: "Rayon alimentaire", agents: [U.stk!], categories: ["Alimentaire"] }, { name: "Hygiène", agents: [U.stk2!], categories: ["Hygiène"] }] })); expect(z.abc.A).toBeGreaterThanOrEqual(1); expect(z.basis).toMatch(/Rotation/); expect(z.unzoned).toBe(0);
     expect((await get(id, "stk")).lines.map((l: any) => l.name).sort()).toEqual(["Huile", "Lait", "Riz", "Sucre"]); expect((await get(id, "stk2")).lines.map((l: any) => l.name)).toEqual(["Savon"]);
-    await err(enter(id, (await lineOf(id, "Savon")).id, 5, "stk"), 403, "zone"); await ok(enter(id, (await lineOf(id, "Savon")).id, 5, "stk2")); expect((await lineOf(id, "Huile")).abc).toBeUndefined();
+    await err(enter(id, (await lineOf(id, "Savon")).id, 5, "stk"), 403, "zone"); await ok(enter(id, (await lineOf(id, "Savon")).id, 5, "stk2"));
     const l = st.rows("inventory_lines").filter((x) => x.inventoryId === id); expect(l.find((x) => x.name === "Huile")!.abc).toBe("A"); expect(l.every((x) => x.rank > 0)).toBe(true);
   });
   it("validation des zones : nom, agents avec accès au stock, critère obligatoire, pas de doublon ; interdit après le comptage", async () => {
@@ -76,7 +76,7 @@ describe("comptage aveugle avancé : second et troisième comptage indépendants
   it("aucun consensus : arbitrage du responsable avec motif ; toutes les versions conservées", async () => {
     const { id, l } = await setup(); await ok(enter(id, l.id, 60, "stk2")); await ok(enter(id, l.id, 70, "stk3")); expect((await lineOf(id, "Riz")).status).toBe("arbitrate"); await err(enter(id, l.id, 65, "stk3"), 409);
     await err(call("ger", "scount.resolve", { id, lineId: l.id, choose: "second", reason: "" }), 400); await err(call("stk", "scount.resolve", { id, lineId: l.id, choose: "second", reason: "Retenu" }), 403); await ok(call("ger", "scount.resolve", { id, lineId: l.id, choose: "second", reason: "Constat contradictoire retenu" }));
-    expect(await lineOf(id, "Riz")).toMatchObject({ status: "counted", counted: 60 }); const e = (await ok(call("ger", "count.history", { id }))).events.find((x: any) => x.kind === "arbitrate"); expect(e.detail).toMatchObject({ first: 80, second: 60, third: 70, result: 60 });
+    expect(await lineOf(id, "Riz")).toMatchObject({ status: "counted", counted: 60 }); expect((await lineOf(id, "Riz", "stk")).second).toBeNull(); const e = (await ok(call("ger", "count.history", { id }))).events.find((x: any) => x.kind === "arbitrate"); expect(e.detail).toMatchObject({ first: 80, second: 60, third: 70, result: 60 });
   });
   it("petit désaccord sous le seuil : arbitrage direct sans troisième comptage", async () => { const id = await started({ thresholdPct: 50, thresholdValue: 10_000_000 }); await countAll(id, { Riz: 100 }); const l = await lineOf(id, "Riz"); await ok(call("ger", "scount.second", { id, lineIds: [l.id], reason: "Contrôle" })); await ok(enter(id, l.id, 99, "stk2")); expect((await lineOf(id, "Riz")).status).toBe("arbitrate"); });
   it("le comptage ne peut être clos, ni l'inventaire validé, tant qu'un contrôle est ouvert", async () => {

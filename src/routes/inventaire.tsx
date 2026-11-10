@@ -12,11 +12,12 @@ import { planAllows } from "@/domain/features";
 import { INV_LABEL, LINE_LABEL, type InvStatus, type LineStatus } from "@/domain/inventory";
 import { formatFcfa } from "@/domain/money";
 import { useSubscription } from "./subscription";
+import { AlertsBar, AnalysisBox, AnomaliesBox, CampaignsView, ControlBox, PlanView, ProposalsBox, ZonesSheet } from "./inventaire-pro";
 
 type Prog = { total: number; counted: number; pending: number; recount: number; pct: number };
 type Row = { id: string; number: string; status: InvStatus; label: string; kind: string; responsible: string; createdAt: string; startedAt: string; validatedAt: string; progress: Prog; adjusted: number; notes: string };
 type Mv = { net: Record<string, number>; count: number; recent: number };
-type Line = { id: string; productId: string; name: string; sku: string; barcode: string; category: string; scale: number; status: LineStatus; round: number; counted: number | null; countedBy: string; note: string; conflict: boolean; units: { unit: string; factor: number }[]; theoretical?: number; diff?: number | null; value?: number | null; significant?: boolean; movesAfter?: Mv; movesDuring?: Mv; recentBefore?: number; needsAttention?: boolean; reason?: string; decidedBy?: string };
+type Line = { id: string; productId: string; name: string; sku: string; barcode: string; category: string; scale: number; status: LineStatus; round: number; counted: number | null; second?: number | null; third?: number | null; zone?: string; abc?: string; countedBy: string; note: string; conflict: boolean; units: { unit: string; factor: number }[]; theoretical?: number; diff?: number | null; value?: number | null; significant?: boolean; movesAfter?: Mv; movesDuring?: Mv; recentBefore?: number; needsAttention?: boolean; reason?: string; decidedBy?: string };
 type Ev = { id: string; kind: string; by: string; at: string; detail: Record<string, unknown> };
 type Detail = { id: string; number: string; status: InvStatus; label: string; kind: string; responsible: string; responsibleId: string; agents: { id: string; name: string }[]; threshold: { pct: number; value: number }; notes: string; startedAt: string; countedAt: string; validatedAt: string; excluded: { name: string; reason: string }[]; docs: { fileId: string; name: string }[]; totals: { adjusted: number; rejected: number; uncounted: number; netValue: number; surplusValue: number; shortageValue: number } | null; progress: Prog; canCount: boolean; blind: boolean; lines: Line[]; unknown: { code: string; qty: number }[]; events: Ev[] };
 type Report = { counted: number; uncounted: number; gaps: number; positive: number; negative: number; surplusValue: number; shortageValue: number; netValue: number; byCategory: { category: string; counted: number; gaps: number; surplusValue: number; shortageValue: number }[]; recount: { lineId: string; name: string; reason: string }[]; attention: { lineId: string; name: string }[]; unknown: unknown[]; note: string; export: ReportData };
@@ -33,19 +34,25 @@ const sgn = (n: number) => (n > 0 ? `+${n}` : String(n));
 /** Silent Count (Business) : inventaire par boutique avec comptage à l'aveugle (aucune quantité théorique affichée pendant le comptage), rapprochement, second comptage, validation et ajustements tracés. */
 export function InventairePage() {
   const { session } = useSession(); const s = session!; const sub = useSubscription(); const allowed = planAllows(sub.data?.entitlement.plan.id, "silentCount"); const qc = useQueryClient(); const manager = s.role === "owner" || s.role === "manager";
-  const [sheet, setSheet] = useState<ReactNode>(null); const [status, setStatus] = useState("");
+  const [sheet, setSheet] = useState<ReactNode>(null); const [status, setStatus] = useState(""); const pro = planAllows(sub.data?.entitlement.plan.id, "silentCountPro"); const [tab, setTab] = useState<"inv" | "camp" | "plan">("inv"); const { switchShop } = useSession();
   const q = useQuery({ queryKey: ["count-list", s.shopId, status], enabled: allowed, retry: 1, queryFn: () => api<{ inventories: Row[] }>(s, "count.list", { status }) });
   const refresh = () => void qc.invalidateQueries({ predicate: (x) => String(x.queryKey[0]).startsWith("count") || ["stock", "overview"].includes(String(x.queryKey[0])) });
   if (sub.isLoading) return <div className="card h-24 animate-pulse bg-white/5" aria-busy="true" />;
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Inventaire</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-[var(--gold)]" />Silent Count : formule Business</span><p className="text-white/60">Comptage physique à l'aveugle, écarts valorisés, second comptage, validation et ajustements tracés.</p><button className="btn text-center" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Voir les formules</button></div></div>;
-  const close = () => setSheet(null);
+  const close = () => setSheet(null); const openInv = (id: string) => setSheet(<InventorySheet id={id} close={close} refresh={refresh} manager={manager} />); const proOn = pro && manager;
   return <div className="flex flex-col gap-3">
     <div className="flex items-center justify-between gap-2"><h1 className="text-2xl font-bold">Inventaire</h1>{manager && <button className="btn !py-2 flex items-center gap-1" onClick={() => setSheet(<CreateForm close={close} done={() => { close(); refresh(); }} />)}><Plus size={16} />Nouveau</button>}</div>
     {!navigator.onLine && <div className="card border border-amber-400/40 text-sm flex gap-2" role="alert"><WifiOff size={16} className="text-amber-300 shrink-0 mt-0.5" /><span>Hors ligne : chaque saisie est enregistrée côté serveur ; reconnectez-vous pour continuer le comptage.</span></div>}
+    {proOn && <AlertsBar onOpen={openInv} />}
+    {proOn && <nav aria-label="Sections Pro" className="scroll-x">{([["inv", "Inventaires"], ["camp", "Campagnes"], ["plan", "Planification"]] as [typeof tab, string][]).map(([k, l]) => <button key={k} className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>}
+    {proOn && tab === "camp" && <CampaignsView onOpen={(id, shopId) => { if (shopId !== s.shopId) switchShop(shopId); openInv(id); }} />}
+    {proOn && tab === "plan" && <PlanView onOpen={openInv} />}
+    {(!proOn || tab === "inv") && <>
     <select className="input !py-2 text-sm" aria-label="Statut" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Tous les inventaires</option>{Object.entries(INV_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
     {q.isLoading && <div className="card h-20 animate-pulse bg-white/5" aria-busy="true" />}<Err e={q.error} />
     {q.data && !q.data.inventories.length && <p className="text-center text-white/50 text-sm py-6">{manager ? "Aucun inventaire. Créez-en un pour compter votre stock." : "Aucun inventaire ne vous est assigné."}</p>}
     {q.data?.inventories.map((r) => <button key={r.id} className="card text-left flex flex-col gap-2" onClick={() => setSheet(<InventorySheet id={r.id} close={close} refresh={refresh} manager={manager} />)}><span className="flex justify-between gap-2"><b>{r.number}</b><span className={`text-sm ${TONE[r.status]}`}>{r.label}</span></span><span className="text-xs text-white/50">{r.kind === "partial" ? "Partiel" : "Complet"} · responsable {r.responsible || "—"}{r.adjusted ? ` · ${r.adjusted} ajustement(s)` : ""}</span><Bar p={r.progress} /></button>)}
+    </>}
     {sheet}
   </div>;
 }
@@ -72,8 +79,8 @@ function CreateForm({ close, done }: { close: () => void; done: () => void }) {
 }
 
 function InventorySheet({ id, close, refresh, manager }: { id: string; close: () => void; refresh: () => void; manager: boolean }) {
-  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const q = useQuery({ queryKey: ["count-get", id], retry: 1, refetchOnWindowFocus: true, queryFn: () => api<Detail>(s, "count.get", { id }) }); const d = q.data;
-  const reload = () => { void qc.invalidateQueries({ queryKey: ["count-get", id] }); void qc.invalidateQueries({ queryKey: ["count-report", id] }); refresh(); };
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const q = useQuery({ queryKey: ["count-get", id], retry: 1, refetchOnWindowFocus: true, queryFn: () => api<Detail>(s, "count.get", { id }) }); const d = q.data; const pro = planAllows(useSubscription().data?.entitlement.plan.id, "silentCountPro") && manager; const [zones, setZones] = useState(false);
+  const reload = () => { void qc.invalidateQueries({ queryKey: ["count-get", id] }); void qc.invalidateQueries({ queryKey: ["count-anom", id] }); void qc.invalidateQueries({ queryKey: ["count-an", id] }); void qc.invalidateQueries({ queryKey: ["count-prop", id] }); void qc.invalidateQueries({ queryKey: ["count-report", id] }); refresh(); };
   const [ask, setAsk] = useState<null | { kind: string; title: string; text?: string; needReason?: boolean; body?: object }>(null); const [why, setWhy] = useState(""); const [tab, setTab] = useState("todo"); const [filter, setFilter] = useState("all"); const [code, setCode] = useState(""); const [scan, setScan] = useState(false); const [entry, setEntry] = useState<Line | null>(null); const [note, setNote] = useState("");
   const act = useMutation({ mutationFn: (a: { action: string; body?: object }) => api(s, `count.${a.action}`, { id, ...a.body }), onSuccess: () => { setAsk(null); setWhy(""); reload(); } });
   const open = (c: string) => { const l = d?.lines.find((x) => [x.barcode, x.sku].some((v) => v && v.toLowerCase() === c.trim().toLowerCase())); if (l) { setEntry(l); setCode(""); } else setUnknown(c.trim()); }; const [unknown, setUnknown] = useState("");
@@ -91,9 +98,11 @@ function InventorySheet({ id, close, refresh, manager }: { id: string; close: ()
       {st === "counted" && manager && <button className="btn !py-2 text-sm" disabled={act.isPending} onClick={() => act.mutate({ action: "review" })}>Vérifier les écarts</button>}
       {st === "review" && manager && <><button className="btn !py-2 text-sm" onClick={() => setAsk({ kind: "decide", title: "Approuver tous les écarts non importants", needReason: true, body: { all: true, decision: "approve" } })}>Approuver les petits écarts</button><button className="btn-ghost !py-2 text-sm" onClick={() => setAsk({ kind: "validate", title: "Valider l'inventaire ?", text: "Les mouvements correctifs des écarts approuvés seront créés, une seule fois. Les écarts refusés et les articles non comptés ne sont pas ajustés." })}>Valider l'inventaire</button></>}
       {st === "validated" && manager && <button className="btn !py-2 text-sm" onClick={() => setAsk({ kind: "close", title: "Clôturer l'inventaire ?", text: "Après clôture, les résultats ne se modifient plus. Toute correction passera par une opération corrective tracée." })}>Clôturer</button>}
+      {pro && (st === "draft" || st === "in_progress") && <button className="btn-ghost !py-2 text-sm" onClick={() => setZones(true)}>Zones et agents</button>}
       {manager && ["draft", "in_progress", "counted", "review"].includes(st) && <button className="btn-ghost !py-2 text-sm !border-red-400/60 !text-red-300" onClick={() => setAsk({ kind: "cancel", title: "Annuler l'inventaire", needReason: true })}>Annuler</button>}
     </div>
     <Err e={act.error} />
+    {pro && ["in_progress", "counted", "review"].includes(st) && <ControlBox id={id} status={st} lines={mine} onDone={reload} />}
     {/* ---------- comptage silencieux ---------- */}
     {st === "in_progress" && <>
       <div className="flex gap-2"><input className="input flex-1" aria-label="Scanner ou rechercher" placeholder="Code-barres, référence ou nom…" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && code.trim()) open(code); }} /><button className="btn" aria-label="Scanner avec la caméra" onClick={() => setScan(true)}><ScanLine /></button></div>
@@ -112,9 +121,11 @@ function InventorySheet({ id, close, refresh, manager }: { id: string; close: ()
         {l.reason && <p className="text-xs">Motif : {l.reason}{l.decidedBy ? ` — ${l.decidedBy}` : ""}</p>}
         {st === "review" && l.status !== "approved" && l.status !== "rejected" && <div className="flex gap-2 flex-wrap"><button className="btn-ghost !py-1 text-xs" onClick={() => setAsk({ kind: "decide", title: `Approuver l'écart — ${l.name}`, needReason: true, body: { lineIds: [l.id], decision: "approve", ...(l.significant && l.round < 2 ? { forceSignificant: true } : {}) }, text: l.significant && l.round < 2 ? "Écart important sans second comptage : un motif détaillé est obligatoire (ou demandez un recomptage)." : undefined })}>Approuver</button><button className="btn-ghost !py-1 text-xs" onClick={() => setAsk({ kind: "decide", title: `Refuser l'écart — ${l.name}`, needReason: true, body: { lineIds: [l.id], decision: "reject" } })}>Refuser</button><button className="btn-ghost !py-1 text-xs" onClick={() => setAsk({ kind: "recount", title: `Recompter — ${l.name}`, needReason: true, body: { lineIds: [l.id] } })}>Recompter</button></div>}</div>)}
       {(st === "validated" || st === "closed") && d.totals && <div className="card text-sm flex flex-col gap-1"><b>Résultat</b><p>{d.totals.adjusted} ajustement(s) créé(s) · {d.totals.rejected} écart(s) refusé(s) · {d.totals.uncounted} non compté(s)</p><p>Surplus {formatFcfa(d.totals.surplusValue)} · manquants {formatFcfa(d.totals.shortageValue)} · net {formatFcfa(d.totals.netValue)}</p></div>}
-      <ReportBox id={id} />
+      {pro && <><AnomaliesBox id={id} /><AnalysisBox id={id} />{st === "review" && <ProposalsBox id={id} onDone={reload} />}</>}
+      <ReportBox id={id} pro={pro} />
     </>}
     <div className="flex flex-col gap-1"><h3 className="text-sm font-semibold">Historique</h3>{manager ? d.events.map((e) => <p key={e.id} className="text-xs text-white/60 border-t border-[var(--line)] pt-1">{new Date(e.at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} · {EVENT[e.kind] ?? e.kind}{e.by ? ` · ${e.by}` : ""}{e.kind === "count" ? ` — ${String(e.detail.name)} : ${String(e.detail.qty)}${e.detail.previous !== null && e.detail.previous !== undefined ? ` (avant : ${String(e.detail.previous)})` : ""}` : ""}{typeof e.detail.reason === "string" && e.detail.reason ? ` — « ${e.detail.reason} »` : ""}</p>) : <p className="text-xs text-white/50">Réservé au responsable.</p>}</div>
+    {zones && <ZonesSheet inv={{ id, status: st }} onClose={() => setZones(false)} onDone={() => { setZones(false); reload(); }} />}
     {scan && <Scanner onCode={(c) => { setScan(false); open(c); }} onClose={() => setScan(false)} />}
     {entry && <EntrySheet inv={d} line={entry} onClose={() => setEntry(null)} onDone={() => { setEntry(null); setNote(""); reload(); }} note={note} setNote={setNote} />}
     {unknown && <Sheet title="Code inconnu" onClose={() => setUnknown("")} back><p className="text-sm">« {unknown} » ne figure pas dans cet inventaire. Vous pouvez le signaler au responsable avec la quantité vue.</p><UnknownForm id={id} code={unknown} onDone={() => { setUnknown(""); setCode(""); reload(); }} /></Sheet>}
@@ -141,9 +152,9 @@ function UnknownForm({ id, code, onDone }: { id: string; code: string; onDone: (
   return <><Field label="Quantité vue"><input className="input" inputMode="decimal" aria-label="Quantité vue" value={qty} onChange={(e) => setQty(e.target.value)} /></Field><Err e={m.error} /><button className="btn" disabled={m.isPending} onClick={() => m.mutate()}>Signaler ce code</button></>;
 }
 
-function ReportBox({ id }: { id: string }) {
-  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["count-report", id], retry: 1, queryFn: () => api<Report>(s, "count.report", { id }) }); const [fmt, setFmt] = useState<string | null>(null); const [err, setErr] = useState("");
-  const r = q.data; if (q.error) return <Err e={q.error} />; if (!r) return <div className="card h-20 animate-pulse bg-white/5" aria-busy="true" />;
+function ReportBox({ id, pro }: { id: string; pro?: boolean }) {
+  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["count-report", id, !!pro], retry: 1, queryFn: () => api<Report>(s, pro ? "scount.report" : "count.report", { id }) }); const [fmt, setFmt] = useState<string | null>(null); const [err, setErr] = useState("");
+  const r = q.data; if (q.error) return /après la fin/.test((q.error as Error).message) ? null : <Err e={q.error} />; if (!r) return <div className="card h-20 animate-pulse bg-white/5" aria-busy="true" />;
   const exp = async (f: ExportFormat) => { setFmt(f); setErr(""); try { await exportReport(r.export, f); } catch (e) { setErr((e as Error).message); } finally { setFmt(null); } };
   return <div className="card flex flex-col gap-2 text-sm"><b>Rapport</b>
     <div className="grid grid-cols-2 gap-2"><p>Comptés : <b>{r.counted}</b></p><p>Non comptés : <b>{r.uncounted}</b></p><p>Écarts +/− : <b>{r.positive}/{r.negative}</b></p><p>Écart net : <b>{formatFcfa(r.netValue)}</b></p><p className="text-emerald-300">Surplus : {formatFcfa(r.surplusValue)}</p><p className="text-red-300">Manquants : {formatFcfa(r.shortageValue)}</p></div>
