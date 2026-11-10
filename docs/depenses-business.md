@@ -43,7 +43,7 @@ Total du jour et du mois, de la période et de la période précédente (écart 
 Un gérant/propriétaire qui enregistre lui-même une dépense n'a pas à saisir de code ; il peut aussi valider ou rejeter directement (comme avant).
 
 **Sécurité (côté serveur)**
-- Code dérivé par HMAC-SHA256 (clé serveur) de la dépense (identifiant, montant, libellé, catégorie, origine, auteur) et d'un numéro d'émission : **jamais stocké, jamais renvoyé au vendeur** (`expense.get` ne le contient pas). Modifier la dépense change le code.
+- Code dérivé par HMAC-SHA256 (clé serveur) de la dépense (identifiant, montant, libellé, catégorie, origine, auteur), d'un numéro d'émission **et de l'identifiant du responsable** : chaque responsable a SON code pour une même dépense : **jamais stocké, jamais renvoyé au vendeur** (`expense.get` ne le contient pas). Modifier la dépense change le code.
 - Usage unique (la dépense passe « validée ») ; validité 12 h ; **5 essais** incorrects verrouillent, le responsable doit **renouveler** (l'ancien code devient invalide).
 - Seul l'auteur saisit le code ; l'auteur ne peut ni lire ni renouveler son propre code (sauf propriétaire) ; comparaison en temps constant ; double saisie simultanée = une seule sortie.
 - Le code ne permet pas de dépasser le solde de caisse : cela reste réservé à la décision explicite d'un responsable.
@@ -53,4 +53,6 @@ Un gérant/propriétaire qui enregistre lui-même une dépense n'a pas à saisir
 
 **Justificatifs** : plus aucune nouvelle pièce jointe (`expense.receipt` répond 410) ; les pièces déjà enregistrées restent consultables, rien n'est supprimé.
 
-**Limite** : le code prouve qu'un responsable a *communiqué* son accord, pas qu'il a vu un document. L'identité du responsable qui valide n'est connue que par la consultation tracée du code, pas par la saisie.
+**Qui a validé** : à la saisie, le serveur compare le code à celui de chaque responsable habilité (propriétaires et employés avec le droit « valider », hors auteur) ; celui qui correspond est enregistré comme validateur (`decidedBy`, `authorizedBy` du mouvement de caisse, historique « validée par X, code saisi par Y », journal d'audit). Un responsable qui perd son droit ne valide plus.
+
+**Limite** : le code prouve qu'un responsable a *communiqué* son code personnel, pas qu'il a vu un document ; si un responsable confie son code à un tiers, la validation reste à son nom.

@@ -74,7 +74,7 @@ export async function getExpense(store: Store, ctx: Ctx, b: { id?: string }) {
   await gate(store, ctx); const r = await store.get("expenses", String(b.id ?? "")); if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId) throw new HttpError(404, "Dépense introuvable");
   if (!(await expenseRights(store, ctx)).includes("view") && r.createdBy !== ctx.userId) throw new HttpError(403, "Vous ne pouvez consulter que vos propres dépenses");
   const names = await nameMap(store, ctx); const ev = (await store.list("expense_events", { expenseId: r.$id }, 500)).sort((a, c) => String(a.$id).localeCompare(String(c.$id)));
-  return { ...view(r, names), events: ev.map((e) => ({ id: e.$id, kind: String(e.kind), by: names.get(String(e.userId)) ?? "", at: iso(e.at), detail: parse(e.detail, {}) })) };
+  return { ...view(r, names), events: ev.map((e) => { const detail = parse<Record<string, unknown>>(e.detail, {}); const who = e.kind === "approve" && detail.method === "code" && detail.approver ? String(detail.approver) : String(e.userId); return { id: e.$id, kind: String(e.kind), by: names.get(who) ?? "", at: iso(e.at), detail, ...(who !== String(e.userId) ? { enteredBy: names.get(String(e.userId)) ?? "" } : {}) }; }) };
 }
 
 // ------------------------------------------------------------------ écriture
@@ -159,23 +159,29 @@ export async function decideExpense(store: Store, ctx: Ctx, b: { id?: string; ap
   return approveRow(store, ctx, r, meta, note, b, false);
 }
 /** Validation effective (par décision d'un responsable ou par saisie de son code) : même écriture atomique dans les deux cas. */
-async function approveRow(store: Store, ctx: Ctx, r: Row, meta: Record<string, unknown>, note: string, od: { allowOverdraft?: boolean; overdraftReason?: string }, byCode: boolean) {
+async function approveRow(store: Store, ctx: Ctx, r: Row, meta: Record<string, unknown>, note: string, od: { allowOverdraft?: boolean; overdraftReason?: string }, byCode: boolean, approver = "") {
   const now = new Date().toISOString(); const amount = Number(r.amount); const ops: BatchOp[] = []; let overdraft: Awaited<ReturnType<typeof checkBalance>> = null; let movementId = "";
   if (r.source === "till") { // la sortie n'entre dans la caisse qu'à la validation, dans la session d'origine, si elle est encore ouverte
     const sess = await store.get("cash_sessions", String(r.sessionId)); if (!sess || sess.status !== "open") throw new HttpError(409, "La session de caisse de cette dépense est fermée : rejetez-la et faites-la ressaisir, ou annulez-la");
-    overdraft = await checkBalance(store, ctx, sess, amount, byCode ? {} : od, !byCode); const mv = moveOp(ctx, { id: r.$id, number: String(r.number), label: String(r.label), beneficiary: String(r.beneficiary ?? ""), amount }, sess.$id, "out", `Dépense ${r.number} — ${r.label}`, "out", byCode ? "code" : ctx.userId); movementId = mv.id; ops.push(mv);
+    overdraft = await checkBalance(store, ctx, sess, amount, byCode ? {} : od, !byCode); const mv = moveOp(ctx, { id: r.$id, number: String(r.number), label: String(r.label), beneficiary: String(r.beneficiary ?? ""), amount }, sess.$id, "out", `Dépense ${r.number} — ${r.label}`, "out", byCode ? approver : ctx.userId); movementId = mv.id; ops.push(mv);
   }
   if (note) meta.decisionNote = note; if (overdraft) meta.overdraft = overdraft; if (byCode) { meta.validatedByCode = true; meta.validatedAt = now; } delete meta.awaitingCode;
-  ops.unshift({ kind: "update", table: "expenses", id: r.$id, data: { status: "approved", decidedBy: byCode ? "" : ctx.userId, ...(movementId ? { movementId } : {}), meta: JSON.stringify(meta) } }); ops.push(ev(ctx, r.$id, "approve", { method: byCode ? "code" : "decision", note, ...(overdraft ? { overdraft } : {}) }, now), aud(ctx, byCode ? "expense.approve.code" : "expense.approve", `${r.number} ${amount}`));
+  ops.unshift({ kind: "update", table: "expenses", id: r.$id, data: { status: "approved", decidedBy: byCode ? approver : ctx.userId, ...(movementId ? { movementId } : {}), meta: JSON.stringify(meta) } }); ops.push(ev(ctx, r.$id, "approve", { method: byCode ? "code" : "decision", ...(byCode ? { approver } : {}), note, ...(overdraft ? { overdraft } : {}) }, now), aud(ctx, byCode ? "expense.approve.code" : "expense.approve", `${r.number} ${amount}`));
   await store.batch(ops); // conflit (double validation simultanée) → 409 : une seule sortie de caisse
-  if (movementId && (await isProPos(store, ctx))) await ledgerWrite(store, ctx, { kind: "cash_out", ref: String(r.number), key: `${r.$id}|out`, amount: -amount, at: now, sessionId: String(r.sessionId), payload: { expense: r.number, label: r.label, ...(byCode ? { validatedBy: "code" } : {}) } });
+  if (movementId && (await isProPos(store, ctx))) await ledgerWrite(store, ctx, { kind: "cash_out", ref: String(r.number), key: `${r.$id}|out`, amount: -amount, at: now, sessionId: String(r.sessionId), payload: { expense: r.number, label: r.label, ...(byCode ? { validatedBy: approver, via: "code" } : {}) } });
   return { id: r.$id, status: "approved", ...(overdraft ? { overdraft } : {}) };
 }
 
 // ------------------------------------------------------------------ code de validation (remplace le justificatif)
-/** Code dérivé par le serveur (HMAC) : lié à CETTE dépense (montant, libellé, catégorie, origine, auteur) et à son numéro d'émission. Jamais stocké, jamais renvoyé au vendeur : seul un responsable (droit « valider ») peut le lire. Modifier la dépense, ou le renouveler, change le code. */
-export function expenseCode(tenantId: string, r: { id: string; amount: unknown; category: unknown; label: unknown; source: unknown; createdBy: unknown }, seq: number): string {
-  const h = createHmac("sha256", secret()).update(`EXPCODE|${tenantId}|${r.id}|${Number(r.amount)}|${String(r.category)}|${String(r.label)}|${String(r.source)}|${String(r.createdBy)}|${seq}`).digest(); return Array.from({ length: 8 }, (_, i) => CODE_ALPHABET[h[i]! % 32]).join("");
+/** Code dérivé par le serveur (HMAC) : propre à CHAQUE responsable (son identifiant entre dans le calcul, donc le code saisi dit qui a validé) et lié à CETTE dépense (montant, libellé, catégorie, origine, auteur) et à son numéro d'émission. Jamais stocké, jamais renvoyé au vendeur : seul un responsable (droit « valider ») peut le lire. Modifier la dépense, ou le renouveler, change le code. */
+export function expenseCode(tenantId: string, r: { id: string; amount: unknown; category: unknown; label: unknown; source: unknown; createdBy: unknown }, seq: number, approverId: string): string {
+  const h = createHmac("sha256", secret()).update(`EXPCODE|${tenantId}|${r.id}|${Number(r.amount)}|${String(r.category)}|${String(r.label)}|${String(r.source)}|${String(r.createdBy)}|${seq}|${approverId}`).digest(); return Array.from({ length: 8 }, (_, i) => CODE_ALPHABET[h[i]! % 32]).join("");
+}
+/** Responsables habilités à valider dans cette boutique (propriétaires + employés avec le droit « valider »), hors auteur (sauf propriétaire). */
+async function approverIds(store: Store, ctx: Ctx, creator: string): Promise<string[]> {
+  const out = new Set<string>(); try { for (const o of await store.listOwners(ctx.tenantId)) out.add(o.userId); } catch { /* annuaire indisponible */ }
+  for (const st of (await store.scan("staff", { tenantId: ctx.tenantId }, { maxRows: 500 })).rows) { if (st.active === false || !parse<string[]>(st.shopIds, []).includes(ctx.shopId)) continue; const rights = st.expenseRights != null && String(st.expenseRights) !== "" ? parse<string[]>(st.expenseRights, []) : [...(DEFAULT_EXPENSE_RIGHTS[String(st.role)] ?? [])]; if (rights.includes("approve")) out.add(String(st.userId)); }
+  const owners = new Set<string>(); try { for (const o of await store.listOwners(ctx.tenantId)) owners.add(o.userId); } catch { /* idem */ } if (!owners.has(creator)) out.delete(creator); return [...out];
 }
 const awaiting = async (store: Store, ctx: Ctx, id: unknown) => {
   const r = await store.get("expenses", String(id ?? "")); if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId) throw new HttpError(404, "Dépense introuvable"); const meta = parse<Record<string, unknown>>(r.meta, {});
@@ -189,7 +195,7 @@ export async function showExpenseCode(store: Store, ctx: Ctx, b: { id?: string }
   if (expired || failsLeft === 0) return { usable: false, reason: expired ? "Code expiré : renouvelez-le" : "Trop d'essais incorrects : renouvelez le code", expiresAt: exp, failsLeft };
   const seen = (await store.list("expense_events", { expenseId: r.$id, kind: "code_viewed" }, 200)).some((e) => e.userId === ctx.userId && parse<{ seq?: number }>(e.detail, {}).seq === seq);
   if (!seen) await store.batch([ev(ctx, r.$id, "code_viewed", { seq }), aud(ctx, "expense.code.view", `${r.number}`)]);
-  return { usable: true, code: formatCode(expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, seq)), expiresAt: exp, failsLeft, number: String(r.number) };
+  return { usable: true, code: formatCode(expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, seq, ctx.userId)), expiresAt: exp, failsLeft, number: String(r.number) };
 }
 /** Nouveau code (l'ancien devient invalide) : expiration repartie, compteur d'essais remis à zéro. */
 export async function renewExpenseCode(store: Store, ctx: Ctx, b: { id?: string }) {
@@ -204,10 +210,11 @@ export async function validateExpenseCode(store: Store, ctx: Ctx, b: { id?: stri
   if (r.createdBy !== ctx.userId) throw new HttpError(403, "Seul l'auteur de la dépense peut saisir son code de validation");
   const exp = String(meta.codeExpiresAt ?? ""); if (exp && Date.parse(exp) < Date.now()) throw new HttpError(409, "Code expiré : demandez au responsable de le renouveler");
   const fails = Number(meta.codeFails ?? 0); if (fails >= CODE_MAX_FAILS) throw new HttpError(409, "Trop d'essais incorrects : demandez au responsable de renouveler le code");
-  const given = normalizeCode(b.code); const good = expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, Number(meta.codeSeq ?? 0));
-  const ok = isCodeShape(given) && timingSafeEqual(Buffer.from(given), Buffer.from(good));
-  if (!ok) { meta.codeFails = fails + 1; await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "code_failed", { left: CODE_MAX_FAILS - fails - 1 }), aud(ctx, "expense.code.fail", `${r.number}`)]); throw new HttpError(403, `Code incorrect (${CODE_MAX_FAILS - fails - 1} essai(s) restant(s))`); }
-  return approveRow(store, ctx, r, meta, "", {}, true);
+  const given = normalizeCode(b.code); const seq = Number(meta.codeSeq ?? 0); let approver = "";
+  if (isCodeShape(given)) for (const uid of await approverIds(store, ctx, String(r.createdBy))) { const good = expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, seq, uid); if (timingSafeEqual(Buffer.from(given), Buffer.from(good)) && !approver) approver = uid; } // tous les candidats sont comparés (temps constant par comparaison)
+  if (!approver) { meta.codeFails = fails + 1; await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "code_failed", { left: CODE_MAX_FAILS - fails - 1 }), aud(ctx, "expense.code.fail", `${r.number}`)]); throw new HttpError(403, `Code incorrect (${CODE_MAX_FAILS - fails - 1} essai(s) restant(s))`); }
+  meta.validatedBy = approver; // le responsable dont le code a été saisi : connu et tracé
+  return approveRow(store, ctx, r, meta, "", {}, true, approver);
 }
 
 /** Annulation = opération corrective tracée : la dépense passe « annulée » (jamais supprimée) ; si elle avait sorti des espèces d'une session encore ouverte, une entrée de régularisation est écrite dans cette session. */
