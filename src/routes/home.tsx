@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, History, Tags, Layers, LayoutDashboard, Percent, LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, Users, AlertTriangle, TrendingUp, ShoppingBag, ShieldCheck, Banknote, PiggyBank } from "lucide-react";
+import { Wallet, History, Tags, Layers, LayoutDashboard, Percent, LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, Users, AlertTriangle, TrendingUp, ShoppingBag, ShieldCheck, Banknote, PiggyBank, ClipboardList } from "lucide-react";
 import { formatFcfa } from "@/domain/money";
 import { isLow } from "@/domain/stock";
 import { isVirtualBundle } from "@/domain/bundles";
@@ -30,7 +30,8 @@ const TILES: { to: string; label: string; hint: string; icon: typeof ScanLine; p
   { to: "/pilotage", label: "Pilotage Pro", hint: "Rentabilité, stocks, prévisions, exports", icon: TrendingUp, perm: "reports" },
   { to: "/tableau", label: "Alertes articles", hint: "Péremption, marges, meilleurs articles (Pro)", icon: AlertTriangle, perm: "stock" },
   { to: "/bundles", label: "Bundles", hint: "Packs d'articles à prix propre", icon: Layers, perm: "stock" },
-  { to: "/stock", label: "Stock", hint: "Produits & inventaire", icon: Boxes, perm: "stock" },
+  { to: "/stock", label: "Stock", hint: "Produits & mouvements", icon: Boxes, perm: "stock" },
+  { to: "/inventaire", label: "Inventaire", hint: "Silent Count : comptage & écarts", icon: ClipboardList, perm: "stock" },
   { to: "/clients", label: "Clients", hint: "Fidélité & crédit", icon: Users, perm: "customers" },
   { to: "/achats", label: "Achats", hint: "Commandes & fournisseurs", icon: Receipt, perm: "purchases" },
   { to: "/compta", label: "Compta", hint: "Factures & rapports", icon: BookOpen, perm: "finance" },

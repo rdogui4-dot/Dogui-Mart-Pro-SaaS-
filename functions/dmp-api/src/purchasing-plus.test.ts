@@ -269,6 +269,21 @@ describe("liste des commandes et des factures", () => {
   });
 });
 
+describe("retour fournisseur (mouvement tracé)", () => {
+  const ret = (receiptId: string, lines: object[], extra: object = {}, user = "ger") => call(user, "purch.return", { receiptId, returnKey: rid().slice(0, 16), reason: "Marchandise défectueuse", lines, ...extra }, A);
+  it("sort du stock par un mouvement identifiable (auteur, référence) ; plafonné à ce qui a été accepté moins les retours déjà faits", async () => {
+    const po = await validatedPo(); const r = await recOk(po, [{ productId: P1, accepted: 6 }]); expect(await stockFor(st, P1)).toBe(16);
+    const x = await ok(ret(r, [{ productId: P1, qty: 2 }])); expect(x.reference).toMatch(/^retour-fournisseur:BR-/); expect(await stockFor(st, P1)).toBe(14);
+    const m = st.rows("stock_moves").find((s) => String(s.refId).startsWith("retour-fournisseur:"))!; expect(m).toMatchObject({ productId: P1, qty: -2, kind: "adjust", userId: U.ger }); await err(ret(r, [{ productId: P1, qty: 5 }]), 409, "au plus 4"); await ok(ret(r, [{ productId: P1, qty: 4 }])); expect(await stockFor(st, P1)).toBe(10);
+  });
+  it("idempotent (returnKey), motif obligatoire, réception validée seulement, stock jamais négatif, droits", async () => {
+    const po = await validatedPo(); const r = await recOk(po, [{ productId: P1, accepted: 6 }]); const key = "ret-meme-cle-01"; await ok(ret(r, [{ productId: P1, qty: 1 }], { returnKey: key })); expect((await ok(ret(r, [{ productId: P1, qty: 1 }], { returnKey: key }))).duplicate).toBe(true); expect(await stockFor(st, P1)).toBe(15);
+    await err(ret(r, [{ productId: P1, qty: 1 }], { reason: "" }), 400); await err(ret(r, [], {}), 400); await err(ret(r, [{ productId: P2, qty: 1 }]), 400); await err(ret(r, [{ productId: P1, qty: 1 }], {}, "stk"), 403);
+    const draft = await ok(rec(po, [{ productId: P1, accepted: 1 }])); await err(ret(draft.id, [{ productId: P1, qty: 1 }]), 409, "validée");
+    await st.create("stock_moves", "vide1", T, { tenantId: T, shopId: A, productId: P1, qty: -14, kind: "adjust", refId: "x", userId: "x" }); await err(ret(r, [{ productId: P1, qty: 2 }]), 409, "stock insuffisant");
+  });
+});
+
 describe("tableau de bord Achats et connexions", () => {
   const dash = (extra: object = {}, user = "ger") => ok(call(user, "purch.dashboard", { from: day(-30), to: day(0), ...extra }));
   it("quatre mesures distinctes : commandé, reçu, facturé, payé ; à payer et échu à date", async () => {
