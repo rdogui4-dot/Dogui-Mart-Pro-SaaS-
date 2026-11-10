@@ -74,6 +74,7 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
   const rid = safeId(b.receiptId); if (rid.length < 8) throw new HttpError(400, "receiptId invalide");
   const { po, lines, receipts } = await loadPo(store, ctx, b.poId);
   if (po.status === "cancelled") throw new HttpError(409, "Commande annulée");
+  if (po.status === "draft" || po.status === "pending") throw new HttpError(409, "Commande non validée : elle ne peut pas être réceptionnée");
   const duplicate = receipts.includes(rid);
   const wanted = (b.lines ?? []).map((w) => ({ productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), qty: Number(String(w.qty).replace(",", ".")), lots: w.lots, serials: w.serials }));
   const scales = new Map<string, number>();
