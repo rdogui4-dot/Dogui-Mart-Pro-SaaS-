@@ -13,7 +13,7 @@ const audit = (store: Store, ctx: Ctx, action: string, detail: string) => store.
 const money = (v: unknown, label: string, min = 0): number => { const n = Number(String(v ?? "").replace(/\s/g, "")); if (!Number.isInteger(n) || n < min || n > MAX_AMOUNT) throw new HttpError(400, `${label} invalide (entier de ${min} à ${MAX_AMOUNT.toLocaleString("fr-FR")} FCFA)`); return n; };
 const iso = (v: unknown): string => { const t = Date.parse(String(v)); return Number.isNaN(t) ? "" : new Date(t).toISOString(); };
 
-export type Totals = { float: number; sales: { count: number; total: number; byMethod: Record<string, number> }; refunds: { count: number; total: number; byMethod: Record<string, number> }; movements: { out: number; in: number; pending: number }; theoreticalCash: number; nonCash: Record<string, number> };
+export type Totals = { float: number; sales: { count: number; total: number; byMethod: Record<string, number> }; refunds: { count: number; total: number; byMethod: Record<string, number> }; movements: { out: number; in: number; pending: number; expenseOut?: number; expenseIn?: number }; theoreticalCash: number; nonCash: Record<string, number> };
 
 /** Totaux d'une session : ventes terminées du vendeur depuis l'ouverture (par moyen de paiement, monnaie rendue exclue, fractionnés comptés une fois), remboursements traités depuis cette caisse,
  *  mouvements AUTORISÉS. Solde théorique en espèces = fond + espèces encaissées − espèces remboursées − sorties + entrées. Les mouvements en attente ne comptent pas. */
@@ -27,7 +27,7 @@ export async function sessionTotals(store: Store, ctx: Ctx, sess: Row, until?: s
   const mv = (await store.scan("cash_movements", { sessionId: sess.$id }, { maxRows: 2_000 })).rows; const out = mv.filter((m) => m.kind === "out" && m.status === "authorized").reduce((a, m) => a + Number(m.amount), 0), inn = mv.filter((m) => m.kind === "in" && m.status === "authorized").reduce((a, m) => a + Number(m.amount), 0);
   const nonCash = Object.fromEntries(Object.entries(byMethod).filter(([m]) => m !== "cash").map(([m, a]) => [m, a - (rm[m] ?? 0)]));
   const float = Number(sess.openingFloat ?? 0);
-  return { float, sales: { count: sales.length, total, byMethod }, refunds: { count: rets.length, total: rt, byMethod: rm }, movements: { out, in: inn, pending: mv.filter((m) => m.status === "pending").length }, theoreticalCash: float + (byMethod.cash ?? 0) - (rm.cash ?? 0) - out + inn, nonCash };
+  return { float, sales: { count: sales.length, total, byMethod }, refunds: { count: rets.length, total: rt, byMethod: rm }, movements: { out, in: inn, pending: mv.filter((m) => m.status === "pending").length, expenseOut: mv.filter((m) => m.kind === "out" && m.status === "authorized" && m.expenseId).reduce((a, m) => a + Number(m.amount), 0), expenseIn: mv.filter((m) => m.kind === "in" && m.status === "authorized" && m.expenseId).reduce((a, m) => a + Number(m.amount), 0) }, theoreticalCash: float + (byMethod.cash ?? 0) - (rm.cash ?? 0) - out + inn, nonCash };
 }
 const view = (s: Row) => ({ id: s.$id, userId: String(s.userId), shopId: String(s.shopId), status: String(s.status), openedAt: iso(s.openedAt), closedAt: s.closedAt ? iso(s.closedAt) : null, openingFloat: Number(s.openingFloat ?? 0), countedCash: s.countedCash == null ? null : Number(s.countedCash), theoreticalCash: s.theoreticalCash == null ? null : Number(s.theoreticalCash), variance: s.variance == null ? null : Number(s.variance), note: s.note ? String(s.note) : "", register: String(s.register ?? ""), varianceStatus: String(s.varianceStatus ?? ""), handoverFrom: String(s.handoverFrom ?? "") });
 
@@ -59,18 +59,18 @@ export async function currentSession(store: Store, ctx: Ctx) {
   needModule(ctx, "pos"); await needFeature(store, ctx, "smartPos");
   const s = await openSessionOf(store, ctx); const shop = await store.get("shops", ctx.shopId.slice(0, 36)); const required = shop?.cashRequired === true;
   if (!s) return { session: null, required };
-  const mv = (await store.scan("cash_movements", { sessionId: s.$id }, { maxRows: 2_000 })).rows.map((m) => ({ id: m.$id, kind: String(m.kind), amount: Number(m.amount), reason: String(m.reason ?? ""), status: String(m.status), at: iso(m.at), userId: String(m.userId ?? "") })).sort((a, c) => c.at.localeCompare(a.at));
+  const mv = (await store.scan("cash_movements", { sessionId: s.$id }, { maxRows: 2_000 })).rows.map((m) => ({ id: m.$id, kind: String(m.kind), amount: Number(m.amount), reason: String(m.reason ?? ""), status: String(m.status), at: iso(m.at), userId: String(m.userId ?? ""), beneficiary: String(m.beneficiary ?? ""), expenseId: String(m.expenseId ?? "") })).sort((a, c) => c.at.localeCompare(a.at));
   return { session: view(s), totals: await sessionTotals(store, ctx, s), movements: mv, required };
 }
 /** Sortie (ou entrée) d'espèces : tracée avec son motif ; autorisée tout de suite si saisie par un gérant/propriétaire, sinon « en attente » d'autorisation (ne compte pas dans le solde). */
-export async function cashMovement(store: Store, ctx: Ctx, b: { kind?: string; amount?: unknown; reason?: string; requestId?: string }) {
+export async function cashMovement(store: Store, ctx: Ctx, b: { kind?: string; amount?: unknown; reason?: string; requestId?: string; beneficiary?: string }) {
   needModule(ctx, "pos"); await needFeature(store, ctx, "smartPos");
   const s = await openSessionOf(store, ctx); if (!s) throw new HttpError(409, "Ouvrez la caisse avant d'enregistrer une sortie ou une entrée");
   const kind = b.kind === "in" ? "in" : b.kind === "out" ? "out" : ""; if (!kind) throw new HttpError(400, "Type de mouvement inconnu"); const amount = money(b.amount, "Montant", 1); const reason = String(b.reason ?? "").trim(); if (reason.length < 3 || reason.length > 200) throw new HttpError(400, "Motif obligatoire (3 à 200 caractères)");
   const pro = await isProPos(store, ctx); const canAuth = pro ? await hasRight(store, ctx, "authorize") : isManager(ctx);
   const status = canAuth ? "authorized" : "pending"; if (kind === "out" && status === "authorized") { const t = await sessionTotals(store, ctx, s); if (amount > t.theoreticalCash) throw new HttpError(409, `Caisse insuffisante : solde théorique ${t.theoreticalCash.toLocaleString("fr-FR")} FCFA`); }
   const id = b.requestId ? `cm${sha(`${s.$id}|${b.requestId}`).slice(0, 28)}` : newId();
-  const created = await store.create("cash_movements", id, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, sessionId: s.$id, kind, amount, reason, status, userId: ctx.userId, authorizedBy: status === "authorized" ? ctx.userId : "", at: new Date().toISOString() });
+  const created = await store.create("cash_movements", id, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, sessionId: s.$id, kind, amount, reason, status, userId: ctx.userId, authorizedBy: status === "authorized" ? ctx.userId : "", at: new Date().toISOString(), beneficiary: String(b.beneficiary ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 120) });
   if (created) { await audit(store, ctx, `cash.${kind}`, `${amount} ${reason} (${status})`); if (pro && status === "authorized") await ledgerWrite(store, ctx, { kind: `cash_${kind}`, ref: id, amount: kind === "out" ? -amount : amount, at: new Date().toISOString(), sessionId: s.$id, payload: { reason } }); } return { id, status, duplicate: !created };
 }
 /** Autorisation (ou refus) d'un mouvement en attente : gérant ou propriétaire uniquement. */
@@ -88,6 +88,7 @@ export async function closeSession(store: Store, ctx: Ctx, b: { sessionId?: stri
   const s = b.sessionId ? await store.get("cash_sessions", b.sessionId) : await openSessionOf(store, ctx); if (!s || s.tenantId !== ctx.tenantId || s.shopId !== ctx.shopId) throw new HttpError(404, "Session introuvable");
   if (s.userId !== ctx.userId && !isManager(ctx)) throw new HttpError(403, "Seul le vendeur de la session ou un gérant peut la fermer");
   const counted = money(b.counted, "Montant compté"); if (s.status === "closed") { if (Number(s.countedCash) === counted) return { id: s.$id, duplicate: true, variance: Number(s.variance), theoreticalCash: Number(s.theoreticalCash) }; throw new HttpError(409, "Session déjà fermée"); }
+  const pendExp = (await store.list("expenses", { tenantId: ctx.tenantId, shopId: ctx.shopId, sessionId: s.$id, status: "pending" }, 50)).length; if (pendExp > 0) throw new HttpError(409, `${pendExp} dépense(s) payée(s) depuis cette caisse en attente de validation : faites-les valider ou rejeter avant la fermeture`);
   const until = new Date(Date.now() + 1).toISOString(); const t = await sessionTotals(store, ctx, s, until); if (t.movements.pending > 0) throw new HttpError(409, `${t.movements.pending} mouvement(s) de caisse en attente d'autorisation : faites-les autoriser ou refuser avant la fermeture`);
   const variance = counted - t.theoreticalCash; const tol = Math.max(0, Number((await store.get("shops", ctx.shopId.slice(0, 36)))?.varianceTolerance ?? 0)); const varianceStatus = pro ? (Math.abs(variance) > tol ? "pending" : "ok") : "";
   await store.update("cash_sessions", s.$id, { status: "closed", closedAt: until, countedCash: counted, theoreticalCash: t.theoreticalCash, variance, ...(varianceStatus ? { varianceStatus } : {}), closedBy: ctx.userId, summary: JSON.stringify(t), note: String(b.note ?? s.note ?? "").slice(0, 200) });

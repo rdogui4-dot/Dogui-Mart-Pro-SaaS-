@@ -72,7 +72,7 @@ describe("chiffre d'affaires, paiements, marge", () => {
 describe("périodes et fuseau horaire de l'entreprise", () => {
   const at = (iso: string) => ok(sell([{ productId: eau, qty: 1 }], [{ method: "cash", amount: 500 }], { soldAt: iso }));
   it("hier / 7 jours / 30 jours / ce mois / mois précédent / personnalisée sont cohérents entre eux", async () => {
-    const today = (await dash({ preset: "today" })).today; const d0 = (n: number) => new Date(Date.parse(`${today}T12:00:00Z`) - n * 864e5).toISOString();
+    const today = (await dash({ preset: "today" })).today; const d0 = (n: number) => (n === 0 ? new Date(Date.now() - 60_000) : new Date(Date.parse(`${today}T12:00:00Z`) - n * 864e5)).toISOString(); // « maintenant » plutôt que midi : midi peut être dans le futur
     await at(d0(0)); await at(d0(1)); await at(d0(1)); await at(d0(6)); await at(d0(20));
     expect((await dash({ preset: "today" })).kpis.period.count).toBe(1); expect((await dash({ preset: "yesterday" })).kpis.period.count).toBe(2); expect((await dash({ preset: "last7" })).kpis.period.count).toBe(4); expect((await dash({ preset: "last30" })).kpis.period.count).toBe(5);
     const cf = await dash({ preset: "custom", from: d0(6).slice(0, 10), to: d0(1).slice(0, 10) }); expect(cf.kpis.period.count).toBe(3); expect(cf.charts.series).toHaveLength(6);
