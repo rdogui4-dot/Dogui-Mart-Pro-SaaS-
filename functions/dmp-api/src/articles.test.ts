@@ -106,7 +106,7 @@ describe("droits par formule : tous les paliers", () => {
   const allowedKeys = async () => { const out: string[] = []; for (const k of keys) { try { await needFeature(st, ctx(), k); out.push(k); } catch { /* verrouillé */ } } return out; };
   it("Starter : rien ; Business : Articles seulement ; Pro : tout", async () => {
     setPlan(T, "starter"); expect(await allowedKeys()).toEqual([]);
-    setPlan(T, "business"); expect(await allowedKeys()).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "stockIntel", "businessDashboard", "articles"]);
+    setPlan(T, "business"); expect(await allowedKeys()).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "finBusiness", "stockIntel", "businessDashboard", "articles"]);
     setPlan(T, "pro"); expect(await allowedKeys()).toEqual(keys);
   });
   it("accès à vie (compte plateforme) : toutes les fonctions, présentes et futures", async () => {
@@ -115,7 +115,7 @@ describe("droits par formule : tous les paliers", () => {
   });
   it("retour de Pro à Business : les données avancées restent, l'usage se referme", async () => {
     setPlan(T, "pro"); const { id } = await ok(save("own", riz, { initialQty: 4 }));
-    setPlan(T, "business"); expect((await allowedKeys())).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "stockIntel", "businessDashboard", "articles"]);
+    setPlan(T, "business"); expect((await allowedKeys())).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "finBusiness", "stockIntel", "businessDashboard", "articles"]);
     expect(st.rows("products").find((p) => p.$id === id)).toBeTruthy(); expect(await stockFor(st, id)).toBe(4);
   });
 });

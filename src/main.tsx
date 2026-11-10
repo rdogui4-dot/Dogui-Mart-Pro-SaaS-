@@ -35,6 +35,7 @@ const CaissePage = lazyPage(() => import("@/routes/caisse"), "CaissePage");
 const CaisseProPage = lazyPage(() => import("@/routes/caisse-pro"), "CaisseProPage");
 const DepensesPage = lazyPage(() => import("@/routes/depenses"), "DepensesPage");
 const InventairePage = lazyPage(() => import("@/routes/inventaire"), "InventairePage");
+const FinancePage = lazyPage(() => import("@/routes/finance"), "FinancePage");
 const DepensesProPage = lazyPage(() => import("@/routes/depenses-pro"), "DepensesProPage");
 const VentesPage = lazyPage(() => import("@/routes/ventes"), "VentesPage");
 const PilotagePage = lazyPage(() => import("@/routes/pilotage"), "PilotagePage");
@@ -61,7 +62,7 @@ const tree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
   r("/accueil", null, HomePage), r("/plus", null, PlusPage),
   r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/inventaire", "stock", InventairePage), r("/caisse", "pos", CaissePage), r("/caisse-pro", "pos", CaisseProPage), r("/depenses", "pos", DepensesPage), r("/depenses-pro", "pos", DepensesProPage), r("/ventes", "pos", VentesPage), r("/activite", "reports", ActivitePage), r("/pilotage", "reports", PilotagePage), r("/tableau", "stock", DashboardPage), r("/promotions", "stock", PromotionsPage), r("/clients", "customers", ClientsPage),
-  r("/achats", "purchases", AchatsPage), r("/compta", "finance", ComptaPage), r("/reglages", "settings", SettingsPage),
+  r("/finance", "accounting", FinancePage), r("/achats", "purchases", AchatsPage), r("/compta", "finance", ComptaPage), r("/reglages", "settings", SettingsPage),
 ]);
 const router = createRouter({ routeTree: tree, basepath: routerBasepath(import.meta.env.BASE_URL) });
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }

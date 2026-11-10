@@ -34,6 +34,7 @@ const TILES: { to: string; label: string; hint: string; icon: typeof ScanLine; p
   { to: "/inventaire", label: "Inventaire", hint: "Silent Count : comptage & écarts", icon: ClipboardList, perm: "stock" },
   { to: "/clients", label: "Clients", hint: "Fidélité & crédit", icon: Users, perm: "customers" },
   { to: "/achats", label: "Achats", hint: "Commandes & fournisseurs", icon: Receipt, perm: "purchases" },
+  { to: "/finance", label: "Finance", hint: "Comptes, flux, virements, rapprochement", icon: Banknote, perm: "accounting" },
   { to: "/compta", label: "Compta", hint: "Factures & rapports", icon: BookOpen, perm: "finance" },
   { to: "/reglages", label: "Réglages", hint: "Commerce, équipe, abonnement", icon: Settings, perm: "settings" },
 ];

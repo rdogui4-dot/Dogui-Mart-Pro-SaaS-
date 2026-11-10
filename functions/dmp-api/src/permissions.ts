@@ -99,6 +99,10 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   suppliers: (t, d) => [owner(t), `label:${moduleLabel("purchases", shopOf(d))}`],
   purchase_orders: (t, d) => [owner(t), `label:${moduleLabel("purchases", shopOf(d))}`],
   invoices: (t, d) => [owner(t), `label:${moduleLabel("invoices", shopOf(d))}`, `label:${moduleLabel("accounting", shopOf(d))}`], // factures clients et fournisseurs
+  fin_accounts: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
+  fin_transfers: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
+  fin_reconciliations: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
+  fin_budgets: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
   journal_entries: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
   audit_log: (t, d) => [owner(t), `label:${managerLabel(shopOf(d))}`],
   // Un transfert concerne deux boutiques : le module Stock des deux
