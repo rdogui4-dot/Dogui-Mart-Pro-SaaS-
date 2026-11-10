@@ -12,8 +12,8 @@ export const revealsTheoretical = (s: InvStatus): boolean => s === "counted" || 
 export const isFinal = (s: InvStatus): boolean => s === "closed" || s === "cancelled";
 export const isEditable = (s: InvStatus): boolean => s === "draft";
 
-export type LineStatus = "pending" | "counted" | "recount" | "approved" | "rejected";
-export const LINE_LABEL: Record<LineStatus, string> = { pending: "À compter", counted: "Compté", recount: "À recompter", approved: "Écart approuvé", rejected: "Écart refusé" };
+export type LineStatus = "pending" | "counted" | "recount" | "approved" | "rejected" | "second" | "third" | "arbitrate";
+export const LINE_LABEL: Record<LineStatus, string> = { pending: "À compter", counted: "Compté", recount: "À recompter", approved: "Écart approuvé", rejected: "Écart refusé", second: "Second comptage indépendant", third: "Troisième contrôle", arbitrate: "Arbitrage du responsable" };
 
 /** Réglage par défaut des écarts importants : 10 % de l'écart relatif OU 50 000 FCFA de valeur absolue. */
 export type Threshold = { pct: number; value: number };
@@ -58,13 +58,14 @@ export const isConflict = (prev: { by: string; qty: number } | null, next: { by:
 
 export type LineLike = { status: LineStatus; counted: number | null };
 export function progress(lines: LineLike[]): { total: number; counted: number; pending: number; recount: number; pct: number } {
-  const total = lines.length, counted = lines.filter((l) => l.counted !== null && l.status !== "recount").length, recount = lines.filter((l) => l.status === "recount").length;
+  const total = lines.length, counted = lines.filter((l) => l.counted !== null && l.status !== "recount").length, recount = lines.filter((l) => l.status === "recount" || l.status === "second" || l.status === "third" || l.status === "arbitrate").length;
   return { total, counted, pending: total - counted - recount + 0, recount, pct: total ? Math.round((counted / total) * 100) : 0 };
 }
 /** Un inventaire ne peut être validé que si chaque écart est tranché (approuvé ou refusé) ; les lignes non comptées ne reçoivent AUCUN ajustement. */
 export function validationBlockers(lines: { status: LineStatus; diff: number | null; significant: boolean; reason?: string }[]): string[] {
   const out: string[] = []; const open = lines.filter((l) => l.diff !== null && l.diff !== 0 && l.status !== "approved" && l.status !== "rejected").length; if (open) out.push(`${open} écart(s) non traité(s) : approuvez-les (avec motif) ou refusez-les`);
   const recount = lines.filter((l) => l.status === "recount").length; if (recount) out.push(`${recount} article(s) à recompter`);
+  const ctl = lines.filter((l) => l.status === "second" || l.status === "third" || l.status === "arbitrate").length; if (ctl) out.push(`${ctl} contrôle(s) indépendant(s) en cours ou à arbitrer`);
   const noReason = lines.filter((l) => l.status === "approved" && !(l.reason ?? "").trim()).length; if (noReason) out.push(`${noReason} ajustement(s) sans motif`);
   return out;
 }
