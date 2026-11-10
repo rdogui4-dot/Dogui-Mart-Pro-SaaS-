@@ -9,6 +9,7 @@ import { lineKey } from "../../../src/domain/variants";
 import { openSessionOf } from "./cashier";
 import { names } from "./inventory";
 import { gate } from "./purchasing-plus";
+import { enforce } from "./fin-rules";
 import { HttpError, need, needModule, type BatchOp, type Ctx, type Row, type Store } from "./store";
 
 const sha = (s: string) => createHash("sha1").update(s).digest("hex");
@@ -108,7 +109,7 @@ export async function creditApply(store: Store, ctx: Ctx, b: { id?: string; invo
 export async function creditRefund(store: Store, ctx: Ctx, b: { id?: string; amount?: unknown; method?: string; source?: string; reference?: string; paidOn?: string; requestKey?: string }) {
   await moneyGate(store, ctx); const k = key(b.requestKey); const c = await store.get("supplier_credits", String(b.id ?? "")); if (!mine(ctx, c)) throw new HttpError(404, "Avoir introuvable"); if (c.status === "cancelled") throw new HttpError(409, "Avoir annulé");
   const refunds = parse<{ id: string; amount: number; method: string; source: string; date: string; reference: string; by: string; movementId?: string }[]>(c.refunds, []); if (refunds.some((r) => r.id === k)) return { id: c.$id, duplicate: true, remaining: remaining(c) };
-  const amount = amountOf(b.amount, "Montant"); if (amount > remaining(c)) throw new HttpError(409, `Le montant (${amount}) dépasse le reste de l'avoir (${remaining(c)})`);
+  const amount = amountOf(b.amount, "Montant"); if (amount > remaining(c)) throw new HttpError(409, `Le montant (${amount}) dépasse le reste de l'avoir (${remaining(c)})`); await enforce(store, ctx, "refund", amount);
   const source = b.source === "till" ? "till" : "external"; const method = source === "till" ? "cash" : String(b.method ?? ""); if (!Object.hasOwn(METHOD_ACCOUNT, method)) throw new HttpError(400, "Moyen de remboursement inconnu");
   const paidOn = b.paidOn ? String(b.paidOn) : new Date().toISOString().slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || new Date(`${paidOn}T00:00:00Z`).toISOString().slice(0, 10) !== paidOn) throw new HttpError(400, "Date invalide"); if (paidOn > new Date().toISOString().slice(0, 10)) throw new HttpError(400, "La date ne peut pas être dans le futur");
   const now = new Date().toISOString(); const sup = await store.get("suppliers", String(c.supplierId)); const ops: BatchOp[] = []; let movementId = "";
