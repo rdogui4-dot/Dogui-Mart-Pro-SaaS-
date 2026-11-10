@@ -1,3 +1,4 @@
+import { CrmHub } from "./crm";
 import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatFcfa } from "@/domain/money";
@@ -35,7 +36,14 @@ function Page({ title, children }: { title: string; children: ReactNode }) {
   return <div className="flex flex-col gap-3"><h1 className="text-xl font-bold">{title}</h1>{children}</div>;
 }
 
+/** Formule Business et + : CRM (clients, prospects, pipeline, agenda) ; la page de crédit et de fidélité reste disponible en onglet. */
 export function ClientsPage() {
+  const plan = useSubscription().data?.entitlement.plan.id;
+  if (!plan || !planAllows(plan, "crm")) return <LegacyClients />;
+  return <CrmHub legacy={<LegacyClients />} />;
+}
+
+function LegacyClients() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
   const rows = useQuery({ queryKey: ["customers"], queryFn: () => list<Customer>("customers", s, [], 500) });
   const canCategory = (s.role === "owner" || s.role === "manager") && planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing");

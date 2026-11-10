@@ -44,7 +44,7 @@ export type Consents = { sms: boolean; email: boolean; whatsapp: boolean; at?: s
 export const normConsents = (v: unknown): { sms: boolean; email: boolean; whatsapp: boolean } => { const o = (v ?? {}) as Record<string, unknown>; return { sms: o.sms === true, email: o.email === true, whatsapp: o.whatsapp === true }; };
 export const sameConsents = (a: { sms: boolean; email: boolean; whatsapp: boolean }, b: { sms: boolean; email: boolean; whatsapp: boolean }) => a.sms === b.sms && a.email === b.email && a.whatsapp === b.whatsapp;
 export const normTags = (v: unknown): string[] => { const xs = Array.isArray(v) ? v : String(v ?? "").split(","); return [...new Set(xs.map((x) => clean(x, 24).toLowerCase()).filter(Boolean))].slice(0, 12); };
-export const dayOf = (v: unknown): string | null => { const s = String(v ?? ""); return /^\d{4}-\d{2}-\d{2}$/.test(s) && (() => { const t = Date.parse(`${s}T00:00:00Z`); return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s ? s : null; })(); };
+export const dayOf = (v: unknown): string | null => { const s = String(v ?? ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null; const t = Date.parse(`${s}T00:00:00Z`); return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s ? s : null; };
 export const normProb = (v: unknown, fb: number): number | null => { if (v === undefined || v === null || v === "") return fb; const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; };
 /** Clé de rapprochement pour détecter un doublon : téléphone ou e-mail normalisés. */
 export const contactKeys = (phone: string, email: string): string[] => [...(phone ? [`p:${phone.replace(/\D/g, "").slice(-9)}`] : []), ...(email ? [`e:${email}`] : [])];
