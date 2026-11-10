@@ -2,6 +2,7 @@ import "./index.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { onPlanDenied } from "@/lib/api";
 import { Navigate, RouterProvider, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { routerBasepath } from "@/lib/basepath";
 import { SessionProvider, can, homePath, useSession, type Perm } from "@/lib/session";
@@ -20,6 +21,7 @@ import { BundlesPage } from "@/routes/bundles";
 import { ActivitePage } from "./routes/activite";
 import { CaissePage } from "./routes/caisse";
 import { CaisseProPage } from "./routes/caisse-pro";
+import { DepensesPage } from "./routes/depenses";
 import { VentesPage } from "./routes/ventes";
 import { PilotagePage } from "./routes/pilotage";
 import { DashboardPage } from "@/routes/dashboard";
@@ -27,6 +29,8 @@ import { PromotionsPage } from "@/routes/promotions";
 
 // Réseau mobile instable : une seule nouvelle tentative, et les écrans gardent leurs dernières données si le réseau tombe.
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 10_000 } } });
+
+onPlanDenied(() => void queryClient.invalidateQueries({ queryKey: ["subscription"] }));
 
 function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNode }) {
   const { session, loading } = useSession();
@@ -42,7 +46,7 @@ const tree = root.addChildren([
   // Redirection du routeur (et non d'un composant) : un composant d'accueil se monterait brièvement pendant un changement de page et renverrait à la caisse.
   createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
   r("/accueil", null, HomePage), r("/plus", null, PlusPage),
-  r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/caisse", "pos", CaissePage), r("/caisse-pro", "pos", CaisseProPage), r("/ventes", "pos", VentesPage), r("/activite", "reports", ActivitePage), r("/pilotage", "reports", PilotagePage), r("/tableau", "stock", DashboardPage), r("/promotions", "stock", PromotionsPage), r("/clients", "customers", ClientsPage),
+  r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/caisse", "pos", CaissePage), r("/caisse-pro", "pos", CaisseProPage), r("/depenses", "pos", DepensesPage), r("/ventes", "pos", VentesPage), r("/activite", "reports", ActivitePage), r("/pilotage", "reports", PilotagePage), r("/tableau", "stock", DashboardPage), r("/promotions", "stock", PromotionsPage), r("/clients", "customers", ClientsPage),
   r("/achats", "purchases", AchatsPage), r("/compta", "finance", ComptaPage), r("/reglages", "settings", SettingsPage),
 ]);
 const router = createRouter({ routeTree: tree, basepath: routerBasepath(import.meta.env.BASE_URL) });

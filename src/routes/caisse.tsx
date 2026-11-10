@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Lock, WifiOff } from "lucide-react";
 import { api } from "@/lib/api";
@@ -9,9 +10,9 @@ import { formatFcfa } from "@/domain/money";
 import { METHOD_LABEL } from "@/domain/pay";
 import { useSubscription } from "./subscription";
 
-type Totals = { float: number; sales: { count: number; total: number; byMethod: Record<string, number> }; refunds: { count: number; total: number; byMethod: Record<string, number> }; movements: { out: number; in: number; pending: number }; theoreticalCash: number; nonCash: Record<string, number> };
+type Totals = { float: number; sales: { count: number; total: number; byMethod: Record<string, number> }; refunds: { count: number; total: number; byMethod: Record<string, number> }; movements: { out: number; in: number; pending: number; expenseOut?: number; expenseIn?: number }; theoreticalCash: number; nonCash: Record<string, number> };
 type Sess = { register?: string; varianceStatus?: string; handoverFrom?: string; id: string; userId: string; seller?: string; status: string; openedAt: string; closedAt: string | null; openingFloat: number; countedCash: number | null; theoreticalCash: number | null; variance: number | null; note: string; totals?: Totals | null };
-type Move = { id: string; kind: string; amount: number; reason: string; status: string; at: string };
+type Move = { beneficiary?: string; expenseId?: string; id: string; kind: string; amount: number; reason: string; status: string; at: string };
 type Current = { session: Sess | null; totals?: Totals; movements?: Move[]; required: boolean };
 const dt = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const num = (v: string) => Number(v.replace(/\s/g, ""));
@@ -64,7 +65,8 @@ function Totals({ t }: { t: Totals }) {
 }
 function Active({ c, manager, onChanged }: { c: Required<Current>; manager: boolean; onChanged: () => void }) {
   const { session } = useSession(); const s = session!; const [kind, setKind] = useState<"out" | "in">("out"); const [amount, setAmount] = useState(""); const [reason, setReason] = useState(""); const [counted, setCounted] = useState(""); const [ask, setAsk] = useState(false); const [done, setDone] = useState<{ variance: number; theoreticalCash: number } | null>(null);
-  const mv = useMutation({ mutationFn: () => api(s, "cash.move", { kind, amount: num(amount), reason, requestId: crypto.randomUUID() }), onSuccess: () => { setAmount(""); setReason(""); onChanged(); } });
+  const [who, setWho] = useState(""); const [askMv, setAskMv] = useState(false); const [reqId, setReqId] = useState(() => crypto.randomUUID()); // une clé par saisie : un double clic ne crée pas deux sorties
+  const mv = useMutation({ mutationFn: () => api(s, "cash.move", { kind, amount: num(amount), reason, beneficiary: who, requestId: reqId }), onSuccess: () => { setAmount(""); setReason(""); setWho(""); setReqId(crypto.randomUUID()); onChanged(); }, onSettled: () => setAskMv(false) });
   const auth = useMutation({ mutationFn: (v: { id: string; approve: boolean }) => api(s, "cash.authorize", v), onSuccess: onChanged });
   const close = useMutation({ mutationFn: () => api<{ variance: number; theoreticalCash: number }>(s, "cash.close", { sessionId: c.session!.id, counted: num(counted) }), onSuccess: (r) => { setAsk(false); setDone(r); onChanged(); }, onError: () => setAsk(false) });
   const t = c.totals; const cn = counted.trim() !== "" && Number.isInteger(num(counted)) && num(counted) >= 0 ? num(counted) : null; const variance = cn === null ? null : cn - t.theoreticalCash;
@@ -72,13 +74,15 @@ function Active({ c, manager, onChanged }: { c: Required<Current>; manager: bool
     <div className="card text-sm flex justify-between"><span><b className="text-emerald-300">● Caisse ouverte{c.session!.register ? ` · ${c.session!.register}` : ""}</b><br /><span className="text-white/50 text-xs">depuis {dt(c.session!.openedAt)}</span></span><span className="text-right text-white/60 text-xs">Fond<br /><b className="text-white text-sm">{formatFcfa(c.session!.openingFloat)}</b></span></div>
     <Totals t={t} />
     <section className="card flex flex-col gap-2" aria-label="Mouvements de caisse"><b className="text-sm">Sorties et entrées d'espèces</b>
-      <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); mv.mutate(); }}>
+      <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); setAskMv(true); }}>
         <div className="flex gap-2">{(["out", "in"] as const).map((k) => <button key={k} type="button" className="chip" aria-current={kind === k} onClick={() => setKind(k)}>{k === "out" ? "Sortie" : "Entrée"}</button>)}</div>
         <input className="input" inputMode="numeric" aria-label="Montant du mouvement" placeholder="Montant (FCFA)" value={amount} onChange={(e) => setAmount(e.target.value)} /><input className="input" aria-label="Motif" maxLength={200} placeholder="Motif obligatoire (ex. achat de sacs)" value={reason} onChange={(e) => setReason(e.target.value)} />
-        <Err e={mv.error} /><button className="btn-ghost" disabled={mv.isPending || !(num(amount) > 0) || reason.trim().length < 3}>{mv.isPending ? "Enregistrement…" : manager ? "Enregistrer (autorisé)" : "Enregistrer (à faire autoriser)"}</button></form>
-      {c.movements.map((m) => <div key={m.id} className="flex justify-between gap-2 text-sm border-t border-[var(--line)] pt-1"><span>{m.kind === "out" ? "Sortie" : "Entrée"} · {m.reason}<span className="text-xs text-white/50 block">{dt(m.at)} · {STATUS[m.status] ?? m.status}</span></span><span className="text-right shrink-0"><b>{m.kind === "out" ? "−" : "+"}{formatFcfa(m.amount)}</b>
+        <input className="input" aria-label="Bénéficiaire" maxLength={120} placeholder="Bénéficiaire (à qui l'argent est remis)" value={who} onChange={(e) => setWho(e.target.value)} /><Err e={mv.error} /><button className="btn-ghost" disabled={mv.isPending || !(num(amount) > 0) || reason.trim().length < 3}>{mv.isPending ? "Enregistrement…" : manager ? "Enregistrer (autorisé)" : "Enregistrer (à faire autoriser)"}</button></form>
+      {c.movements.map((m) => <div key={m.id} className="flex justify-between gap-2 text-sm border-t border-[var(--line)] pt-1"><span>{m.kind === "out" ? "Sortie" : "Entrée"} · {m.reason}{m.beneficiary ? ` — ${m.beneficiary}` : ""}<span className="text-xs text-white/50 block">{m.expenseId ? "Dépense · " : ""}{dt(m.at)} · {STATUS[m.status] ?? m.status}</span></span><span className="text-right shrink-0"><b>{m.kind === "out" ? "−" : "+"}{formatFcfa(m.amount)}</b>
         {manager && m.status === "pending" && <span className="flex gap-1 pt-1"><button className="btn !py-1 !px-2 text-xs" disabled={auth.isPending} onClick={() => auth.mutate({ id: m.id, approve: true })}>Autoriser</button><button className="btn-ghost !py-1 !px-2 text-xs" disabled={auth.isPending} onClick={() => auth.mutate({ id: m.id, approve: false })}>Refuser</button></span>}</span></div>)}
       {!c.movements.length && <p className="text-xs text-white/50">Aucun mouvement.</p>}<Err e={auth.error} /></section>
+    {askMv && <Confirm text={`Confirmer ${kind === "out" ? "la sortie" : "l'entrée"} de ${formatFcfa(num(amount) || 0)} en espèces${who.trim() ? ` (${kind === "out" ? "bénéficiaire" : "origine"} : ${who.trim()})` : ""} — motif : ${reason.trim()} ? ${manager ? "Elle sera tout de suite déduite du solde théorique." : "Elle restera en attente d'autorisation et ne modifiera pas le solde avant."}`} confirmLabel={mv.isPending ? "Enregistrement…" : "Confirmer"} onNo={() => setAskMv(false)} onYes={() => mv.mutate()} />}
+    {t.movements.expenseOut ? <p className="text-xs text-white/50">dont {formatFcfa(t.movements.expenseOut)} de dépenses payées depuis la caisse. <Link to="/depenses" className="underline">Voir les dépenses</Link></p> : null}
     <section className="card flex flex-col gap-2" aria-label="Fermeture"><b className="text-sm">Fermer la caisse</b>
       {t.movements.pending > 0 && <p className="text-xs text-amber-300 flex gap-1"><AlertTriangle size={14} />{t.movements.pending} mouvement(s) en attente d'autorisation : à traiter avant la fermeture.</p>}
       <input className="input" inputMode="numeric" aria-label="Montant compté" placeholder="Espèces comptées dans le tiroir (FCFA)" value={counted} onChange={(e) => setCounted(e.target.value)} />

@@ -40,6 +40,15 @@ function Card({ label, value, sub, kind, method, delta, tone }: { label: string;
     <div className={`font-semibold text-lg leading-tight ${tone ?? ""}`}>{value}</div><div className="flex gap-2 items-center"><Delta v={delta} />{sub && <span className="text-[11px] text-white/40 leading-snug">{sub}</span>}</div>
     {method && <button className="text-[11px] text-[var(--gold)] text-left flex items-center gap-0.5" onClick={() => setOpen(!open)} aria-expanded={open}><ChevronDown size={11} className={open ? "rotate-180" : ""} />Méthode</button>}{open && <p className="text-[11px] text-white/60">{method}</p>}</div>;
 }
+/** Dépenses d'exploitation et résultat : chiffres du module Dépenses ; le résultat n'est affiché que si le serveur confirme que toutes les données nécessaires existent. */
+function ExpenseCards({ from, to }: { from: string; to: string }) {
+  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["expense-pilot", s.shopId, from, to], retry: 0, staleTime: 60_000, queryFn: () => api<{ totals: { period: number; count: number }; pending: { count: number }; net: { available: boolean; value: number | null; reasons: string[] } }>(s, "expense.report", { from, to }) });
+  if (q.isLoading) return <><Na label="Dépenses d'exploitation" reason="Chargement…" /><Na label="Résultat opérationnel estimé" reason="Chargement…" /></>;
+  if (!q.data) return <><Na label="Dépenses d'exploitation" reason="Module Dépenses indisponible pour ce compte" /><Na label="Résultat opérationnel estimé" reason="Dépenses indisponibles" /></>;
+  const d = q.data; return <>
+    <Card label="Dépenses d'exploitation" value={formatFcfa(d.totals.period)} kind="comptable" sub={`${d.totals.count} dépense(s) validée(s)${d.pending.count ? ` · ${d.pending.count} en attente, non comptée(s)` : ""}`} />
+    {d.net.available && d.net.value !== null ? <Card label="Résultat opérationnel estimé" value={formatFcfa(d.net.value)} kind="estimatif" sub="Marge brute HT − dépenses validées" tone={d.net.value < 0 ? "text-red-300" : ""} /> : <Na label="Résultat opérationnel estimé" reason={d.net.reasons.join(" ; ") || "Données incomplètes"} />}</>;
+}
 const Na = ({ label, reason }: { label: string; reason: string }) => <Card label={label} value="Non calculable" sub={reason} kind="comptable" tone="text-white/50" />;
 const Box = ({ title, children, empty, note }: { title: string; children: React.ReactNode; empty?: string; note?: string }) => <section className="card flex flex-col gap-2"><h2 className="font-semibold text-sm">{title}</h2>{empty ? <p className="text-sm text-white/50">{empty}</p> : children}{note && <p className="text-[11px] text-white/40">{note}</p>}</section>;
 function Rows({ cols, rows, max = 8 }: { cols: string[]; rows: (string | number | null)[][]; max?: number }) {
@@ -117,8 +126,7 @@ function Exec({ d }: { d: Any }) {
       <Card label="Taux de marge" value={pct(t.marginRate)} kind="comptable" method={def.marginRate[1]} delta={c?.marginRate} sub={c?.marginRate !== null && c?.marginRate !== undefined ? "points vs période comparée" : undefined} />
       <Card label="Taux de marque" value={pct(t.markup)} kind="comptable" method={def.markup[1]} />
       <Card label="Achats enregistrés (HT)" value={formatFcfa(d.purchasesHt)} kind="comptable" method={def.purchases[1]} />
-      <Na label="Dépenses d'exploitation" reason="Non saisies dans l'application" />
-      <Na label="Résultat opérationnel estimé" reason="Charges d'exploitation indisponibles" />
+      <ExpenseCards from={d.period.from} to={d.period.to} />
       <Card label="Valeur du stock" value={d.stock.value === null ? "Non calculée" : formatFcfa(d.stock.value)} kind="comptable" method={def.stockValue[1]} sub={d.stock.methodLabel} />
       <Card label="Rotation des stocks" value={d.stock.rotation === null ? "Non calculable" : `${d.stock.rotation} ×`} kind="estimatif" method={def.rotation[1]} sub={d.stock.rotation === null ? "Coût ou stock moyen indisponible" : `stock moyen ${formatFcfa(d.stock.avgValue ?? 0)}`} />
       <Card label="Nombre de ventes" value={String(t.count)} kind="commercial" method={def.count[1]} delta={dl("count")} sub={p ? `préc. ${p.count}` : undefined} />

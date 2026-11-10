@@ -33,6 +33,12 @@ function Kpi({ label, value, sub, to, tone }: { label: string; value: string; su
   const inner = <><div className="text-white/50 text-xs">{label}</div><div className={`font-semibold text-lg leading-tight ${tone ?? ""}`}>{value}</div><div className="text-[11px] text-white/40 leading-snug">{sub}</div></>;
   return to ? <Link to={to} className="card block">{inner}</Link> : <div className="card">{inner}</div>;
 }
+/** Dépenses validées de la période (module Dépenses) : affiché seulement si l'abonnement et les droits le permettent ; jamais mélangé au chiffre d'affaires ni à la marge. */
+function ExpenseKpi({ from, to, label }: { from: string; to: string; label: string }) {
+  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["expense-kpi", s.shopId, from, to], retry: 0, staleTime: 60_000, queryFn: () => api<{ totals: { period: number; count: number }; pending: { count: number; amount: number } }>(s, "expense.report", { from, to }) });
+  if (!q.data) return null; const t = q.data;
+  return <Kpi label="Dépenses validées" value={formatFcfa(t.totals.period)} sub={`${label} · ${t.totals.count} dépense(s)${t.pending.count ? ` · ${t.pending.count} en attente (${formatFcfa(t.pending.amount)})` : ""}`} to="/depenses" tone={t.pending.count ? "text-amber-300" : ""} />;
+}
 const Section = ({ title, children, empty }: { title: string; children: React.ReactNode; empty?: string }) => <section className="card flex flex-col gap-2"><h2 className="font-semibold text-sm">{title}</h2>{empty ? <p className="text-sm text-white/50">{empty}</p> : children}</section>;
 
 /** Tableau de bord de l'activité (Business) : tout vient d'une seule action serveur (`dashboard.business`) calculée sur les ventes, achats, stock et mouvements réellement enregistrés. */
@@ -70,6 +76,7 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
           <Kpi label="Encaissé" value={formatFcfa(per.encaisse)} sub={`${periodTxt} · hors crédit, monnaie exclue`} />
           <Kpi label="Remboursements" value={formatFcfa(per.refunds.amount)} sub={`${periodTxt} · ${per.refunds.count} opération(s) · CA net ${formatFcfa(per.revenue - per.refunds.amount)}`} tone={per.refunds.amount ? "text-amber-300" : ""} />
           <Kpi label="Vendu à crédit" value={formatFcfa(per.credit)} sub={`${periodTxt} · non encaissé`} tone={per.credit ? "text-amber-300" : ""} />
+          <ExpenseKpi from={d.period.from} to={d.period.to} label={periodTxt} />
           <Kpi label="Achats enregistrés" value={formatFcfa(per.purchases)} sub={`${periodTxt} · HT, factures fournisseurs`} to="/achats" />
           <Kpi label="Marge brute" value={per.margin.known ? formatFcfa(per.margin.amount!) : "Non calculable"} sub={per.margin.known ? `${periodTxt} · ${per.margin.pct} % du CA HT − coût de revient` : per.count ? `Coût manquant sur ${per.margin.linesWithoutCost} ligne(s) (${per.margin.coveragePct} % du CA couvert)` : `${periodTxt} · aucune vente`} />
           <Kpi label="Articles actifs" value={String(k.stock.articles)} sub="À l'instant · non archivés" to="/articles" />

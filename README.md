@@ -130,3 +130,6 @@ Vérifié : typecheck, 386 tests (domaine + scénarios de la fonction, dont acha
 
 ## Caisse Pro
 Ventes atomiques (transactions Appwrite), anti-surventes, approbations hiérarchiques, droits distincts, bons d'achat, journal financier immuable, multi-caisses, intelligence expliquée et ticket vérifiable par QR : voir [docs/caisse-pro.md](docs/caisse-pro.md).
+
+## Dépenses et sorties de caisse (Business)
+Dépenses avec justificatif, sorties de caisse rattachées à la session, validation, annulation tracée et rapports : voir [docs/depenses-business.md](docs/depenses-business.md).
