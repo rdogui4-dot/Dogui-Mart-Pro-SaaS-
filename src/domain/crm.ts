@@ -41,8 +41,9 @@ export const clean = (v: unknown, max: number): string => String(v ?? "").replac
 export function normPhone(v: unknown): string | null { const raw = String(v ?? "").trim(); if (!raw) return ""; const digits = raw.replace(/[^\d]/g, ""); if (!/^[+\d][\d\s().-]*$/.test(raw) || digits.length < 6 || digits.length > 15) return null; return (raw.startsWith("+") ? "+" : "") + digits; }
 export const normEmail = (v: unknown): string | null => { const e = String(v ?? "").trim().toLowerCase(); if (!e) return ""; return e.length <= 160 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) ? e : null; };
 export type Consents = { sms: boolean; email: boolean; whatsapp: boolean; at?: string; by?: string };
-export const normConsents = (v: unknown): { sms: boolean; email: boolean; whatsapp: boolean } => { const o = (v ?? {}) as Record<string, unknown>; return { sms: o.sms === true, email: o.email === true, whatsapp: o.whatsapp === true }; };
-export const sameConsents = (a: { sms: boolean; email: boolean; whatsapp: boolean }, b: { sms: boolean; email: boolean; whatsapp: boolean }) => a.sms === b.sms && a.email === b.email && a.whatsapp === b.whatsapp;
+export type ConsentSet = { sms: boolean; email: boolean; whatsapp: boolean; call: boolean };
+export const normConsents = (v: unknown): ConsentSet => { const o = (v ?? {}) as Record<string, unknown>; return { sms: o.sms === true, email: o.email === true, whatsapp: o.whatsapp === true, call: o.call === true }; };
+export const sameConsents = (a: ConsentSet, b: ConsentSet) => a.sms === b.sms && a.email === b.email && a.whatsapp === b.whatsapp && a.call === b.call;
 export const normTags = (v: unknown): string[] => { const xs = Array.isArray(v) ? v : String(v ?? "").split(","); return [...new Set(xs.map((x) => clean(x, 24).toLowerCase()).filter(Boolean))].slice(0, 12); };
 export const dayOf = (v: unknown): string | null => { const s = String(v ?? ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null; const t = Date.parse(`${s}T00:00:00Z`); return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s ? s : null; };
 export const normProb = (v: unknown, fb: number): number | null => { if (v === undefined || v === null || v === "") return fb; const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; };

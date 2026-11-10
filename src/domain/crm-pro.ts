@@ -1,5 +1,5 @@
 import type { LoyaltyRules } from "./loyalty";
-import { DAY, clean } from "./crm";
+import { DAY, clean, type ConsentSet } from "./crm";
 
 /** CRM Pro : règles pures et explicables. Un score est un indicateur calculé sur des données déclarées : jamais une prédiction certaine. */
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -21,8 +21,8 @@ export function rfmKey(x: Rfm, i: { salesCount: number; firstSaleDays: number | 
 }
 
 // ------------------------------------------------------------------ profil et critères de segmentation (comportement réel)
-export type Profile = { id: string; kind: "customer" | "lead"; name: string; phone: string; email: string; salesCount: number; total: number; spend365: number; freq365: number; recencyDays: number | null; firstSaleDays: number | null; avgBasket: number; avgGapDays: number | null; categories: string[]; usesPromo: boolean; usesCredit: boolean; creditBalance: number; rfm: Rfm | null; rfmKey: RfmKey; tags: string[]; source: string; ownerId: string; consents: { sms: boolean; email: boolean; whatsapp: boolean }; lastContactedAt: number | null; segment: string };
-export type Criteria = { rfm?: RfmKey[]; recencyMin?: number; recencyMax?: number; freqMin?: number; freqMax?: number; valueMin?: number; valueMax?: number; category?: string; usesPromo?: boolean; usesCredit?: boolean; tag?: string; source?: string; ownerId?: string; consent?: "sms" | "email" | "whatsapp"; segment?: string; neverBought?: boolean };
+export type Profile = { id: string; kind: "customer" | "lead"; name: string; phone: string; email: string; salesCount: number; total: number; spend365: number; freq365: number; recencyDays: number | null; firstSaleDays: number | null; avgBasket: number; avgGapDays: number | null; categories: string[]; usesPromo: boolean; usesCredit: boolean; creditBalance: number; rfm: Rfm | null; rfmKey: RfmKey; tags: string[]; source: string; ownerId: string; consents: ConsentSet; prefChannel: string; lastContactedAt: number | null; segment: string };
+export type Criteria = { rfm?: RfmKey[]; recencyMin?: number; recencyMax?: number; freqMin?: number; freqMax?: number; valueMin?: number; valueMax?: number; category?: string; usesPromo?: boolean; usesCredit?: boolean; tag?: string; source?: string; ownerId?: string; consent?: "sms" | "email" | "whatsapp" | "call"; segment?: string; neverBought?: boolean };
 const num = (v: unknown, lo: number, hi: number, label: string): number | undefined => { if (v === undefined || v === null || v === "") return undefined; const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) throw new Error(`${label} invalide`); return Math.round(n); };
 export function normCriteria(v: unknown): Criteria {
   const o = (v ?? {}) as Record<string, unknown>; const c: Criteria = {};
@@ -31,7 +31,7 @@ export function normCriteria(v: unknown): Criteria {
   if (c.recencyMin !== undefined && c.recencyMax !== undefined && c.recencyMin > c.recencyMax) throw new Error("Récence : minimum supérieur au maximum"); if (c.freqMin !== undefined && c.freqMax !== undefined && c.freqMin > c.freqMax) throw new Error("Fréquence : minimum supérieur au maximum"); if (c.valueMin !== undefined && c.valueMax !== undefined && c.valueMin > c.valueMax) throw new Error("Valeur : minimum supérieure au maximum");
   if (o.category) c.category = clean(o.category, 80); if (o.tag) c.tag = clean(o.tag, 24).toLowerCase(); if (o.source) c.source = clean(o.source, 24); if (o.ownerId) c.ownerId = clean(o.ownerId, 64); if (o.segment) c.segment = clean(o.segment, 12);
   if (o.usesPromo === true || o.usesPromo === false) c.usesPromo = o.usesPromo; if (o.usesCredit === true || o.usesCredit === false) c.usesCredit = o.usesCredit; if (o.neverBought === true) c.neverBought = true;
-  if (o.consent !== undefined && o.consent !== "") { if (!["sms", "email", "whatsapp"].includes(String(o.consent))) throw new Error("Canal de consentement inconnu"); c.consent = o.consent as Criteria["consent"]; }
+  if (o.consent !== undefined && o.consent !== "") { if (!["sms", "email", "whatsapp", "call"].includes(String(o.consent))) throw new Error("Canal de consentement inconnu"); c.consent = o.consent as Criteria["consent"]; }
   return c;
 }
 export function matches(c: Criteria, p: Profile): boolean {
@@ -56,19 +56,19 @@ export function customerScore(p: Pick<Profile, "salesCount" | "recencyDays" | "a
   parts.push({ key: "recency", label: "Récence", points: rec, max: 30, why: ratio !== null ? `Dernier achat il y a ${p.recencyDays} j pour un rythme habituel de ${Math.round(p.avgGapDays!)} j (×${r2(ratio)})` : `Dernier achat il y a ${p.recencyDays} j` });
   const fr = p.freq365 >= 8 ? 25 : p.freq365 >= 5 ? 20 : p.freq365 >= 3 ? 14 : p.freq365 === 2 ? 8 : 3; parts.push({ key: "frequency", label: "Fréquence", points: fr, max: 25, why: `${p.freq365} achat(s) sur 12 mois` });
   const mv = (p.rfm?.m ?? 1) * 5; parts.push({ key: "value", label: "Valeur", points: mv, max: 25, why: `Niveau de dépense ${p.rfm?.m ?? 1}/5 par rapport à la médiane des acheteurs` });
-  const reach = (p.phone || p.email ? 5 : 0) + (p.consents.sms || p.consents.email || p.consents.whatsapp ? 5 : 0); parts.push({ key: "reach", label: "Joignabilité", points: reach, max: 10, why: `${p.phone || p.email ? "Contact renseigné" : "Aucun contact"} · ${p.consents.sms || p.consents.email || p.consents.whatsapp ? "consentement enregistré" : "aucun consentement"}` });
+  const reach = (p.phone || p.email ? 5 : 0) + (p.consents.sms || p.consents.email || p.consents.whatsapp || p.consents.call ? 5 : 0); parts.push({ key: "reach", label: "Joignabilité", points: reach, max: 10, why: `${p.phone || p.email ? "Contact renseigné" : "Aucun contact"} · ${p.consents.sms || p.consents.email || p.consents.whatsapp || p.consents.call ? "consentement enregistré" : "aucun consentement"}` });
   parts.push({ key: "payment", label: "Paiement", points: p.creditBalance > 0 ? 4 : 10, max: 10, why: p.creditBalance > 0 ? "Crédit en cours" : "Aucun crédit en cours" });
   const s = parts.reduce((a, x) => a + x.points, 0); if (p.salesCount < 5) limits.push("Moins de 5 achats : estimation peu stable.");
   return { score: s, level: lvl(s), levelLabel: LEVEL_LABEL[lvl(s)], parts, basis: `${p.salesCount} achat(s) confirmé(s)`, limits, note: SCORE_NOTE };
 }
-export type LeadFacts = { stage: string; phone: string; email: string; company: string; address: string; source: string; consents: { sms: boolean; email: boolean; whatsapp: boolean }; lastActivityDays: number | null; openOppValue: number; oppDue: boolean };
+export type LeadFacts = { stage: string; phone: string; email: string; company: string; address: string; source: string; consents: ConsentSet; lastActivityDays: number | null; openOppValue: number; oppDue: boolean };
 const STAGE_POINTS: Record<string, number> = { new: 5, contacted: 12, qualified: 20, proposal: 26, negotiation: 30 };
 /** Maturité commerciale d'un prospect : étape, complétude de la fiche, consentement, activité récente, opportunité et origine. */
 export function leadScore(l: LeadFacts): Score {
   if (!Object.hasOwn(STAGE_POINTS, l.stage)) return { score: null, level: "unrated", levelLabel: LEVEL_LABEL.unrated, parts: [], basis: "Prospect clôturé", limits: ["Un prospect gagné ou perdu n'est plus évalué."], note: SCORE_NOTE };
   const parts: ScorePart[] = [{ key: "stage", label: "Étape du pipeline", points: STAGE_POINTS[l.stage]!, max: 30, why: `Étape « ${l.stage} »` }];
   const comp = (l.phone ? 6 : 0) + (l.email ? 4 : 0) + (l.company || l.address ? 5 : 0); parts.push({ key: "profile", label: "Fiche complète", points: comp, max: 15, why: `${l.phone ? "téléphone" : "sans téléphone"}, ${l.email ? "e-mail" : "sans e-mail"}, ${l.company || l.address ? "entreprise/adresse" : "sans entreprise ni adresse"}` });
-  const cons = l.consents.sms || l.consents.email || l.consents.whatsapp ? 10 : 0; parts.push({ key: "consent", label: "Consentement", points: cons, max: 10, why: cons ? "Consentement de contact enregistré" : "Aucun consentement" });
+  const cons = l.consents.sms || l.consents.email || l.consents.whatsapp || l.consents.call ? 10 : 0; parts.push({ key: "consent", label: "Consentement", points: cons, max: 10, why: cons ? "Consentement de contact enregistré" : "Aucun consentement" });
   const act = l.lastActivityDays === null ? 0 : l.lastActivityDays <= 7 ? 20 : l.lastActivityDays <= 14 ? 14 : l.lastActivityDays <= 30 ? 8 : 0; parts.push({ key: "activity", label: "Activité récente", points: act, max: 20, why: l.lastActivityDays === null ? "Aucune interaction enregistrée" : `Dernière interaction il y a ${l.lastActivityDays} j` });
   const opp = (l.openOppValue > 0 ? 10 : 0) + (l.openOppValue > 0 && l.oppDue ? 5 : 0); parts.push({ key: "opp", label: "Opportunité", points: opp, max: 15, why: l.openOppValue > 0 ? `Opportunité ouverte de ${l.openOppValue} FCFA${l.oppDue ? " avec échéance" : " sans échéance"}` : "Aucune opportunité ouverte" });
   const src = l.source === "referral" || l.source === "walkin" ? 10 : l.source ? 5 : 0; parts.push({ key: "source", label: "Origine", points: src, max: 10, why: l.source ? `Origine « ${l.source} »` : "Origine non renseignée" });
@@ -76,24 +76,32 @@ export function leadScore(l: LeadFacts): Score {
 }
 
 // ------------------------------------------------------------------ campagnes : canaux, éligibilité, attribution, résultats
-export type Channel = "whatsapp" | "sms" | "email";
-export const CHANNELS: Record<Channel, string> = { whatsapp: "WhatsApp", sms: "SMS", email: "E-mail" };
-/** Canaux dont l'envoi est suspendu jusqu'à nouvel ordre (décision du propriétaire) : aucune campagne, aucun lien de contact. */
-export const SUSPENDED_CHANNELS: Channel[] = ["whatsapp"];
+export type Channel = "call" | "store" | "whatsapp" | "sms" | "email";
+export const CHANNELS: Record<Channel, string> = { call: "Appel", store: "En boutique (caisse)", whatsapp: "WhatsApp", sms: "SMS", email: "E-mail" };
+/** Canaux passant par un prestataire externe (WhatsApp, SMS, e-mail) : suspendus jusqu'à nouvel ordre. Aucun connecteur n'existe ; seuls l'appel par l'équipe et l'offre en boutique (coupon présenté en caisse) restent actifs. */
+export const SUSPENDED_CHANNELS: Channel[] = ["whatsapp", "sms", "email"];
 export const isSuspended = (c: unknown): boolean => SUSPENDED_CHANNELS.includes(c as Channel);
-export const SUSPENDED_MSG = "L'envoi WhatsApp est suspendu jusqu'à nouvel ordre : choisissez SMS ou e-mail.";
+export const SUSPENDED_MSG = "Les envois par prestataire externe (WhatsApp, SMS, e-mail) sont suspendus jusqu'à nouvel ordre : utilisez l'appel ou l'offre en boutique.";
 export const isChannel = (v: unknown): v is Channel => Object.hasOwn(CHANNELS, String(v));
 export type CampaignStatus = "draft" | "approved" | "running" | "completed" | "cancelled";
 export const CAMPAIGN_LABEL: Record<CampaignStatus, string> = { draft: "Brouillon", approved: "Autorisée", running: "En cours", completed: "Terminée", cancelled: "Annulée" };
 export const CAMPAIGN_NEXT: Record<CampaignStatus, CampaignStatus[]> = { draft: ["approved", "cancelled"], approved: ["running", "draft", "cancelled"], running: ["completed", "cancelled"], completed: [], cancelled: [] };
 export type TargetStatus = "pending" | "contacted" | "replied" | "skipped" | "optout" | "failed";
 export const TARGET_LABEL: Record<TargetStatus, string> = { pending: "À contacter", contacted: "Contacté", replied: "A répondu", skipped: "Écarté", optout: "Désabonné", failed: "Échec" };
-export type Skip = "no_contact" | "no_consent" | "frequency" | "unreachable";
-export const SKIP_LABEL: Record<Skip, string> = { no_contact: "Pas de coordonnée pour ce canal", no_consent: "Pas de consentement pour ce canal (ou désabonné)", frequency: "Contacté récemment (limite de fréquence)", unreachable: "Contact indisponible" };
-export function eligibility(i: { channel: Channel; phone: string; email: string; consents: { sms: boolean; email: boolean; whatsapp: boolean }; lastContactedAt: number | null; now: number; freqDays: number }): { ok: true } | { ok: false; reason: Skip } {
+export type Skip = "no_contact" | "no_consent" | "frequency" | "unreachable" | "preference";
+export const SKIP_LABEL: Record<Skip, string> = { no_contact: "Pas de coordonnée pour ce canal", no_consent: "Pas de consentement pour ce canal (ou désabonné)", frequency: "Contacté récemment (limite de fréquence)", preference: "Canal préféré différent (préférence de contact)", unreachable: "Contact indisponible" };
+export function eligibility(i: { channel: Channel; phone: string; email: string; consents: ConsentSet; prefChannel?: string; lastContactedAt: number | null; now: number; freqDays: number }): { ok: true } | { ok: false; reason: Skip } {
+  if (i.channel === "store") return i.lastContactedAt !== null && i.now - i.lastContactedAt < i.freqDays * DAY ? { ok: false, reason: "frequency" } : { ok: true };
   const has = i.channel === "email" ? !!i.email : !!i.phone; if (!has) return { ok: false, reason: "no_contact" };
-  if (!i.consents[i.channel]) return { ok: false, reason: "no_consent" }; if (i.lastContactedAt !== null && i.now - i.lastContactedAt < i.freqDays * DAY) return { ok: false, reason: "frequency" }; return { ok: true };
+  if (!i.consents[i.channel]) return { ok: false, reason: "no_consent" }; if (i.prefChannel && i.prefChannel !== i.channel) return { ok: false, reason: "preference" }; if (i.lastContactedAt !== null && i.now - i.lastContactedAt < i.freqDays * DAY) return { ok: false, reason: "frequency" }; return { ok: true };
 }
+/** Plafonds : contacts déjà enregistrés aujourd'hui (jour UTC) et ce mois-ci (mois civil UTC), toutes campagnes confondues. */
+export function quotaState(contactedAts: number[], now: number, cap: { dailyCap: number; monthlyCap: number }): { ok: boolean; reason?: "daily" | "monthly"; daily: number; monthly: number } {
+  const d = new Date(now); const day0 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), mon0 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); const daily = contactedAts.filter((t) => t >= day0).length, monthly = contactedAts.filter((t) => t >= mon0).length;
+  return daily >= cap.dailyCap ? { ok: false, reason: "daily", daily, monthly } : monthly >= cap.monthlyCap ? { ok: false, reason: "monthly", daily, monthly } : { ok: true, daily, monthly };
+}
+/** Heures calmes (UTC, fenêtre [from, to[ pouvant passer minuit ; from = to : aucune) : aucun contact enregistré pendant ce créneau. */
+export const inQuietHours = (now: number, from: number, to: number): boolean => { if (from === to) return false; const h = new Date(now).getUTCHours() + new Date(now).getUTCMinutes() / 60; return from < to ? h >= from && h < to : h >= from || h < to; };
 export const fillTemplate = (t: string, name: string): string => t.replace(/\{(?:nom|prénom|prenom)\}/gi, clean(name, 80).split(" ")[0] ?? "");
 /** Ventes du client dans la fenêtre qui suit le contact : corrélation temporelle, pas une preuve de causalité. */
 export const attribute = (contactedAt: number, windowDays: number, sales: { at: number; net: number }[]): { count: number; amount: number } => { const end = contactedAt + windowDays * DAY; const s = sales.filter((x) => x.at > contactedAt && x.at <= end); return { count: s.length, amount: s.reduce((a, x) => a + x.net, 0) }; };
@@ -152,3 +160,26 @@ export function normLoyalty(v: unknown, base: LoyaltyRules): LoyaltyConfig {
   const perks = (o.perks ?? {}) as Record<string, unknown>; return { ...r, perks: { bronze: clean(perks.bronze, 120), silver: clean(perks.silver, 120), gold: clean(perks.gold, 120) } };
 }
 export const describeLoyalty = (c: LoyaltyConfig): string[] => [`1 point gagné par tranche de ${c.cfaPerPoint} FCFA dépensés (hors points utilisés)`, `Argent dès ${c.silverThreshold} FCFA de dépenses annuelles : +${c.silverBonusPct} % de points`, `Or dès ${c.goldThreshold} FCFA : +${c.goldBonusPct} % de points`, `1 point = ${c.redeemCfaPerPoint} FCFA de réduction, dans la limite de ${c.maxRedeemPct} % du total de la vente`, "Les nouvelles règles s'appliquent aux ventes futures : les points déjà acquis et l'historique ne sont jamais recalculés."];
+
+// ------------------------------------------------------------------ ventes croisées : associations observées dans les paniers réels
+export type Rule = { a: string; b: string; both: number; countA: number; countB: number; baskets: number; confidence: number; lift: number };
+export const MIN_BASKETS = 30, MIN_SUPPORT = 3;
+/** Règles A → B : confiance = P(B|A), lift = confiance ÷ P(B). Retenues seulement si A et B figurent ensemble dans ≥ MIN_SUPPORT paniers et que le corpus compte ≥ MIN_BASKETS paniers. */
+export function associations(baskets: string[][], minSupport = MIN_SUPPORT): { rules: Rule[]; baskets: number; enough: boolean } {
+  const n = baskets.length; const cnt = new Map<string, number>(); const pair = new Map<string, number>();
+  for (const raw of baskets) { const b = [...new Set(raw)]; for (const x of b) cnt.set(x, (cnt.get(x) ?? 0) + 1); for (const x of b) for (const y of b) if (x !== y) pair.set(`${x}\u0000${y}`, (pair.get(`${x}\u0000${y}`) ?? 0) + 1); }
+  const rules: Rule[] = []; for (const [k, both] of pair) { if (both < minSupport) continue; const [a, b] = k.split("\u0000") as [string, string]; const ca = cnt.get(a)!, cb = cnt.get(b)!; rules.push({ a, b, both, countA: ca, countB: cb, baskets: n, confidence: r2(both / ca), lift: r2((both / ca) / (cb / n)) }); }
+  return { rules: rules.sort((x, y) => y.lift - x.lift || y.both - x.both), baskets: n, enough: n >= MIN_BASKETS };
+}
+/** Suggestions pour un client : produits souvent achetés avec ceux qu'il a déjà achetés (lift > 1), qu'il n'a jamais achetés. */
+export function recommend(owned: Set<string>, rules: Rule[], limit = 5): { productId: string; because: string[]; bestConfidence: number; bestLift: number; support: number }[] {
+  const m = new Map<string, { productId: string; because: string[]; bestConfidence: number; bestLift: number; support: number }>();
+  for (const r of rules) { if (!owned.has(r.a) || owned.has(r.b) || r.lift <= 1) continue; const e = m.get(r.b) ?? { productId: r.b, because: [], bestConfidence: 0, bestLift: 0, support: 0 }; e.because.push(r.a); if (r.confidence > e.bestConfidence) { e.bestConfidence = r.confidence; e.support = r.both; } e.bestLift = Math.max(e.bestLift, r.lift); m.set(r.b, e); }
+  return [...m.values()].sort((x, y) => y.bestLift - x.bestLift || y.support - x.support).slice(0, limit);
+}
+// ------------------------------------------------------------------ réactivation
+/** Un contact « réactive » un client resté inactif (> inactiveDays au moment du contact) lorsqu'il achète dans la fenêtre qui suit. */
+export function reactivation(contactedAt: number, windowDays: number, sales: { at: number; net: number }[], inactiveDays: number): { eligible: boolean; reactivated: boolean; amount: number } {
+  const before = sales.filter((x) => x.at <= contactedAt).map((x) => x.at); const last = before.length ? Math.max(...before) : null; const eligible = last !== null && (contactedAt - last) / DAY > inactiveDays; const a = attribute(contactedAt, windowDays, sales);
+  return { eligible, reactivated: eligible && a.count > 0, amount: eligible ? a.amount : 0 };
+}

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DAY } from "./crm";
-import { attribute, campaignStats, cohorts, customerScore, eligibility, fScore, fillTemplate, leadScore, mScore, matches, median, normCriteria, normLoyalty, normRule, pipelineForecast, projectNext, rScore, retention, rfmKey, valueOf, type Profile } from "./crm-pro";
+import { SUSPENDED_CHANNELS, associations, inQuietHours, quotaState, reactivation, recommend, attribute, campaignStats, cohorts, customerScore, eligibility, fScore, fillTemplate, leadScore, mScore, matches, median, normCriteria, normLoyalty, normRule, pipelineForecast, projectNext, rScore, retention, rfmKey, valueOf, type Profile } from "./crm-pro";
 import { DEFAULT_RULES } from "./loyalty";
 
-const P = (o: Partial<Profile> = {}): Profile => ({ id: "c1", kind: "customer", name: "Awa", phone: "770001122", email: "", salesCount: 5, total: 50000, spend365: 50000, freq365: 5, recencyDays: 10, firstSaleDays: 200, avgBasket: 10000, avgGapDays: 30, categories: ["Alimentaire"], usesPromo: false, usesCredit: false, creditBalance: 0, rfm: { r: 5, f: 3, m: 3 }, rfmKey: "occasional", tags: ["vip"], source: "referral", ownerId: "u1", consents: { sms: false, email: false, whatsapp: true }, lastContactedAt: null, segment: "active", ...o });
+const P = (o: Partial<Profile> = {}): Profile => ({ id: "c1", kind: "customer", name: "Awa", phone: "770001122", email: "", salesCount: 5, total: 50000, spend365: 50000, freq365: 5, recencyDays: 10, firstSaleDays: 200, avgBasket: 10000, avgGapDays: 30, categories: ["Alimentaire"], usesPromo: false, usesCredit: false, creditBalance: 0, prefChannel: "", rfm: { r: 5, f: 3, m: 3 }, rfmKey: "occasional", tags: ["vip"], source: "referral", ownerId: "u1", consents: { sms: false, email: false, whatsapp: true, call: false }, lastContactedAt: null, segment: "active", ...o });
 describe("RFM", () => {
   it("barèmes R, F, M documentés", () => { expect([rScore(10), rScore(30), rScore(60), rScore(120), rScore(300)]).toEqual([5, 4, 3, 2, 1]); expect([fScore(12), fScore(6), fScore(3), fScore(2), fScore(1)]).toEqual([5, 4, 3, 2, 1]); expect([mScore(300, 100), mScore(150, 100), mScore(80, 100), mScore(40, 100), mScore(10, 100)]).toEqual([5, 4, 3, 2, 1]); expect(median([5, 1, 3, 9])).toBe(4); });
   it("segments nommés, dans l'ordre des règles", () => {
@@ -22,14 +22,14 @@ describe("scores explicables", () => {
   it("client : somme des critères affichés, niveau, limites ; non évaluable sous 2 achats", () => {
     const s = customerScore(P()); expect(s.parts.reduce((a, x) => a + x.points, 0)).toBe(s.score); expect(s.parts.map((x) => x.key)).toEqual(["recency", "frequency", "value", "reach", "payment"]); expect(s.parts[0]!.why).toMatch(/rythme habituel/); expect(s.level).toBe("high"); expect(s.note).toMatch(/ni une prédiction certaine/);
     const u = customerScore(P({ salesCount: 1 })); expect(u).toMatchObject({ score: null, level: "unrated" }); expect(u.limits[0]).toMatch(/Moins de 2 achats/);
-    expect(customerScore(P({ recencyDays: 200, avgGapDays: 30, freq365: 1, rfm: { r: 1, f: 1, m: 1 }, creditBalance: 500, consents: { sms: false, email: false, whatsapp: false }, phone: "" })).level).toBe("low");
+    expect(customerScore(P({ recencyDays: 200, avgGapDays: 30, freq365: 1, rfm: { r: 1, f: 1, m: 1 }, creditBalance: 500, consents: { sms: false, email: false, whatsapp: false, call: false }, phone: "" })).level).toBe("low");
   });
   it("prospect : critères et limites ; clôturé non évalué", () => {
-    const f = { stage: "qualified", phone: "77", email: "a@b.sn", company: "X", address: "", source: "referral", consents: { sms: true, email: false, whatsapp: false }, lastActivityDays: 3, openOppValue: 100000, oppDue: true }; const s = leadScore(f); expect(s.score).toBe(20 + 15 + 10 + 20 + 15 + 10); expect(s.limits[0]).toMatch(/par convention/); expect(leadScore({ ...f, stage: "won" }).level).toBe("unrated"); expect(leadScore({ ...f, stage: "new", phone: "", email: "", company: "", consents: { sms: false, email: false, whatsapp: false }, lastActivityDays: null, openOppValue: 0, source: "" }).score).toBe(5);
+    const f = { stage: "qualified", phone: "77", email: "a@b.sn", company: "X", address: "", source: "referral", consents: { sms: true, email: false, whatsapp: false, call: false }, lastActivityDays: 3, openOppValue: 100000, oppDue: true }; const s = leadScore(f); expect(s.score).toBe(20 + 15 + 10 + 20 + 15 + 10); expect(s.limits[0]).toMatch(/par convention/); expect(leadScore({ ...f, stage: "won" }).level).toBe("unrated"); expect(leadScore({ ...f, stage: "new", phone: "", email: "", company: "", consents: { sms: false, email: false, whatsapp: false, call: false }, lastActivityDays: null, openOppValue: 0, source: "" }).score).toBe(5);
   });
 });
 describe("éligibilité des campagnes", () => {
-  const now = Date.now(); const base = { channel: "whatsapp" as const, phone: "77", email: "", consents: { sms: false, email: false, whatsapp: true }, lastContactedAt: null, now, freqDays: 14 };
+  const now = Date.now(); const base = { channel: "whatsapp" as const, phone: "77", email: "", consents: { sms: false, email: false, whatsapp: true, call: false }, lastContactedAt: null, now, freqDays: 14 };
   it("exige coordonnée, consentement du canal et respect de la fréquence", () => {
     expect(eligibility(base)).toEqual({ ok: true }); expect(eligibility({ ...base, phone: "" })).toEqual({ ok: false, reason: "no_contact" }); expect(eligibility({ ...base, channel: "sms" })).toEqual({ ok: false, reason: "no_consent" }); expect(eligibility({ ...base, channel: "email", email: "a@b.sn" })).toEqual({ ok: false, reason: "no_consent" });
     expect(eligibility({ ...base, lastContactedAt: now - 5 * DAY })).toEqual({ ok: false, reason: "frequency" }); expect(eligibility({ ...base, lastContactedAt: now - 20 * DAY })).toEqual({ ok: true });
@@ -56,5 +56,26 @@ describe("règles d'automatisation et de fidélité", () => {
   it("fidélité : bornes, cohérence des niveaux, règles décrites en clair", () => {
     expect(() => normLoyalty({ silverThreshold: 600000 }, DEFAULT_RULES)).toThrow("Or doit dépasser"); expect(() => normLoyalty({ goldBonusPct: 5 }, DEFAULT_RULES)).toThrow("bonus Or"); expect(() => normLoyalty({ maxRedeemPct: 120 }, DEFAULT_RULES)).toThrow("invalide"); expect(() => normLoyalty({ cfaPerPoint: 1.5 }, DEFAULT_RULES)).toThrow("invalide");
     const c = normLoyalty({ cfaPerPoint: 200, perks: { gold: "Livraison offerte" } }, DEFAULT_RULES); expect(c).toMatchObject({ cfaPerPoint: 200, goldThreshold: 500000, perks: { gold: "Livraison offerte", silver: "" } });
+  });
+});
+
+describe("canaux, préférences, plafonds, heures calmes", () => {
+  const now = Date.UTC(2026, 10, 10, 14, 0); const base = { channel: "call" as const, phone: "77", email: "", consents: { sms: false, email: false, whatsapp: false, call: true }, lastContactedAt: null, now, freqDays: 14 };
+  it("prestataires externes suspendus ; appel exige coordonnée + consentement + préférence compatible ; boutique sans consentement mais avec fréquence", () => {
+    expect(SUSPENDED_CHANNELS).toEqual(["whatsapp", "sms", "email"]); expect(eligibility(base)).toEqual({ ok: true }); expect(eligibility({ ...base, prefChannel: "sms" })).toEqual({ ok: false, reason: "preference" }); expect(eligibility({ ...base, prefChannel: "call" })).toEqual({ ok: true }); expect(eligibility({ ...base, consents: { ...base.consents, call: false } })).toEqual({ ok: false, reason: "no_consent" });
+    expect(eligibility({ ...base, channel: "store", consents: { sms: false, email: false, whatsapp: false, call: false }, phone: "" })).toEqual({ ok: true }); expect(eligibility({ ...base, channel: "store", lastContactedAt: now - DAY })).toEqual({ ok: false, reason: "frequency" });
+  });
+  it("plafonds du jour et du mois (UTC) ; heures calmes avec passage de minuit", () => {
+    const ts = [now - 1000, now - 2000, Date.UTC(2026, 10, 3), Date.UTC(2026, 9, 28)]; expect(quotaState(ts, now, { dailyCap: 3, monthlyCap: 10 })).toEqual({ ok: true, daily: 2, monthly: 3 }); expect(quotaState(ts, now, { dailyCap: 2, monthlyCap: 10 })).toMatchObject({ ok: false, reason: "daily" }); expect(quotaState(ts, now, { dailyCap: 9, monthlyCap: 3 })).toMatchObject({ ok: false, reason: "monthly" });
+    expect(inQuietHours(now, 0, 0)).toBe(false); expect(inQuietHours(now, 12, 16)).toBe(true); expect(inQuietHours(now, 20, 7)).toBe(false); expect(inQuietHours(Date.UTC(2026, 10, 10, 22), 20, 7)).toBe(true); expect(inQuietHours(Date.UTC(2026, 10, 10, 3), 20, 7)).toBe(true); expect(inQuietHours(now, 0, 24)).toBe(true);
+  });
+});
+describe("ventes croisées et réactivation", () => {
+  it("associations : support minimal, confiance, lift, corpus minimal ; recommandations sans article déjà possédé", () => {
+    const bs: string[][] = [...Array(6).fill(["A", "B"]), ...Array(2).fill(["A", "C"]), ...Array(24).fill(["C"]), ["A"]]; const r = associations(bs); expect(r.enough).toBe(true); expect(r.baskets).toBe(33); const ab = r.rules.find((x) => x.a === "A" && x.b === "B")!; expect(ab).toMatchObject({ both: 6, countA: 9, countB: 6 }); expect(ab.confidence).toBeCloseTo(0.67, 1); expect(ab.lift).toBeGreaterThan(1); expect(r.rules.some((x) => x.b === "C" && x.a === "A")).toBe(false);
+    expect(recommend(new Set(["A"]), r.rules).map((x) => x.productId)).toEqual(["B"]); expect(recommend(new Set(["A", "B"]), r.rules)).toEqual([]); expect(associations([["A", "B"]]).enough).toBe(false);
+  });
+  it("réactivation : base = inactifs (> N jours) au moment du contact ; achat dans la fenêtre", () => {
+    const t = Date.now(); const s = [{ at: t - 100 * DAY, net: 100 }, { at: t + 2 * DAY, net: 500 }]; expect(reactivation(t, 14, s, 60)).toEqual({ eligible: true, reactivated: true, amount: 500 }); expect(reactivation(t, 14, [{ at: t - 10 * DAY, net: 100 }, { at: t + 2 * DAY, net: 500 }], 60)).toMatchObject({ eligible: false, reactivated: false, amount: 0 }); expect(reactivation(t, 1, s, 60)).toMatchObject({ eligible: true, reactivated: false });
   });
 });

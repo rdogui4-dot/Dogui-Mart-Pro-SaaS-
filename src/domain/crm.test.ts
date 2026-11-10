@@ -23,7 +23,7 @@ describe("validation", () => {
     expect(normPhone("+221 77 000 11 22")).toBe("+221770001122"); expect(normPhone("77 000 11 22")).toBe("770001122"); expect(normPhone("abc")).toBeNull(); expect(normPhone("123")).toBeNull(); expect(normPhone("")).toBe("");
     expect(normEmail(" A@B.sn ")).toBe("a@b.sn"); expect(normEmail("a@b")).toBeNull(); expect(normEmail("")).toBe("");
     expect(dayOf("2026-02-30")).toBeNull(); expect(dayOf("2026-02-27")).toBe("2026-02-27"); expect(normProb("150", 10)).toBeNull(); expect(normProb(undefined, 10)).toBe(10); expect(normProb("0", 10)).toBe(0);
-    expect(normTags("VIP, vip , gros")).toEqual(["vip", "gros"]); expect(normConsents({ sms: true, email: "oui" })).toEqual({ sms: true, email: false, whatsapp: false });
+    expect(normTags("VIP, vip , gros")).toEqual(["vip", "gros"]); expect(normConsents({ sms: true, email: "oui" })).toEqual({ sms: true, email: false, whatsapp: false, call: false });
     expect(contactKeys("+221770001122", "a@b.sn")).toEqual(["p:770001122", "e:a@b.sn"]);
   });
 });
