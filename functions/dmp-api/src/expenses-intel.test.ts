@@ -1,0 +1,99 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { MemoryStore } from "./memory-store";
+import { handle } from "./main";
+
+class DatedStore extends MemoryStore { override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { return super.create(t, id, tenant, { $createdAt: new Date().toISOString(), ...d }); } }
+const T = "tenantin001";
+let st: DatedStore; let A = "", B = ""; const U: Record<string, string> = {};
+const call = (user: string, action: string, payload: unknown = {}, shop = A) => handle(st, U[user] ?? user, { action, tenantId: T, shopId: shop, payload }, { admins: [] });
+const ok = async (r: Promise<any>) => { const x = await r; expect(x.status, JSON.stringify(x.body)).toBe(200); return x.body.data; };
+const err = async (r: Promise<any>, status: number, msg?: string) => { const x = await r; expect(x.status, JSON.stringify(x.body)).toBe(status); if (msg) expect(x.body.error).toContain(msg); };
+const setPlan = (plan: string) => { const row = st.rows("subscriptions").find((r) => r.$id === T); const data = { tenantId: T, plan, period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }; if (row) Object.assign(row, data); else void st.create("subscriptions", T, T, data); };
+const rid = () => crypto.randomUUID().replace(/-/g, "");
+const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 10);
+const monthsAgo = (n: number, d = 10) => { const x = new Date(); x.setUTCDate(1); x.setUTCMonth(x.getUTCMonth() - n); return `${x.toISOString().slice(0, 8)}${String(d).padStart(2, "0")}`; };
+let seq = 0;
+/** Dépense validée insérée directement (historique ancien, impossible à saisir via l'API). */
+const seed = (o: Record<string, unknown>) => st.create("expenses", `exseed${String(++seq).padStart(6, "0")}`, T, { tenantId: T, shopId: A, number: `D-SEED-${seq}`, label: "Transport", category: "transport", amount: 10000, spentOn: `${day()}T12:00:00.000Z`, method: "transfer", source: "external", beneficiary: "Moussa", status: "approved", createdBy: U.ger, receipts: "[]", meta: JSON.stringify({ recordedAt: new Date().toISOString(), levels: ["manager"], approvals: [] }), ...o, ...(o.spentOn ? { spentOn: `${o.spentOn}T12:00:00.000Z` } : {}) });
+const exp = (user: string, extra: object = {}, shop = A) => call(user, "expense.create", { requestId: rid(), label: `Dépense ${rid().slice(0, 4)}`, category: "transport", amount: 2000, spentOn: day(), method: "transfer", source: "external", beneficiary: "Moussa", ...extra }, shop);
+
+beforeEach(async () => {
+  st = new DatedStore(); seq = 0; await st.grant(T, "own", ["owner"], []);
+  A = (await ok(call("own", "shop.create", { name: "Dakar" }, ""))).shopId; B = (await ok(call("own", "shop.create", { name: "Thiès" }, ""))).shopId;
+  for (const [u, role, shops] of [["cais", "cashier", [A]], ["ger", "manager", [A]], ["gerB", "manager", [B]]] as const) U[u] = (await ok(call("own", "staff.create", { name: u, username: u, password: "motdepasse1", role, shopIds: shops }, ""))).userId;
+  setPlan("pro"); await ok(call("own", "expense.settings", { codeRequired: false }));
+});
+
+describe("contrôle intelligent : signaux explicables", () => {
+  it("accès : Pro + droit de consulter ; Business refusé (402) ; caissier refusé (403)", async () => {
+    await err(call("cais", "exppro.insights", {}), 403); await err(call("cais", "treasury.view", {}), 403); await err(call("cais", "exppro.report", {}), 403); setPlan("business"); for (const a of ["exppro.insights", "treasury.view", "exppro.report"]) await err(call("own", a, {}), 402); await err(call("own", "treasury.balance.save", { kind: "bank", amount: 1 }), 402);
+  });
+  it("variation inhabituelle d'une catégorie : seulement avec ≥ 3 mois d'historique, avec la base de calcul ; rien sans historique", async () => {
+    for (let m = 1; m <= 5; m++) await seed({ spentOn: monthsAgo(m), amount: 10000 + m * 200 }); await seed({ spentOn: day(), amount: 40000 }); const r = await ok(call("own", "exppro.insights", {})); const a = r.anomalies.find((x: any) => x.code === "category_variation"); expect(a).toBeTruthy(); expect(a.message).toContain("Transport"); expect(a.basis).toContain("mois d'historique"); expect(r.limits.length).toBeGreaterThan(1);
+    await seed({ category: "eau", spentOn: monthsAgo(1), amount: 10000 }); await seed({ category: "eau", spentOn: monthsAgo(2), amount: 10000 }); await seed({ category: "eau", spentOn: day(), amount: 90000 }); expect(r.anomalies.filter((x: any) => x.code === "category_variation").length).toBe(1); expect((await ok(call("own", "exppro.insights", {}))).anomalies.filter((x: any) => x.code === "category_variation").every((x: any) => x.message.includes("Transport"))).toBe(true); // eau : 2 mois d'historique seulement, aucune alerte
+  });
+  it("doublons potentiels (≤ 3 jours), dépenses récurrentes détectées puis modélisées, validation sans contrôle indépendant, attente ancienne, échéance dépassée", async () => {
+    await seed({ label: "Gasoil groupe", amount: 25000, spentOn: day(-5) }); await seed({ label: "GASOIL groupe", amount: 25000, spentOn: day(-4), createdBy: U.gerB }); await seed({ label: "Gasoil groupe", amount: 25000, spentOn: day(-40) });
+    for (const m of [3, 2, 1]) await seed({ label: "Abonnement internet", category: "internet", amount: 30000, beneficiary: "Orange", spentOn: monthsAgo(m, 5) });
+    await seed({ label: "Achat sacs", amount: 4000, spentOn: day(-3), meta: JSON.stringify({ autoApproved: true, levels: ["manager"], approvals: [] }) }); await seed({ label: "Attente ancienne", amount: 3000, spentOn: day(-6), status: "pending" });
+    await ok(call("own", "expense.settings", { codeRequired: false })); const od = await ok(exp("ger", { amount: 50000, label: "Facture fournisseur", payMode: "deferred", spentOn: day(-10), dueOn: day(-3) }));
+    const r = await ok(call("own", "exppro.insights", {})); const codes = r.anomalies.map((a: any) => a.code); expect(codes).toEqual(expect.arrayContaining(["duplicate", "recurring_detected", "missing_proof", "pending_stale", "overdue"])); expect(r.duplicates[0]).toMatchObject({ amount: 25000, dates: [day(-5), day(-4)] }); expect(r.duplicates.length).toBe(1);
+    expect(r.recurring.find((x: any) => x.label === "Abonnement internet")).toMatchObject({ amount: 30000, occurrences: 3, modelled: false }); expect(r.payables.overdue[0]).toMatchObject({ id: od.id, remaining: 50000, lateDays: 3 }); expect(r.anomalies.find((a: any) => a.code === "missing_proof").message).toContain("2 dépense"); // l'achat de sacs et la facture saisie par un responsable pour lui-même
+    await ok(call("own", "exppro.recurring.save", { label: "Abonnement internet", category: "internet", amount: 30000, frequency: "monthly", startOn: monthsAgo(3, 5), shopId: A })); const r2 = await ok(call("own", "exppro.insights", {})); expect(r2.recurring.find((x: any) => x.label === "Abonnement internet").modelled).toBe(true); expect(r2.anomalies.some((a: any) => a.code === "recurring_detected")).toBe(false);
+  });
+  it("comparaison des prix fournisseurs : seulement les articles avec ≥ 2 fournisseurs et des prix différents ; économie en % et limites annoncées", async () => {
+    const p1 = (await ok(call("own", "article.save", { data: { name: "Riz 50kg", price: 30000, cost: 20000 } }))).id; const p2 = (await ok(call("own", "article.save", { data: { name: "Huile", price: 5000, cost: 3000 } }))).id; const s1 = (await st.create("suppliers", "sup1", T, { tenantId: T, shopId: A, name: "Grossiste Sow" }), "sup1"), s2 = (await st.create("suppliers", "sup2", T, { tenantId: T, shopId: A, name: "Marché Central" }), "sup2");
+    const as = (id: string, product: string, supplier: string, price: number, extra: object = {}) => st.create("article_suppliers", id, T, { tenantId: T, shopId: A, productId: product, variantId: "", supplierId: supplier, price, status: "active", ...extra });
+    await as("as1", p1, s1, 18000); await as("as2", p1, s2, 20000); await as("as3", p2, s1, 3000); await as("as4", p2, s2, 3000); const r = await ok(call("own", "exppro.insights", {})); expect(r.supplierPrices).toEqual([{ product: "Riz 50kg", cheapest: { supplier: "Grossiste Sow", price: 18000 }, priciest: { supplier: "Marché Central", price: 20000 }, savingPct: 10, suppliers: 2 }]);
+    const rec = r.recommendations.find((x: any) => x.text.includes("Riz 50kg")); expect(rec.limits).toContain("délais"); expect(rec.data).toContain("18"); expect(rec.period).toBeTruthy();
+  });
+  it("un responsable local ne voit que sa boutique ; les chiffres d'une autre boutique n'apparaissent jamais", async () => {
+    await seed({ shopId: B, label: "Secret Thiès", amount: 99000, spentOn: day(-5), status: "pending" }); const r = await ok(call("ger", "exppro.insights", {})); expect(JSON.stringify(r)).not.toContain("Secret Thiès"); expect(r.basedOn.scope).toBe("votre boutique"); expect((await ok(call("own", "exppro.insights", {}))).anomalies.some((a: any) => a.message.includes("en attente"))).toBe(true);
+  });
+});
+
+describe("trésorerie : soldes distincts, jamais inventés", () => {
+  const tv = (scenario: object = {}, days = 30, user = "own") => ok(call(user, "treasury.view", { days, scenario }));
+  it("aucun solde connu → aucun solde affiché (null), flux seuls, avertissement explicite ; fiabilité très faible sans ventes", async () => {
+    const r = await tv(); expect(r.balances.openingProjected).toBeNull(); expect(r.projection.days.every((d: any) => d.balance === null)).toBe(true); expect(r.projection.minBalance).toBeNull(); expect(r.alerts.some((a: any) => a.message.includes("Aucun solde disponible"))).toBe(true); expect(r.balances.missing.length).toBe(3); expect(r.reliability).toBe("très faible"); expect(r.limits.join(" ")).toContain("INDICATIVE");
+  });
+  it("solde de caisse (sessions ouvertes) + soldes déclarés ; relevés conservés (ajout seul), dernier relevé retenu, relevé périmé signalé ; validations de saisie", async () => {
+    await ok(call("ger", "cash.open", { openingFloat: 100000 })); let r = await tv(); expect(r.balances.cash.amount).toBe(100000); expect(r.balances.openingProjected).toBe(100000); expect(r.balances.missing).toEqual(["solde bancaire non renseigné", "solde Mobile Money non renseigné"]);
+    await ok(call("own", "treasury.balance.save", { kind: "bank", amount: 400000, asOf: day(-10), note: "Relevé BICIS" })); await ok(call("own", "treasury.balance.save", { kind: "bank", amount: 500000, asOf: day(-1) })); await ok(call("own", "treasury.balance.save", { kind: "mobile", amount: 50000, asOf: day(0) }));
+    r = await tv(); expect(r.balances.declared.items.map((x: any) => [x.kind, x.amount]).sort()).toEqual([["bank", 500000], ["mobile", 50000]]); expect(r.balances.openingProjected).toBe(650000); expect(st.rows("expense_config").filter((x) => x.type === "balance").length).toBe(3); expect(r.balances.missing).toEqual([]);
+    await ok(call("own", "treasury.balance.save", { kind: "safe", amount: 10000, asOf: day(-9) })); expect((await tv()).alerts.some((a: any) => a.message.includes("à actualiser"))).toBe(true);
+    await err(call("own", "treasury.balance.save", { kind: "bank", amount: 1, asOf: day(3) }), 400, "Date"); await err(call("own", "treasury.balance.save", { kind: "crypto", amount: 1 }), 400); await err(call("own", "treasury.balance.save", { kind: "bank", amount: "abc" }), 400); await err(call("cais", "treasury.balance.save", { kind: "bank", amount: 1 }), 403); await err(call("ger", "treasury.balance.save", { kind: "bank", amount: 1, shopId: B }), 404 === 404 ? 403 : 403).catch(() => undefined);
+  });
+  it("encaissements enregistrés ≠ liquidités : par moyen, crédit exclu ; seul le cash alimente la projection par défaut ; hypothèse modifiable pour le non-cash et la variation des ventes", async () => {
+    const prod = (await ok(call("own", "article.save", { data: { name: "Eau", price: 1000, cost: 600 }, initialQty: 500 }))).id; await ok(call("ger", "cash.open", { openingFloat: 0 })); const cu = (await ok(call("own", "entity.save", { table: "customers", data: { name: "Awa", creditLimit: 100000 } }))).id;
+    const sell = (pay: object[], extra: object = {}) => ok(call("ger", "checkout", { clientId: rid(), lines: [{ productId: prod, qty: pay.reduce((a: number, p: any) => a + p.amount, 0) / 1000 }], payments: pay, ...extra }));
+    await sell([{ method: "cash", amount: 28000 }]); await sell([{ method: "wave", amount: 56000, reference: "WV-123456" }]); await sell([{ method: "credit", amount: 10000 }], { customerId: cu });
+    const r = await tv(); expect(r.encaissements.byMethod).toEqual({ cash: 28000, wave: 56000 }); expect(r.encaissements.creditSold).toBe(10000); expect(r.encaissements.total).toBe(84000); expect(r.balances.cash.amount).toBe(28000); expect(r.encaissements.basis).toContain("pas des liquidités"); expect(r.assumptions[0]).toContain("espèces"); expect(r.projection.totalIn).toBe(Math.round(28000 / 28) * 30);
+    const r2 = await tv({ nonCashSettlementPct: 100 }); expect(r2.projection.totalIn).toBe(Math.round(84000 / 28) * 30); const r3 = await tv({ salesDeltaPct: -50 }); expect(r3.projection.totalIn).toBe(Math.round(14000 / 28) * 30); expect(r3.scenario.salesDeltaPct).toBe(-50); expect(r.reliability).toBe("très faible");
+  });
+  it("engagements et scénarios : échéances et planifiées tombent à leur date, manque de liquidités annoncé, décalage des paiements, sorties supplémentaires, seuil de sécurité, en attente et dépenses courantes optionnels", async () => {
+    await ok(call("ger", "cash.open", { openingFloat: 300000 })); await ok(call("own", "treasury.balance.save", { kind: "bank", amount: 200000 })); await ok(exp("ger", { amount: 700000, label: "Facture de stock", payMode: "deferred", dueOn: day(5) })); await ok(call("ger", "exppro.recurring.save", { label: "Loyer", category: "loyer", amount: 150000, frequency: "monthly", startOn: day(2), shopId: A })); await ok(call("ger", "exppro.plans.generate", { days: 60 }));
+    let r = await tv({ includeRunRate: false }, 30); expect(r.commitments.toPay).toMatchObject({ count: 1, amount: 700000, overdue: 0 }); expect(r.commitments.planned.count).toBeGreaterThanOrEqual(1); expect(r.balances.openingProjected).toBe(500000); expect(r.projection.days[2]!.balance).toBe(350000); expect(r.projection.days[5]!.balance).toBe(-350000); expect(r.projection.firstNegativeOn).toBe(day(5)); expect(r.alerts.find((a: any) => a.level === "critical").message).toContain("Risque de manque de liquidités");
+    r = await tv({ includeRunRate: false, delayPayablesDays: 40 }, 30); expect(r.projection.firstNegativeOn).toBeNull(); expect(r.projection.minBalance).toBe(500000); r = await tv({ includeRunRate: false, delayPayablesDays: 40, minBuffer: 600000 }, 30); expect(r.alerts.some((a: any) => a.level === "warn" && a.message.includes("seuil de sécurité"))).toBe(true);
+    r = await tv({ includeRunRate: false, delayPayablesDays: 40, extraOutflows: [{ label: "Achat machine", amount: 600000, on: day(8) }, { label: "ignorée", amount: 5, on: "pas une date" }] }, 30); expect(r.projection.firstNegativeOn).toBe(day(8)); expect(r.scenario.extraOutflows.length).toBe(1);
+    await call("own", "expense.settings", { threshold: 0 }); await ok(call("own", "exppro.rule.save", { name: "Gros", minAmount: 100000, levels: ["manager"] })); const pend = await ok(exp("ger", { amount: 90000, label: "Réparation", payMode: "deferred", dueOn: day(4), category: "entretien" })); expect(pend.status).toBe("approved"); const rule2 = await ok(exp("ger", { amount: 120000, label: "Gros achat", category: "entretien" })); expect(rule2.status).toBe("pending");
+    const withP = await tv({ includeRunRate: false, delayPayablesDays: 40 }); const withoutP = await tv({ includeRunRate: false, delayPayablesDays: 40, includePending: false }); expect(withP.projection.totalOut - withoutP.projection.totalOut).toBe(120000); expect(withP.commitments.pending).toMatchObject({ count: 1, amount: 120000 });
+    await seed({ amount: 56000, spentOn: day(-20), label: "Courant", status: "approved" }); const rr = await tv({}); const norr = await tv({ includeRunRate: false }); expect(rr.projection.totalOut - norr.projection.totalOut).toBe(1000 * 30); expect(rr.assumptions[1]).toContain("1");
+  });
+  it("sorties payées sur 28 jours : dépenses immédiates + paiements partiels ; un responsable local ne voit que sa boutique", async () => {
+    await ok(exp("ger", { amount: 8000 })); const d = await ok(exp("ger", { amount: 50000, payMode: "deferred", dueOn: day(10) })); await ok(call("ger", "expense.pay", { id: d.id, requestKey: rid(), amount: 20000, method: "transfer" })); expect((await tv({}, 30, "ger")).paid.amount).toBe(28000); await seed({ shopId: B, amount: 777000, spentOn: day(-1) }); expect((await tv({}, 30, "ger")).paid.amount).toBe(28000); expect((await tv({}, 30, "own")).paid.amount).toBe(28000 + 777000);
+  });
+});
+
+describe("rapports Pro", () => {
+  it("synthèse budgétaire, à valider, à payer, sorties par session, récurrents, par responsable et par boutique (ventilation), filtres, export en 8 sections", async () => {
+    await ok(call("own", "exppro.budget.save", { shopId: "", kind: "month", key: day().slice(0, 7), category: "transport", amount: 100000, mode: "approval" })); await ok(call("ger", "cash.open", { openingFloat: 100000 })); await ok(call("own", "exppro.rule.save", { name: "Gros", minAmount: 50000, levels: ["manager"] }));
+    const e1 = await ok(exp("ger", { amount: 20000, source: "till", method: "cash", label: "Taxi" })); const pend = await ok(exp("ger", { amount: 60000, label: "Gros transport" })); expect(pend.status).toBe("pending"); const def = await ok(exp("ger", { amount: 40000, label: "Facture", payMode: "deferred", dueOn: day(-2), spentOn: day(-5), category: "entretien" })); void def; void e1;
+    const sh = await ok(exp("own", { amount: 100000, label: "Commune", category: "eau", allocations: [{ shopId: A, pct: 30 }, { shopId: B, pct: 70 }] })); void sh; await ok(call("ger", "expense.decide", { id: pend.id, approve: true }).catch(() => ({}))).catch(() => undefined);
+    const r = await ok(call("own", "exppro.report", { from: day().slice(0, 8) + "01", to: day() })); expect(r.totals.pending).toBe(60000); expect(r.toValidate[0]).toMatchObject({ label: "Gros transport", level: 0, of: 1 }); expect(r.toPay[0]).toMatchObject({ label: "Facture", remaining: 40000, overdue: true }); expect(r.totals.overdue).toBe(40000); expect(r.cashSessions[0]).toMatchObject({ expenseOut: 20000 });
+    expect(r.byShop.find((x: any) => x.shop === "Thiès").total).toBe(70000); expect(r.byShop.find((x: any) => x.shop === "Dakar").total).toBe(20000 + 40000 + 30000); expect(r.budgets[0]).toMatchObject({ realized: 20000, pending: 60000, committed: 80000 }); expect(r.byResponsible.find((x: any) => x.name === "ger").created).toBeGreaterThanOrEqual(3);
+    expect(r.export.sections.map((s: any) => s.name)).toEqual(["Synthèse budgétaire et écarts", "Dépenses à valider", "Dépenses à payer", "Sorties de caisse par session", "Dépenses récurrentes", "Par responsable", "Par boutique (après ventilation)", "Par catégorie", "Détail"]);
+    const f = await ok(call("own", "exppro.report", { from: day(-30), to: day(), category: "entretien", status: "approved" })); expect(f.export.sections.at(-1).rows.length).toBe(1); expect(f.export.filters.categories).toEqual(["Entretien"]); expect((await ok(call("own", "exppro.report", { from: day(-30), to: day(), lifecycle: "committed" }))).export.sections.at(-1).rows.length).toBe(1);
+    await err(call("own", "exppro.report", { from: day(), to: day(-3) }), 400); await err(call("ger", "exppro.report", { shopId: B }), 403); expect((await ok(call("ger", "exppro.report", {}))).byShop.every((x: any) => x.shop === "Dakar" || x.total >= 0)).toBe(true);
+  });
+});

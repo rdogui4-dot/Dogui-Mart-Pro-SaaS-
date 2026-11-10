@@ -57,7 +57,7 @@ export async function toggleConfig(store: Store, ctx: Ctx, b: { id?: string; act
 // ------------------------------------------------------------------ budgets : lignes de dépenses réelles (réparties entre boutiques)
 type BRow = { shopId: string; category: string; service: string; amount: number; spentOn: string; status: string; paid: number; id: string; createdBy: string };
 const partsOf = (r: Row): { shopId: string; amount: number }[] => { const meta = parse<{ allocations?: { shopId: string; amount: number }[] }>(r.meta, {}); return meta.allocations?.length ? meta.allocations : [{ shopId: String(r.shopId), amount: Number(r.amount) }]; };
-async function shopsOf(store: Store, ctx: Ctx): Promise<Row[]> { return isOwner(ctx) ? store.list("shops", { tenantId: ctx.tenantId }, 100) : [(await store.get("shops", ctx.shopId.slice(0, 36)))!].filter(Boolean); }
+export async function shopsOf(store: Store, ctx: Ctx): Promise<Row[]> { return isOwner(ctx) ? store.list("shops", { tenantId: ctx.tenantId }, 100) : [(await store.get("shops", ctx.shopId.slice(0, 36)))!].filter(Boolean); }
 /** Dépenses (validées, en attente) et échéances planifiées d'une plage, ramenées par boutique selon leur ventilation. Les annulées et rejetées n'y figurent pas. */
 export async function budgetRows(store: Store, ctx: Ctx, from: string, to: string, allShops = true): Promise<BRow[]> {
   const out: BRow[] = []; const shops = allShops ? (await store.list("shops", { tenantId: ctx.tenantId }, 100)) : await shopsOf(store, ctx);
