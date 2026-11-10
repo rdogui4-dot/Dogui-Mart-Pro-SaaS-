@@ -5,6 +5,7 @@ import { useSession } from "@/lib/session";
 import { Sheet } from "@/components/ui";
 import { formatFcfa } from "@/domain/money";
 import { KIND_LABEL, METHOD_LABEL, SOURCE_LABEL, type AccountKind } from "@/domain/fin";
+import { Analyses, Forecast, Plans, RulesTab, useFinPro } from "./finance-pro";
 import { exportReport, type ExportFormat } from "@/lib/report-export";
 import type { ReportData } from "@/domain/exports";
 
@@ -28,16 +29,16 @@ type Side = { total: number; overdue: number; dueSoon: number; aging: { key: str
 const useFin = <T,>(action: string, payload: object = {}, enabled = true) => { const { session } = useSession(); const s = session!; return useQuery({ queryKey: ["fin", action, s.shopId, payload], enabled, retry: 1, queryFn: () => api<T>(s, action, payload) }); };
 const useAct = (action: string, onOk?: (r: any) => void) => { const { session } = useSession(); const s = session!; const qc = useQueryClient(); return useMutation({ mutationFn: (b: object) => api<any>(s, action, b), onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ["fin"] }); onOk?.(r); } }); };
 
-type Tab = "dash" | "accounts" | "flows" | "transfers" | "reco" | "dues" | "budgets" | "reports";
+type Tab = "dash" | "accounts" | "flows" | "transfers" | "reco" | "dues" | "budgets" | "reports" | "fc" | "plans" | "an" | "rules";
 export function FinancePage() {
   const { session } = useSession(); const s = session!; const [tab, setTab] = useState<Tab>("dash");
-  const tabs: [Tab, string][] = [["dash", "Trésorerie"], ["accounts", "Comptes"], ["flows", "Flux"], ["transfers", "Virements"], ["reco", "Rapprochement"], ["dues", "Échéances"], ["budgets", "Budgets"], ["reports", "Rapports"]];
+  const tabs: [Tab, string][] = [["dash", "Trésorerie"], ["accounts", "Comptes"], ["flows", "Flux"], ["transfers", "Virements"], ["reco", "Rapprochement"], ["dues", "Échéances"], ["budgets", "Budgets"], ["fc", "Prévisions"], ["plans", "Échéancier"], ["an", "Analyses"], ["rules", "Règles"], ["reports", "Rapports"]];
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">Finance</h1>
       <p className="text-xs text-white/50">Boutique active : comptes et soldes sont gérés boutique par boutique. Les montants viennent des pièces réelles (ventes, dépenses, paiements) ; aucun solde n'est inventé.</p>
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections de la finance">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
-      {tab === "dash" && <Dash onTab={setTab} />}{tab === "accounts" && <Accounts />}{tab === "flows" && <Flows />}{tab === "transfers" && <Transfers />}{tab === "reco" && <Reco />}{tab === "dues" && <Dues />}{tab === "budgets" && <Budgets mgr={s.role === "owner" || s.role === "manager"} />}{tab === "reports" && <Reports />}
+      {tab === "dash" && <Dash onTab={setTab} />}{tab === "accounts" && <Accounts />}{tab === "flows" && <Flows />}{tab === "transfers" && <Transfers />}{tab === "reco" && <Reco />}{tab === "dues" && <Dues />}{tab === "budgets" && <Budgets mgr={s.role === "owner" || s.role === "manager"} />}{tab === "reports" && <Reports />}{tab === "fc" && <Forecast canAll={s.role === "owner" || s.role === "manager"} />}{tab === "plans" && <Plans />}{tab === "an" && <Analyses canAll={s.role === "owner" || s.role === "manager"} mgr={s.role === "owner" || s.role === "manager"} />}{tab === "rules" && <RulesTab />}
     </div>
   );
 }
@@ -147,16 +148,17 @@ function parseLines(t: string): { date: string; amount: number; label: string }[
 function Reco() {
   const accs = useFin<Accounts>("fin.accounts"); const hist = useFin<{ reconciliations: { id: string; account: string; asOf: string; statementBalance: number; bookBalance: number; diff: number; status: string; matched: number; note: string }[] }>("fin.reconciliations");
   const [f, setF] = useState({ accountId: "", asOf: day(), balance: "", text: "", note: "" }); const [prev, setPrev] = useState<Prev | null>(null); const [sel, setSel] = useState<Set<string>>(new Set()); const [key, setKey] = useState(rid);
-  const run = useAct("fin.reconcile.preview", (p: Prev) => { setPrev(p); setSel(new Set(p.suggestions.map((s) => `${s.line}|${s.flowKey}`))); }); const save = useAct("fin.reconcile.save", () => { setPrev(null); setKey(rid()); setF({ accountId: "", asOf: day(), balance: "", text: "", note: "" }); });
+  const pro = useFinPro(); const [tol, setTol] = useState("3"); const run = useAct(pro ? "finpro.reconcile.preview" : "fin.reconcile.preview", (p: Prev & { groups?: { line: number; flowKeys: string[]; why: string }[] }) => { setPrev(p); setSel(new Set(p.suggestions.map((s) => `${s.line}|${s.flowKey}`))); }); const save = useAct("fin.reconcile.save", () => { setPrev(null); setKey(rid()); setF({ accountId: "", asOf: day(), balance: "", text: "", note: "" }); });
   const lines = parseLines(f.text); const body = { accountId: f.accountId, asOf: f.asOf, statementBalance: Number(f.balance), statement: lines };
   return (
     <div className="flex flex-col gap-3">
       <div className="card flex flex-col gap-2"><Field label="Compte"><select className="input" aria-label="Compte à rapprocher" value={f.accountId} onChange={(e) => setF({ ...f, accountId: e.target.value })}><option value="">Choisir</option>{(accs.data?.accounts ?? []).filter((a) => a.active && a.configured).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
         <div className="grid grid-cols-2 gap-2"><Field label="Arrêté au"><input className="input" type="date" aria-label="Date du relevé" value={f.asOf} max={day()} onChange={(e) => setF({ ...f, asOf: e.target.value })} /></Field><Field label="Solde du relevé (FCFA)"><input className="input" aria-label="Solde du relevé" inputMode="numeric" value={f.balance} onChange={(e) => setF({ ...f, balance: e.target.value.replace(/[^0-9-]/g, "") })} /></Field></div>
         <Field label="Lignes du relevé (facultatif) : une par ligne « AAAA-MM-JJ;montant;libellé », montant négatif pour une sortie"><textarea className="input min-h-24" aria-label="Lignes du relevé" value={f.text} onChange={(e) => setF({ ...f, text: e.target.value })} /></Field>
-        <Err e={run.error} /><button className="btn" disabled={run.isPending || !f.accountId || f.balance === "" || f.balance === "-"} onClick={() => run.mutate(body)}>Comparer au solde calculé</button></div>
+        {pro && <Field label="Tolérance de dates (jours, Pro)"><input className="input" aria-label="Tolérance de dates" inputMode="numeric" value={tol} onChange={(e) => setTol(e.target.value.replace(/\D/g, ""))} /></Field>}<Err e={run.error} /><button className="btn" disabled={run.isPending || !f.accountId || f.balance === "" || f.balance === "-"} onClick={() => run.mutate({ ...body, ...(pro ? { toleranceDays: Number(tol || 3) } : {}) })}>Comparer au solde calculé</button></div>
       {prev && <div className="card flex flex-col gap-2"><div className="grid grid-cols-3 gap-2 text-center text-sm"><div><div className="text-xs text-white/50">Calculé</div>{money(prev.bookBalance)}</div><div><div className="text-xs text-white/50">Relevé</div>{money(prev.statementBalance)}</div><div><div className="text-xs text-white/50">Écart</div><b className={prev.diff === 0 ? "text-emerald-300" : "text-amber-300"}>{money(prev.diff)}</b></div></div>
         {prev.suggestions.length > 0 && <div><p className="text-sm font-medium">Correspondances proposées (à confirmer)</p>{prev.suggestions.map((s) => { const k = `${s.line}|${s.flowKey}`; const l = lines[s.line]!; const fl = prev.unmatchedFlows.find((x) => x.key === s.flowKey); return <label key={k} className="flex gap-2 text-xs py-1"><input type="checkbox" checked={sel.has(k)} onChange={() => setSel((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; })} />Relevé {fmtDay(l.date)} {money(l.amount)} {l.label} ↔ {fl ? `${fl.label || fl.sourceLabel} ${fmtDay(fl.date)}` : s.flowKey} <span className="text-white/40">({s.why})</span></label>; })}</div>}
+        {(prev as Prev & { groups?: { line: number; flowKeys: string[]; why: string }[] }).groups?.map((g) => { const ks = g.flowKeys.map((k) => `${g.line}|${k}`); const on = ks.every((k) => sel.has(k)); const l = lines[g.line]!; return <label key={`g${g.line}`} className="flex gap-2 text-xs py-1"><input type="checkbox" checked={on} onChange={() => setSel((p) => { const n = new Set(p); for (const k of ks) { if (on) n.delete(k); else n.add(k); } return n; })} />Groupe : relevé {fmtDay(l.date)} {money(l.amount)} ↔ {g.flowKeys.length} flux <span className="text-white/40">({g.why})</span></label>; })}
         {prev.unmatchedLines.length > 0 && <p className="text-xs text-amber-300">{prev.unmatchedLines.length} ligne(s) du relevé sans correspondance dans l'application.</p>}
         <p className="text-xs text-white/50">{prev.openCount} flux non encore rapprochés · {prev.reconciledCount} déjà rapprochés.</p>
         <Field label={prev.diff === 0 ? "Note (facultative)" : "Explication de l'écart (obligatoire pour clôturer)"}><input className="input" aria-label="Note de rapprochement" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} maxLength={300} /></Field>
