@@ -1,0 +1,350 @@
+import { useRef, useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
+import { api } from "@/lib/api";
+import { useSession } from "@/lib/session";
+import { Confirm, Sheet } from "@/components/ui";
+import { formatFcfa } from "@/domain/money";
+import { CAMPAIGN_LABEL, CHANNELS, RFM_HELP, RFM_LABEL, SKIP_LABEL, TARGET_LABEL, TRIGGERS, type Channel, type RfmKey } from "@/domain/crm-pro";
+import { SOURCES } from "@/domain/crm";
+
+const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 24);
+const Err = ({ e }: { e: unknown }) => (e ? <p className="text-red-400 text-sm" role="alert">{(e as Error).message}</p> : null);
+const Field = ({ label, children }: { label: string; children: ReactNode }) => <label className="text-xs text-white/60 flex flex-col gap-1">{label}{children}</label>;
+const Kpi = ({ label, value, tone = "", hint }: { label: string; value: ReactNode; tone?: string; hint?: string }) => <div className="card"><div className="text-white/50 text-xs">{label}</div><div className={`font-semibold ${tone}`}>{value}</div>{hint && <div className="text-[11px] text-white/40">{hint}</div>}</div>;
+const Notes = ({ items }: { items: string[] }) => <div className="text-[11px] text-white/40 flex flex-col gap-1">{items.map((n) => <p key={n}>{n}</p>)}</div>;
+const fmtAt = (d: string) => (d ? new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
+const fmtDay = (d: string) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
+const pct = (n: number | null) => (n === null ? "—" : `${n} %`);
+const LVL_TONE: Record<string, string> = { high: "text-emerald-300", medium: "text-amber-300", low: "text-red-300", unrated: "text-white/50" };
+type Owners = { owners: { id: string; name: string }[]; me: string; manager: boolean };
+const useOwners = () => { const { session } = useSession(); const s = session!; return useQuery({ queryKey: ["crm", "owners", s.shopId], retry: 1, staleTime: 5 * 60_000, queryFn: () => api<Owners>(s, "crm.owners") }); };
+const useSettings = () => { const { session } = useSession(); const s = session!; return useQuery({ queryKey: ["crm", "pro-settings", s.shopId], retry: 1, queryFn: () => api<{ settings: { campaignsEnabled: boolean; automationEnabled: boolean; freqDays: number; attributionDays: number; updatedBy: string; updatedAt: string }; canAuthorize: boolean; note: string }>(s, "crmpro.settings") }); };
+
+/** Autorisation explicite du propriétaire : sans elle, aucune campagne ni automatisation ne démarre. */
+function Authorization({ kind }: { kind: "campaigns" | "automation" }) {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const q = useSettings(); const d = q.data; const [freq, setFreq] = useState<string>("");
+  const m = useMutation({ mutationFn: (b: object) => api(s, "crmpro.settings.save", b), onSuccess: () => void qc.invalidateQueries({ queryKey: ["crm"] }) }); if (!d) return <Err e={q.error} />;
+  const on = kind === "campaigns" ? d.settings.campaignsEnabled : d.settings.automationEnabled; const key = kind === "campaigns" ? "campaignsEnabled" : "automationEnabled"; const label = kind === "campaigns" ? "campagnes" : "automatisations";
+  return (
+    <div className="card flex flex-col gap-2"><p className="text-sm">{on ? <span className="text-emerald-300">Les {label} sont autorisées par le propriétaire.</span> : <span className="text-amber-300">Les {label} ne sont pas autorisées : rien ne démarre tant que le propriétaire ne les a pas activées.</span>}</p>
+      <p className="text-xs text-white/50">{d.note}</p>
+      {d.canAuthorize ? <><button className={on ? "btn-ghost" : "btn"} disabled={m.isPending} onClick={() => m.mutate({ [key]: !on })}>{on ? `Retirer l'autorisation (${label})` : `Autoriser les ${label}`}</button>
+        {kind === "campaigns" && <div className="grid grid-cols-2 gap-2"><Field label="Délai minimal entre deux contacts (jours)"><input className="input" aria-label="Délai minimal entre contacts" inputMode="numeric" placeholder={String(d.settings.freqDays)} value={freq} onChange={(e) => setFreq(e.target.value.replace(/\D/g, ""))} /></Field><button className="btn-ghost self-end" disabled={!freq || m.isPending} onClick={() => m.mutate({ freqDays: Number(freq) })}>Enregistrer</button></div>}</> : <p className="text-xs text-white/50">Seul le propriétaire peut modifier cette autorisation.</p>}
+      {kind === "campaigns" && <p className="text-xs text-white/50">Limite de fréquence : {d.settings.freqDays} jour(s) entre deux contacts d'une même personne, toutes campagnes confondues. Fenêtre d'attribution des résultats : {d.settings.attributionDays} jour(s).</p>}<Err e={m.error} /></div>
+  );
+}
+
+// ------------------------------------------------------------------ fiche : score, RFM, valeur, comportement, éligibilité
+type Part = { key: string; label: string; points: number; max: number; why: string };
+type Score = { score: number | null; level: string; levelLabel: string; parts: Part[]; basis: string; limits: string[]; note: string };
+type Elig = { ok: true } | { ok: false; reason: keyof typeof SKIP_LABEL };
+type Insight = { kind: "customer" | "lead"; score: Score; rfm?: { key: RfmKey; label: string; help: string; r?: number; f?: number; m?: number }; value?: { historic: number; projected12: number | null; method: string; spend365: number; avgBasket: number; avgGapDays: number | null }; behavior?: { categories: string[]; usesPromo: boolean; usesCredit: boolean; purchases365: number }; suggestions?: { text: string; why: string }[]; contact?: { sms: Elig; whatsapp: Elig; email: Elig; freqDays: number; lastContactedAt: string | null }; campaigns?: { id: string; campaign: string; channel: string; statusLabel: string; contactedAt: string; by: string; reason: string }[] };
+export function ProInsight({ customerId, leadId }: { customerId?: string; leadId?: string }) {
+  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["crm", "insight", s.shopId, customerId ?? leadId], retry: 1, queryFn: () => api<Insight>(s, "crmpro.insight", customerId ? { customerId } : { leadId }) }); const [open, setOpen] = useState(false); const d = q.data;
+  if (q.isLoading) return <p className="text-xs text-white/50" role="status">Analyse Pro…</p>; if (!d) return <Err e={q.error} />;
+  return (
+    <section className="card flex flex-col gap-2"><h3 className="text-sm font-semibold">Analyse Pro</h3>
+      <button className="text-left" onClick={() => setOpen(!open)} aria-expanded={open}><span className={`font-semibold ${LVL_TONE[d.score.level]}`}>{d.kind === "customer" ? "Potentiel de réachat" : "Maturité commerciale"} : {d.score.score === null ? "non évaluable" : `${d.score.levelLabel} (${d.score.score}/100)`}</span><span className="block text-xs text-white/50">{d.score.basis} · {open ? "Masquer" : "Pourquoi ce score ?"}</span></button>
+      {d.score.score === null && <p className="text-xs text-white/60">{d.score.limits[0]}</p>}
+      {open && <div className="flex flex-col gap-1 border-t border-[var(--line)] pt-1">{d.score.parts.map((p) => <p key={p.key} className="text-xs text-white/70"><b>{p.label}</b> : {p.points}/{p.max} — {p.why}</p>)}{d.score.limits.map((l) => <p key={l} className="text-xs text-white/50">• {l}</p>)}</div>}
+      <p className="text-[11px] text-white/40">{d.score.note}</p>
+      {d.rfm && <p className="text-sm"><b>{d.rfm.label}</b> <span className="text-xs text-white/50">· {d.rfm.help}{d.rfm.r ? ` (R${d.rfm.r} F${d.rfm.f} M${d.rfm.m})` : ""}</span></p>}
+      {d.value && <p className="text-xs text-white/70">Valeur historique {formatFcfa(d.value.historic)} · 12 derniers mois {formatFcfa(d.value.spend365)}{d.value.avgGapDays ? ` · rythme d'achat ≈ ${d.value.avgGapDays} j` : ""} · {d.value.projected12 !== null ? `projection 12 mois ≈ ${formatFcfa(d.value.projected12)}` : "projection indisponible"}<span className="block text-white/40">{d.value.method}</span></p>}
+      {d.behavior && <p className="text-xs text-white/70">Comportement : {d.behavior.categories.length ? `catégories ${d.behavior.categories.join(", ")}` : "aucune catégorie connue"} · {d.behavior.usesPromo ? "utilise les promotions" : "aucune promotion utilisée"} · {d.behavior.usesCredit ? "achète à crédit" : "paie comptant"}</p>}
+      {d.suggestions && d.suggestions.length > 0 && <div className="flex flex-col gap-1"><b className="text-xs">Actions suggérées</b>{d.suggestions.map((x) => <p key={x.text} className="text-xs text-white/70">• {x.text} <span className="text-white/40">({x.why})</span></p>)}</div>}
+      {d.contact && <p className="text-xs text-white/60">Contact autorisé : {(["whatsapp", "sms", "email"] as const).map((c) => `${CHANNELS[c]} ${d.contact![c].ok ? "oui" : `non (${SKIP_LABEL[(d.contact![c] as { reason: keyof typeof SKIP_LABEL }).reason].toLowerCase()})`}`).join(" · ")}</p>}
+      {d.campaigns && d.campaigns.length > 0 && <div className="flex flex-col gap-1"><b className="text-xs">Campagnes</b>{d.campaigns.map((c) => <p key={c.id} className="text-xs text-white/70">{c.campaign} · {CHANNELS[c.channel as Channel] ?? c.channel} · {c.statusLabel}{c.contactedAt ? ` le ${fmtAt(c.contactedAt)}${c.by ? ` par ${c.by}` : ""}` : ""}{c.reason ? ` — ${c.reason}` : ""}</p>)}</div>}
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------ segments
+type Crit = { rfm?: RfmKey[]; recencyMin?: number; recencyMax?: number; freqMin?: number; freqMax?: number; valueMin?: number; valueMax?: number; category?: string; usesPromo?: boolean; usesCredit?: boolean; tag?: string; source?: string; consent?: string; neverBought?: boolean };
+type Prev = { description: string[]; matched: number; sample: { id: string; kind: string; name: string; rfm: string; recencyDays: number | null; freq365: number; spend365: number }[]; channels: Record<Channel, { eligible: number; excluded: Record<string, number> }>; freqDays: number };
+type SegList = { rfm: { key: RfmKey; label: string; help: string; count: number; spend365: number }[]; saved: { id: string; name: string; criteria: Crit; description: string[]; count: number }[]; categories: { name: string; count: number }[]; behavior: { usesPromo: number; usesCredit: number; buyers: number; customers: number }; method: string };
+const numOrU = (v: string) => (v === "" ? undefined : Number(v));
+export function ProSegments() {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const q = useQuery({ queryKey: ["crm", "segments", s.shopId], retry: 1, queryFn: () => api<SegList>(s, "crmpro.segments") }); const d = q.data; const [crit, setCrit] = useState<Crit | null>(null); const [builder, setBuilder] = useState(false); const [camp, setCamp] = useState<Crit | null>(null);
+  return (
+    <div className="flex flex-col gap-3">
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Calcul des segments…</p>}
+      {d && <>
+        <section className="flex flex-col gap-2"><h2 className="font-semibold">Segments RFM (comportement d'achat réel)</h2>{d.rfm.map((r) => <button key={r.key} className="card text-left flex justify-between gap-2" onClick={() => setCrit({ rfm: [r.key] })}><span><b className="block">{r.label}</b><span className="block text-xs text-white/50">{r.help}</span></span><span className="text-right text-sm shrink-0">{r.count}<span className="block text-xs text-white/50">{formatFcfa(r.spend365)}</span></span></button>)}</section>
+        <section className="flex flex-col gap-2"><div className="flex justify-between items-center"><h2 className="font-semibold">Mes segments</h2><button className="btn !py-1 !px-3 text-sm" onClick={() => setBuilder(true)}>Nouveau segment</button></div>{d.saved.length === 0 && <p className="card text-sm text-white/70">Aucun segment enregistré. Combinez récence, fréquence, valeur, catégorie ou promotion.</p>}
+          {d.saved.map((x) => <button key={x.id} className="card text-left" onClick={() => setCrit(x.criteria)}><span className="flex justify-between"><b>{x.name}</b><span>{x.count}</span></span><span className="block text-xs text-white/50">{x.description.join(" · ")}</span></button>)}</section>
+        <section className="card text-sm flex flex-col gap-1"><h2 className="font-semibold">Comportement</h2><p>{d.behavior.buyers} acheteur(s) sur {d.behavior.customers} client(s) · {d.behavior.usesPromo} utilisent des promotions · {d.behavior.usesCredit} achètent à crédit</p>{d.categories.slice(0, 6).map((c) => <p key={c.name} className="text-xs text-white/60">{c.name} : {c.count} client(s)</p>)}</section>
+        <Notes items={[d.method]} />
+      </>}
+      {crit && <PreviewSheet criteria={crit} onClose={() => setCrit(null)} onCampaign={(c) => { setCrit(null); setCamp(c); }} onSaved={() => void qc.invalidateQueries({ queryKey: ["crm"] })} />}
+      {builder && <SegmentBuilder categories={d?.categories.map((c) => c.name) ?? []} onClose={() => setBuilder(false)} onPreview={(c) => { setBuilder(false); setCrit(c); }} />}
+      {camp && <CampaignForm initial={{ criteria: camp }} onClose={() => setCamp(null)} onSaved={() => setCamp(null)} />}
+    </div>
+  );
+}
+function SegmentBuilder({ categories, onClose, onPreview }: { categories: string[]; onClose: () => void; onPreview: (c: Crit) => void }) {
+  const [v, setV] = useState({ recencyMin: "", recencyMax: "", freqMin: "", freqMax: "", valueMin: "", valueMax: "", category: "", promo: "", credit: "", tag: "", source: "", consent: "", rfm: [] as RfmKey[] });
+  const c: Crit = { ...(v.rfm.length ? { rfm: v.rfm } : {}), recencyMin: numOrU(v.recencyMin), recencyMax: numOrU(v.recencyMax), freqMin: numOrU(v.freqMin), freqMax: numOrU(v.freqMax), valueMin: numOrU(v.valueMin), valueMax: numOrU(v.valueMax), ...(v.category ? { category: v.category } : {}), ...(v.promo ? { usesPromo: v.promo === "yes" } : {}), ...(v.credit ? { usesCredit: v.credit === "yes" } : {}), ...(v.tag ? { tag: v.tag } : {}), ...(v.source ? { source: v.source } : {}), ...(v.consent ? { consent: v.consent } : {}) };
+  const clean = Object.fromEntries(Object.entries(c).filter(([, x]) => x !== undefined)) as Crit; const num = (k: keyof typeof v, label: string, unit = "") => <Field label={`${label}${unit}`}><input className="input" aria-label={label} inputMode="numeric" value={v[k] as string} onChange={(e) => setV({ ...v, [k]: e.target.value.replace(/\D/g, "") })} /></Field>;
+  return (
+    <Sheet title="Nouveau segment" onClose={onClose} back>
+      <p className="text-xs text-white/60">Combinez des critères mesurés sur vos ventes confirmées. Vous verrez l'effectif et l'éligibilité par canal avant d'enregistrer.</p>
+      <div className="grid grid-cols-2 gap-2">{num("recencyMin", "Dernier achat il y a au moins", " (j)")}{num("recencyMax", "Dernier achat il y a au plus", " (j)")}{num("freqMin", "Achats sur 12 mois, minimum")}{num("freqMax", "Achats sur 12 mois, maximum")}{num("valueMin", "Dépense 12 mois, minimum", " (FCFA)")}{num("valueMax", "Dépense 12 mois, maximum", " (FCFA)")}</div>
+      <fieldset className="card flex flex-wrap gap-2"><legend className="text-xs text-white/60 px-1">Segments RFM</legend>{(Object.keys(RFM_LABEL) as RfmKey[]).filter((k) => k !== "never").map((k) => <label key={k} className="text-sm flex gap-1"><input type="checkbox" checked={v.rfm.includes(k)} onChange={(e) => setV({ ...v, rfm: e.target.checked ? [...v.rfm, k] : v.rfm.filter((x) => x !== k) })} />{RFM_LABEL[k]}</label>)}</fieldset>
+      <div className="grid grid-cols-2 gap-2"><Field label="Catégorie achetée"><select className="input" aria-label="Catégorie achetée" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}><option value="">Toutes</option>{categories.map((x) => <option key={x}>{x}</option>)}</select></Field>
+        <Field label="Promotions"><select className="input" aria-label="Utilisation des promotions" value={v.promo} onChange={(e) => setV({ ...v, promo: e.target.value })}><option value="">Peu importe</option><option value="yes">En a utilisé</option><option value="no">Jamais</option></select></Field>
+        <Field label="Crédit"><select className="input" aria-label="Achats à crédit" value={v.credit} onChange={(e) => setV({ ...v, credit: e.target.value })}><option value="">Peu importe</option><option value="yes">Achète à crédit</option><option value="no">Jamais à crédit</option></select></Field>
+        <Field label="Consentement"><select className="input" aria-label="Consentement requis" value={v.consent} onChange={(e) => setV({ ...v, consent: e.target.value })}><option value="">Peu importe</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="email">E-mail</option></select></Field>
+        <Field label="Origine"><select className="input" aria-label="Origine du client" value={v.source} onChange={(e) => setV({ ...v, source: e.target.value })}><option value="">Toutes</option>{Object.entries(SOURCES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+        <Field label="Étiquette"><input className="input" aria-label="Étiquette" value={v.tag} onChange={(e) => setV({ ...v, tag: e.target.value })} /></Field></div>
+      <button className="btn" disabled={!Object.keys(clean).length} onClick={() => onPreview(clean)}>Voir l'effectif</button>
+    </Sheet>
+  );
+}
+function PreviewSheet({ criteria, onClose, onCampaign, onSaved }: { criteria: Crit; onClose: () => void; onCampaign: (c: Crit) => void; onSaved: () => void }) {
+  const { session } = useSession(); const s = session!; const key = useRef(rid()); const [name, setName] = useState(""); const q = useQuery({ queryKey: ["crm", "seg-prev", s.shopId, criteria], retry: 1, queryFn: () => api<Prev>(s, "crmpro.segment.preview", { criteria, audience: "customers" }) }); const d = q.data; const save = useMutation({ mutationFn: () => api(s, "crmpro.segment.save", { requestKey: key.current, name, criteria }), onSuccess: () => { onSaved(); onClose(); } });
+  return (
+    <Sheet title="Aperçu du segment" onClose={onClose} back>
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Calcul…</p>}
+      {d && <><div className="card"><b className="text-lg">{d.matched}</b> client(s) correspondent<p className="text-xs text-white/50">{d.description.join(" · ")}</p></div>
+        <div className="grid grid-cols-3 gap-2">{(Object.keys(CHANNELS) as Channel[]).map((c) => <Kpi key={c} label={`${CHANNELS[c]} éligibles`} value={d.channels[c].eligible} hint={`écartés : ${d.channels[c].excluded.no_consent ?? 0} sans consentement, ${d.channels[c].excluded.no_contact ?? 0} sans coordonnée, ${d.channels[c].excluded.frequency ?? 0} trop récents`} />)}</div>
+        <p className="text-xs text-white/50">Éligible = coordonnée du canal + consentement enregistré + dernier contact de plus de {d.freqDays} jour(s).</p>
+        {d.sample.length === 0 && <p className="card text-sm text-white/70">Aucun client ne correspond à ces critères.</p>}{d.sample.map((x) => <p key={x.id} className="text-sm border-t border-[var(--line)] pt-1">{x.name} <span className="text-xs text-white/50">· {x.rfm} · {x.recencyDays === null ? "jamais acheté" : `dernier achat ${x.recencyDays} j`} · {x.freq365} achat(s)/12 mois · {formatFcfa(x.spend365)}</span></p>)}
+        <div className="flex gap-2"><input className="input" aria-label="Nom du segment" placeholder="Nom pour l'enregistrer" value={name} onChange={(e) => setName(e.target.value)} /><button className="btn !px-3" disabled={name.trim().length < 3 || save.isPending} onClick={() => save.mutate()}>Enregistrer</button></div><Err e={save.error} />
+        <button className="btn-ghost" disabled={d.matched === 0} onClick={() => onCampaign(criteria)}>Préparer une campagne pour ce segment</button></>}
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ campagnes
+type Camp = { id: string; name: string; objective: string; channel: Channel; channelLabel: string; segmentId: string; criteria: Crit; description: string[]; audience: string; content: string; startOn: string; endOn: string; budget: number; status: keyof typeof CAMPAIGN_LABEL; statusLabel: string; createdBy: string; approvedBy: string; approvedAt: string; startedAt: string; closedAt: string; closeNote: string; generated: { matched?: number; excluded?: Record<string, number> } };
+type CStats = { total: number; pending: number; contacted: number; replied: number; skipped: number; optout: number; failed: number; converted: number; replyRate: number | null; conversionRate: number | null; optoutRate: number | null; revenue: number; budget: number; roi: number | null };
+type Tgt = { id: string; to: string; name: string; customerId: string; leadId: string; channel: Channel; status: keyof typeof TARGET_LABEL; statusLabel: string; reason: string; contactedAt: string; contactedBy: string; repliedAt: string; result: string; attributed: number; converted: boolean; message: string };
+const link = (t: Tgt) => (!t.to ? "" : t.channel === "whatsapp" ? `https://wa.me/${t.to.replace(/\D/g, "")}?text=${encodeURIComponent(t.message)}` : t.channel === "sms" ? `sms:${t.to}?body=${encodeURIComponent(t.message)}` : `mailto:${t.to}?body=${encodeURIComponent(t.message)}`);
+export function ProCampaigns() {
+  const { session } = useSession(); const s = session!; const [open, setOpen] = useState<string | null>(null); const [form, setForm] = useState(false); const [cons, setCons] = useState(false);
+  const q = useQuery({ queryKey: ["crm", "campaigns", s.shopId], retry: 1, queryFn: () => api<{ campaigns: (Camp & { stats: CStats })[] }>(s, "crmpro.campaigns") }); const d = q.data;
+  return (
+    <div className="flex flex-col gap-3">
+      <Authorization kind="campaigns" />
+      <div className="flex gap-2"><button className="btn flex-1 flex items-center justify-center gap-1" onClick={() => setForm(true)}><Plus size={16} />Nouvelle campagne</button><button className="btn-ghost" onClick={() => setCons(true)}>Consentements</button></div>
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Chargement…</p>}
+      {d && d.campaigns.length === 0 && <p className="card text-sm text-white/70">Aucune campagne. Une campagne cible des personnes ayant donné leur consentement et prépare la liste des contacts à effectuer : rien n'est envoyé automatiquement.</p>}
+      <ul className="flex flex-col gap-2">{(d?.campaigns ?? []).map((c) => <li key={c.id}><button className="card w-full text-left flex flex-col gap-1" onClick={() => setOpen(c.id)}><span className="flex justify-between gap-2"><b className="truncate">{c.name}</b><span className={`text-xs shrink-0 ${c.status === "running" ? "text-emerald-300" : c.status === "cancelled" ? "text-white/40" : "text-amber-300"}`}>{c.statusLabel}</span></span><span className="text-xs text-white/50">{c.channelLabel} · {c.startOn ? `du ${fmtDay(c.startOn)}` : "sans date"}{c.endOn ? ` au ${fmtDay(c.endOn)}` : ""} · budget {formatFcfa(c.budget)}</span><span className="text-xs text-white/60">{c.stats.total} cible(s) · {c.stats.contacted} contactée(s) · {c.stats.replied} réponse(s) · {c.stats.converted} achat(s) · {formatFcfa(c.stats.revenue)} attribué(s)</span></button></li>)}</ul>
+      {open && <CampaignSheet id={open} onClose={() => setOpen(null)} />}
+      {form && <CampaignForm onClose={() => setForm(false)} onSaved={(id) => { setForm(false); setOpen(id); }} />}
+      {cons && <ConsentSheet onClose={() => setCons(false)} />}
+    </div>
+  );
+}
+function CampaignForm({ initial, onClose, onSaved }: { initial?: { criteria?: Crit }; onClose: () => void; onSaved: (id: string) => void }) {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const key = useRef(rid()); const segs = useQuery({ queryKey: ["crm", "segments", s.shopId], queryFn: () => api<SegList>(s, "crmpro.segments") });
+  const [v, setV] = useState({ name: "", objective: "", channel: "whatsapp" as Channel, content: "", startOn: "", endOn: "", budget: "0", audience: "customers", segmentId: "" }); const [crit, setCrit] = useState<Crit>(initial?.criteria ?? {});
+  const m = useMutation({ mutationFn: () => api<{ id: string }>(s, "crmpro.campaign.save", { requestKey: key.current, ...v, budget: v.budget || "0", criteria: crit, ...(v.segmentId ? { segmentId: v.segmentId } : {}) }), onSuccess: (r) => { key.current = rid(); void qc.invalidateQueries({ queryKey: ["crm"] }); onSaved(r.id); } });
+  return (
+    <Sheet title="Nouvelle campagne" onClose={onClose} back>
+      <Field label="Nom"><input className="input" aria-label="Nom de la campagne" maxLength={160} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
+      <Field label="Objectif"><input className="input" aria-label="Objectif" maxLength={300} placeholder="ex. faire racheter les clients inactifs" value={v.objective} onChange={(e) => setV({ ...v, objective: e.target.value })} /></Field>
+      <div className="grid grid-cols-2 gap-2"><Field label="Canal"><select className="input" aria-label="Canal" value={v.channel} onChange={(e) => setV({ ...v, channel: e.target.value as Channel })}>{(Object.keys(CHANNELS) as Channel[]).map((c) => <option key={c} value={c}>{CHANNELS[c]}</option>)}</select></Field><Field label="Public"><select className="input" aria-label="Public" value={v.audience} onChange={(e) => setV({ ...v, audience: e.target.value })}><option value="customers">Clients</option><option value="leads">Prospects</option><option value="all">Clients et prospects</option></select></Field></div>
+      <Field label="Segment enregistré"><select className="input" aria-label="Segment enregistré" value={v.segmentId} onChange={(e) => { const sg = segs.data?.saved.find((x) => x.id === e.target.value); setV({ ...v, segmentId: e.target.value }); if (sg) setCrit(sg.criteria); }}><option value="">{Object.keys(crit).length ? "Critères du segment prévisualisé" : "Choisir…"}</option>{(segs.data?.saved ?? []).map((x) => <option key={x.id} value={x.id}>{x.name} ({x.count})</option>)}</select></Field>
+      {Object.keys(crit).length > 0 && <p className="text-xs text-white/60">Cible : {Object.entries(crit).map(([k, x]) => `${k} ${Array.isArray(x) ? x.join("/") : String(x)}`).join(" · ")}</p>}
+      <Field label="Message (utilisez {prénom})"><textarea className="input" rows={4} aria-label="Message de la campagne" maxLength={800} value={v.content} onChange={(e) => setV({ ...v, content: e.target.value })} /></Field>
+      <div className="grid grid-cols-3 gap-2"><Field label="Début"><input className="input !px-2" type="date" aria-label="Début de la campagne" value={v.startOn} onChange={(e) => setV({ ...v, startOn: e.target.value })} /></Field><Field label="Fin"><input className="input !px-2" type="date" aria-label="Fin de la campagne" value={v.endOn} onChange={(e) => setV({ ...v, endOn: e.target.value })} /></Field><Field label="Budget (FCFA)"><input className="input !px-2" inputMode="numeric" aria-label="Budget" value={v.budget} onChange={(e) => setV({ ...v, budget: e.target.value.replace(/\D/g, "") })} /></Field></div>
+      <p className="text-xs text-white/50">Brouillon : la campagne devra être autorisée (par une autre personne que vous) puis démarrée. Aucun message n'est envoyé par l'application.</p>
+      <Err e={m.error} /><button className="btn" disabled={m.isPending || v.name.trim().length < 3 || v.content.trim().length < 5} onClick={() => m.mutate()}>Enregistrer le brouillon</button>
+    </Sheet>
+  );
+}
+function CampaignSheet({ id, onClose }: { id: string; onClose: () => void }) {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [flt, setFlt] = useState(""); const [confirm, setConfirm] = useState<"" | "start" | "close" | "cancel">(""); const [note, setNote] = useState("");
+  const q = useQuery({ queryKey: ["crm", "campaign", s.shopId, id, flt], retry: 1, queryFn: () => api<Camp & { stats: CStats; targets: Tgt[]; attributionDays: number; note: string }>(s, "crmpro.campaign", { id, status: flt || undefined }) }); const c = q.data; const refresh = () => { setConfirm(""); void qc.invalidateQueries({ queryKey: ["crm"] }); };
+  const act = useMutation({ mutationFn: (a: { action: string; body?: object }) => api(s, `crmpro.campaign.${a.action}`, { id, ...(a.body ?? {}) }), onSuccess: refresh });
+  const prev = useQuery({ queryKey: ["crm", "camp-prev", s.shopId, id], enabled: !!c && (c.status === "draft" || c.status === "approved"), retry: 1, queryFn: () => api<Prev>(s, "crmpro.segment.preview", { criteria: c!.criteria, audience: c!.audience }) });
+  return (
+    <Sheet title={c?.name ?? "Campagne"} onClose={onClose} back>
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Chargement…</p>}
+      {c && <>
+        <div className="card text-sm flex flex-col gap-1"><b className="text-amber-300">{c.statusLabel}</b><span>{c.channelLabel} · {c.audience === "customers" ? "clients" : c.audience === "leads" ? "prospects" : "clients et prospects"} · budget {formatFcfa(c.budget)}</span>{c.objective && <span className="text-xs text-white/70">Objectif : {c.objective}</span>}<span className="text-xs text-white/50">Cible : {c.description.join(" · ") || "tous"}</span><span className="text-xs text-white/50">Créée par {c.createdBy || "—"}{c.approvedBy ? ` · autorisée par ${c.approvedBy} le ${fmtAt(c.approvedAt)}` : " · pas encore autorisée"}{c.startedAt ? ` · démarrée le ${fmtAt(c.startedAt)}` : ""}{c.closedAt ? ` · clôturée le ${fmtAt(c.closedAt)}${c.closeNote ? ` (${c.closeNote})` : ""}` : ""}</span><p className="text-xs border-t border-[var(--line)] pt-1 whitespace-pre-wrap">{c.content}</p></div>
+        {prev.data && <div className="card text-sm">Éligibles pour {c.channelLabel} : <b>{prev.data.channels[c.channel].eligible}</b> sur {prev.data.matched} — {prev.data.channels[c.channel].excluded.no_consent ?? 0} sans consentement, {prev.data.channels[c.channel].excluded.no_contact ?? 0} sans coordonnée, {prev.data.channels[c.channel].excluded.frequency ?? 0} contactés récemment.</div>}
+        {c.generated.matched !== undefined && <p className="text-xs text-white/60">À l'ouverture : {c.generated.matched} correspondants, écartés — {c.generated.excluded?.no_consent ?? 0} sans consentement, {c.generated.excluded?.no_contact ?? 0} sans coordonnée, {c.generated.excluded?.frequency ?? 0} trop récents.</p>}
+        <Err e={act.error} />
+        <div className="grid grid-cols-2 gap-2">{c.status === "draft" && <button className="btn" disabled={act.isPending} onClick={() => act.mutate({ action: "approve" })}>Autoriser</button>}{c.status === "approved" && <button className="btn" onClick={() => setConfirm("start")}>Démarrer</button>}{c.status === "running" && <button className="btn" onClick={() => setConfirm("close")}>Clôturer</button>}{(c.status === "draft" || c.status === "approved" || c.status === "running") && <button className="btn-ghost" onClick={() => setConfirm("cancel")}>Annuler</button>}</div>
+        {c.stats.total > 0 && <><div className="grid grid-cols-2 gap-2"><Kpi label="Cibles" value={c.stats.total} hint={`${c.stats.pending} à contacter`} /><Kpi label="Contactées" value={c.stats.contacted} hint={`${c.stats.replied} réponse(s) · ${pct(c.stats.replyRate)}`} /><Kpi label="Achats après contact" value={c.stats.converted} hint={`${pct(c.stats.conversionRate)} des contactées`} /><Kpi label="Chiffre d'affaires attribué" value={formatFcfa(c.stats.revenue)} hint={c.stats.roi !== null ? `${c.stats.roi} × le budget` : "Pas de budget saisi"} /><Kpi label="Désabonnements" value={c.stats.optout} tone={c.stats.optout ? "text-amber-300" : ""} hint={`${c.stats.skipped} écartée(s) · ${c.stats.failed} en échec`} /></div><p className="text-[11px] text-white/40">{c.note}</p></>}
+        {c.stats.total > 0 && <div className="flex gap-2 overflow-x-auto" role="group" aria-label="Filtrer les cibles">{[["", "Toutes"], ["pending", "À contacter"], ["contacted", "Contactées"], ["replied", "Réponses"], ["failed", "Échecs"], ["optout", "Désabonnés"], ["skipped", "Écartées"]].map(([k, l]) => <button key={k} className="chip" aria-current={flt === k} onClick={() => setFlt(k!)}>{l}</button>)}</div>}
+        <ul className="flex flex-col gap-2">{c.targets.map((t) => <TargetRow key={t.id} t={t} running={c.status === "running"} onChanged={refresh} />)}</ul>
+        {confirm === "start" && <Confirm text="Démarrer la campagne ? La liste des contacts consentants est figée à cet instant ; vos équipes les contactent ensuite elles-mêmes." confirmLabel="Démarrer" onNo={() => setConfirm("")} onYes={() => act.mutate({ action: "start" })} />}
+        {confirm === "close" && <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4" role="alertdialog"><div className="card w-full max-w-sm flex flex-col gap-2"><p>Clôturer la campagne ? Les contacts non effectués seront écartés.</p><input className="input" aria-label="Note de clôture" placeholder="Note (facultatif)" maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} /><div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setConfirm("")}>Retour</button><button className="btn flex-1" onClick={() => act.mutate({ action: "close", body: { note } })}>Clôturer</button></div></div></div>}
+        {confirm === "cancel" && <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4" role="alertdialog"><div className="card w-full max-w-sm flex flex-col gap-2"><p>Annuler cette campagne ?</p><input className="input" aria-label="Motif d'annulation de la campagne" placeholder="Motif (obligatoire)" maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} /><div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setConfirm("")}>Retour</button><button className="btn flex-1" disabled={note.trim().length < 3} onClick={() => act.mutate({ action: "close", body: { cancel: true, note } })}>Annuler la campagne</button></div></div></div>}
+      </>}
+    </Sheet>
+  );
+}
+function TargetRow({ t, running, onChanged }: { t: Tgt; running: boolean; onChanged: () => void }) {
+  const { session } = useSession(); const s = session!; const [mode, setMode] = useState<"" | "reply" | "skip">(""); const [text, setText] = useState("");
+  const m = useMutation({ mutationFn: (a: { action: string; body?: object }) => api(s, `crmpro.target.${a.action}`, { id: t.id, ...(a.body ?? {}) }), onSuccess: () => { setMode(""); setText(""); onChanged(); }, onError: () => onChanged() }); const href = link(t);
+  return (
+    <li className="card flex flex-col gap-1"><div className="flex justify-between gap-2"><b className="text-sm truncate">{t.name}</b><span className={`text-xs shrink-0 ${t.status === "replied" ? "text-emerald-300" : t.status === "optout" || t.status === "failed" ? "text-red-300" : t.status === "pending" ? "text-amber-300" : "text-white/60"}`}>{t.statusLabel}</span></div>
+      {t.status !== "pending" && <span className="text-xs text-white/50">{t.contactedAt ? `Contacté le ${fmtAt(t.contactedAt)} par ${t.contactedBy || "—"}` : t.reason}{t.result ? ` — « ${t.result} »` : ""}{t.converted ? ` · achat de ${formatFcfa(t.attributed)} après contact` : ""}</span>}
+      {t.status === "pending" && running && <><p className="text-xs text-white/60 whitespace-pre-wrap">{t.message}</p><div className="flex gap-2 flex-wrap">{href && <a className="btn-ghost !py-1 !px-3 text-sm" href={href} target="_blank" rel="noreferrer">Ouvrir {CHANNELS[t.channel]}</a>}<button className="btn !py-1 !px-3 text-sm" disabled={m.isPending} onClick={() => m.mutate({ action: "contact" })}>J'ai contacté</button><button className="btn-ghost !py-1 !px-3 text-sm" onClick={() => setMode("skip")}>Écarter</button><button className="btn-ghost !py-1 !px-3 text-sm" disabled={m.isPending} onClick={() => m.mutate({ action: "optout" })}>Désabonnement demandé</button></div></>}
+      {t.status === "contacted" && <div className="flex gap-2 flex-wrap"><button className="btn-ghost !py-1 !px-3 text-sm" onClick={() => setMode("reply")}>A répondu</button><button className="btn-ghost !py-1 !px-3 text-sm" disabled={m.isPending} onClick={() => m.mutate({ action: "optout" })}>Désabonnement demandé</button></div>}
+      {t.status === "failed" && running && <button className="btn-ghost !py-1 !px-3 text-sm self-start" disabled={m.isPending} onClick={() => m.mutate({ action: "retry" })}>Rejouer</button>}
+      {mode && <div className="flex flex-col gap-1 border-t border-[var(--line)] pt-1"><input className="input" aria-label={mode === "reply" ? "Réponse reçue" : "Motif"} maxLength={300} placeholder={mode === "reply" ? "Ce que la personne a répondu" : "Motif (obligatoire)"} value={text} onChange={(e) => setText(e.target.value)} /><div className="flex gap-2"><button className="btn !py-2 flex-1" disabled={m.isPending || (mode === "skip" && text.trim().length < 3)} onClick={() => m.mutate(mode === "reply" ? { action: "reply", body: { result: text } } : { action: "skip", body: { reason: text } })}>Enregistrer</button>{mode === "skip" && <button className="btn-ghost !py-2" disabled={m.isPending || text.trim().length < 3} onClick={() => m.mutate({ action: "skip", body: { reason: text, fail: true } })}>Marquer en échec</button>}</div></div>}
+      <Err e={m.error} />
+    </li>
+  );
+}
+function ConsentSheet({ onClose }: { onClose: () => void }) {
+  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["crm", "consents", s.shopId], retry: 1, queryFn: () => api<{ days: number; events: { id: string; at: string; kind: string; party: string; detail: string; by: string }[]; optouts: number; current: { customers: number; sms: number; email: number; whatsapp: number; none: number } }>(s, "crmpro.consents") }); const d = q.data;
+  return (
+    <Sheet title="Consentements et désabonnements" onClose={onClose} back>
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Chargement…</p>}
+      {d && <><div className="grid grid-cols-2 gap-2"><Kpi label="Clients avec consentement WhatsApp" value={d.current.whatsapp} /><Kpi label="SMS" value={d.current.sms} /><Kpi label="E-mail" value={d.current.email} /><Kpi label="Sans aucun consentement" value={d.current.none} hint={`sur ${d.current.customers} client(s)`} /></div>
+        <p className="text-sm">{d.optouts} désabonnement(s) sur {d.days} jours.</p>{d.events.length === 0 && <p className="card text-sm text-white/70">Aucun changement de consentement sur la période.</p>}{d.events.map((e) => <p key={e.id} className="text-xs text-white/70 border-t border-[var(--line)] pt-1"><span className="text-white/50">{fmtAt(e.at)}</span> · <b>{e.kind === "optout" ? "Désabonnement" : "Consentement"}</b> · {e.party} — {e.detail}{e.by ? ` · ${e.by}` : ""}</p>)}</>}
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ automatisations
+type Rule = { id: string; name: string; trigger: keyof typeof TRIGGERS; triggerLabel: string; params: { days?: number; tier?: string; minSpend?: number; tag?: string }; task: { kind: string; title: string; dueInDays: number; owner: string }; enabled: boolean; lastRunAt: string; version: number };
+type Run = { id: string; rule: string; subject: string; eventKey: string; status: string; error: string; taskId: string; attempts: number; ranAt: string; by: string; canRetry: boolean };
+export function ProAutomations() {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [form, setForm] = useState(false); const [flt, setFlt] = useState(""); const [res, setRes] = useState<{ rule: string; created: number; failed: number; skipped: number; capped: boolean }[] | null>(null);
+  const rules = useQuery({ queryKey: ["crm", "rules", s.shopId], retry: 1, queryFn: () => api<{ rules: Rule[]; triggers: { id: string; label: string; help: string }[]; automationEnabled: boolean; note: string }>(s, "crmpro.rules") }); const runs = useQuery({ queryKey: ["crm", "runs", s.shopId, flt], retry: 1, queryFn: () => api<{ runs: Run[]; counts: { ok: number; failed: number }; maxAttempts: number }>(s, "crmpro.runs", { status: flt || undefined }) });
+  const toggle = useMutation({ mutationFn: (r: Rule) => api(s, "crmpro.rule.save", { id: r.id, enabled: !r.enabled }), onSuccess: () => void qc.invalidateQueries({ queryKey: ["crm"] }) }); const run = useMutation({ mutationFn: () => api<{ summary: typeof res }>(s, "crmpro.run"), onSuccess: (r) => { setRes(r.summary); void qc.invalidateQueries({ queryKey: ["crm"] }); } }); const retry = useMutation({ mutationFn: (id: string) => api(s, "crmpro.run.retry", { id }), onSuccess: () => void qc.invalidateQueries({ queryKey: ["crm"] }), onError: () => void qc.invalidateQueries({ queryKey: ["crm", "runs"] }) });
+  return (
+    <div className="flex flex-col gap-3">
+      <Authorization kind="automation" />
+      {rules.data && <p className="text-xs text-white/50">{rules.data.note}</p>}
+      <div className="flex gap-2"><button className="btn flex-1" onClick={() => setForm(true)}>Nouvelle règle</button><button className="btn-ghost flex-1" disabled={run.isPending || !rules.data?.automationEnabled} onClick={() => run.mutate()}>Exécuter maintenant</button></div>
+      <Err e={rules.error ?? run.error ?? toggle.error} />
+      {res && <div className="card text-sm flex flex-col gap-1" role="status"><b>Résultat de l'exécution</b>{res.length === 0 && <span>Aucune règle activée.</span>}{res.map((x) => <span key={x.rule}>{x.rule} : {x.created} tâche(s) créée(s), {x.skipped} déjà traitée(s){x.failed ? `, ${x.failed} en échec` : ""}{x.capped ? " (limite atteinte : relancez pour la suite)" : ""}</span>)}</div>}
+      {rules.data && rules.data.rules.length === 0 && <p className="card text-sm text-white/70">Aucune règle. Exemple : « 60 jours sans achat → créer une relance pour le responsable du client ».</p>}
+      <ul className="flex flex-col gap-2">{(rules.data?.rules ?? []).map((r) => <li key={r.id} className="card flex flex-col gap-1"><div className="flex justify-between gap-2"><b>{r.name}</b><label className="text-sm flex gap-1 items-center"><input type="checkbox" aria-label={`Activer ${r.name}`} checked={r.enabled} disabled={toggle.isPending} onChange={() => toggle.mutate(r)} />{r.enabled ? "Active" : "Inactive"}</label></div><span className="text-xs text-white/60">{r.triggerLabel}{r.params.days ? ` : ${r.params.days} jours` : ""}{r.params.tier ? ` : niveau ${r.params.tier}` : ""}{r.params.minSpend ? ` · dépense ≥ ${formatFcfa(r.params.minSpend)}` : ""} → tâche « {r.task.title} » à J+{r.task.dueInDays} · version {r.version}{r.lastRunAt ? ` · dernière exécution ${fmtAt(r.lastRunAt)}` : " · jamais exécutée"}</span></li>)}</ul>
+      <section className="flex flex-col gap-2"><div className="flex justify-between items-center"><h2 className="font-semibold">Journal des exécutions</h2>{runs.data && <span className="text-xs text-white/50">{runs.data.counts.ok} réussie(s) · <span className={runs.data.counts.failed ? "text-red-300" : ""}>{runs.data.counts.failed} échec(s)</span></span>}</div>
+        <div className="flex gap-2" role="group" aria-label="Filtrer le journal">{[["", "Toutes"], ["failed", "Échecs"], ["ok", "Réussies"]].map(([k, l]) => <button key={k} className="chip" aria-current={flt === k} onClick={() => setFlt(k!)}>{l}</button>)}</div>
+        {runs.data && runs.data.runs.length === 0 && <p className="card text-sm text-white/70">Aucune exécution{flt === "failed" ? " en échec" : ""}.</p>}
+        {(runs.data?.runs ?? []).map((r) => <div key={r.id} className="card flex flex-col gap-1"><div className="flex justify-between gap-2"><span className="text-sm"><b>{r.rule}</b> · {r.subject}</span><span className={`text-xs shrink-0 ${r.status === "ok" ? "text-emerald-300" : r.status === "failed" ? "text-red-300" : "text-white/50"}`}>{r.status === "ok" ? "Réussie" : r.status === "failed" ? "Échec" : "Ignorée"}</span></div><span className="text-xs text-white/50">{fmtAt(r.ranAt)} · tentative {r.attempts}{r.by ? ` · ${r.by}` : ""}</span>{r.error && <span className="text-xs text-red-300">{r.error}</span>}{r.status === "failed" && (r.canRetry ? <button className="btn-ghost !py-1 !px-3 text-sm self-start" disabled={retry.isPending} onClick={() => retry.mutate(r.id)}>Rejouer</button> : <span className="text-xs text-white/50">Limite de {runs.data?.maxAttempts} tentatives atteinte : corrigez la règle ou le responsable.</span>)}</div>)}
+        <Err e={retry.error} /></section>
+      {form && rules.data && <RuleForm triggers={rules.data.triggers} onClose={() => setForm(false)} />}
+    </div>
+  );
+}
+function RuleForm({ triggers, onClose }: { triggers: { id: string; label: string; help: string }[]; onClose: () => void }) {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const key = useRef(rid()); const owners = useOwners(); const [v, setV] = useState({ name: "", trigger: "inactive", days: "60", tier: "silver", minSpend: "", tag: "", kind: "followup", title: "Relancer {nom}", due: "2", owner: "portfolio" });
+  const m = useMutation({ mutationFn: () => api(s, "crmpro.rule.save", { requestKey: key.current, name: v.name, trigger: v.trigger, params: { ...(["inactive", "lead_stale"].includes(v.trigger) ? { days: Number(v.days) } : {}), ...(v.trigger === "tier" ? { tier: v.tier } : {}), ...(v.minSpend ? { minSpend: Number(v.minSpend) } : {}), ...(v.tag ? { tag: v.tag } : {}) }, task: { kind: v.kind, title: v.title, dueInDays: Number(v.due), owner: v.owner } }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["crm"] }); onClose(); } }); const help = triggers.find((t) => t.id === v.trigger)?.help;
+  return (
+    <Sheet title="Nouvelle règle" onClose={onClose} back>
+      <Field label="Nom"><input className="input" aria-label="Nom de la règle" maxLength={120} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
+      <Field label="Quand (événement vérifié)"><select className="input" aria-label="Déclencheur" value={v.trigger} onChange={(e) => setV({ ...v, trigger: e.target.value })}>{triggers.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}</select></Field><p className="text-xs text-white/50">{help}</p>
+      {["inactive", "lead_stale"].includes(v.trigger) && <Field label="Nombre de jours"><input className="input" aria-label="Nombre de jours" inputMode="numeric" value={v.days} onChange={(e) => setV({ ...v, days: e.target.value.replace(/\D/g, "") })} /></Field>}
+      {v.trigger === "tier" && <Field label="Niveau"><select className="input" aria-label="Niveau de fidélité" value={v.tier} onChange={(e) => setV({ ...v, tier: e.target.value })}><option value="silver">Argent ou plus</option><option value="gold">Or</option></select></Field>}
+      <div className="grid grid-cols-2 gap-2"><Field label="Dépense totale minimale (FCFA)"><input className="input" aria-label="Dépense minimale" inputMode="numeric" value={v.minSpend} onChange={(e) => setV({ ...v, minSpend: e.target.value.replace(/\D/g, "") })} /></Field><Field label="Étiquette requise"><input className="input" aria-label="Étiquette requise" value={v.tag} onChange={(e) => setV({ ...v, tag: e.target.value })} /></Field></div>
+      <h3 className="text-sm font-semibold">Alors créer la tâche</h3>
+      <div className="grid grid-cols-2 gap-2"><Field label="Type"><select className="input" aria-label="Type de tâche" value={v.kind} onChange={(e) => setV({ ...v, kind: e.target.value })}><option value="followup">Relance</option><option value="call">Appel</option><option value="meeting">Rendez-vous</option><option value="task">Tâche</option></select></Field><Field label="Échéance (jours)"><input className="input" aria-label="Échéance en jours" inputMode="numeric" value={v.due} onChange={(e) => setV({ ...v, due: e.target.value.replace(/\D/g, "") })} /></Field></div>
+      <Field label="Intitulé ({nom} = nom du client)"><input className="input" aria-label="Intitulé de la tâche" maxLength={160} value={v.title} onChange={(e) => setV({ ...v, title: e.target.value })} /></Field>
+      <Field label="Responsable"><select className="input" aria-label="Responsable de la tâche" value={v.owner} onChange={(e) => setV({ ...v, owner: e.target.value })}><option value="portfolio">Responsable du client (portefeuille)</option><option value="creator">Moi</option>{(owners.data?.owners ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></Field>
+      <p className="text-xs text-white/50">La règle est créée désactivée. Elle ne crée que des tâches internes ; aucun message n'est envoyé.</p><Err e={m.error} /><button className="btn" disabled={m.isPending || v.name.trim().length < 3 || v.title.trim().length < 3} onClick={() => m.mutate()}>Créer la règle</button>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ équipes et performances
+type Perf = { userId: string; name: string; customers: number; active: number; inactive: number; revenue: number; monthRevenue: number; repeatBuyers: number; leadsCreated: number; leadsConverted: number; openOpps: number; pipeline: number; weighted: number; wonValue: number; wonCount: number; lostCount: number; tasksDone: number; onTimeRate: number | null; overdue: number };
+type Team = { id: string; name: string; leader: string; target: number; monthRevenue: number; attainment: number | null; members: { userId: string; name: string; target: number; monthRevenue: number; attainment: number | null }[] };
+export function ProTeams() {
+  const { session } = useSession(); const s = session!; const [days, setDays] = useState(30); const [form, setForm] = useState(false); const [assign, setAssign] = useState(false);
+  const q = useQuery({ queryKey: ["crm", "teams", s.shopId, days], retry: 1, queryFn: () => api<{ period: { from: string; to: string }; performance: Perf[]; teams: Team[]; unassigned: number; staff: { id: string; name: string }[]; notes: string[] }>(s, "crmpro.teams", { days }) }); const d = q.data;
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="Période"><select className="input" aria-label="Période des performances" value={days} onChange={(e) => setDays(Number(e.target.value))}>{[7, 30, 90, 365].map((x) => <option key={x} value={x}>{x} jours</option>)}</select></Field>
+      <div className="flex gap-2"><button className="btn flex-1" onClick={() => setForm(true)}>Nouvelle équipe</button><button className="btn-ghost flex-1" onClick={() => setAssign(true)}>Attribuer des clients</button></div>
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Calcul…</p>}
+      {d && <>
+        {d.unassigned > 0 && <p className="card text-sm text-amber-200">{d.unassigned} client(s) n'ont pas de responsable.</p>}
+        <section className="flex flex-col gap-2"><h2 className="font-semibold">Équipes</h2>{d.teams.length === 0 && <p className="card text-sm text-white/70">Aucune équipe. Créez-en une pour suivre l'objectif mensuel de vos commerciaux.</p>}{d.teams.map((t) => <div key={t.id} className="card flex flex-col gap-1"><div className="flex justify-between"><b>{t.name}</b><span className="text-sm">{formatFcfa(t.monthRevenue)} / {formatFcfa(t.target)}{t.attainment !== null ? ` (${t.attainment} %)` : ""}</span></div><span className="text-xs text-white/50">Responsable : {t.leader || "—"} · mois civil en cours</span>{t.members.map((m) => <p key={m.userId} className="text-xs text-white/70 border-t border-[var(--line)] pt-1">{m.name} : {formatFcfa(m.monthRevenue)}{m.target ? ` sur ${formatFcfa(m.target)} (${m.attainment} %)` : ""}</p>)}</div>)}</section>
+        <section className="flex flex-col gap-2"><h2 className="font-semibold">Performance par commercial</h2>{d.performance.length === 0 && <p className="card text-sm text-white/70">Aucun portefeuille ni activité pour le moment.</p>}{d.performance.map((p) => <div key={p.userId} className="card text-sm flex flex-col gap-0.5"><b>{p.name}</b><span className="text-white/70">Portefeuille : {p.customers} client(s) ({p.active} actifs, {p.inactive} inactifs) · ventes {formatFcfa(p.revenue)} sur la période</span><span className="text-xs text-white/60">Prospects : {p.leadsCreated} créés, {p.leadsConverted} convertis · opportunités : {p.openOpps} ({formatFcfa(p.pipeline)}, pondéré {formatFcfa(p.weighted)}), {p.wonCount} gagnée(s) {formatFcfa(p.wonValue)}, {p.lostCount} perdue(s)</span><span className="text-xs text-white/60">Relances faites {p.tasksDone} · ponctualité {pct(p.onTimeRate)} · en retard {p.overdue}</span></div>)}</section>
+        <Notes items={d.notes} />
+        {form && <TeamForm staff={d.staff} onClose={() => setForm(false)} />}{assign && <AssignSheet staff={d.staff} onClose={() => setAssign(false)} />}</>}
+    </div>
+  );
+}
+function TeamForm({ staff, onClose }: { staff: { id: string; name: string }[]; onClose: () => void }) {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const key = useRef(rid()); const [name, setName] = useState(""); const [leader, setLeader] = useState(""); const [target, setTarget] = useState(""); const [mem, setMem] = useState<Record<string, string>>({});
+  const m = useMutation({ mutationFn: () => api(s, "crmpro.team.save", { requestKey: key.current, name, leaderId: leader, target: target || "0", members: Object.entries(mem).map(([userId, t]) => ({ userId, target: t || "0" })) }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["crm"] }); onClose(); } });
+  return (
+    <Sheet title="Nouvelle équipe" onClose={onClose} back>
+      <Field label="Nom"><input className="input" aria-label="Nom de l'équipe" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label="Responsable d'équipe"><select className="input" aria-label="Responsable d'équipe" value={leader} onChange={(e) => setLeader(e.target.value)}><option value="">Aucun</option>{staff.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+      <Field label="Objectif mensuel de l'équipe (FCFA, facultatif)"><input className="input" aria-label="Objectif mensuel de l'équipe" inputMode="numeric" value={target} onChange={(e) => setTarget(e.target.value.replace(/\D/g, ""))} /></Field>
+      <fieldset className="card flex flex-col gap-1"><legend className="text-xs text-white/60 px-1">Membres et objectif individuel</legend>{staff.map((x) => <div key={x.id} className="flex items-center gap-2"><label className="text-sm flex gap-2 flex-1"><input type="checkbox" aria-label={`Membre ${x.name}`} checked={x.id in mem} onChange={(e) => { const n = { ...mem }; if (e.target.checked) n[x.id] = ""; else delete n[x.id]; setMem(n); }} />{x.name}</label>{x.id in mem && <input className="input !w-28 !py-1" aria-label={`Objectif ${x.name}`} inputMode="numeric" placeholder="Objectif" value={mem[x.id]} onChange={(e) => setMem({ ...mem, [x.id]: e.target.value.replace(/\D/g, "") })} />}</div>)}</fieldset>
+      <Err e={m.error} /><button className="btn" disabled={m.isPending || name.trim().length < 3} onClick={() => m.mutate()}>Créer l'équipe</button>
+    </Sheet>
+  );
+}
+function AssignSheet({ staff, onClose }: { staff: { id: string; name: string }[]; onClose: () => void }) {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [q, setQ] = useState(""); const [sel, setSel] = useState<string[]>([]); const [owner, setOwner] = useState(""); const [done, setDone] = useState<number | null>(null);
+  const list = useQuery({ queryKey: ["crm", "assign-list", s.shopId, q], retry: 1, queryFn: () => api<{ customers: { id: string; name: string; owner: string }[]; total: number }>(s, "crm.customers", { q: q || undefined, limit: 100 }) });
+  const m = useMutation({ mutationFn: () => api<{ updated: number }>(s, "crmpro.portfolio.assign", { customerIds: sel, ownerId: owner }), onSuccess: (r) => { setDone(r.updated); setSel([]); void qc.invalidateQueries({ queryKey: ["crm"] }); } });
+  return (
+    <Sheet title="Attribuer des clients" onClose={onClose} back>
+      <input className="input" aria-label="Rechercher un client à attribuer" placeholder="Rechercher" value={q} onChange={(e) => setQ(e.target.value)} />
+      <ul className="flex flex-col gap-1 max-h-72 overflow-y-auto">{(list.data?.customers ?? []).map((c) => <li key={c.id}><label className="card flex gap-2 items-center text-sm"><input type="checkbox" aria-label={`Sélectionner ${c.name}`} checked={sel.includes(c.id)} onChange={(e) => setSel(e.target.checked ? [...sel, c.id].slice(0, 50) : sel.filter((x) => x !== c.id))} /><span className="flex-1 truncate">{c.name}</span><span className="text-xs text-white/50">{c.owner || "sans responsable"}</span></label></li>)}</ul>
+      <Field label="Nouveau responsable"><select className="input" aria-label="Nouveau responsable" value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">Choisir…</option>{staff.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+      {done !== null && <p className="text-sm text-emerald-300" role="status">{done} client(s) attribué(s).</p>}<Err e={m.error} /><button className="btn" disabled={m.isPending || !sel.length || !owner} onClick={() => m.mutate()}>Attribuer {sel.length || ""} client(s)</button>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ analyses
+type Ana = { period: { days: number; from: string; to: string }; customers: { total: number; buyers: number; historicValue: number; spend365: number; avgBasket: number }; byRfm: { key: string; label: string; count: number; avgHistoric: number; spend365: number }[]; topValue: { id: string; name: string; historic: number; projected12: number | null; purchases: number; rfm: string }[]; retention: { retention90: { base: number; kept: number; rate: number | null }; repeat30: { eligible: number; repeat: number; rate: number | null }; repeat60: { eligible: number; repeat: number; rate: number | null }; repeat90: { eligible: number; repeat: number; rate: number | null } }; cohorts: { month: string; size: number; eligible: number; repeat90: number; rate: number | null }[]; inactivity: { label: string; count: number }[]; conversion: { leadsCreated: number; converted: number; rate: number | null; medianDays: number | null; bySource: { key: string; label: string; created: number; converted: number; rate: number | null }[]; byOwner: { key: string; label: string; created: number; converted: number; rate: number | null }[] }; opportunities: { closed: number; won: number; winRate: number | null; byOwner: { owner: string; won: number; lost: number; value: number; rate: number | null }[] }; forecast: { pipeline: { months: { month: string; count: number; value: number; weighted: number; adjusted: number | null }[]; weighted: number; adjusted: number | null; winRate: number | null; sample: number; confidence: string; limits: string[] }; sales: { monthly: number[]; projection: { value: number | null; low: number | null; high: number | null; method: string } } }; notes: string[] };
+export function ProAnalytics() {
+  const { session } = useSession(); const s = session!; const [days, setDays] = useState(90); const q = useQuery({ queryKey: ["crm", "analytics", s.shopId, days], retry: 1, queryFn: () => api<Ana>(s, "crmpro.analytics", { days }) }); const d = q.data;
+  return (
+    <div className="flex flex-col gap-3">
+      <Field label="Période de conversion"><select className="input" aria-label="Période des analyses" value={days} onChange={(e) => setDays(Number(e.target.value))}>{[30, 90, 180, 365].map((x) => <option key={x} value={x}>{x} jours</option>)}</select></Field>
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Calcul…</p>}
+      {d && <>
+        <div className="grid grid-cols-2 gap-2"><Kpi label="Clients acheteurs" value={d.customers.buyers} hint={`sur ${d.customers.total}`} /><Kpi label="Valeur historique" value={formatFcfa(d.customers.historicValue)} hint={`Panier moyen ${formatFcfa(d.customers.avgBasket)}`} /><Kpi label="Rétention 90 j" value={pct(d.retention.retention90.rate)} hint={`${d.retention.retention90.kept} sur ${d.retention.retention90.base} clients actifs il y a 3-6 mois`} /><Kpi label="Réachat sous 90 j" value={pct(d.retention.repeat90.rate)} hint={`30 j : ${pct(d.retention.repeat30.rate)} · 60 j : ${pct(d.retention.repeat60.rate)}`} /><Kpi label="Conversion des prospects" value={pct(d.conversion.rate)} hint={`${d.conversion.converted} sur ${d.conversion.leadsCreated}${d.conversion.medianDays !== null ? ` · médiane ${d.conversion.medianDays} j` : ""}`} /><Kpi label="Taux de gain des opportunités" value={pct(d.opportunities.winRate)} hint={`${d.opportunities.won} gagnée(s) sur ${d.opportunities.closed} clôturée(s)`} /></div>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Valeur par segment RFM</h2>{d.byRfm.map((x) => <p key={x.key} className="text-sm flex justify-between border-t border-[var(--line)] pt-1"><span>{x.label} ({x.count})</span><span className="text-white/60">moy. {formatFcfa(x.avgHistoric)} · 12 mois {formatFcfa(x.spend365)}</span></p>)}</section>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Meilleurs clients (valeur historique)</h2>{d.topValue.length === 0 && <p className="text-sm text-white/60">Aucune vente rattachée à un client.</p>}{d.topValue.map((x) => <p key={x.id} className="text-sm flex justify-between border-t border-[var(--line)] pt-1"><span className="truncate">{x.name} <span className="text-xs text-white/50">· {x.rfm}</span></span><span className="text-white/60 shrink-0">{formatFcfa(x.historic)}{x.projected12 !== null ? ` · ≈ ${formatFcfa(x.projected12)}/an` : ""}</span></p>)}</section>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Cohortes (1er achat)</h2>{d.cohorts.map((c) => <p key={c.month} className="text-sm flex justify-between border-t border-[var(--line)] pt-1"><span>{c.month} · {c.size} client(s)</span><span className="text-white/60">{c.rate === null ? "trop récent" : `${c.rate} % rachètent sous 90 j (${c.repeat90}/${c.eligible})`}</span></p>)}</section>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Inactivité</h2>{d.inactivity.map((x) => <p key={x.label} className="text-sm flex justify-between border-t border-[var(--line)] pt-1"><span>{x.label}</span><span className="text-white/60">{x.count}</span></p>)}</section>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Conversion par origine</h2>{d.conversion.bySource.length === 0 && <p className="text-sm text-white/60">Aucun prospect créé sur la période.</p>}{d.conversion.bySource.map((x) => <p key={x.key} className="text-sm flex justify-between border-t border-[var(--line)] pt-1"><span>{x.label}</span><span className="text-white/60">{x.converted}/{x.created} · {pct(x.rate)}</span></p>)}</section>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Performance commerciale</h2>{d.opportunities.byOwner.length === 0 && <p className="text-sm text-white/60">Aucune opportunité clôturée.</p>}{d.opportunities.byOwner.map((x) => <p key={x.owner} className="text-sm flex justify-between border-t border-[var(--line)] pt-1"><span>{x.owner}</span><span className="text-white/60">{x.won} gagnée(s) / {x.lost} perdue(s) · {pct(x.rate)} · {formatFcfa(x.value)}</span></p>)}</section>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Prévisions commerciales</h2><p className="text-sm">Pipeline pondéré (probabilités saisies) : <b>{formatFcfa(d.forecast.pipeline.weighted)}</b>{d.forecast.pipeline.adjusted !== null ? ` · ajusté au taux de gain historique : ${formatFcfa(d.forecast.pipeline.adjusted)}` : ""} · confiance {d.forecast.pipeline.confidence}</p>{d.forecast.pipeline.months.map((m) => <p key={m.month} className="text-xs text-white/70 border-t border-[var(--line)] pt-1">{m.month === "sans-echeance" ? "Sans échéance" : m.month} : {m.count} opportunité(s) · {formatFcfa(m.value)} · pondéré {formatFcfa(m.weighted)}</p>)}{d.forecast.pipeline.limits.map((l) => <p key={l} className="text-[11px] text-white/40">• {l}</p>)}
+          <p className="text-sm border-t border-[var(--line)] pt-1">Ventes du mois prochain : {d.forecast.sales.projection.value === null ? "projection impossible" : `≈ ${formatFcfa(d.forecast.sales.projection.value)} (entre ${formatFcfa(d.forecast.sales.projection.low ?? 0)} et ${formatFcfa(d.forecast.sales.projection.high ?? 0)})`}</p><p className="text-[11px] text-white/40">{d.forecast.sales.projection.method}</p></section>
+        <Notes items={d.notes} />
+      </>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ fidélité
+type Loy = { rules: { cfaPerPoint: number; redeemCfaPerPoint: number; maxRedeemPct: number; silverThreshold: number; goldThreshold: number; silverBonusPct: number; goldBonusPct: number }; custom: boolean; description: string[]; perks: { bronze: string; silver: string; gold: string }; tiers: { bronze: number; silver: number; gold: number }; points: number; liability: number; history: { at: string; by: string; before: Loy["rules"]; after: Loy["rules"] }[]; note: string };
+export function ProLoyalty() {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const set = useSettings(); const owner = set.data?.canAuthorize; const q = useQuery({ queryKey: ["crm", "loyalty", s.shopId], retry: 1, queryFn: () => api<Loy>(s, "crmpro.loyalty") }); const d = q.data; const [edit, setEdit] = useState(false);
+  return (
+    <div className="flex flex-col gap-3">
+      <Err e={q.error} />{q.isLoading && <p className="text-sm text-white/60" role="status">Chargement…</p>}
+      {d && <>
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Règles en vigueur {d.custom ? "" : "(standard)"}</h2>{d.description.map((x) => <p key={x} className="text-sm text-white/80">• {x}</p>)}</section>
+        <div className="grid grid-cols-3 gap-2"><Kpi label="Bronze" value={d.tiers.bronze} hint={d.perks.bronze} /><Kpi label="Argent" value={d.tiers.silver} hint={d.perks.silver} /><Kpi label="Or" value={d.tiers.gold} hint={d.perks.gold} /></div>
+        <div className="grid grid-cols-2 gap-2"><Kpi label="Points en circulation" value={d.points} /><Kpi label="Passif maximal" value={formatFcfa(d.liability)} hint="Points × valeur d'un point" /></div>
+        {owner ? <button className="btn" onClick={() => setEdit(true)}>Modifier les règles</button> : <p className="text-xs text-white/50">Seul le propriétaire modifie les règles de fidélité.</p>}
+        <section className="card flex flex-col gap-1"><h2 className="font-semibold">Historique des changements</h2>{d.history.length === 0 && <p className="text-xs text-white/50">Aucun changement : règles standard.</p>}{d.history.map((h, i) => <p key={i} className="text-xs text-white/70 border-t border-[var(--line)] pt-1">{fmtAt(h.at)} · 1 pt / {h.before.cfaPerPoint} → {h.after.cfaPerPoint} FCFA · Argent {formatFcfa(h.before.silverThreshold)} → {formatFcfa(h.after.silverThreshold)} · Or {formatFcfa(h.before.goldThreshold)} → {formatFcfa(h.after.goldThreshold)}</p>)}</section>
+        <p className="text-[11px] text-white/40">{d.note}</p>
+        {edit && <LoyaltyForm cur={d} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); void qc.invalidateQueries({ queryKey: ["crm"] }); }} />}</>}
+    </div>
+  );
+}
+function LoyaltyForm({ cur, onClose, onSaved }: { cur: Loy; onClose: () => void; onSaved: () => void }) {
+  const { session } = useSession(); const s = session!; const [v, setV] = useState<Record<string, string>>({ ...Object.fromEntries(Object.entries(cur.rules).map(([k, x]) => [k, String(x)])), bronze: cur.perks.bronze, silver: cur.perks.silver, gold: cur.perks.gold });
+  const m = useMutation({ mutationFn: () => api(s, "crmpro.loyalty.save", { ...Object.fromEntries(["cfaPerPoint", "redeemCfaPerPoint", "maxRedeemPct", "silverThreshold", "goldThreshold", "silverBonusPct", "goldBonusPct"].map((k) => [k, Number(v[k])])), perks: { bronze: v.bronze, silver: v.silver, gold: v.gold } }), onSuccess: onSaved }); const f = (k: string, l: string) => <Field label={l}><input className="input" aria-label={l} inputMode="numeric" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value.replace(/\D/g, "") })} /></Field>;
+  return (
+    <Sheet title="Règles de fidélité" onClose={onClose} back>
+      <div className="grid grid-cols-2 gap-2">{f("cfaPerPoint", "FCFA dépensés par point")}{f("redeemCfaPerPoint", "Valeur d'un point (FCFA)")}{f("maxRedeemPct", "Plafond d'utilisation (% du total)")}{f("silverThreshold", "Seuil Argent (FCFA/an)")}{f("goldThreshold", "Seuil Or (FCFA/an)")}{f("silverBonusPct", "Bonus Argent (%)")}{f("goldBonusPct", "Bonus Or (%)")}</div>
+      {(["bronze", "silver", "gold"] as const).map((k) => <Field key={k} label={`Avantage ${k === "bronze" ? "Bronze" : k === "silver" ? "Argent" : "Or"} (texte affiché)`}><input className="input" aria-label={`Avantage ${k}`} maxLength={120} value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></Field>)}
+      <p className="text-xs text-white/50">Les nouvelles règles s'appliquent aux ventes futures. Les points déjà acquis, l'historique et les ventes passées ne sont jamais recalculés.</p><Err e={m.error} /><button className="btn" disabled={m.isPending} onClick={() => m.mutate()}>Enregistrer</button>
+    </Sheet>
+  );
+}

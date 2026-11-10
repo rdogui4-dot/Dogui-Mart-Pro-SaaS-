@@ -5,6 +5,9 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { Confirm, Sheet } from "@/components/ui";
 import { formatFcfa } from "@/domain/money";
+import { planAllows } from "@/domain/features";
+import { useSubscription } from "./subscription";
+import { ProAnalytics, ProAutomations, ProCampaigns, ProInsight, ProLoyalty, ProSegments, ProTeams } from "./crm-pro";
 import { OPEN_STAGES, SEGMENT_LABEL, SOURCES, STAGES, STAGE_LABEL, STAGE_PROB, TASK_KINDS, type Segment, type Stage } from "@/domain/crm";
 
 // ------------------------------------------------------------------ types (réponses du serveur)
@@ -26,16 +29,16 @@ const Kpi = ({ label, value, tone = "", hint, onClick }: { label: string; value:
 const fmtAt = (d: string) => (d ? new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtDay = (d: string) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
 const localInput = (d = new Date(Date.now() + 864e5)) => { const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:00`; };
-const TL_LABEL: Record<string, string> = { sale: "Vente", return: "Retour", note: "Note", call: "Appel", meeting: "Rendez-vous", whatsapp: "WhatsApp", email: "E-mail", stage: "Étape", conversion: "Conversion", task: "Agenda", consent: "Consentements", create: "Création", lost: "Perdu", reopen: "Réouverture" };
+const TL_LABEL: Record<string, string> = { sale: "Vente", return: "Retour", note: "Note", call: "Appel", meeting: "Rendez-vous", whatsapp: "WhatsApp", email: "E-mail", stage: "Étape", conversion: "Conversion", campaign: "Campagne", optout: "Désabonnement", task: "Agenda", consent: "Consentements", create: "Création", lost: "Perdu", reopen: "Réouverture" };
 const SEG_TONE: Record<string, string> = { new: "text-sky-300", active: "text-emerald-300", loyal: "text-[var(--gold)]", inactive: "text-amber-300", dormant: "text-red-300", never: "text-white/50" };
 const telHref = (p: string) => `tel:${p}`; const waHref = (p: string) => `https://wa.me/${p.replace(/\D/g, "")}`;
-type Tab = "dash" | "cust" | "lead" | "opp" | "agenda" | "credit";
+type Tab = "dash" | "cust" | "lead" | "opp" | "agenda" | "credit" | "seg" | "camp" | "auto" | "team" | "ana" | "loy";
 const useOwners = () => { const { session } = useSession(); const s = session!; return useQuery({ queryKey: ["crm", "owners", s.shopId], retry: 1, staleTime: 5 * 60_000, queryFn: () => api<Owners>(s, "crm.owners") }); };
 
 /** CRM Business : clients, prospects et pipeline, opportunités, agenda de relances, tableau de bord. Tous les chiffres viennent du serveur et des ventes réelles. */
 export function CrmHub({ legacy }: { legacy: ReactNode }) {
-  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const [tab, setTab] = useState<Tab>(mgr ? "dash" : "cust"); const [seg, setSeg] = useState<string>("");
-  const tabs: [Tab, string][] = [...(mgr ? ([["dash", "Tableau"]] as [Tab, string][]) : []), ["cust", "Clients"], ["lead", "Prospects"], ...(mgr ? ([["opp", "Opportunités"]] as [Tab, string][]) : []), ["agenda", "Agenda"], ["credit", "Crédit & fidélité"]];
+  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const [tab, setTab] = useState<Tab>(mgr ? "dash" : "cust"); const [seg, setSeg] = useState<string>(""); const pro = planAllows(useSubscription().data?.entitlement.plan.id, "crmPro");
+  const tabs: [Tab, string][] = [...(mgr ? ([["dash", "Tableau"]] as [Tab, string][]) : []), ["cust", "Clients"], ["lead", "Prospects"], ...(mgr ? ([["opp", "Opportunités"]] as [Tab, string][]) : []), ["agenda", "Agenda"], ...(pro && mgr ? ([["seg", "Segments"], ["camp", "Campagnes"], ["auto", "Automatisations"], ["team", "Équipes"], ["ana", "Analyses"], ["loy", "Fidélité"]] as [Tab, string][]) : []), ["credit", "Crédit & fidélité"]];
   return (
     <div className="flex flex-col gap-4">
       <h1 className="sr-only">Clients & CRM</h1>
@@ -45,6 +48,12 @@ export function CrmHub({ legacy }: { legacy: ReactNode }) {
       {tab === "lead" && <Leads />}
       {tab === "opp" && mgr && <Opps />}
       {tab === "agenda" && <Agenda />}
+      {pro && mgr && tab === "seg" && <ProSegments />}
+      {pro && mgr && tab === "camp" && <ProCampaigns />}
+      {pro && mgr && tab === "auto" && <ProAutomations />}
+      {pro && mgr && tab === "team" && <ProTeams />}
+      {pro && mgr && tab === "ana" && <ProAnalytics />}
+      {pro && mgr && tab === "loy" && <ProLoyalty />}
       {tab === "credit" && legacy}
     </div>
   );
@@ -116,7 +125,7 @@ function Timeline({ items }: { items: TL[] }) {
   return <section className="flex flex-col gap-1"><h3 className="text-sm font-semibold">Chronologie</h3>{items.length === 0 && <p className="text-xs text-white/50">Aucune interaction enregistrée.</p>}{items.map((e, i) => <p key={i} className="text-xs text-white/70 border-t border-[var(--line)] pt-1"><span className="text-white/50">{fmtAt(e.at)}</span> · <b>{e.type === "sale" || e.type === "return" ? e.title : TL_LABEL[e.type] ?? e.type}</b>{e.detail ? ` — ${e.detail}` : ""}{e.amount !== undefined ? <b className={e.amount < 0 ? " text-red-300" : " text-emerald-300"}> {formatFcfa(e.amount)}</b> : null}{e.by ? ` · ${e.by}` : ""}</p>)}</section>;
 }
 function CustomerSheet({ id, onClose }: { id: string; onClose: () => void }) {
-  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const q = useQuery({ queryKey: ["crm", "cust1", s.shopId, id], retry: 1, queryFn: () => api<CustFull>(s, "crm.customer", { id }) }); const c = q.data; const [mode, setMode] = useState<"" | "edit" | "note" | "task" | "opp">("");
+  const { session } = useSession(); const s = session!; const pro = planAllows(useSubscription().data?.entitlement.plan.id, "crmPro"); const qc = useQueryClient(); const q = useQuery({ queryKey: ["crm", "cust1", s.shopId, id], retry: 1, queryFn: () => api<CustFull>(s, "crm.customer", { id }) }); const c = q.data; const [mode, setMode] = useState<"" | "edit" | "note" | "task" | "opp">("");
   const done = () => { setMode(""); void qc.invalidateQueries({ queryKey: ["crm"] }); };
   return (
     <Sheet title={c?.name ?? "Fiche client"} onClose={onClose} back>
@@ -130,6 +139,7 @@ function CustomerSheet({ id, onClose }: { id: string; onClose: () => void }) {
         <p className="text-xs text-white/50">Consentements : SMS {c.consents.sms ? "oui" : "non"} · e-mail {c.consents.email ? "oui" : "non"} · WhatsApp {c.consents.whatsapp ? "oui" : "non"}{c.consents.at ? ` (enregistrés le ${fmtDay(c.consents.at)}${c.consents.by ? ` par ${c.consents.by}` : ""})` : ""}{c.prefs.channel ? ` · canal préféré : ${c.prefs.channel}` : ""}{c.prefs.bestTime ? ` · ${c.prefs.bestTime}` : ""}</p>
         <div className="grid grid-cols-2 gap-2"><button className="btn-ghost" onClick={() => setMode("edit")}>Modifier</button><button className="btn-ghost" onClick={() => setMode("note")}>Ajouter une note</button><button className="btn-ghost" onClick={() => setMode("task")}>Planifier une relance</button>{c.canManage && <button className="btn-ghost" onClick={() => setMode("opp")}>Nouvelle opportunité</button>}</div>
         {c.topArticles.length > 0 && <section className="flex flex-col gap-1"><h3 className="text-sm font-semibold">Articles les plus achetés</h3>{c.topArticles.map((a) => <p key={a.name} className="text-xs text-white/70 flex justify-between border-t border-[var(--line)] pt-1"><span>{a.name}</span><span>{a.qty} u. · {formatFcfa(a.value)}</span></p>)}</section>}
+        {pro && <ProInsight customerId={c.id} />}
         <TaskList tasks={c.tasks} onChanged={done} />
         {c.opps.length > 0 && <section className="flex flex-col gap-1"><h3 className="text-sm font-semibold">Opportunités</h3>{c.opps.map((o) => <p key={o.id} className="text-xs text-white/70 border-t border-[var(--line)] pt-1">{o.title} · {o.stageLabel} · {formatFcfa(o.value)} ({o.probability} %)</p>)}</section>}
         <Timeline items={c.timeline} />
@@ -242,7 +252,7 @@ function Leads() {
   );
 }
 function LeadSheet({ id, onClose }: { id: string; onClose: () => void }) {
-  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const q = useQuery({ queryKey: ["crm", "lead1", s.shopId, id], retry: 1, queryFn: () => api<LeadFull>(s, "crm.lead", { id }) }); const l = q.data; const [mode, setMode] = useState<"" | "edit" | "note" | "task" | "opp" | "lost" | "convert">(""); const [reason, setReason] = useState("");
+  const { session } = useSession(); const s = session!; const pro = planAllows(useSubscription().data?.entitlement.plan.id, "crmPro"); const qc = useQueryClient(); const q = useQuery({ queryKey: ["crm", "lead1", s.shopId, id], retry: 1, queryFn: () => api<LeadFull>(s, "crm.lead", { id }) }); const l = q.data; const [mode, setMode] = useState<"" | "edit" | "note" | "task" | "opp" | "lost" | "convert">(""); const [reason, setReason] = useState("");
   const refresh = () => { setMode(""); void qc.invalidateQueries({ queryKey: ["crm"] }); };
   const stage = useMutation({ mutationFn: (v: { stage: Stage; reason?: string }) => api(s, "crm.lead.stage", { id, ...v }), onSuccess: refresh });
   const arch = useMutation({ mutationFn: (a: boolean) => api(s, "crm.lead.archive", { id, archived: a }), onSuccess: () => { refresh(); onClose(); } });
@@ -257,6 +267,7 @@ function LeadSheet({ id, onClose }: { id: string; onClose: () => void }) {
         <Err e={stage.error ?? arch.error} />
         <div className="grid grid-cols-2 gap-2">{open && <button className="btn-ghost" onClick={() => setMode("edit")}>Modifier</button>}<button className="btn-ghost" onClick={() => setMode("note")}>Ajouter une note</button>{open && <button className="btn-ghost" onClick={() => setMode("task")}>Planifier une relance</button>}{open && l.canManage && <button className="btn-ghost" onClick={() => setMode("opp")}>Nouvelle opportunité</button>}
           {open && <button className="btn col-span-2" onClick={() => setMode("convert")}>Convertir en client</button>}{l.stage === "lost" && l.canManage && <button className="btn-ghost col-span-2" onClick={() => stage.mutate({ stage: "new" })}>Rouvrir le prospect</button>}{l.canManage && <button className="btn-ghost col-span-2" onClick={() => arch.mutate(!l.archived)}>{l.archived ? "Désarchiver" : "Archiver"}</button>}</div>
+        {pro && <ProInsight leadId={l.id} />}
         <TaskList tasks={l.tasks} onChanged={refresh} />
         {l.opps.length > 0 && <section className="flex flex-col gap-1"><h3 className="text-sm font-semibold">Opportunités</h3>{l.opps.map((o) => <p key={o.id} className="text-xs text-white/70 border-t border-[var(--line)] pt-1">{o.title} · {o.stageLabel} · {formatFcfa(o.value)} ({o.probability} %)</p>)}</section>}
         <Timeline items={l.timeline} />
