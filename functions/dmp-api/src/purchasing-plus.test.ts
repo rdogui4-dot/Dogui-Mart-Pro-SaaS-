@@ -269,6 +269,25 @@ describe("liste des commandes et des factures", () => {
   });
 });
 
+describe("réception d'articles suivis par lot", () => {
+  const lotPo = async () => { await st.create("products", "pl1", T, { tenantId: T, shopId: A, name: "Yaourt", price: 300, cost: 150, tracking: "lot", category: "Frais" }); return validatedPo({ lines: [{ productId: "pl1", qty: 12, unitPrice: 150 }] }); };
+  it("sans numéro de lot : la validation est refusée avec un message clair et le stock ne bouge pas ; le brouillon s'annule puis se refait avec le lot", async () => {
+    const po = await lotPo(); const bad = await ok(rec(po, [{ productId: "pl1", accepted: 12 }])); const x: any = await call("ger", "purch.receipt.validate", { id: bad.id }); expect(x.status).toBe(400); expect(String(x.body.error)).toMatch(/lot/i); expect(await stockFor(st, "pl1")).toBe(0);
+    await ok(call("ger", "purch.receipt.cancel", { id: bad.id, reason: "Lots oubliés" })); const exp = day(60);
+    const good = await ok(rec(po, [{ productId: "pl1", accepted: 12, lots: [{ lotNo: "L-2026-01", qty: 12, expiresAt: exp }] }])); await ok(call("ger", "purch.receipt.validate", { id: good.id })); expect(await stockFor(st, "pl1")).toBe(12);
+    const lots = st.rows("article_lots").filter((l) => l.productId === "pl1"); expect(lots).toHaveLength(1); expect(lots[0]).toMatchObject({ lotNo: "L-2026-01" });
+  });
+  it("réservation de rang abandonnée (cas d'une commande déjà bloquée) : reprise automatique après 5 minutes, jamais pendant qu'une autre validation est récente", async () => {
+    const po = await lotPo(); const dead = await ok(rec(po, [{ productId: "pl1", accepted: 12 }])); await ok(call("ger", "purch.receipt.cancel", { id: dead.id, reason: "Lots oubliés" }));
+    const { createHash } = await import("node:crypto"); const claim = `pr${createHash("sha1").update(`${T}|${po}|recv|0`).digest("hex").slice(0, 28)}`; const mk = (at: string) => st.create("payment_refs", claim, T, { tenantId: T, shopId: A, saleId: dead.id, method: "po-recv", reference: `${po}#0`, amount: 0, $createdAt: at });
+    await mk(new Date().toISOString()); const r1 = await ok(rec(po, [{ productId: "pl1", accepted: 12, lots: [{ lotNo: "L1", qty: 12, expiresAt: day(40) }] }])); await err(call("ger", "purch.receipt.validate", { id: r1.id }), 409, "autre réception");
+    st.rows("payment_refs").find((x) => x.$id === claim)!.$createdAt = new Date(Date.now() - 10 * 60_000).toISOString(); await ok(call("ger", "purch.receipt.validate", { id: r1.id })); expect(await stockFor(st, "pl1")).toBe(12);
+  });
+  it("plusieurs lots : leurs quantités doivent totaliser la quantité acceptée ; les refusés n'entrent dans aucun lot", async () => {
+    const po = await lotPo(); const r = await ok(rec(po, [{ productId: "pl1", accepted: 10, refused: 2, lots: [{ lotNo: "A", qty: 6, expiresAt: day(30) }, { lotNo: "B", qty: 4, expiresAt: day(90) }] }])); await ok(call("ger", "purch.receipt.validate", { id: r.id })); expect(await stockFor(st, "pl1")).toBe(10); expect(st.rows("article_lots").filter((l) => l.productId === "pl1")).toHaveLength(2);
+  });
+});
+
 describe("retour fournisseur (mouvement tracé)", () => {
   const ret = (receiptId: string, lines: object[], extra: object = {}, user = "ger") => call(user, "purch.return", { receiptId, returnKey: rid().slice(0, 16), reason: "Marchandise défectueuse", lines, ...extra }, A);
   it("sort du stock par un mouvement identifiable (auteur, référence) ; plafonné à ce qui a été accepté moins les retours déjà faits", async () => {
