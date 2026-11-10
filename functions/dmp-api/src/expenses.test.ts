@@ -21,7 +21,7 @@ beforeEach(async () => {
   st = new DatedStore(); await st.grant(T, "own", ["owner"], []); await st.grant(T2, "own2", ["owner"], []);
   A = (await ok(call("own", "shop.create", { name: "Dakar" }, ""))).shopId; B = (await ok(call("own", "shop.create", { name: "Thiès" }, ""))).shopId; X = (await ok(call("own2", "shop.create", { name: "Autre" }, "", T2))).shopId;
   for (const [u, role] of [["cais", "cashier"], ["cais2", "cashier"], ["ger", "manager"], ["ger2", "manager"]] as const) U[u] = (await ok(call("own", "staff.create", { name: u, username: u, password: "motdepasse1", role, shopIds: [A] }, ""))).userId;
-  setPlan("business"); setPlan("business", T2);
+  setPlan("business"); setPlan("business", T2); await ok(call("own", "expense.settings", { codeRequired: false })); // les anciens scénarios testent les règles sans code ; le code a sa propre section
 });
 
 describe("abonnement, droits, isolation", () => {
@@ -105,12 +105,53 @@ describe("annulation tracée, modification, historique", () => {
   });
 });
 
-describe("justificatifs (Storage)", () => {
-  it("photo ou PDF acceptés selon le contenu, ajout seul, droits, limites", async () => {
-    await sess(U.cais!); const e = await ok(exp(U.cais!)); const a = await ok(call(U.cais!, "expense.receipt", { id: e.id, name: "facture taxi.png", data: PNG })); expect(a.receipts[0]).toMatchObject({ mime: "image/png" }); const b = await ok(call(U.cais!, "expense.receipt", { id: e.id, name: "recu.pdf", data: PDF }));
-    expect(b.receipts.map((r: any) => r.mime)).toEqual(["image/png", "application/pdf"]); expect(st.files.size).toBe(2); await err(call(U.cais!, "expense.receipt", { id: e.id, name: "x.exe", data: Buffer.alloc(400, 7).toString("base64") }), 400, "Format"); await err(call(U.cais!, "expense.receipt", { id: e.id, name: "gros.pdf", data: Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(1_900_000)]).toString("base64") }), 413);
-    await err(call(U.cais2!, "expense.receipt", { id: e.id, name: "a.png", data: PNG }), 403); const d = await ok(call(U.ger!, "expense.get", { id: e.id })); expect(d.receipts.length).toBe(2); expect(d.events.filter((x: any) => x.kind === "receipt").length).toBe(2);
-    for (let i = 0; i < 3; i++) await ok(call(U.cais!, "expense.receipt", { id: e.id, name: `p${i}.png`, data: PNG })); await err(call(U.cais!, "expense.receipt", { id: e.id, name: "6.png", data: PNG }), 409, "maximum");
+describe("justificatifs remplacés par le code du responsable", () => {
+  it("plus aucune nouvelle pièce jointe (410) ; les pièces déjà enregistrées restent lisibles", async () => {
+    await sess(U.cais!); const e = await ok(exp(U.cais!)); await err(call(U.cais!, "expense.receipt", { id: e.id, name: "a.png", data: PNG }), 410, "code de validation");
+    st.rows("expenses").find((r) => r.$id === e.id)!.receipts = JSON.stringify([{ fileId: "old1", name: "ancien.pdf", mime: "application/pdf", at: new Date().toISOString() }]); expect((await ok(call(U.ger!, "expense.get", { id: e.id }))).receipts[0].name).toBe("ancien.pdf");
+  });
+});
+
+describe("workflow du code de validation", () => {
+  const code = async (id: string, user = U.ger!) => (await ok(call(user, "expense.code", { id }))).code as string;
+  beforeEach(async () => { await ok(call("own", "expense.settings", { codeRequired: true })); });
+  it("une dépense saisie sans droit de valider attend le code : sans effet sur la caisse ; le vendeur ne voit jamais le code", async () => {
+    await sess(U.cais!, 10000); const e = await ok(exp(U.cais!, { amount: 500 })); expect(e).toMatchObject({ status: "pending", awaitingCode: true }); expect(await theo(U.cais!)).toBe(10000); expect(st.rows("cash_movements").length).toBe(0);
+    await err(call(U.cais!, "expense.code", { id: e.id }), 403); const d = await ok(call(U.cais!, "expense.get", { id: e.id })); expect(d.awaitingCode).toBe(true); expect(JSON.stringify(d)).not.toMatch(/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/); expect(d.codeFailsLeft).toBe(5);
+    expect(JSON.stringify(st.rows("expenses"))).not.toContain(await code(e.id).then((c) => c.replace("-", ""))); // le code n'est stocké nulle part
+    const g = await ok(exp(U.ger!, { label: "Dépense du gérant", source: "external", method: "transfer" })); expect(g.status).toBe("approved"); expect(g.awaitingCode).toBe(false); // le responsable n'a pas besoin de code
+  });
+  it("le responsable donne le code, le vendeur le saisit : dépense validée, sortie déduite, validée « par code », historique et qui a vu le code tracés", async () => {
+    await sess(U.cais!, 10000); const e = await ok(exp(U.cais!, { amount: 2500 })); const c = await code(e.id); expect(c).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/); expect(await code(e.id)).toBe(c); // stable
+    await err(call(U.cais2!, "expense.code.validate", { id: e.id, code: c }), 403, "auteur"); await err(call(U.cais!, "expense.code.validate", { id: e.id, code: "AAAA-BBBB" }), 403, "4 essai");
+    const v = await ok(call(U.cais!, "expense.code.validate", { id: e.id, code: c.toLowerCase().replace("-", " ") })); expect(v.status).toBe("approved"); expect(await theo(U.cais!)).toBe(7500); expect(st.rows("cash_movements")[0]).toMatchObject({ authorizedBy: "code", expenseId: e.id, amount: 2500 });
+    const d = await ok(call(U.ger!, "expense.get", { id: e.id })); expect(d.validatedByCode).toBe(true); expect(d.awaitingCode).toBe(false); expect(d.events.map((x: any) => x.kind)).toEqual(["create", "code_viewed", "code_failed", "approve"]); expect(d.events[1].by).toBe("ger"); expect(d.events[3].detail.method).toBe("code");
+    await err(call(U.cais!, "expense.code.validate", { id: e.id, code: c }), 409, "n'attend pas"); expect(st.rows("cash_movements").length).toBe(1);
+  });
+  it("le code est lié à la dépense : un code d'une autre dépense, ou d'avant une modification, est refusé", async () => {
+    await sess(U.cais!, 10000); const a = await ok(exp(U.cais!, { amount: 500, label: "Taxi" })); const b = await ok(exp(U.cais!, { amount: 700, label: "Sacs", confirmDuplicate: true })); const ca = await code(a.id), cb = await code(b.id); expect(ca).not.toBe(cb);
+    await err(call(U.cais!, "expense.code.validate", { id: a.id, code: cb }), 403, "incorrect"); await ok(call(U.cais!, "expense.update", { id: a.id, label: "Taxi aéroport" })); const ca2 = await code(a.id); expect(ca2).not.toBe(ca);
+    await err(call(U.cais!, "expense.code.validate", { id: a.id, code: ca }), 403, "incorrect"); await ok(call(U.cais!, "expense.code.validate", { id: a.id, code: ca2 }));
+  });
+  it("5 essais incorrects bloquent ; le responsable renouvelle (ancien code invalide) ; expiration gérée ; verrouillage vu par le responsable", async () => {
+    await sess(U.cais!, 10000); const e = await ok(exp(U.cais!)); const c = await code(e.id);
+    for (let i = 0; i < 5; i++) await err(call(U.cais!, "expense.code.validate", { id: e.id, code: "ZZZZ-ZZZZ" }), 403); await err(call(U.cais!, "expense.code.validate", { id: e.id, code: c }), 409, "Trop d'essais");
+    expect((await ok(call(U.ger!, "expense.code", { id: e.id }))).usable).toBe(false); await err(call(U.cais!, "expense.code.renew", { id: e.id }), 403); await ok(call(U.ger!, "expense.code.renew", { id: e.id })); const c2 = await code(e.id); expect(c2).not.toBe(c);
+    await err(call(U.cais!, "expense.code.validate", { id: e.id, code: c }), 403, "incorrect"); const row = st.rows("expenses").find((r) => r.$id === e.id)!; const m = JSON.parse(String(row.meta)); m.codeExpiresAt = new Date(Date.now() - 1000).toISOString(); row.meta = JSON.stringify(m);
+    await err(call(U.cais!, "expense.code.validate", { id: e.id, code: c2 }), 409, "expiré"); expect((await ok(call(U.ger!, "expense.code", { id: e.id }))).usable).toBe(false); await ok(call(U.ger!, "expense.code.renew", { id: e.id })); await ok(call(U.cais!, "expense.code.validate", { id: e.id, code: await code(e.id) }));
+  });
+  it("validation directe par le responsable (sans code) toujours possible ; plus de code ensuite ; rejet conserve l'historique ; l'auteur ne voit pas son code", async () => {
+    await sess(U.cais!, 10000); const e = await ok(exp(U.cais!)); const f = await ok(exp(U.cais!, { label: "Autre", amount: 900 })); await ok(call(U.ger!, "expense.decide", { id: e.id, approve: true })); await err(call(U.ger!, "expense.code", { id: e.id }), 409, "n'attend pas"); await err(call(U.cais!, "expense.code.validate", { id: e.id, code: "AAAA-BBBB" }), 409);
+    await ok(call(U.ger!, "expense.decide", { id: f.id, approve: false, note: "Non justifiée" })); await err(call(U.cais!, "expense.code.validate", { id: f.id, code: "AAAA-BBBB" }), 409); expect((await ok(call(U.ger!, "expense.get", { id: f.id }))).events.map((x: any) => x.kind)).toEqual(["create", "reject"]);
+    await sess(U.ger2!, 1000); const g = await ok(call(U.ger2!, "expense.create", { requestId: rid(), label: "Eau", category: "eau", amount: 100, spentOn: day(), method: "cash", source: "external" })); expect(g.awaitingCode).toBe(false);
+  });
+  it("code validé sans solde suffisant : refusé (dépassement réservé à la décision d'un responsable) ; session fermée : refusé ; réglage code désactivé : retour aux anciennes règles", async () => {
+    await sess(U.cais!, 1000); const e = await ok(exp(U.cais!, { amount: 5000 })); await err(call(U.cais!, "expense.code.validate", { id: e.id, code: await code(e.id) }), 409, "Solde de caisse insuffisant"); expect(st.rows("cash_movements").length).toBe(0);
+    await err(call(U.ger!, "expense.settings", { codeRequired: false }), 403); await ok(call("own", "expense.settings", { codeRequired: false })); expect((await ok(exp(U.cais!, { amount: 100, label: "Direct" }))).status).toBe("approved");
+  });
+  it("double saisie simultanée du bon code : une seule sortie de caisse", async () => {
+    await sess(U.cais!, 10000); const e = await ok(exp(U.cais!, { amount: 1000 })); const c = await code(e.id); const r = await Promise.all([call(U.cais!, "expense.code.validate", { id: e.id, code: c }), call(U.cais!, "expense.code.validate", { id: e.id, code: c })]);
+    expect(r.map((x) => x.status).sort()).toEqual([200, 409]); expect(st.rows("cash_movements").length).toBe(1); expect(await theo(U.cais!)).toBe(9000);
   });
 });
 

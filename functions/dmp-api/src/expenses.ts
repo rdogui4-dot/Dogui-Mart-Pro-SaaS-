@@ -1,21 +1,20 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { MAX_AMOUNT } from "../../../src/domain/articles";
-import { DEFAULT_CATEGORIES, DEFAULT_EXPENSE_RIGHTS, EXPENSE_RIGHTS, EXPENSE_RIGHT_LABEL, METHODS, SENSITIVE_DEFAULT, SOURCES, dayToStored, isDay, needsApproval, storedToDay, type ExpenseRight } from "../../../src/domain/expenses";
+import { CODE_ALPHABET, CODE_MAX_FAILS, CODE_TTL_MS, formatCode, isCodeShape, normalizeCode, DEFAULT_CATEGORIES, DEFAULT_EXPENSE_RIGHTS, EXPENSE_RIGHTS, EXPENSE_RIGHT_LABEL, METHODS, SENSITIVE_DEFAULT, SOURCES, dayToStored, isDay, needsApproval, storedToDay, type ExpenseRight } from "../../../src/domain/expenses";
 import type { ReportData } from "../../../src/domain/exports";
 import { lineTotal } from "../../../src/domain/money";
 import { boundsOf, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { needFeature } from "./articles";
 import { openSessionOf, sessionTotals } from "./cashier";
-import { isProPos, ledgerWrite } from "./pos-pro";
-import { readRoles } from "./permissions";
+import { isProPos, ledgerWrite, secret } from "./pos-pro";
 import { HttpError, needModule, roleOf, type BatchOp, type Ctx, type Row, type Store } from "./store";
 
 const sha = (s: string) => createHash("sha1").update(s).digest("hex");
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const parse = <T,>(s: unknown, fb: T): T => { try { const v = JSON.parse(String(s)); return v ?? fb; } catch { return fb; } };
 const iso = (v: unknown): string => { const t = Date.parse(String(v)); return Number.isNaN(t) ? "" : new Date(t).toISOString(); };
-const DAY = 864e5, MAX_RECEIPT = 1_800_000, MAX_RECEIPTS = 5;
+const DAY = 864e5;
 const fcfa = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} FCFA`;
 const oneLine = (v: unknown, max: number): string => String(v ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
 
@@ -36,9 +35,9 @@ export async function setExpenseRights(store: Store, ctx: Ctx, b: { userId?: str
 }
 
 // ------------------------------------------------------------------ réglages et catégories
-async function settings(store: Store, ctx: Ctx) { const sh = await store.get("shops", ctx.shopId.slice(0, 36)); return { threshold: Math.max(0, Number(sh?.expenseThreshold ?? 0)), sensitive: sh?.expenseSensitive != null && String(sh.expenseSensitive) !== "" ? parse<string[]>(sh.expenseSensitive, SENSITIVE_DEFAULT) : SENSITIVE_DEFAULT, tz: sh?.promoTz && isTimezone(String(sh.promoTz)) ? String(sh.promoTz) : DEFAULT_TIMEZONE }; }
+async function settings(store: Store, ctx: Ctx) { const sh = await store.get("shops", ctx.shopId.slice(0, 36)); return { codeRequired: sh?.expenseCodeRequired !== false, threshold: Math.max(0, Number(sh?.expenseThreshold ?? 0)), sensitive: sh?.expenseSensitive != null && String(sh.expenseSensitive) !== "" ? parse<string[]>(sh.expenseSensitive, SENSITIVE_DEFAULT) : SENSITIVE_DEFAULT, tz: sh?.promoTz && isTimezone(String(sh.promoTz)) ? String(sh.promoTz) : DEFAULT_TIMEZONE }; }
 const customCats = async (store: Store, ctx: Ctx) => (await store.list("expense_categories", { tenantId: ctx.tenantId }, 200)).filter((c) => c.active !== false).map((c) => String(c.name));
-export async function expenseCategories(store: Store, ctx: Ctx) { await gate(store, ctx); const s = await settings(store, ctx); return { predefined: DEFAULT_CATEGORIES, custom: await customCats(store, ctx), methods: METHODS, sources: SOURCES, threshold: s.threshold, sensitive: s.sensitive }; }
+export async function expenseCategories(store: Store, ctx: Ctx) { await gate(store, ctx); const s = await settings(store, ctx); return { predefined: DEFAULT_CATEGORIES, custom: await customCats(store, ctx), methods: METHODS, sources: SOURCES, threshold: s.threshold, sensitive: s.sensitive, codeRequired: s.codeRequired }; }
 export async function saveExpenseCategory(store: Store, ctx: Ctx, b: { name?: string; active?: boolean }) {
   await gate(store, ctx); await needR(store, ctx, "approve"); const name = oneLine(b.name, 40); if (name.length < 2) throw new HttpError(400, "Nom de catégorie : 2 caractères au moins");
   if (DEFAULT_CATEGORIES.some((c) => c.id === name.toLowerCase() || c.label.toLowerCase() === name.toLowerCase())) throw new HttpError(409, "Cette catégorie existe déjà (catégorie prédéfinie)");
@@ -46,17 +45,18 @@ export async function saveExpenseCategory(store: Store, ctx: Ctx, b: { name?: st
   if (cur && cur.tenantId === ctx.tenantId) { if (b.active === false) { await store.update("expense_categories", id, { active: false }); return { name, active: false }; } if (cur.active !== false) throw new HttpError(409, "Cette catégorie existe déjà"); await store.update("expense_categories", id, { active: true }); return { name, active: true }; } // une catégorie utilisée n'est jamais supprimée : seulement archivée
   await store.create("expense_categories", id, ctx.tenantId, { tenantId: ctx.tenantId, name, active: true, createdBy: ctx.userId }); return { name, active: true };
 }
-export async function saveExpenseSettings(store: Store, ctx: Ctx, b: { threshold?: unknown; sensitive?: unknown }) {
+export async function saveExpenseSettings(store: Store, ctx: Ctx, b: { threshold?: unknown; sensitive?: unknown; codeRequired?: unknown }) {
   await gate(store, ctx); if (roleOf(ctx.roles) !== "owner") throw new HttpError(403, "Réservé au propriétaire");
   const data: Record<string, unknown> = {};
   if (b.threshold !== undefined) { const t = Number(b.threshold); if (!Number.isInteger(t) || t < 0 || t > MAX_AMOUNT) throw new HttpError(400, "Seuil invalide (entier en FCFA ; 0 = aucun seuil)"); data.expenseThreshold = t; }
   if (b.sensitive !== undefined) { if (!Array.isArray(b.sensitive)) throw new HttpError(400, "Catégories sensibles invalides"); const custom = await customCats(store, ctx); const ok = new Set([...DEFAULT_CATEGORIES.map((c) => c.id as string), ...custom]); const l = [...new Set(b.sensitive.map(String))]; if (l.some((x) => !ok.has(x))) throw new HttpError(400, "Catégorie inconnue"); data.expenseSensitive = JSON.stringify(l); }
+  if (b.codeRequired !== undefined) data.expenseCodeRequired = b.codeRequired !== false;
   if (!Object.keys(data).length) throw new HttpError(400, "Rien à enregistrer"); await store.update("shops", ctx.shopId.slice(0, 36), data); await store.create("audit_log", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "expense.settings", detail: JSON.stringify(data).slice(0, 500) }); return { ok: true, ...(await settings(store, ctx)) };
 }
 
 // ------------------------------------------------------------------ lecture
 const nameMap = async (store: Store, ctx: Ctx) => { const m = new Map<string, string>((await store.scan("staff", { tenantId: ctx.tenantId }, { maxRows: 500 })).rows.map((x) => [String(x.userId), String(x.name)])); try { for (const o of await store.listOwners(ctx.tenantId)) m.set(o.userId, o.name || "Propriétaire"); } catch { /* annuaire indisponible */ } return m; };
-const view = (r: Row, names: Map<string, string>) => { const meta = parse<Record<string, unknown>>(r.meta, {}); return { id: r.$id, number: String(r.number), label: String(r.label), description: String(r.description ?? ""), category: String(r.category), amount: Number(r.amount), spentOn: storedToDay(String(r.spentOn)), recordedAt: iso(r.$createdAt) || iso(meta.recordedAt), method: String(r.method), methodLabel: String(meta.methodLabel ?? ""), reference: String(r.reference ?? ""), beneficiary: String(r.beneficiary ?? ""), supplierId: String(r.supplierId ?? ""), source: String(r.source), sessionId: String(r.sessionId ?? ""), receipts: parse<{ fileId: string; name: string; mime: string; at: string }[]>(r.receipts, []), status: String(r.status), createdBy: String(r.createdBy), author: names.get(String(r.createdBy)) ?? "", decidedBy: r.decidedBy ? names.get(String(r.decidedBy)) ?? "" : "", shopId: String(r.shopId), movementId: String(r.movementId ?? ""), overdraft: meta.overdraft ?? null, decisionNote: String(meta.decisionNote ?? ""), cancelReason: String(meta.cancelReason ?? "") }; };
+const view = (r: Row, names: Map<string, string>) => { const meta = parse<Record<string, unknown>>(r.meta, {}); return { id: r.$id, number: String(r.number), label: String(r.label), description: String(r.description ?? ""), category: String(r.category), amount: Number(r.amount), spentOn: storedToDay(String(r.spentOn)), recordedAt: iso(r.$createdAt) || iso(meta.recordedAt), method: String(r.method), methodLabel: String(meta.methodLabel ?? ""), reference: String(r.reference ?? ""), beneficiary: String(r.beneficiary ?? ""), supplierId: String(r.supplierId ?? ""), source: String(r.source), sessionId: String(r.sessionId ?? ""), receipts: parse<{ fileId: string; name: string; mime: string; at: string }[]>(r.receipts, []), status: String(r.status), createdBy: String(r.createdBy), author: names.get(String(r.createdBy)) ?? "", decidedBy: r.decidedBy ? names.get(String(r.decidedBy)) ?? "" : "", shopId: String(r.shopId), movementId: String(r.movementId ?? ""), overdraft: meta.overdraft ?? null, decisionNote: String(meta.decisionNote ?? ""), cancelReason: String(meta.cancelReason ?? ""), awaitingCode: r.status === "pending" && meta.awaitingCode === true, codeExpiresAt: meta.awaitingCode === true ? String(meta.codeExpiresAt ?? "") : "", codeFailsLeft: meta.awaitingCode === true ? Math.max(0, CODE_MAX_FAILS - Number(meta.codeFails ?? 0)) : null, validatedByCode: meta.validatedByCode === true }; };
 async function shopScope(store: Store, ctx: Ctx, shopId?: string): Promise<string[]> { // le propriétaire peut consulter une autre de ses boutiques ; les autres, uniquement la leur
   if (!shopId || shopId === ctx.shopId) return [ctx.shopId]; if (roleOf(ctx.roles) !== "owner") throw new HttpError(403, "Boutique non autorisée");
   if (shopId === "all") return (await store.list("shops", { tenantId: ctx.tenantId }, 100)).map((s) => s.$id); const sh = await store.get("shops", shopId); if (!sh || sh.tenantId !== ctx.tenantId) throw new HttpError(404, "Boutique introuvable"); return [shopId];
@@ -96,7 +96,7 @@ async function clean(store: Store, ctx: Ctx, b: Input, partial = false) {
 let evSeq = 0;
 const ev = (ctx: Ctx, expenseId: string, kind: string, detail: unknown, at = new Date().toISOString(), key = ""): BatchOp => ({ kind: "create", table: "expense_events", id: `ev${String(Date.now()).padStart(13, "0")}${String(++evSeq % 1000).padStart(3, "0")}${sha(`${expenseId}|${kind}|${key || newId()}`).slice(0, 16)}`, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, expenseId, kind, userId: ctx.userId, at, detail: JSON.stringify(detail).slice(0, 3900) } }); // identifiant = horodage + rang : l'ordre de l'historique est stable
 const aud = (ctx: Ctx, action: string, detail: string): BatchOp => ({ kind: "create", table: "audit_log", id: newId(), tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action, detail: detail.slice(0, 1000) } });
-const moveOp = (ctx: Ctx, e: { id: string; number: string; label: string; beneficiary: string; amount: number }, sessionId: string, kind: "out" | "in", reason: string, key: string): BatchOp => ({ kind: "create", table: "cash_movements", id: `cm${sha(`${e.id}|${key}`).slice(0, 28)}`, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, sessionId, kind, amount: e.amount, reason: reason.slice(0, 200), status: "authorized", userId: ctx.userId, authorizedBy: ctx.userId, at: new Date().toISOString(), expenseId: e.id, beneficiary: e.beneficiary.slice(0, 120) } });
+const moveOp = (ctx: Ctx, e: { id: string; number: string; label: string; beneficiary: string; amount: number }, sessionId: string, kind: "out" | "in", reason: string, key: string, authorizedBy = ctx.userId): BatchOp => ({ kind: "create", table: "cash_movements", id: `cm${sha(`${e.id}|${key}`).slice(0, 28)}`, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, sessionId, kind, amount: e.amount, reason: reason.slice(0, 200), status: "authorized", userId: ctx.userId, authorizedBy, at: new Date().toISOString(), expenseId: e.id, beneficiary: e.beneficiary.slice(0, 120) } });
 /** Contrôle du solde : une sortie ne dépasse pas le solde théorique de la session, sauf dépassement explicite, motivé, par quelqu'un qui a le droit de valider (tracé dans la dépense et l'audit). */
 async function checkBalance(store: Store, ctx: Ctx, sess: Row, amount: number, b: { allowOverdraft?: boolean; overdraftReason?: string }, canApprove: boolean) {
   const t = await sessionTotals(store, ctx, sess); if (amount <= t.theoreticalCash) return null;
@@ -109,11 +109,12 @@ async function checkBalance(store: Store, ctx: Ctx, sess: Row, amount: number, b
 export async function createExpense(store: Store, ctx: Ctx, b: Input) {
   await gate(store, ctx); await needR(store, ctx, "create"); const rid = oneLine(b.requestId, 64); if (rid.length < 8) throw new HttpError(400, "requestId invalide (8 caractères au moins)");
   const id = `ex${sha(`${ctx.tenantId}|${rid}`).slice(0, 28)}`; const prior = await store.get("expenses", id);
-  if (prior) { if (prior.tenantId !== ctx.tenantId || prior.shopId !== ctx.shopId) throw new HttpError(409, "Identifiant déjà utilisé"); return { id, number: String(prior.number), status: String(prior.status), duplicate: true }; }
+  if (prior) { if (prior.tenantId !== ctx.tenantId || prior.shopId !== ctx.shopId) throw new HttpError(409, "Identifiant déjà utilisé"); return { id, number: String(prior.number), status: String(prior.status), duplicate: true, awaitingCode: parse<Record<string, unknown>>(prior.meta, {}).awaitingCode === true }; }
   const f = await clean(store, ctx, b); const amount = Number(f.amount); const source = String(f.source); const method = String(f.method);
   if (source === "till" && method !== "cash") throw new HttpError(400, "Une dépense payée depuis la caisse est forcément en espèces");
   const st = await settings(store, ctx); const canApprove = (await expenseRights(store, ctx)).includes("approve");
-  const pending = needsApproval({ category: String(f.category), amount, threshold: st.threshold, sensitive: st.sensitive, canApprove });
+  const awaitingCode = st.codeRequired && !canApprove; // le code d'un responsable remplace le justificatif : toute dépense saisie sans droit de valider l'attend
+  const pending = awaitingCode || needsApproval({ category: String(f.category), amount, threshold: st.threshold, sensitive: st.sensitive, canApprove });
   let sess: Row | null = null; if (source === "till") { sess = await openSessionOf(store, ctx); if (!sess) throw new HttpError(409, "Ouvrez la caisse avant d'enregistrer une dépense payée depuis la caisse"); }
   let overdraft: Awaited<ReturnType<typeof checkBalance>> = null; if (sess && !pending) overdraft = await checkBalance(store, ctx, sess, amount, b, canApprove);
   if (!b.confirmDuplicate) { // même dépense saisie deux fois (requestId différent) : confirmation explicite exigée
@@ -122,14 +123,14 @@ export async function createExpense(store: Store, ctx: Ctx, b: Input) {
     if (twin) throw new HttpError(409, `DOUBLON_POSSIBLE : une dépense identique (${twin.number}) vient d'être enregistrée. Confirmez si c'est une autre dépense.`);
   }
   const now = new Date().toISOString(); const number = `D-${now.slice(0, 10).replace(/-/g, "")}-${id.slice(2, 8).toUpperCase()}`; const status = pending ? "pending" : "approved";
-  const meta = { recordedAt: now, ...(b.methodLabel ? { methodLabel: oneLine(b.methodLabel, 40) } : {}), ...(overdraft ? { overdraft } : {}), ...(pending ? { approvalReason: st.sensitive.includes(String(f.category)) ? "catégorie sensible" : `montant ≥ seuil (${fcfa(st.threshold)})` } : { autoApproved: canApprove }) };
+  const meta = { recordedAt: now, ...(b.methodLabel ? { methodLabel: oneLine(b.methodLabel, 40) } : {}), ...(overdraft ? { overdraft } : {}), ...(awaitingCode ? { awaitingCode: true, codeSeq: 0, codeFails: 0, codeExpiresAt: new Date(Date.now() + CODE_TTL_MS).toISOString(), approvalReason: "code de validation du responsable" } : pending ? { approvalReason: st.sensitive.includes(String(f.category)) ? "catégorie sensible" : `montant ≥ seuil (${fcfa(st.threshold)})` } : { autoApproved: canApprove }) };
   const row = { ...f, tenantId: ctx.tenantId, shopId: ctx.shopId, number, status, createdBy: ctx.userId, sessionId: sess?.$id ?? "", receipts: "[]", meta: JSON.stringify(meta), ...(!pending ? { decidedBy: ctx.userId } : {}), ...(sess && !pending ? { movementId: `cm${sha(`${id}|out`).slice(0, 28)}` } : {}) };
   const ops: BatchOp[] = [{ kind: "create", table: "expenses", id, tenantId: ctx.tenantId, data: row }, ev(ctx, id, "create", { amount, category: f.category, source, status, ...(overdraft ? { overdraft } : {}) }, now, "create"), aud(ctx, "expense.create", `${number} ${amount} ${String(f.label)} (${status})`)];
   if (!pending) ops.push(ev(ctx, id, "approve", { auto: true, by: ctx.userId }, now, "approve"));
   if (sess && !pending) ops.push(moveOp(ctx, { id, number, label: String(f.label), beneficiary: String(f.beneficiary ?? ""), amount }, sess.$id, "out", `Dépense ${number} — ${String(f.label)}`, "out"));
   try { await store.batch(ops); } catch (e) { const again = await store.get("expenses", id); if (again && again.tenantId === ctx.tenantId) return { id, number: String(again.number), status: String(again.status), duplicate: true }; throw e; }
   if (sess && !pending && (await isProPos(store, ctx))) await ledgerWrite(store, ctx, { kind: "cash_out", ref: `${number}`, key: `${id}|out`, amount: -amount, at: now, sessionId: sess.$id, payload: { expense: number, label: String(f.label) } });
-  return { id, number, status, duplicate: false, ...(overdraft ? { overdraft } : {}) };
+  return { id, number, status, duplicate: false, awaitingCode, ...(awaitingCode ? { codeExpiresAt: (meta as { codeExpiresAt?: string }).codeExpiresAt } : {}), ...(overdraft ? { overdraft } : {}) };
 }
 
 const SNAP = ["label", "description", "category", "amount", "spentOn", "method", "reference", "beneficiary", "supplierId", "source"] as const;
@@ -155,16 +156,58 @@ export async function decideExpense(store: Store, ctx: Ctx, b: { id?: string; ap
   const note = oneLine(b.note, 200); const now = new Date().toISOString(); const meta = parse<Record<string, unknown>>(r.meta, {}); const amount = Number(r.amount);
   if (b.approve === false) { if (note.length < 3) throw new HttpError(400, "Motif du rejet obligatoire (3 caractères au moins)"); meta.decisionNote = note;
     await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { status: "rejected", decidedBy: ctx.userId, meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "reject", { note }, now), aud(ctx, "expense.reject", `${r.number} ${note}`)]); return { id: r.$id, status: "rejected" }; }
-  const ops: BatchOp[] = []; let overdraft: Awaited<ReturnType<typeof checkBalance>> = null; let movementId = "";
+  return approveRow(store, ctx, r, meta, note, b, false);
+}
+/** Validation effective (par décision d'un responsable ou par saisie de son code) : même écriture atomique dans les deux cas. */
+async function approveRow(store: Store, ctx: Ctx, r: Row, meta: Record<string, unknown>, note: string, od: { allowOverdraft?: boolean; overdraftReason?: string }, byCode: boolean) {
+  const now = new Date().toISOString(); const amount = Number(r.amount); const ops: BatchOp[] = []; let overdraft: Awaited<ReturnType<typeof checkBalance>> = null; let movementId = "";
   if (r.source === "till") { // la sortie n'entre dans la caisse qu'à la validation, dans la session d'origine, si elle est encore ouverte
     const sess = await store.get("cash_sessions", String(r.sessionId)); if (!sess || sess.status !== "open") throw new HttpError(409, "La session de caisse de cette dépense est fermée : rejetez-la et faites-la ressaisir, ou annulez-la");
-    overdraft = await checkBalance(store, ctx, sess, amount, b, true); const mv = moveOp(ctx, { id: r.$id, number: String(r.number), label: String(r.label), beneficiary: String(r.beneficiary ?? ""), amount }, sess.$id, "out", `Dépense ${r.number} — ${r.label}`, "out"); movementId = mv.id; ops.push(mv);
+    overdraft = await checkBalance(store, ctx, sess, amount, byCode ? {} : od, !byCode); const mv = moveOp(ctx, { id: r.$id, number: String(r.number), label: String(r.label), beneficiary: String(r.beneficiary ?? ""), amount }, sess.$id, "out", `Dépense ${r.number} — ${r.label}`, "out", byCode ? "code" : ctx.userId); movementId = mv.id; ops.push(mv);
   }
-  if (note) meta.decisionNote = note; if (overdraft) meta.overdraft = overdraft;
-  ops.unshift({ kind: "update", table: "expenses", id: r.$id, data: { status: "approved", decidedBy: ctx.userId, ...(movementId ? { movementId } : {}), meta: JSON.stringify(meta) } }); ops.push(ev(ctx, r.$id, "approve", { note, ...(overdraft ? { overdraft } : {}) }, now), aud(ctx, "expense.approve", `${r.number} ${amount}`));
+  if (note) meta.decisionNote = note; if (overdraft) meta.overdraft = overdraft; if (byCode) { meta.validatedByCode = true; meta.validatedAt = now; } delete meta.awaitingCode;
+  ops.unshift({ kind: "update", table: "expenses", id: r.$id, data: { status: "approved", decidedBy: byCode ? "" : ctx.userId, ...(movementId ? { movementId } : {}), meta: JSON.stringify(meta) } }); ops.push(ev(ctx, r.$id, "approve", { method: byCode ? "code" : "decision", note, ...(overdraft ? { overdraft } : {}) }, now), aud(ctx, byCode ? "expense.approve.code" : "expense.approve", `${r.number} ${amount}`));
   await store.batch(ops); // conflit (double validation simultanée) → 409 : une seule sortie de caisse
-  if (movementId && (await isProPos(store, ctx))) await ledgerWrite(store, ctx, { kind: "cash_out", ref: String(r.number), key: `${r.$id}|out`, amount: -amount, at: now, sessionId: String(r.sessionId), payload: { expense: r.number, label: r.label } });
+  if (movementId && (await isProPos(store, ctx))) await ledgerWrite(store, ctx, { kind: "cash_out", ref: String(r.number), key: `${r.$id}|out`, amount: -amount, at: now, sessionId: String(r.sessionId), payload: { expense: r.number, label: r.label, ...(byCode ? { validatedBy: "code" } : {}) } });
   return { id: r.$id, status: "approved", ...(overdraft ? { overdraft } : {}) };
+}
+
+// ------------------------------------------------------------------ code de validation (remplace le justificatif)
+/** Code dérivé par le serveur (HMAC) : lié à CETTE dépense (montant, libellé, catégorie, origine, auteur) et à son numéro d'émission. Jamais stocké, jamais renvoyé au vendeur : seul un responsable (droit « valider ») peut le lire. Modifier la dépense, ou le renouveler, change le code. */
+export function expenseCode(tenantId: string, r: { id: string; amount: unknown; category: unknown; label: unknown; source: unknown; createdBy: unknown }, seq: number): string {
+  const h = createHmac("sha256", secret()).update(`EXPCODE|${tenantId}|${r.id}|${Number(r.amount)}|${String(r.category)}|${String(r.label)}|${String(r.source)}|${String(r.createdBy)}|${seq}`).digest(); return Array.from({ length: 8 }, (_, i) => CODE_ALPHABET[h[i]! % 32]).join("");
+}
+const awaiting = async (store: Store, ctx: Ctx, id: unknown) => {
+  const r = await store.get("expenses", String(id ?? "")); if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId) throw new HttpError(404, "Dépense introuvable"); const meta = parse<Record<string, unknown>>(r.meta, {});
+  if (r.status !== "pending" || meta.awaitingCode !== true) throw new HttpError(409, "Cette dépense n'attend pas de code de validation"); return { r, meta };
+};
+/** Le responsable consulte le code (pour le communiquer au vendeur). Qui l'a consulté est tracé ; l'auteur de la dépense ne peut pas voir son propre code (sauf propriétaire). */
+export async function showExpenseCode(store: Store, ctx: Ctx, b: { id?: string }) {
+  await gate(store, ctx); await needR(store, ctx, "approve"); const { r, meta } = await awaiting(store, ctx, b.id);
+  if (r.createdBy === ctx.userId && roleOf(ctx.roles) !== "owner") throw new HttpError(403, "Vous ne pouvez pas consulter le code de votre propre dépense");
+  const seq = Number(meta.codeSeq ?? 0); const exp = String(meta.codeExpiresAt ?? ""); const expired = !!exp && Date.parse(exp) < Date.now(); const failsLeft = Math.max(0, CODE_MAX_FAILS - Number(meta.codeFails ?? 0));
+  if (expired || failsLeft === 0) return { usable: false, reason: expired ? "Code expiré : renouvelez-le" : "Trop d'essais incorrects : renouvelez le code", expiresAt: exp, failsLeft };
+  const seen = (await store.list("expense_events", { expenseId: r.$id, kind: "code_viewed" }, 200)).some((e) => e.userId === ctx.userId && parse<{ seq?: number }>(e.detail, {}).seq === seq);
+  if (!seen) await store.batch([ev(ctx, r.$id, "code_viewed", { seq }), aud(ctx, "expense.code.view", `${r.number}`)]);
+  return { usable: true, code: formatCode(expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, seq)), expiresAt: exp, failsLeft, number: String(r.number) };
+}
+/** Nouveau code (l'ancien devient invalide) : expiration repartie, compteur d'essais remis à zéro. */
+export async function renewExpenseCode(store: Store, ctx: Ctx, b: { id?: string }) {
+  await gate(store, ctx); await needR(store, ctx, "approve"); const { r, meta } = await awaiting(store, ctx, b.id);
+  if (r.createdBy === ctx.userId && roleOf(ctx.roles) !== "owner") throw new HttpError(403, "Vous ne pouvez pas renouveler le code de votre propre dépense");
+  meta.codeSeq = Number(meta.codeSeq ?? 0) + 1; meta.codeFails = 0; meta.codeExpiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
+  await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "code_renewed", { seq: meta.codeSeq }), aud(ctx, "expense.code.renew", `${r.number}`)]); return { id: r.$id, expiresAt: meta.codeExpiresAt };
+}
+/** Le vendeur saisit le code que lui a donné le responsable : la dépense est validée (et la sortie de caisse écrite) dans la même transaction que pour une validation en ligne. */
+export async function validateExpenseCode(store: Store, ctx: Ctx, b: { id?: string; code?: string }) {
+  await gate(store, ctx); await needR(store, ctx, "create"); const { r, meta } = await awaiting(store, ctx, b.id);
+  if (r.createdBy !== ctx.userId) throw new HttpError(403, "Seul l'auteur de la dépense peut saisir son code de validation");
+  const exp = String(meta.codeExpiresAt ?? ""); if (exp && Date.parse(exp) < Date.now()) throw new HttpError(409, "Code expiré : demandez au responsable de le renouveler");
+  const fails = Number(meta.codeFails ?? 0); if (fails >= CODE_MAX_FAILS) throw new HttpError(409, "Trop d'essais incorrects : demandez au responsable de renouveler le code");
+  const given = normalizeCode(b.code); const good = expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, Number(meta.codeSeq ?? 0));
+  const ok = isCodeShape(given) && timingSafeEqual(Buffer.from(given), Buffer.from(good));
+  if (!ok) { meta.codeFails = fails + 1; await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "code_failed", { left: CODE_MAX_FAILS - fails - 1 }), aud(ctx, "expense.code.fail", `${r.number}`)]); throw new HttpError(403, `Code incorrect (${CODE_MAX_FAILS - fails - 1} essai(s) restant(s))`); }
+  return approveRow(store, ctx, r, meta, "", {}, true);
 }
 
 /** Annulation = opération corrective tracée : la dépense passe « annulée » (jamais supprimée) ; si elle avait sorti des espèces d'une session encore ouverte, une entrée de régularisation est écrite dans cette session. */
@@ -180,19 +223,9 @@ export async function cancelExpense(store: Store, ctx: Ctx, b: { id?: string; re
   return { id: r.$id, status: "cancelled", cashReturned: !!refund, ...(meta.noCashReturn ? { note: String(meta.noCashReturn) } : {}) };
 }
 
-const MAGIC = [{ mime: "image/jpeg", ext: "jpg", ok: (b: Uint8Array) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff }, { mime: "image/png", ext: "png", ok: (b: Uint8Array) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 }, { mime: "image/webp", ext: "webp", ok: (b: Uint8Array) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50 }, { mime: "application/pdf", ext: "pdf", ok: (b: Uint8Array) => b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 }];
-/** Justificatif (photo ou PDF) dans Appwrite Storage ; le contenu fait foi (pas le type annoncé). Ajout seul : un justificatif remplacé reste conservé et visible dans l'historique. */
-export async function addReceipt(store: Store, ctx: Ctx, b: { id?: string; name?: string; data?: string }) {
-  await gate(store, ctx); const r = await store.get("expenses", String(b.id ?? "")); if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId) throw new HttpError(404, "Dépense introuvable");
-  const rights = await expenseRights(store, ctx); if (!(rights.includes("modify") || (r.createdBy === ctx.userId && rights.includes("create")))) throw new HttpError(403, "Droit manquant : joindre un justificatif");
-  if (typeof b.data !== "string" || !/^[A-Za-z0-9+/]+=*$/.test(b.data)) throw new HttpError(400, "Fichier invalide"); const bytes = new Uint8Array(Buffer.from(b.data, "base64"));
-  if (bytes.length < 100) throw new HttpError(400, "Fichier invalide"); if (bytes.length > MAX_RECEIPT) throw new HttpError(413, "Justificatif trop lourd (1,8 Mo maximum)"); const kind = MAGIC.find((m) => m.ok(bytes)); if (!kind) throw new HttpError(400, "Format non pris en charge (JPEG, PNG, WebP ou PDF)");
-  const list = parse<{ fileId: string; name: string; mime: string; at: string; by: string }[]>(r.receipts, []); if (list.length >= MAX_RECEIPTS) throw new HttpError(409, `${MAX_RECEIPTS} justificatifs au maximum par dépense`);
-  const fileId = newId(); const name = oneLine(b.name, 100).replace(/[^\w.\- ]/g, "_") || `justificatif.${kind.ext}`;
-  await store.putFile(fileId, bytes, `${r.$id}.${kind.ext}`, kind.mime, readRoles("expenses", ctx.tenantId, r as Record<string, unknown>, r.$id));
-  const next = [...list, { fileId, name, mime: kind.mime, at: new Date().toISOString(), by: ctx.userId }];
-  try { await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { receipts: JSON.stringify(next) } }, ev(ctx, r.$id, "receipt", { fileId, name, mime: kind.mime, size: bytes.length }), aud(ctx, "expense.receipt", `${r.number} ${name}`)]); } catch (e) { await store.deleteFile(fileId); throw e; }
-  return { fileId, receipts: next };
+/** Les justificatifs (photo/PDF) sont REMPLACÉS par le code de validation du responsable : plus aucune nouvelle pièce jointe. Les pièces déjà enregistrées restent lisibles dans le détail (l'historique financier n'est jamais supprimé). */
+export async function addReceipt(store: Store, ctx: Ctx, _b: { id?: string; name?: string; data?: string }) {
+  await gate(store, ctx); throw new HttpError(410, "Les justificatifs sont remplacés par le code de validation du responsable : aucune nouvelle pièce jointe. Les justificatifs déjà enregistrés restent consultables.");
 }
 
 // ------------------------------------------------------------------ rapport

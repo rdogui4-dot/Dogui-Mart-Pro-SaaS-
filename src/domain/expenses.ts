@@ -20,3 +20,10 @@ export const needsApproval = (o: { category: string; amount: number; threshold: 
 export const dayToStored = (day: string): string => `${day}T12:00:00.000Z`;
 export const storedToDay = (iso: string): string => String(iso).slice(0, 10);
 export const isDay = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
+
+/** Code de validation d'une dépense (remplace le justificatif) : 8 caractères sans ambiguïté (ni 0/O ni 1/I), saisi en majuscules. */
+export const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const CODE_TTL_MS = 12 * 3_600_000; export const CODE_MAX_FAILS = 5;
+export const normalizeCode = (s: unknown): string => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+export const formatCode = (c: string): string => `${c.slice(0, 4)}-${c.slice(4)}`;
+export const isCodeShape = (c: string): boolean => c.length === 8 && [...c].every((x) => CODE_ALPHABET.includes(x));

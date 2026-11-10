@@ -19,7 +19,7 @@ Module intégré à la caisse existante (formule **Business** ou supérieure, fo
 - **Solde** : une sortie supérieure au solde théorique est refusée, sauf dépassement explicite, motivé (5 caractères), par un responsable ayant le droit de valider ; tracé dans la dépense, l'historique et l'audit.
 - **Jamais deux fois** : `requestId` obligatoire (idempotence, y compris en parallèle), mouvement à identifiant déterministe (une double validation simultanée ne produit qu'une sortie), et un doublon probable (même montant, libellé, bénéficiaire, date, même auteur en 10 min) exige une confirmation explicite.
 - **Annulation** = opération corrective : statut « annulée », motif obligatoire ; si la session d'origine est ouverte, une entrée de régularisation est écrite ; sinon aucun mouvement automatique (dit clairement). Montant, date et moyen d'une dépense validée ne se modifient pas (annuler puis ressaisir).
-- **Justificatifs** : contrôle du contenu (pas du type annoncé), 1,8 Mo, 5 par dépense, ajout seul.
+- **Justificatifs** : remplacés par le code de validation (voir plus bas) ; les anciens restent consultables.
 - Chaque écriture ajoute une ligne d'audit ; en formule Pro, les sorties alimentent aussi le journal financier immuable.
 
 ## Rapports (`expense.report`, chiffres réels uniquement)
@@ -31,3 +31,26 @@ Total du jour et du mois, de la période et de la période précédente (écart 
 - Une dépense en attente liée à une session ne peut plus être validée si cette session est fermée (rejet ou annulation à la place).
 - Les « autres moyens configurables » se limitent à un libellé libre sur le moyen « Autre ».
 - Le Storage est en lecture privée : l'aperçu passe par un téléchargement authentifié (pas de lien partageable).
+
+## Code de validation (remplace le justificatif)
+**Principe** : la preuve d'une dépense n'est plus une pièce jointe mais l'accord d'un gérant ou du propriétaire, matérialisé par un code qu'il est seul à pouvoir lire.
+
+**Workflow**
+1. Un employé **sans droit de valider** enregistre la dépense → statut « en attente du code » ; **aucun effet sur la caisse**.
+2. Un gérant/propriétaire ouvre la dépense et choisit « Afficher le code » (8 caractères, ex. `K7QM-2XVD`). Sa consultation est tracée dans l'historique.
+3. Il communique le code au vendeur, en personne.
+4. Le vendeur le saisit dans l'application → le serveur vérifie, valide la dépense et écrit la sortie de caisse dans la même transaction Appwrite (« validée par le code d'un responsable »).
+Un gérant/propriétaire qui enregistre lui-même une dépense n'a pas à saisir de code ; il peut aussi valider ou rejeter directement (comme avant).
+
+**Sécurité (côté serveur)**
+- Code dérivé par HMAC-SHA256 (clé serveur) de la dépense (identifiant, montant, libellé, catégorie, origine, auteur) et d'un numéro d'émission : **jamais stocké, jamais renvoyé au vendeur** (`expense.get` ne le contient pas). Modifier la dépense change le code.
+- Usage unique (la dépense passe « validée ») ; validité 12 h ; **5 essais** incorrects verrouillent, le responsable doit **renouveler** (l'ancien code devient invalide).
+- Seul l'auteur saisit le code ; l'auteur ne peut ni lire ni renouveler son propre code (sauf propriétaire) ; comparaison en temps constant ; double saisie simultanée = une seule sortie.
+- Le code ne permet pas de dépasser le solde de caisse : cela reste réservé à la décision explicite d'un responsable.
+- Historique : `code_viewed` (qui), `code_failed`, `code_renewed`, `approve` (méthode « code »). Journal d'audit correspondant ; le mouvement de caisse porte `authorizedBy: "code"`.
+
+**Réglage** : « Code obligatoire » (propriétaire, par boutique, activé par défaut). Désactivé, on revient aux règles seuil / catégories sensibles.
+
+**Justificatifs** : plus aucune nouvelle pièce jointe (`expense.receipt` répond 410) ; les pièces déjà enregistrées restent consultables, rien n'est supprimé.
+
+**Limite** : le code prouve qu'un responsable a *communiqué* son accord, pas qu'il a vu un document. L'identité du responsable qui valide n'est connue que par la consultation tracée du code, pas par la saisie.

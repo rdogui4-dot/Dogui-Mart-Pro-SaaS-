@@ -119,7 +119,7 @@ export function newVoucherOps(ctx: Ctx, amount: number, ref: string, customerId?
 export const voucherUseOp = (ctx: Ctx, code: string, amount: number, saleId: string, slot: number): BatchOp => ({ kind: "create", table: "customer_vouchers", id: `vu${sha(`${ctx.tenantId}|${code}|${slot}`).slice(0, 28)}`, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, kind: "use", code, amount, status: "used", createdBy: ctx.userId, createdAt: new Date().toISOString(), ref: saleId } });
 
 // ------------------------------------------------------------------ code de vérification du ticket (QR)
-const secret = () => process.env.DMP_RECEIPT_KEY || process.env.APPWRITE_API_KEY || "dmp-dev-receipt-key";
+export const secret = () => process.env.DMP_RECEIPT_KEY || process.env.APPWRITE_API_KEY || "dmp-dev-receipt-key";
 /** Signature HMAC du ticket : le QR imprimé permet de vérifier, dans l'application, que le ticket correspond à une vente réelle de ce commerce (un ticket falsifié ne se vérifie pas). */
 export const receiptCode = (tenantId: string, number: string, total: number, soldAt: string): string => `DMP1.${number}.${Math.round(total)}.${createHmac("sha256", secret()).update(`${tenantId}|${number}|${Math.round(total)}|${iso(soldAt)}`).digest("hex").slice(0, 16)}`;
 export async function verifyReceipt(store: Store, ctx: Ctx, b: { code?: string }) {
