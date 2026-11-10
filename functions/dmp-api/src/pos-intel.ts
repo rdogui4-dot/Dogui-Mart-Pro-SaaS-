@@ -1,4 +1,5 @@
 import { earnedPoints, redeemablePoints, tierFor } from "../../../src/domain/loyalty";
+import { loyaltyRulesOf } from "./loyalty-rules";
 import { lineTotal } from "../../../src/domain/money";
 import { DEFAULT_TIMEZONE, isTimezone, utcToZoned } from "../../../src/domain/promotions";
 import { needFeature } from "./articles";
@@ -60,9 +61,9 @@ export async function customerProfile(store: Store, ctx: Ctx, b: { customerId?: 
   const cnt = new Map<string, { n: number; name: string; qty: number }>(); for (const s of paid) for (const l of linesOf(s)) { const a = cnt.get(l.productId) ?? { n: 0, name: l.name, qty: 0 }; a.n++; a.qty += Number(l.qty); cnt.set(l.productId, a); }
   const last90 = paid.filter((s) => Date.parse(iso(s.soldAt)) > Date.now() - 90 * DAY).length; const regular = last90 >= 4;
   const vouchers = (await store.list("customer_vouchers", { tenantId: ctx.tenantId, customerId: c.$id, kind: "voucher" }, 50)); const vs = []; for (const v of vouchers) { const x = await voucherByCode(store, ctx, String(v.code)); if (x && x.status === "active" && x.balance > 0 && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now())) vs.push({ code: x.code, balance: x.balance, expiresAt: x.expiresAt }); }
-  const spend = Number(c.annualSpend ?? 0); const limit = Number(c.creditLimit ?? 0);
+  const lr = await loyaltyRulesOf(store, ctx); const spend = Number(c.annualSpend ?? 0); const limit = Number(c.creditLimit ?? 0);
   return { id: c.$id, name: String(c.name), phone: String(c.phone ?? ""), category: String(c.category ?? ""), stats: { purchases: paid.length, total, avgBasket: paid.length ? Math.round(total / paid.length) : 0, lastPurchaseAt: dates.length ? new Date(dates[dates.length - 1]!).toISOString() : null, avgDaysBetween: gaps.length ? Math.round(median(gaps)) : null, last90 }, regular, regularRule: "Client régulier : au moins 4 achats sur les 90 derniers jours",
-    loyalty: { points: Number(c.points ?? 0), tier: tierFor(spend), annualSpend: spend, nextEarn: (t: number) => earnedPoints(t, tierFor(spend)), redeemableForSample: redeemablePoints(Number(c.points ?? 0), 10000) },
+    loyalty: { points: Number(c.points ?? 0), tier: tierFor(spend, lr), annualSpend: spend, nextEarn: (t: number) => earnedPoints(t, tierFor(spend, lr), lr), redeemableForSample: redeemablePoints(Number(c.points ?? 0), 10000, lr) },
     ...(limit > 0 ? { credit: { limit, balance: Number(c.creditBalance ?? 0), available: Math.max(0, limit - Number(c.creditBalance ?? 0)), alert: Number(c.creditBalance ?? 0) >= limit * 0.8 ? "Crédit presque atteint" : "" } } : {}),
     topItems: [...cnt.entries()].sort((a, d) => d[1].n - a[1].n).slice(0, 5).map(([productId, a]) => ({ productId, name: a.name, times: a.n, qty: a.qty })), vouchers: vs,
     history: sales.slice(0, 20).map((s) => ({ id: s.$id, number: String(s.number), total: Number(s.total), status: String(s.status), soldAt: iso(s.soldAt) })) };

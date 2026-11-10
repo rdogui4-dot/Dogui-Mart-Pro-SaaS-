@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { refundJournal } from "../../../src/domain/accounting";
 import { earnedPoints, tierFor } from "../../../src/domain/loyalty";
+import { loyaltyRulesOf } from "./loyalty-rules";
 import { lineTotal, toFcfa } from "../../../src/domain/money";
 import { scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { boundsOf, addDays, todayIn } from "../../../src/domain/overview";
@@ -82,7 +83,7 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
   const fresh = await store.get("sale_returns", rid);
   if (fresh?.status === "pending") {
     let pts = 0;
-    if (customer) { const spend = Math.max(0, Number(customer.annualSpend ?? 0) - amount); pts = earnedPoints(amount, tierFor(Number(customer.annualSpend ?? 0))); const creditPart = refunds.filter((r) => r.method === "credit").reduce((a, r) => a + r.amount, 0);
+    if (customer) { const spend = Math.max(0, Number(customer.annualSpend ?? 0) - amount); const lr = await loyaltyRulesOf(store, ctx); pts = earnedPoints(amount, tierFor(Number(customer.annualSpend ?? 0), lr), lr); const creditPart = refunds.filter((r) => r.method === "credit").reduce((a, r) => a + r.amount, 0);
       await store.update("customers", customer.$id, { annualSpend: spend, points: Math.max(0, Number(customer.points ?? 0) - pts), creditBalance: Math.max(0, Number(customer.creditBalance ?? 0) - creditPart) }); }
     const all = refundable(sale, [...existing.filter((r) => r.$id !== rid), { ...(fresh as Row), status: "done" }]); await store.update("sales", sale.$id, { status: all.remainingTotal <= 0 || kind === "cancel" ? (kind === "cancel" ? "cancelled" : "refunded") : "paid" });
     await store.update("sale_returns", rid, { status: "done", points: pts });

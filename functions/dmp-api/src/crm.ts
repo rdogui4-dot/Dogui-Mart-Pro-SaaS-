@@ -224,3 +224,4 @@ export async function crmDashboard(store: Store, ctx: Ctx, b: { days?: unknown; 
 }
 /** Collègues auxquels un élément peut être attribué (gérants : tout le commerce ; autres : eux-mêmes). */
 export async function crmOwners(store: Store, ctx: Ctx) { await gate(store, ctx); const m = await names(store, ctx); const all = [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, c) => a.name.localeCompare(c.name)); return { owners: isMgr(ctx) ? all : all.filter((o) => o.id === ctx.userId), me: ctx.userId, manager: isMgr(ctx) }; }
+export { salesOf, EMPTY, MIN, mine, isMgr, evt, aud, sha, newId, safe, ms, iso, parse, rkey, owner as resolveOwner };

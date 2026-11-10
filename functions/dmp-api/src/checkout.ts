@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { cartTotal, isQrMethod, lineTotal, settle, toFcfa, type CartLine, type Payment, type PaymentMethod } from "../../../src/domain/money";
 import { canExtendCredit } from "../../../src/domain/credit";
-import { DEFAULT_RULES, earnedPoints, redeemablePoints, tierFor } from "../../../src/domain/loyalty";
+import { earnedPoints, redeemablePoints, tierFor } from "../../../src/domain/loyalty";
+import { loyaltyRulesOf } from "./loyalty-rules";
 import { saleJournal } from "../../../src/domain/accounting";
 import { stockOf, type StockMove } from "../../../src/domain/stock";
 import { convertQty, fromScaled, qtyFor, scaleOf, scaledInt, unitRowId } from "../../../src/domain/quantity";
@@ -255,10 +256,10 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
     approvalOps.push(...(await claimApproval(store, ctx, id, k, saleId, fp)));
   }
   // 2) Client, points
-  let redeem = 0;
+  let redeem = 0; const lrules = customer ? await loyaltyRulesOf(store, ctx) : undefined;
   if (input.redeemPoints && customer) {
-    redeem = Math.min(Math.floor(input.redeemPoints), redeemablePoints(Number(customer.points ?? 0), total));
-    total -= redeem * DEFAULT_RULES.redeemCfaPerPoint;
+    redeem = Math.min(Math.floor(input.redeemPoints), redeemablePoints(Number(customer.points ?? 0), total, lrules));
+    total -= redeem * lrules!.redeemCfaPerPoint;
   }
 
   // 3) Paiements : QR = lien confirmé, montant exact, non déjà utilisé
@@ -371,7 +372,7 @@ export async function checkout(store: Store, ctx: Ctx, input: CheckoutInput) {
   if (current?.status === "posted") {
     if (customer) {
       const spend = Number(customer.annualSpend ?? 0) + total;
-      const pts = Number(customer.points ?? 0) - redeem + earnedPoints(total, tierFor(spend));
+      const pts = Number(customer.points ?? 0) - redeem + earnedPoints(total, tierFor(spend, lrules), lrules);
       await wu("customers", customer.$id, { creditBalance: Number(customer.creditBalance ?? 0) + credit, points: pts, annualSpend: spend });
     }
     for (const l of links) await wu("payment_links", l.$id as string, { saleId });
