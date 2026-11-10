@@ -136,3 +136,6 @@ Dépenses avec justificatif, sorties de caisse rattachées à la session, valida
 
 ## Dépenses Pro
 Budgets, circuit d'approbation, paiements partiels, récurrentes, trésorerie et prévisions indicatives : voir [docs/depenses-pro.md](docs/depenses-pro.md).
+
+### Achats & fournisseurs (Business)
+Fournisseurs, commandes avec validation, réceptions partielles (stock créé une seule fois), factures et paiements fournisseurs, tableau de bord : voir [docs/achats-fournisseurs.md](docs/achats-fournisseurs.md).
