@@ -181,7 +181,7 @@ export async function payInvoice(store: Store, ctx: Ctx, b: { invoiceId: string;
   const pid = safeId(b.paymentId); if (pid.length < 8) throw new HttpError(400, "paymentId invalide");
   const inv = must(await store.get("invoices", b.invoiceId), "Facture introuvable");
   if (!mine(ctx, inv) || inv.kind !== "supplier") throw new HttpError(403, "Accès refusé");
-  const acct = TREASURY[b.method]; if (!acct) throw new HttpError(400, "Mode de règlement invalide");
+  const acct = Object.hasOwn(TREASURY, String(b.method)) ? TREASURY[b.method] : undefined; if (!acct) throw new HttpError(400, "Mode de règlement invalide");
   const payments = parse<Payment[]>(inv.payments, []);
   const total = Number(inv.total);
   const done = payments.find((p) => p.id === pid);

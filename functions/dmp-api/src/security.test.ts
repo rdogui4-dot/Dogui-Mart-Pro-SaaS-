@@ -18,4 +18,8 @@ describe("point d'entrée : actions", () => {
     const st = new MemoryStore(); await st.addShop("t1", "s1"); await st.grant("t1", "own", ["owner"], []);
     expect((await handle(st, "intrus", { action: "count.list", tenantId: "t1", shopId: "s1" })).status).toBe(403);
   });
+  it("les tables de correspondance (entités, moyens de paiement) refusent aussi les noms du prototype", async () => {
+    const st = new MemoryStore(); await st.addShop("t1", "s1"); await st.grant("t1", "own", ["owner"], []);
+    for (const t of ["constructor", "__proto__", "toString"]) { const r = await handle(st, "own", { action: "entity.save", tenantId: "t1", shopId: "s1", payload: { table: t, data: {} } }); expect(r.status, t).toBe(400); }
+  });
 });

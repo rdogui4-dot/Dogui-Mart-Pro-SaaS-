@@ -53,7 +53,7 @@ const ENTITIES = {
 } as const;
 
 export async function saveEntity(store: Store, ctx: Ctx, b: { table: keyof typeof ENTITIES; id?: string; data: Record<string, unknown> }) {
-  const spec = ENTITIES[b.table]; if (!spec) throw new HttpError(400, "Table non autorisée");
+  const spec = Object.hasOwn(ENTITIES, String(b.table)) ? ENTITIES[b.table] : undefined; if (!spec) throw new HttpError(400, "Table non autorisée");
   needModule(ctx, spec.module);
   if (b.table === "customers" && b.data.creditLimit !== undefined) need(ctx, "manager"); // plafond de crédit = manager
   if (b.table === "customers" && b.data.category !== undefined) { // catégorie tarifaire (gros, revendeur) : décision de gérant, fonction Pro pour en attribuer une
