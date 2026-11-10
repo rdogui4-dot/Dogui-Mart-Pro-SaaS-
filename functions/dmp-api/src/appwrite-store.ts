@@ -12,7 +12,7 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
   };
   return {
     async membership(tenantId, userId) {
-      const r = await teams.listMemberships({ teamId: tenantId, queries: [Query.equal("userId", userId), Query.limit(1)] });
+      let r; try { r = await teams.listMemberships({ teamId: tenantId, queries: [Query.equal("userId", userId), Query.limit(1)] }); } catch (e: any) { if (e?.code === 404) return null; throw e; } // commerce inexistant : refus (403), pas d'erreur interne
       const m = r.memberships[0];
       return m && m.confirm ? { roles: m.roles } : null;
     },
