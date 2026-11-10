@@ -48,3 +48,11 @@ Magasinier : prépare des commandes/réceptions. Gérant/propriétaire : valide,
 - Pas d'avoir fournisseur ; une facture n'est ni modifiable ni supprimable (litige + nouvelle facture).
 - La validation d'une réception écrit d'abord le stock (identifiants déterministes) puis l'état de la commande : en cas de coupure entre les deux, relancer la validation termine proprement sans doubler le stock.
 - Pièces jointes : JPEG/PNG/WebP/PDF, 1,8 Mo, 8 par élément (bucket `articles`).
+
+## Réclamations et avoirs fournisseur
+- **Unités endommagées ou refusées** : à la validation d'une réception, chaque unité endommagée ou refusée devient une *réclamation* (`purchase_claims`), valorisée au coût de la commande. Elle n'entre jamais dans le stock vendable. Les réceptions passées sont rattrapées automatiquement, sans doublon.
+- **Décision tracée** (responsable, motif obligatoire) : renvoi au fournisseur, mise au rebut (perte valorisée) ou remise en stock après contrôle (mouvement de stock +). Une marchandise refusée ne peut que retourner au fournisseur.
+- **Retour de marchandise** après facture (`purch.return`) : crée aussi une réclamation « retourné ».
+- **Avoir fournisseur** (`supplier_credits`, accès responsable + comptabilité) : couvre des réclamations d'un même fournisseur, borné par leur valeur, un seul avoir par réclamation, idempotent. Il se règle de deux façons combinables : **déduction** d'une facture impayée (écriture 401/601, reste dû réduit) et **remboursement en argent** reçu (caisse ouverte ou compte : écriture compte d'argent/401, mouvement de caisse lié, flux visible dans la trésorerie Finance). Annulation possible tant qu'il n'a pas servi.
+- Visible : onglet *Réclamations* des Achats et bloc sur la fiche article.
+- Limite : la TVA n'est pas ventilée sur l'avoir ; les règles fiscales relèvent de la Compta.

@@ -13,14 +13,15 @@ export const SUGGESTED_METHODS: Record<AccountKind, string[]> = { cash: ["cash"]
 /** Comptes comptables d'argent → moyen de règlement (plan existant : 571, 5722, 5723, 521). */
 export const MONEY_ACCOUNTS: Record<string, string> = { "571": "cash", "5722": "wave", "5723": "orange", "521": "card" };
 
-export type FlowSource = "sale" | "refund" | "credit_repay" | "customer_invoice" | "supplier_payment" | "expense" | "cash_move" | "other";
-export const SOURCE_LABEL: Record<FlowSource, string> = { sale: "Vente", refund: "Remboursement client", credit_repay: "Remboursement de crédit client", customer_invoice: "Encaissement facture client", supplier_payment: "Paiement fournisseur", expense: "Dépense", cash_move: "Mouvement de caisse", other: "Autre écriture" };
+export type FlowSource = "sale" | "refund" | "credit_repay" | "customer_invoice" | "supplier_payment" | "supplier_refund" | "expense" | "cash_move" | "other";
+export const SOURCE_LABEL: Record<FlowSource, string> = { sale: "Vente", refund: "Remboursement client", supplier_refund: "Remboursement fournisseur", credit_repay: "Remboursement de crédit client", customer_invoice: "Encaissement facture client", supplier_payment: "Paiement fournisseur", expense: "Dépense", cash_move: "Mouvement de caisse", other: "Autre écriture" };
 
 /** Classe une écriture d'argent d'après sa référence et son libellé (les pièces d'origine restent la référence). */
 export function classifyJournal(ref: string, label: string): FlowSource {
   const r = ref.toUpperCase(), l = label.toLowerCase();
   if (r.startsWith("RF-")) return "supplier_payment";
   if (r.startsWith("R-") && l.includes("crédit")) return "credit_repay";
+  if (l.includes("remboursement fournisseur")) return "supplier_refund";
   if (l.includes("remboursement") && !l.includes("crédit")) return "refund";
   if (l.includes("règlement") || l.includes("reglement")) return "supplier_payment";
   if (l.includes("facture") || l.includes("encaissement")) return "customer_invoice";

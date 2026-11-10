@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
 import { list, qtyOf, variantQty, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
 import { VariantsSheet } from "./variants";
+import { ClaimsBlock } from "./reclamations";
 import { LotsSheet, SerialsSheet } from "./tracking";
 import { useProductsAll, useStockLevels, useVariantsAll } from "@/lib/queries";
 import { TRACKING_MODES, trackingOf } from "@/domain/tracking";
@@ -198,6 +199,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
       {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
       {a.description && <div className="card text-sm whitespace-pre-line">{a.description}</div>}
       {can(s, "stock") && <MovementsBlock productId={a.$id} />}
+      {can(s, "purchases") && <ClaimsBlock productId={a.$id} />}
       <div className="card"><h3 className="font-semibold mb-1">Historique des prix</h3>
         {hist.isLoading ? <p className="text-sm text-white/50">Chargement…</p> : hist.error ? <p className="text-sm text-red-400">{(hist.error as Error).message}</p> : !hist.data?.length ? <p className="text-sm text-white/50">Aucune modification enregistrée.</p> :
           <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>

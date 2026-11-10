@@ -374,3 +374,55 @@ describe("stock après réception (cas Orangina)", () => {
     await recOk(po.id, [{ productId: "p3", accepted: 15, damaged: 1 }]); expect(await stockFor(st, "p3")).toBe(16);
   });
 });
+
+describe("réclamations et avoirs fournisseur", () => {
+  const k = () => `k${rid().slice(0, 14)}`;
+  const claims = async (user = "ger", extra: object = {}) => (await ok(call(user, "claim.list", extra))).claims as any[];
+  /** commande de 15 Orangina (coût 400), réception : 14 acceptées, 1 endommagée, 2 refusées */
+  const setup = async () => {
+    await st.create("products", "p3", T, { tenantId: T, shopId: A, name: "Orangina 1.5l", price: 700, cost: 400 }); await st.create("stock_moves", "m3", T, { tenantId: T, shopId: A, productId: "p3", qty: 1, kind: "purchase" });
+    const po = await ok(call("own", "purch.po.save", { clientId: rid().slice(0, 16), supplierId: SUP, lines: [{ productId: "p3", qty: 17, unitPrice: 400 }] })); await ok(call("own", "purch.po.validate", { id: po.id }));
+    const rid1 = await recOk(po.id, [{ productId: "p3", accepted: 14, damaged: 1, refused: 2 }]); return { po: po.id as string, rec: rid1 };
+  };
+  it("l'endommagé et le refusé deviennent visibles (sans entrer en stock), sans doublon, avec leur valeur", async () => {
+    await setup(); const c = await claims(); expect(c).toHaveLength(2); expect((await claims()).length).toBe(2);
+    const dmg = c.find((x) => x.kind === "damaged"); expect(dmg).toMatchObject({ qty: 1, unitCost: 400, value: 400, status: "open", name: "Orangina 1.5l" }); expect(c.find((x) => x.kind === "refused")).toMatchObject({ qty: 2, value: 800 });
+    expect(await stockFor(st, "p3")).toBe(15); expect((await ok(call("ger", "claim.list", { productId: "p3" }))).openQty).toBe(3); expect(await claims("ger", { productId: "p9" })).toHaveLength(0);
+  });
+  it("décisions : remise en stock (+1), rebut (stock inchangé), refusé uniquement renvoyé ; motif obligatoire ; idempotent ; droits", async () => {
+    await setup(); const c = await claims(); const dmg = c.find((x) => x.kind === "damaged"), ref = c.find((x) => x.kind === "refused");
+    await err(call("cais", "claim.decide", { id: dmg.id, decision: "restock", reason: "ok" }), 403); await err(call("ger", "claim.decide", { id: dmg.id, decision: "restock" }), 400); await err(call("ger", "claim.decide", { id: ref.id, decision: "restock", reason: "contrôlé" }), 409);
+    await ok(call("ger", "claim.decide", { id: dmg.id, decision: "restock", reason: "Emballage abîmé seulement" })); expect(await stockFor(st, "p3")).toBe(16); expect((await ok(call("ger", "claim.decide", { id: dmg.id, decision: "restock", reason: "x1x" }))).duplicate).toBe(true); expect(await stockFor(st, "p3")).toBe(16);
+    await err(call("ger", "claim.decide", { id: dmg.id, decision: "writeoff", reason: "autre" }), 409); await ok(call("ger", "claim.decide", { id: ref.id, decision: "return", reason: "Renvoyé au livreur" })); expect(await stockFor(st, "p3")).toBe(16);
+  });
+  it("rebut : perte valorisée, stock inchangé", async () => { await setup(); const dmg = (await claims()).find((x) => x.kind === "damaged"); await ok(call("ger", "claim.decide", { id: dmg.id, decision: "writeoff", reason: "Bouteille cassée" })); expect(await stockFor(st, "p3")).toBe(15); expect((await ok(call("ger", "claim.list"))).lostValue).toBe(400); });
+  it("avoir : exige la décision « renvoyer », borné par la valeur, un seul avoir par réclamation, idempotent", async () => {
+    await setup(); const c = await claims(); const ids = c.map((x) => x.id); await err(call("own", "credit.create", { requestKey: k(), claimIds: ids, reason: "Orangina cassé" }), 409, "décidez d'abord");
+    for (const x of c) await ok(call("ger", "claim.decide", { id: x.id, decision: "return", reason: "Renvoyé" })); await err(call("stk", "credit.create", { requestKey: k(), claimIds: ids, reason: "x1x" }), 403);
+    await err(call("own", "credit.create", { requestKey: k(), claimIds: ids, reason: "trop", amount: 5000 }), 409, "dépasse"); const key = k(); const a = await ok(call("own", "credit.create", { requestKey: key, claimIds: ids, reason: "Orangina cassé/refusé" })); expect(a.amount).toBe(1200); expect((await ok(call("own", "credit.create", { requestKey: key, claimIds: ids, reason: "Orangina cassé/refusé" }))).duplicate).toBe(true);
+    await err(call("own", "credit.create", { requestKey: k(), claimIds: ids, reason: "encore" }), 409, "déjà couvert"); expect(st.rows("supplier_credits")).toHaveLength(1);
+  });
+  const credit = async (amount?: number) => { const { po } = await setup(); const c = await claims(); for (const x of c) await ok(call("ger", "claim.decide", { id: x.id, decision: "return", reason: "Renvoyé" })); const cr = await ok(call("own", "credit.create", { requestKey: k(), claimIds: c.map((x) => x.id), reason: "Avoir Orangina", ...(amount ? { amount } : {}) })); return { id: cr.id as string, po }; };
+  it("déduction sur une facture impayée : reste dû réduit, journal équilibré, bornes, idempotent", async () => {
+    const { id } = await credit(); const inv = await invOk({ total: 5000 }); const key = k();
+    await err(call("own", "credit.apply", { id, invoiceId: inv, amount: 1300, requestKey: key }), 409, "dépasse le reste de l'avoir");
+    const a = await ok(call("own", "credit.apply", { id, invoiceId: inv, amount: 700, requestKey: key })); expect(a).toMatchObject({ duplicate: false, remaining: 500, invoiceRemaining: 4300 }); expect((await ok(call("own", "credit.apply", { id, invoiceId: inv, amount: 700, requestKey: key }))).duplicate).toBe(true);
+    expect(st.rows("invoices").find((i) => i.$id === inv)!.paid).toBe(700); expect(balanced()).toBe(true); await err(call("own", "credit.apply", { id, invoiceId: inv, amount: 600, requestKey: k() }), 409, "reste de l'avoir"); expect((await ok(call("own", "credit.list"))).credits[0]).toMatchObject({ status: "partial", applied: 700, remaining: 500 });
+    await err(call("own", "credit.cancel", { id, reason: "erreur" }), 409, "déjà été utilisé");
+  });
+  it("remboursement en argent hors caisse : flux d'argent réel dans la trésorerie, journal équilibré ; en caisse : session ouverte exigée", async () => {
+    const { id } = await credit(1000); await err(call("own", "credit.refund", { id, amount: 400, source: "till", requestKey: k() }), 409, "Ouvrez la caisse"); const key = k();
+    const r = await ok(call("own", "credit.refund", { id, amount: 400, method: "card", requestKey: key })); expect(r.remaining).toBe(600); expect((await ok(call("own", "credit.refund", { id, amount: 400, method: "card", requestKey: key }))).duplicate).toBe(true); expect(balanced()).toBe(true);
+    const j = st.rows("journal_entries").filter((e) => String(e.label).startsWith("Remboursement fournisseur")); expect(j.find((e) => e.account === "521")!.debit).toBe(400); expect(j.find((e) => e.account === "401")!.credit).toBe(400);
+    const fl = await ok(call("own", "fin.flows", { source: "supplier_refund" })); expect(fl.flows).toHaveLength(1); expect(fl.flows[0]).toMatchObject({ amount: 400, method: "card" }); await err(call("own", "credit.refund", { id, amount: 700, method: "card", requestKey: k() }), 409, "reste de l'avoir"); await err(call("own", "credit.refund", { id, amount: 100, method: "bitcoin", requestKey: k() }), 400);
+  });
+  it("déduction + remboursement combinés, avoir soldé ; annulation possible seulement avant usage et libère les réclamations", async () => {
+    const { id } = await credit(1000); const inv = await invOk({ total: 3000 }); await ok(call("own", "credit.apply", { id, invoiceId: inv, amount: 600, requestKey: k() })); await ok(call("own", "credit.refund", { id, amount: 400, method: "wave", requestKey: k() })); expect((await ok(call("own", "credit.list"))).credits[0]).toMatchObject({ status: "settled", remaining: 0 });
+  });
+  it("annulation avant usage libère les réclamations", async () => { const { id } = await credit(); await err(call("own", "credit.cancel", { id }), 400); await ok(call("own", "credit.cancel", { id, reason: "créé par erreur" })); expect((await claims()).every((x) => !x.creditId)).toBe(true); await err(call("own", "credit.apply", { id, invoiceId: "x", amount: 1, requestKey: k() }), 409, "annulé"); });
+  it("retour de marchandise après facture : crée une réclamation « retourné » valorisée, utilisable pour un avoir", async () => {
+    const { po, rec: recId } = await setup(); void po; await ok(call("ger", "purch.return", { receiptId: recId, returnKey: `rt${rid().slice(0, 10)}`, reason: "Goût anormal", lines: [{ productId: "p3", qty: 2 }] })); const ret = (await claims()).find((x) => x.kind === "return"); expect(ret).toMatchObject({ qty: 2, value: 800, status: "decided", decision: "return" });
+    expect((await ok(call("own", "credit.create", { requestKey: k(), claimIds: [ret.id], reason: "Retour après facture" }))).amount).toBe(800);
+  });
+  it("isolation : une autre boutique ne voit ni ne décide les réclamations", async () => { await setup(); const c = (await claims())[0]; expect((await ok(call("gerB", "claim.list", {}, B))).claims).toHaveLength(0); await err(call("gerB", "claim.decide", { id: c.id, decision: "return", reason: "x1x" }, B), 404); });
+});

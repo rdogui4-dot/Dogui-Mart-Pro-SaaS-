@@ -3,6 +3,7 @@ import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quan
 import { lineKey } from "../../../src/domain/variants";
 import { stockScaled, stockScaledVariant } from "./checkout";
 import { gate } from "./purchasing-plus";
+import { returnClaimOp } from "./purchasing-claims";
 import { HttpError, need, type BatchOp, type Ctx, type Store } from "./store";
 
 const sha = (s: string) => createHash("sha1").update(s).digest("hex");
@@ -25,7 +26,7 @@ export async function supplierReturn(store: Store, ctx: Ctx, b: { receiptId?: st
     const p = await store.get("products", l.productId); const scale = scaleOf(p); let q: number; try { q = qtyFor(w.qty, scale); } catch (e) { throw new HttpError(400, `${l.name} : ${(e as Error).message}`); }
     const left = Math.round((l.accepted - (returned.get(lineKey(l as never)) ?? 0)) * 1e6) / 1e6; if (q > left) throw new HttpError(409, `${l.name} : au plus ${left} peuvent encore être retournés (acceptés ${l.accepted}, déjà retournés ${returned.get(lineKey(l as never)) ?? 0})`);
     const stock = l.variantId ? await stockScaledVariant(store, l.variantId) : await stockScaled(store, l.productId); if (scaledInt(q, scale) > stock) throw new HttpError(409, `${l.name} : stock insuffisant pour ce retour (${fromScaled(stock, scale)} en stock)`);
-    ops.push({ kind: "create", table: "stock_moves", id: `rf${sha(`${r.$id}|${key}|${i++}`).slice(0, 30)}`, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), qty: -scaledInt(q, scale), kind: "adjust", refId: `retour-fournisseur:${r.number}`.slice(0, 64), userId: ctx.userId } }); detail.push({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), name: l.name, qty: q }); }
+    ops.push({ kind: "create", table: "stock_moves", id: `rf${sha(`${r.$id}|${key}|${i++}`).slice(0, 30)}`, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), qty: -scaledInt(q, scale), kind: "adjust", refId: `retour-fournisseur:${r.number}`.slice(0, 64), userId: ctx.userId } }); ops.push(await returnClaimOp(store, ctx, r, l, q, `${key}|${i}`, why)); detail.push({ productId: l.productId, ...(l.variantId ? { variantId: l.variantId } : {}), name: l.name, qty: q }); }
   ops.push({ kind: "create", table: "purchase_events", id: evId, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, entityType: "receipt", entityId: r.$id, kind: "return", userId: ctx.userId, at: new Date().toISOString(), detail: JSON.stringify({ reason: why, lines: detail }) } }, { kind: "create", table: "audit_log", id: crypto.randomUUID().replace(/-/g, "").slice(0, 30), tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "supplier.return", detail: `${r.number} ${detail.map((d) => `${d.name}×${d.qty}`).join(",")} ${why}`.slice(0, 1000) } });
   await store.batch(ops); return { duplicate: false, moves: detail.length, reference: `retour-fournisseur:${r.number}`, note: "Le stock est diminué ; la dette fournisseur n'est pas modifiée (traitez l'avoir par un litige sur la facture)." };
 }

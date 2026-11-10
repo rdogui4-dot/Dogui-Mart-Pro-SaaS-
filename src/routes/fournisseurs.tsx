@@ -9,6 +9,7 @@ import { Confirm, Sheet } from "@/components/ui";
 import { planAllows } from "@/domain/features";
 import { PO_LABEL } from "@/domain/purchasing-plus";
 import { formatFcfa } from "@/domain/money";
+import { ClaimsTab } from "./reclamations";
 import { useSubscription } from "./subscription";
 import { AchatsPage } from "./achats";
 
@@ -56,12 +57,12 @@ function Docs({ kind, id, docs, onDone }: { kind: "supplier" | "po" | "receipt" 
 /** Achats & fournisseurs (Business) : fournisseurs, commandes, réceptions, factures et paiements. Tous les chiffres viennent du serveur ; commandé, reçu, facturé et payé restent distincts. */
 export function FournisseursPage() {
   const { session } = useSession(); const s = session!; const sub = useSubscription(); const allowed = planAllows(sub.data?.entitlement.plan.id, "purchasing"); const qc = useQueryClient();
-  const [tab, setTab] = useState<"dash" | "sup" | "po" | "rec" | "inv">("dash"); const [sheet, setSheet] = useState<ReactNode>(null);
+  const [tab, setTab] = useState<"dash" | "sup" | "po" | "rec" | "inv" | "claims">("dash"); const [sheet, setSheet] = useState<ReactNode>(null);
   const manager = s.role === "owner" || s.role === "manager"; const cfg = useQuery({ queryKey: ["purch-cfg", s.shopId], enabled: allowed, retry: 1, queryFn: () => api<Cfg>(s, "purch.config") });
   const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("purch") || ["stock", "overview", "cash-current"].includes(String(q.queryKey[0])) });
   if (sub.isLoading) return <div className="card h-24 animate-pulse bg-white/5" aria-busy="true" />;
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Achats</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-[var(--gold)]" />Fournisseurs et commandes : formule Business</span><p className="text-white/60">Fiches fournisseurs, commandes avec validation, réceptions partielles, factures et paiements fournisseurs.</p><button className="btn text-center" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Voir les formules</button></div><AchatsPage /></div>;
-  const tabs: [typeof tab, string][] = [...(manager ? ([["dash", "Tableau"]] as [typeof tab, string][]) : []), ["sup", "Fournisseurs"], ["po", "Commandes"], ["rec", "Réceptions"], ...(manager ? ([["inv", "Factures"]] as [typeof tab, string][]) : [])]; const cur = tabs.some(([k]) => k === tab) ? tab : "sup";
+  const tabs: [typeof tab, string][] = [...(manager ? ([["dash", "Tableau"]] as [typeof tab, string][]) : []), ["sup", "Fournisseurs"], ["po", "Commandes"], ["rec", "Réceptions"], ["claims", "Réclamations"], ...(manager ? ([["inv", "Factures"]] as [typeof tab, string][]) : [])]; const cur = tabs.some(([k]) => k === tab) ? tab : "sup";
   const open = (n: ReactNode) => setSheet(n); const close = () => setSheet(null);
   return <div className="flex flex-col gap-3">
     <h1 className="text-2xl font-bold">Achats & fournisseurs</h1>
@@ -71,6 +72,7 @@ export function FournisseursPage() {
     {cur === "sup" && <Suppliers onOpen={open} close={close} refresh={refresh} />}
     {cur === "po" && <Orders onOpen={open} close={close} refresh={refresh} cfg={cfg.data} manager={manager} />}
     {cur === "rec" && <Receipts onOpen={open} close={close} refresh={refresh} />}
+    {cur === "claims" && <ClaimsTab />}
     {cur === "inv" && <Invoices onOpen={open} close={close} refresh={refresh} cfg={cfg.data} />}
     {sheet}
   </div>;
