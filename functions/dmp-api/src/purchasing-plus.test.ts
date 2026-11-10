@@ -186,7 +186,7 @@ describe("réceptions", () => {
 describe("factures fournisseur", () => {
   it("création liée à une commande et une réception ; une facture n'est pas un décaissement", async () => {
     const po = await validatedPo(); const rId = await recOk(po, [{ productId: P1, accepted: 10 }]); const before = st.rows("cash_movements").length;
-    const id = await invOk({ poId: po, receiptId: rId, total: 7000, vat: 1000, ref: "FA-1", issuedOn: day(-1), dueOn: day(10) });
+    const pf = st.rows("invoices").find((x) => x.poId === po)!; await ok(call("ger", "purch.invoice.confirm", { id: pf.$id, receiptId: rId, total: 7000, vat: 1000, ref: "FA-1", issuedOn: day(-1), dueOn: day(10) })); const id = pf.$id;
     const g = (await ok(call("ger", "purch.invoice.get", { id }))); expect(g).toMatchObject({ poId: po, receiptId: rId, total: 7000, paid: 0, remaining: 7000, state: "to_pay" });
     expect(st.rows("cash_movements").length).toBe(before); expect(balanced()).toBe(true);
   });
@@ -267,6 +267,38 @@ describe("liste des commandes et des factures", () => {
     const g = (await ok(call("own", "purch.po.list"))).orders; expect(g).toHaveLength(2);
     const i = await invOk({ dueOn: day(0), issuedOn: day(0) }); expect((await ok(call("ger", "purch.invoice.list", { status: "to_pay" }))).invoices.map((x: any) => x.id)).toContain(i);
   });
+});
+
+describe("facture provisoire liée à la commande", () => {
+  const invOf = (poId: string) => st.rows("invoices").filter((i) => i.poId === poId);
+  it("valider une commande rattache une facture PROVISOIRE (montant de la commande, échéance du fournisseur) : ni dette, ni écriture comptable, ni paiement possible", async () => {
+    await ok(call("own", "purch.supplier.save", { id: SUP, name: "Grossiste Central", paymentTerms: "45 jours" })); const jBefore = st.rows("journal_entries").length; const po = await validatedPo({ transportFee: 1000 });
+    const [pf] = invOf(po); expect(pf).toMatchObject({ provisional: true, kind: "supplier", partyId: SUP, total: 18_290 }); expect(pf!.number).toMatch(/^PF-/); expect(Date.parse(String(pf!.dueAt).slice(0, 10)) - Date.parse(day())).toBe(45 * 864e5);
+    expect(st.rows("journal_entries").length).toBe(jBefore); const g = await ok(call("own", "purch.po.get", { id: po })); expect(g.invoicesList).toHaveLength(1); expect(g.invoicesList[0]).toMatchObject({ state: "provisional", remaining: 0 });
+    expect((await ok(call("own", "purch.supplier.get", { id: SUP }))).balance).toBe(0); const l = await ok(call("ger", "purch.invoice.list", {})); expect(l.invoices).toHaveLength(1); expect(l.totals).toMatchObject({ toPay: 0, overdue: 0 });
+    await err(pay(pf!.$id), 409, "provisoire"); await err(call("ger", "purch.invoice.dispute", { id: pf!.$id, reason: "Test litige" }), 409);
+    const d = await ok(call("ger", "purch.dashboard", { from: day(-1), to: day(0) })); expect(d.invoices).toMatchObject({ toPay: 0, invoiced: 0 });
+  });
+  it("valider deux fois ne crée qu'une facture ; une commande validée avant cette fonction est rattrapée à l'ouverture", async () => {
+    const po = await validatedPo(); await ok(call("own", "purch.po.validate", { id: po })); expect(invOf(po)).toHaveLength(1);
+    const old = await ok(call("own", "purch.po.save", poBody({ clientId: "po-ancienne01" }))); st.rows("purchase_orders").find((p) => p.$id === old.id)!.status = "validated"; expect(invOf(old.id)).toHaveLength(0);
+    const g = await ok(call("own", "purch.po.get", { id: old.id })); expect(g.invoicesList).toHaveLength(1); await ok(call("own", "purch.po.get", { id: old.id })); expect(invOf(old.id)).toHaveLength(1);
+  });
+  it("confirmer avec la vraie facture : référence, montant et dates réels ; la dette et les écritures n'apparaissent qu'à ce moment ; payable ensuite", async () => {
+    const po = await validatedPo(); const [pf] = invOf(po); const jBefore = st.rows("journal_entries").length; await err(call("ger", "purch.invoice.confirm", { id: pf!.$id, ref: "", total: 15_000 }), 400); await err(call("stk", "purch.invoice.confirm", { id: pf!.$id, ref: "F-1", total: 15_000 }), 403);
+    const c = await ok(call("ger", "purch.invoice.confirm", { id: pf!.$id, ref: "FA-2026-77", total: 15_800, vat: 2_000, issuedOn: day(-1), dueOn: day(20) })); expect(c.confirmed).toBe(true); expect(st.rows("journal_entries").length).toBe(jBefore + 3); expect(balanced()).toBe(true);
+    const g = (await ok(call("ger", "purch.invoice.get", { id: pf!.$id }))); expect(g).toMatchObject({ provisional: false, state: "to_pay", ref: "FA-2026-77", total: 15_800, remaining: 15_800 }); expect((await ok(call("own", "purch.supplier.get", { id: SUP }))).balance).toBe(15_800);
+    await err(call("ger", "purch.invoice.confirm", { id: pf!.$id, ref: "FA-2", total: 1 }), 409, "déjà confirmée"); await ok(pay(pf!.$id, { amount: 800 })); expect((await ok(call("ger", "purch.invoice.get", { id: pf!.$id }))).remaining).toBe(15_000);
+  });
+  it("tant que la facture provisoire existe, créer une seconde facture pour la même commande est refusé ; après confirmation, une facture complémentaire est possible ; doublon de référence détecté", async () => {
+    const po = await validatedPo(); const [pf] = invOf(po); await err(inv({ poId: po, ref: "X-1" }), 409, "provisoire"); await ok(call("ger", "purch.invoice.confirm", { id: pf!.$id, ref: "REF-A", total: 9_000 })); await ok(inv({ poId: po, ref: "REF-B", total: 3_000 }));
+    const po2 = await validatedPo(); const [pf2] = invOf(po2); await err(call("ger", "purch.invoice.confirm", { id: pf2!.$id, ref: "ref-a", total: 5_000 }), 409, "DOUBLON_FACTURE");
+  });
+  it("modification contrôlée de la commande : la facture provisoire suit ; annulation de la commande : elle est annulée (jamais supprimée) ; une commande avec seulement une facture provisoire reste annulable", async () => {
+    const po = await validatedPo(); await ok(call("own", "purch.po.amend", { id: po, reason: "Quantité revue", lines: [{ productId: P1, qty: 20, unitPrice: 700 }, { productId: P2, qty: 5, unitPrice: 1500 }] })); expect(invOf(po)[0]!.total).toBe(25_370);
+    await ok(call("own", "purch.po.cancel", { id: po, reason: "Fournisseur en rupture" })); expect(invOf(po)[0]).toMatchObject({ status: "void", provisional: true }); expect((await ok(call("own", "purch.po.get", { id: po }))).invoicesList[0].state).toBe("cancelled");
+  });
+  it("une commande déjà confirmée facturée ne s'annule plus", async () => { const po = await validatedPo(); const [pf] = invOf(po); await ok(call("ger", "purch.invoice.confirm", { id: pf!.$id, ref: "REF-C", total: 14_500 })); await err(call("own", "purch.po.cancel", { id: po, reason: "Trop tard" }), 409); });
 });
 
 describe("réception d'articles suivis par lot", () => {

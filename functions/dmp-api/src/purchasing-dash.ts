@@ -27,7 +27,7 @@ export async function purchasingDashboard(store: Store, ctx: Ctx, b: { from?: st
   const bySup = <R extends Row>(rows: R[], key: string) => (sid ? rows.filter((r) => String(r[key]) === sid) : rows);
   const pos = bySup((await store.scan("purchase_orders", where, { maxRows: 10_000 })).rows, "supplierId");
   const recs = bySup((await store.scan("purchase_receipts", where, { maxRows: 10_000 })).rows, "supplierId").filter((r) => r.status === "validated");
-  const invs = bySup((await store.scan("invoices", { ...where, kind: "supplier" }, { maxRows: 10_000 })).rows, "partyId").map((i) => invView(i, t));
+  const invs = bySup((await store.scan("invoices", { ...where, kind: "supplier" }, { maxRows: 10_000 })).rows, "partyId").map((i) => invView(i, t)).filter((i) => !i.provisional && i.state !== "cancelled");
 
   // ----- commandes
   const states: Record<string, number> = {}; let orderedValue = 0, orderedCount = 0;
