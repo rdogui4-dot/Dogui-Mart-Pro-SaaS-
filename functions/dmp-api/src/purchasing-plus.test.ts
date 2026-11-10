@@ -265,3 +265,35 @@ describe("liste des commandes et des factures", () => {
     const i = await invOk({ dueOn: day(0), issuedOn: day(0) }); expect((await ok(call("ger", "purch.invoice.list", { status: "to_pay" }))).invoices.map((x: any) => x.id)).toContain(i);
   });
 });
+
+describe("tableau de bord Achats et connexions", () => {
+  const dash = (extra: object = {}, user = "ger") => ok(call(user, "purch.dashboard", { from: day(-30), to: day(0), ...extra }));
+  it("quatre mesures distinctes : commandé, reçu, facturé, payé ; à payer et échu à date", async () => {
+    const po = await validatedPo({ deliveryOn: day(2) }); await recOk(po, [{ productId: P1, accepted: 4, damaged: 1 }]);
+    const i1 = await invOk({ total: 5000, issuedOn: day(-10), dueOn: day(-5), ref: "OLD" }); await invOk({ total: 3000, ref: "NEW", dueOn: day(20) }); await ok(pay(i1, { amount: 2000 }));
+    const d = await dash();
+    expect(d.orders).toMatchObject({ inProgress: 1, orderedValue: 14_500 }); expect(d.receipts).toMatchObject({ count: 1, value: 2800, damagedQty: 1 });
+    expect(d.invoices).toMatchObject({ invoiced: 8000, toPay: 6000, overdue: 3000, overdueCount: 1 }); expect(d.payments).toMatchObject({ paid: 2000, count: 1 });
+    expect(d.receipts.expected).toHaveLength(1); expect(d.receipts.expected[0]).toMatchObject({ remainingQty: 11, late: false }); expect(d.topSuppliers[0].name).toBe("Grossiste Central"); expect(d.topArticles.map((a: any) => a.name)).toContain("Riz");
+  });
+  it("filtre par fournisseur ; période invalide ; consolidation réservée au propriétaire ; caissier refusé", async () => {
+    const autre = await mkSup({ name: "Autre" }); await validatedPo(); expect((await dash({ supplierId: autre })).orders.orderedValue).toBe(0);
+    await err(call("ger", "purch.dashboard", { from: day(1), to: day(0) }), 400); await err(call("ger", "purch.dashboard", { shopId: "all" }), 403); await ok(call("own", "purch.dashboard", { shopId: "all" })); await err(call("cais", "purch.dashboard"), 403);
+    await err(call("ger", "purch.dashboard", { supplierId: "nope" }), 404);
+  });
+  it("retard de livraison détecté (commande validée dont la date prévue est dépassée)", async () => {
+    const po = await validatedPo({ deliveryOn: day(3) }); st.rows("purchase_orders").find((p) => p.$id === po)!.deliveryOn = `${day(-4)}T12:00:00.000Z`;
+    const d = await dash(); expect(d.receipts.lateCount).toBe(1); expect(d.receipts.expected[0].lateDays).toBe(4);
+  });
+  it("article : attendu ≠ disponible ; historique des prix d'achat avec variation", async () => {
+    const po = await validatedPo(); let v = await ok(call("ger", "purch.article", { productId: P1 })); expect(v).toMatchObject({ available: 10, expected: 10, received: 0 });
+    await recOk(po, [{ productId: P1, accepted: 6 }]); v = await ok(call("ger", "purch.article", { productId: P1 })); expect(v).toMatchObject({ available: 16, expected: 4, received: 6, lastPrice: 700 }); expect(v.history).toHaveLength(1);
+    const po2 = await validatedPo({ lines: [{ productId: P1, qty: 5, unitPrice: 770 }] }); await recOk(po2, [{ productId: P1, accepted: 5 }]); v = await ok(call("ger", "purch.article", { productId: P1 }));
+    expect(v.history).toHaveLength(2); expect(v.lastVariationPct).toBe(10); await err(call("ger", "purch.article", { productId: "zz" }), 404);
+  });
+  it("paiement depuis la caisse : visible dans le total de session (supplierOut) et le rapport Dépenses, sans être une dépense", async () => {
+    await ok(call("ger", "cash.open", { openingFloat: 50_000 })); const id = await invOk({ total: 9000 }); await ok(pay(id, { source: "till", amount: 4000 })); await ok(pay(id, { method: "card", amount: 1000 }));
+    expect((await ok(call("ger", "cash.current"))).totals.movements).toMatchObject({ supplierOut: 4000, expenseOut: 0 });
+    const r = await ok(call("own", "expense.report", { from: day(-1), to: day(0) })); expect(r.supplierPayments).toMatchObject({ total: 5000, fromTill: 4000, count: 2 }); expect(r.totals.period).toBe(0);
+  });
+});
