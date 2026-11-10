@@ -11,6 +11,9 @@ import { formatFcfa } from "@/domain/money";
 import { formatQty } from "@/domain/quantity";
 import { trackingOf } from "@/domain/tracking";
 import { isVirtualBundle } from "@/domain/bundles";
+import { planAllows } from "@/domain/features";
+import { useSubscription } from "./subscription";
+import { ProAnalysis, ProAnomalies, ProLock, ProNetwork, ProProducts, ProReplenish, ProReports } from "./stock-pro";
 import { STATUS_LABEL, XFER_LABEL, type StockStatus, type XferStatus } from "@/domain/stock-intel";
 
 // ------------------------------------------------------------------ types (réponses du serveur)
@@ -34,31 +37,38 @@ const Kpi = ({ label, value, tone = "", hint }: { label: string; value: ReactNod
 const dayOff = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
 type Open = (productId: string, variantId?: string) => void;
+type Tab = "dash" | "art" | "mov" | "xfer" | "alert" | "ana" | "rep" | "net" | "ano" | "lot" | "rap";
 
 /** Stock intelligent (Business) : tableau de bord, articles, journal des mouvements, transferts entre boutiques et alertes. Tous les chiffres viennent du serveur. */
 export function StockHub({ legacy }: { legacy: (onCard: Open) => ReactNode }) {
   const { session } = useSession(); const s = session!;
-  const [tab, setTab] = useState<"dash" | "art" | "mov" | "xfer" | "alert">("dash"); const [card, setCard] = useState<{ productId: string; variantId: string } | null>(null);
+  const [tab, setTab] = useState<Tab>("dash"); const pro = planAllows(useSubscription().data?.entitlement.plan.id, "stockPro"); const [card, setCard] = useState<{ productId: string; variantId: string } | null>(null);
   const open: Open = (productId, variantId = "") => setCard({ productId, variantId });
   const alerts = useQuery({ queryKey: ["stk-alerts", s.shopId], retry: 1, queryFn: () => api<{ counts: { high: number; warn: number; info: number } }>(s, "stk.alerts"), staleTime: 30_000 });
   const n = (alerts.data?.counts.high ?? 0) + (alerts.data?.counts.warn ?? 0);
-  const tabs: [typeof tab, string][] = [["dash", "Tableau"], ["art", "Articles"], ["mov", "Mouvements"], ["xfer", "Transferts"], ["alert", n ? `Alertes (${n})` : "Alertes"]];
+  const tabs: [Tab, string][] = [["dash", "Tableau"], ["art", "Articles"], ["mov", "Mouvements"], ["xfer", "Transferts"], ["alert", n ? `Alertes (${n})` : "Alertes"], ...(pro ? ([["ana", "Analyse"], ["rep", "Réappro"], ["net", "Réseau"], ["ano", "Anomalies"], ["lot", "Lots"], ["rap", "Rapports"]] as [Tab, string][]) : [])];
   return (
     <div className="flex flex-col gap-4">
       <h1 className="sr-only">Stock</h1>
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections du stock">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
-      {tab === "dash" && <Dashboard onOpen={open} onTab={setTab} />}
+      {tab === "dash" && <Dashboard onOpen={open} onTab={setTab} pro={pro} />}
       {tab === "art" && legacy(open)}
       {tab === "mov" && <Moves onOpen={open} />}
       {tab === "xfer" && <Transfers />}
       {tab === "alert" && <Alerts onOpen={open} onTab={setTab} />}
+      {pro && tab === "ana" && <ProAnalysis onOpen={open} />}
+      {pro && tab === "rep" && <ProReplenish onOpen={open} />}
+      {pro && tab === "net" && <ProNetwork onGoTransfers={() => setTab("xfer")} />}
+      {pro && tab === "ano" && <ProAnomalies onOpen={open} />}
+      {pro && tab === "lot" && <ProProducts onOpen={open} />}
+      {pro && tab === "rap" && <ProReports />}
       {card && <CardSheet productId={card.productId} variantId={card.variantId} onClose={() => setCard(null)} />}
     </div>
   );
 }
 
 // ------------------------------------------------------------------ tableau de bord
-function Dashboard({ onOpen, onTab }: { onOpen: Open; onTab: (t: "dash" | "art" | "mov" | "xfer" | "alert") => void }) {
+function Dashboard({ onOpen, onTab, pro }: { onOpen: Open; onTab: (t: Tab) => void; pro: boolean }) {
   const { session } = useSession(); const s = session!; const owner = s.role === "owner" && s.shops.length > 1;
   const [f, setF] = useState({ category: "", from: dayOff(-29), to: dayOff(0), all: false });
   const q = useQuery({ queryKey: ["stk-dash", s.shopId, f], retry: 1, queryFn: () => api<Dash>(s, "stk.dashboard", { category: f.category || undefined, from: f.from, to: f.to, ...(f.all ? { shopId: "all" } : {}) }) });
@@ -96,6 +106,7 @@ function Dashboard({ onOpen, onTab }: { onOpen: Open; onTab: (t: "dash" | "art" 
         <section className="card flex flex-col gap-1"><div className="flex justify-between items-center"><h2 className="font-semibold">Derniers mouvements</h2><button className="text-[var(--gold)] text-sm" onClick={() => onTab("mov")}>Journal</button></div>
           {d.lastMoves.length === 0 && <p className="text-sm text-white/60">Aucun mouvement sur la période.</p>}
           {d.lastMoves.slice(0, 8).map((m, i) => <p key={i} className="text-xs text-white/70 border-t border-[var(--line)] pt-1"><span className="text-white/50">{fmtAt(m.at)}</span> · {m.label} · {m.article} · <b className={m.qty < 0 ? "text-red-300" : "text-emerald-300"}>{signedQty(m.qty)}</b></p>)}</section>
+        {!pro && <ProLock />}
         <div className="text-[11px] text-white/40 flex flex-col gap-1">{d.notes.map((n) => <p key={n}>{n}</p>)}</div>
       </>}
     </div>
@@ -210,7 +221,7 @@ function Moves({ onOpen }: { onOpen: Open }) {
 const clean = (f: Record<string, string>) => Object.fromEntries(Object.entries(f).filter(([, v]) => v));
 
 // ------------------------------------------------------------------ alertes
-function Alerts({ onOpen, onTab }: { onOpen: Open; onTab: (t: "dash" | "art" | "mov" | "xfer" | "alert") => void }) {
+function Alerts({ onOpen, onTab }: { onOpen: Open; onTab: (t: Tab) => void }) {
   const { session } = useSession(); const s = session!; const nav = useNavigate(); const [lvl, setLvl] = useState<"" | "high" | "warn" | "info">("");
   const q = useQuery({ queryKey: ["stk-alerts-full", s.shopId], retry: 1, queryFn: () => api<{ alerts: Alert[]; counts: { high: number; warn: number; info: number }; note: string }>(s, "stk.alerts") });
   const rows = (q.data?.alerts ?? []).filter((a) => !lvl || a.level === lvl);
