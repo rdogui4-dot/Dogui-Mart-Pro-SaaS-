@@ -7,6 +7,8 @@ import { boundsOf, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { needFeature } from "./articles";
 import { openSessionOf, sessionTotals } from "./cashier";
+import { nextLevel, type Approval, type Tier } from "../../../src/domain/expenses-pro";
+import { applyProCreate, expensesProOn, proPrecheck, type ProPre } from "./expenses-pro";
 import { isProPos, ledgerWrite, secret } from "./pos-pro";
 import { HttpError, needModule, roleOf, type BatchOp, type Ctx, type Row, type Store } from "./store";
 
@@ -56,7 +58,10 @@ export async function saveExpenseSettings(store: Store, ctx: Ctx, b: { threshold
 
 // ------------------------------------------------------------------ lecture
 const nameMap = async (store: Store, ctx: Ctx) => { const m = new Map<string, string>((await store.scan("staff", { tenantId: ctx.tenantId }, { maxRows: 500 })).rows.map((x) => [String(x.userId), String(x.name)])); try { for (const o of await store.listOwners(ctx.tenantId)) m.set(o.userId, o.name || "Propriétaire"); } catch { /* annuaire indisponible */ } return m; };
-const view = (r: Row, names: Map<string, string>) => { const meta = parse<Record<string, unknown>>(r.meta, {}); return { id: r.$id, number: String(r.number), label: String(r.label), description: String(r.description ?? ""), category: String(r.category), amount: Number(r.amount), spentOn: storedToDay(String(r.spentOn)), recordedAt: iso(r.$createdAt) || iso(meta.recordedAt), method: String(r.method), methodLabel: String(meta.methodLabel ?? ""), reference: String(r.reference ?? ""), beneficiary: String(r.beneficiary ?? ""), supplierId: String(r.supplierId ?? ""), source: String(r.source), sessionId: String(r.sessionId ?? ""), receipts: parse<{ fileId: string; name: string; mime: string; at: string }[]>(r.receipts, []), status: String(r.status), createdBy: String(r.createdBy), author: names.get(String(r.createdBy)) ?? "", decidedBy: r.decidedBy ? names.get(String(r.decidedBy)) ?? "" : "", shopId: String(r.shopId), movementId: String(r.movementId ?? ""), overdraft: meta.overdraft ?? null, decisionNote: String(meta.decisionNote ?? ""), cancelReason: String(meta.cancelReason ?? ""), awaitingCode: r.status === "pending" && meta.awaitingCode === true, codeExpiresAt: meta.awaitingCode === true ? String(meta.codeExpiresAt ?? "") : "", codeFailsLeft: meta.awaitingCode === true ? Math.max(0, CODE_MAX_FAILS - Number(meta.codeFails ?? 0)) : null, validatedByCode: meta.validatedByCode === true }; };
+/** Montant payé : dépense « immédiate » validée = payée en totalité (comportement Business inchangé) ; dépense différée = somme des paiements enregistrés. */
+export const paidOf = (r: Row): number => (String(r.payMode ?? "immediate") === "deferred" ? Number(r.paidAmount ?? 0) : r.status === "approved" ? Number(r.amount) : 0);
+export const lifecycleOf = (r: Row): string => { const st = String(r.status); if (st !== "approved") return st; const p = paidOf(r); return p >= Number(r.amount) ? "paid" : p > 0 ? "partial" : "committed"; };
+const view = (r: Row, names: Map<string, string>) => { const meta = parse<Record<string, unknown>>(r.meta, {}); return { id: r.$id, number: String(r.number), label: String(r.label), description: String(r.description ?? ""), category: String(r.category), amount: Number(r.amount), spentOn: storedToDay(String(r.spentOn)), recordedAt: iso(r.$createdAt) || iso(meta.recordedAt), method: String(r.method), methodLabel: String(meta.methodLabel ?? ""), reference: String(r.reference ?? ""), beneficiary: String(r.beneficiary ?? ""), supplierId: String(r.supplierId ?? ""), source: String(r.source), sessionId: String(r.sessionId ?? ""), receipts: parse<{ fileId: string; name: string; mime: string; at: string }[]>(r.receipts, []), status: String(r.status), createdBy: String(r.createdBy), author: names.get(String(r.createdBy)) ?? "", decidedBy: r.decidedBy ? names.get(String(r.decidedBy)) ?? "" : "", shopId: String(r.shopId), movementId: String(r.movementId ?? ""), overdraft: meta.overdraft ?? null, decisionNote: String(meta.decisionNote ?? ""), cancelReason: String(meta.cancelReason ?? ""), awaitingCode: r.status === "pending" && meta.awaitingCode === true, codeExpiresAt: meta.awaitingCode === true ? String(meta.codeExpiresAt ?? "") : "", codeFailsLeft: meta.awaitingCode === true ? Math.max(0, CODE_MAX_FAILS - Number(meta.codeFails ?? 0)) : null, validatedByCode: meta.validatedByCode === true, dueOn: r.dueOn ? storedToDay(String(r.dueOn)) : "", payMode: String(r.payMode ?? "immediate"), service: String(r.service ?? ""), recurringId: String(r.recurringId ?? ""), paid: paidOf(r), remaining: Math.max(0, Number(r.amount) - paidOf(r)), lifecycle: lifecycleOf(r), levels: parse<string[]>(JSON.stringify(meta.levels ?? ["manager"]), ["manager"]), approvals: (parse<Approval[]>(JSON.stringify(meta.approvals ?? []), [])).map((a) => ({ ...a, name: names.get(a.by) ?? "" })), reasons: (meta.proReasons as string[] | undefined) ?? [], flags: (meta.flags as string[] | undefined) ?? [], allocations: (meta.allocations as { shopId: string; amount: number }[] | undefined) ?? [], override: meta.override ?? null }; };
 async function shopScope(store: Store, ctx: Ctx, shopId?: string): Promise<string[]> { // le propriétaire peut consulter une autre de ses boutiques ; les autres, uniquement la leur
   if (!shopId || shopId === ctx.shopId) return [ctx.shopId]; if (roleOf(ctx.roles) !== "owner") throw new HttpError(403, "Boutique non autorisée");
   if (shopId === "all") return (await store.list("shops", { tenantId: ctx.tenantId }, 100)).map((s) => s.$id); const sh = await store.get("shops", shopId); if (!sh || sh.tenantId !== ctx.tenantId) throw new HttpError(404, "Boutique introuvable"); return [shopId];
@@ -78,7 +83,7 @@ export async function getExpense(store: Store, ctx: Ctx, b: { id?: string }) {
 }
 
 // ------------------------------------------------------------------ écriture
-type Input = { requestId?: string; label?: string; description?: string; category?: string; amount?: unknown; spentOn?: string; method?: string; methodLabel?: string; reference?: string; beneficiary?: string; supplierId?: string; source?: string; allowOverdraft?: boolean; overdraftReason?: string; confirmDuplicate?: boolean };
+type Input = { requestId?: string; label?: string; description?: string; category?: string; amount?: unknown; spentOn?: string; method?: string; methodLabel?: string; reference?: string; beneficiary?: string; supplierId?: string; source?: string; allowOverdraft?: boolean; overdraftReason?: string; confirmDuplicate?: boolean; /* Pro */ dueOn?: string; payMode?: string; service?: string; allocations?: { shopId: string; pct?: number; amount?: number }[]; overrideBudget?: boolean; overrideReason?: string; recurringId?: string };
 async function clean(store: Store, ctx: Ctx, b: Input, partial = false) {
   const out: Record<string, unknown> = {}; const has = (k: keyof Input) => !partial || b[k] !== undefined;
   if (has("label")) { const v = oneLine(b.label, 120); if (v.length < 2) throw new HttpError(400, "Libellé obligatoire (2 caractères au moins)"); out.label = v; }
@@ -110,11 +115,19 @@ export async function createExpense(store: Store, ctx: Ctx, b: Input) {
   await gate(store, ctx); await needR(store, ctx, "create"); const rid = oneLine(b.requestId, 64); if (rid.length < 8) throw new HttpError(400, "requestId invalide (8 caractères au moins)");
   const id = `ex${sha(`${ctx.tenantId}|${rid}`).slice(0, 28)}`; const prior = await store.get("expenses", id);
   if (prior) { if (prior.tenantId !== ctx.tenantId || prior.shopId !== ctx.shopId) throw new HttpError(409, "Identifiant déjà utilisé"); return { id, number: String(prior.number), status: String(prior.status), duplicate: true, awaitingCode: parse<Record<string, unknown>>(prior.meta, {}).awaitingCode === true }; }
-  const f = await clean(store, ctx, b); const amount = Number(f.amount); const source = String(f.source); const method = String(f.method);
+  const wantsPro = b.dueOn !== undefined || b.payMode !== undefined || b.service !== undefined || b.allocations !== undefined || b.overrideBudget !== undefined || b.recurringId !== undefined; const proOn = await expensesProOn(store, ctx);
+  if (wantsPro && !proOn) throw new HttpError(402, "« Dépenses Pro » est réservé à la formule Pro ou supérieure.");
+  const f = await clean(store, ctx, b); const amount = Number(f.amount); let source = String(f.source); const method = String(f.method);
+  const st = await settings(store, ctx); const rights = await expenseRights(store, ctx); const canApprove = rights.includes("approve"); const owner = roleOf(ctx.roles) === "owner";
+  const pre: ProPre | null = proOn ? await proPrecheck(store, ctx, { f, amount, b, canApprove, owner }) : null; const deferred = pre?.deferred === true; if (deferred) source = "external"; // paiement différé : l'origine du paiement se choisit à chaque paiement
   if (source === "till" && method !== "cash") throw new HttpError(400, "Une dépense payée depuis la caisse est forcément en espèces");
-  const st = await settings(store, ctx); const canApprove = (await expenseRights(store, ctx)).includes("approve");
+  const human = !!pre && (pre.reasons.length > 0 || pre.levels.length > 0); // une autorisation humaine est requise : jamais de validation automatique
+  let override: { reasons: string[]; reason: string } | null = null;
+  if (pre && pre.reasons.length) { if (pre.block && !owner) throw new HttpError(403, `BUDGET_BLOQUANT : ${pre.reasons.join(" ; ")}. Seul le propriétaire peut passer outre.`);
+    if (owner) { const why = oneLine(b.overrideReason, 200); if (!(b.overrideBudget === true && why.length >= 5)) throw new HttpError(409, `BUDGET_DEPASSE : ${pre.reasons.join(" ; ")}. Confirmez le dépassement avec un motif (5 caractères min.).`); override = { reasons: pre.reasons, reason: why }; } }
+  const ownerAuto = owner && human; // le propriétaire est l'autorité finale : il franchit tous les niveaux, tracé
   const awaitingCode = st.codeRequired && !canApprove; // le code d'un responsable remplace le justificatif : toute dépense saisie sans droit de valider l'attend
-  const pending = awaitingCode || needsApproval({ category: String(f.category), amount, threshold: st.threshold, sensitive: st.sensitive, canApprove });
+  const pending = !ownerAuto && (awaitingCode || human || needsApproval({ category: String(f.category), amount, threshold: st.threshold, sensitive: st.sensitive, canApprove }));
   let sess: Row | null = null; if (source === "till") { sess = await openSessionOf(store, ctx); if (!sess) throw new HttpError(409, "Ouvrez la caisse avant d'enregistrer une dépense payée depuis la caisse"); }
   let overdraft: Awaited<ReturnType<typeof checkBalance>> = null; if (sess && !pending) overdraft = await checkBalance(store, ctx, sess, amount, b, canApprove);
   if (!b.confirmDuplicate) { // même dépense saisie deux fois (requestId différent) : confirmation explicite exigée
@@ -123,14 +136,16 @@ export async function createExpense(store: Store, ctx: Ctx, b: Input) {
     if (twin) throw new HttpError(409, `DOUBLON_POSSIBLE : une dépense identique (${twin.number}) vient d'être enregistrée. Confirmez si c'est une autre dépense.`);
   }
   const now = new Date().toISOString(); const number = `D-${now.slice(0, 10).replace(/-/g, "")}-${id.slice(2, 8).toUpperCase()}`; const status = pending ? "pending" : "approved";
-  const meta = { recordedAt: now, ...(b.methodLabel ? { methodLabel: oneLine(b.methodLabel, 40) } : {}), ...(overdraft ? { overdraft } : {}), ...(awaitingCode ? { awaitingCode: true, codeSeq: 0, codeFails: 0, codeExpiresAt: new Date(Date.now() + CODE_TTL_MS).toISOString(), approvalReason: "code de validation du responsable" } : pending ? { approvalReason: st.sensitive.includes(String(f.category)) ? "catégorie sensible" : `montant ≥ seuil (${fcfa(st.threshold)})` } : { autoApproved: canApprove }) };
-  const row = { ...f, tenantId: ctx.tenantId, shopId: ctx.shopId, number, status, createdBy: ctx.userId, sessionId: sess?.$id ?? "", receipts: "[]", meta: JSON.stringify(meta), ...(!pending ? { decidedBy: ctx.userId } : {}), ...(sess && !pending ? { movementId: `cm${sha(`${id}|out`).slice(0, 28)}` } : {}) };
-  const ops: BatchOp[] = [{ kind: "create", table: "expenses", id, tenantId: ctx.tenantId, data: row }, ev(ctx, id, "create", { amount, category: f.category, source, status, ...(overdraft ? { overdraft } : {}) }, now, "create"), aud(ctx, "expense.create", `${number} ${amount} ${String(f.label)} (${status})`)];
-  if (!pending) ops.push(ev(ctx, id, "approve", { auto: true, by: ctx.userId }, now, "approve"));
+  const levels: Tier[] = pre?.levels.length ? pre.levels : ["manager"]; const approvals: Approval[] = ownerAuto ? levels.map(() => ({ by: ctx.userId, tier: "owner" as const, at: now, via: "decision" as const })) : [];
+  const meta: Record<string, unknown> = { recordedAt: now, levels, approvals, ...(b.methodLabel ? { methodLabel: oneLine(b.methodLabel, 40) } : {}), ...(overdraft ? { overdraft } : {}), ...(override ? { override } : {}), ...(pre?.reasons.length ? { proReasons: pre.reasons } : {}), ...(pre?.flags.length ? { flags: pre.flags } : {}), ...(pre?.allocations ? { allocations: pre.allocations, allocRule: pre.allocRule } : {}),
+    ...(awaitingCode ? { awaitingCode: true, codeSeq: 0, codeFails: 0, codeExpiresAt: new Date(Date.now() + CODE_TTL_MS).toISOString(), approvalReason: "code de validation du responsable" } : pending ? { approvalReason: pre?.reasons.length ? "budget ou plafond dépassé" : human ? "circuit d'approbation" : st.sensitive.includes(String(f.category)) ? "catégorie sensible" : `montant ≥ seuil (${fcfa(st.threshold)})` } : { autoApproved: canApprove }) };
+  const row = { ...f, source, tenantId: ctx.tenantId, shopId: ctx.shopId, number, status, createdBy: ctx.userId, sessionId: sess?.$id ?? "", receipts: "[]", meta: JSON.stringify(meta), ...(!pending ? { decidedBy: ctx.userId } : {}), ...(sess && !pending ? { movementId: `cm${sha(`${id}|out`).slice(0, 28)}` } : {}), ...(pre ? applyProCreate(pre, f) : {}) };
+  const ops: BatchOp[] = [{ kind: "create", table: "expenses", id, tenantId: ctx.tenantId, data: row }, ev(ctx, id, "create", { amount, category: f.category, source, status, ...(deferred ? { payMode: "deferred", dueOn: pre?.dueOn } : {}), ...(pre?.reasons.length ? { reasons: pre.reasons } : {}), ...(overdraft ? { overdraft } : {}) }, now, "create"), aud(ctx, "expense.create", `${number} ${amount} ${String(f.label)} (${status})`)];
+  if (!pending) ops.push(ev(ctx, id, "approve", { auto: !ownerAuto, ...(ownerAuto ? { levels: levels.length, override } : {}), by: ctx.userId }, now, "approve"));
   if (sess && !pending) ops.push(moveOp(ctx, { id, number, label: String(f.label), beneficiary: String(f.beneficiary ?? ""), amount }, sess.$id, "out", `Dépense ${number} — ${String(f.label)}`, "out"));
   try { await store.batch(ops); } catch (e) { const again = await store.get("expenses", id); if (again && again.tenantId === ctx.tenantId) return { id, number: String(again.number), status: String(again.status), duplicate: true }; throw e; }
   if (sess && !pending && (await isProPos(store, ctx))) await ledgerWrite(store, ctx, { kind: "cash_out", ref: `${number}`, key: `${id}|out`, amount: -amount, at: now, sessionId: sess.$id, payload: { expense: number, label: String(f.label) } });
-  return { id, number, status, duplicate: false, awaitingCode, ...(awaitingCode ? { codeExpiresAt: (meta as { codeExpiresAt?: string }).codeExpiresAt } : {}), ...(overdraft ? { overdraft } : {}) };
+  return { id, number, status, duplicate: false, awaitingCode, ...(awaitingCode ? { codeExpiresAt: (meta as { codeExpiresAt?: string }).codeExpiresAt } : {}), ...(overdraft ? { overdraft } : {}), ...(pre ? { alerts: pre.alerts, levels } : {}) };
 }
 
 const SNAP = ["label", "description", "category", "amount", "spentOn", "method", "reference", "beneficiary", "supplierId", "source"] as const;
@@ -156,12 +171,19 @@ export async function decideExpense(store: Store, ctx: Ctx, b: { id?: string; ap
   const note = oneLine(b.note, 200); const now = new Date().toISOString(); const meta = parse<Record<string, unknown>>(r.meta, {}); const amount = Number(r.amount);
   if (b.approve === false) { if (note.length < 3) throw new HttpError(400, "Motif du rejet obligatoire (3 caractères au moins)"); meta.decisionNote = note;
     await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { status: "rejected", decidedBy: ctx.userId, meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "reject", { note }, now), aud(ctx, "expense.reject", `${r.number} ${note}`)]); return { id: r.$id, status: "rejected" }; }
-  return approveRow(store, ctx, r, meta, note, b, false);
+  return advance(store, ctx, r, meta, { id: ctx.userId, tier: roleOf(ctx.roles) === "owner" ? "owner" : "manager" }, "decision", note, b);
+}
+/** Franchit un niveau du circuit d'approbation (un seul niveau par défaut). Tant que tous les niveaux ne sont pas validés, la dépense reste en attente : aucun effet sur la caisse. Le propriétaire franchit tous les niveaux restants (tracé). */
+async function advance(store: Store, ctx: Ctx, r: Row, meta: Record<string, unknown>, who: { id: string; tier: Tier }, via: "decision" | "code", note: string, od: { allowOverdraft?: boolean; overdraftReason?: string }) {
+  const levels = (meta.levels as Tier[] | undefined) ?? ["manager"]; const approvals = (meta.approvals as Approval[] | undefined) ?? []; const nl = nextLevel(levels, approvals, who); if ("error" in nl) throw new HttpError(403, nl.error);
+  const now = new Date().toISOString(); const add = who.tier === "owner" ? levels.length - approvals.length : 1; const next = [...approvals, ...Array.from({ length: add }, () => ({ by: who.id, tier: who.tier, at: now, via }))]; meta.approvals = next;
+  if (next.length < levels.length) { await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "approve_level", { level: next.length, of: levels.length, approver: who.id, via, note }, now), aud(ctx, "expense.approve.level", `${r.number} ${next.length}/${levels.length}`)]); return { id: r.$id, status: "pending", level: next.length, of: levels.length }; }
+  return approveRow(store, ctx, r, meta, note, od, via === "code", who.id);
 }
 /** Validation effective (par décision d'un responsable ou par saisie de son code) : même écriture atomique dans les deux cas. */
 async function approveRow(store: Store, ctx: Ctx, r: Row, meta: Record<string, unknown>, note: string, od: { allowOverdraft?: boolean; overdraftReason?: string }, byCode: boolean, approver = "") {
   const now = new Date().toISOString(); const amount = Number(r.amount); const ops: BatchOp[] = []; let overdraft: Awaited<ReturnType<typeof checkBalance>> = null; let movementId = "";
-  if (r.source === "till") { // la sortie n'entre dans la caisse qu'à la validation, dans la session d'origine, si elle est encore ouverte
+  if (r.source === "till" && String(r.payMode ?? "immediate") !== "deferred") { // la sortie n'entre dans la caisse qu'à la validation, dans la session d'origine, si elle est encore ouverte
     const sess = await store.get("cash_sessions", String(r.sessionId)); if (!sess || sess.status !== "open") throw new HttpError(409, "La session de caisse de cette dépense est fermée : rejetez-la et faites-la ressaisir, ou annulez-la");
     overdraft = await checkBalance(store, ctx, sess, amount, byCode ? {} : od, !byCode); const mv = moveOp(ctx, { id: r.$id, number: String(r.number), label: String(r.label), beneficiary: String(r.beneficiary ?? ""), amount }, sess.$id, "out", `Dépense ${r.number} — ${r.label}`, "out", byCode ? approver : ctx.userId); movementId = mv.id; ops.push(mv);
   }
@@ -178,10 +200,10 @@ export function expenseCode(tenantId: string, r: { id: string; amount: unknown; 
   const h = createHmac("sha256", secret()).update(`EXPCODE|${tenantId}|${r.id}|${Number(r.amount)}|${String(r.category)}|${String(r.label)}|${String(r.source)}|${String(r.createdBy)}|${seq}|${approverId}`).digest(); return Array.from({ length: 8 }, (_, i) => CODE_ALPHABET[h[i]! % 32]).join("");
 }
 /** Responsables habilités à valider dans cette boutique (propriétaires + employés avec le droit « valider »), hors auteur (sauf propriétaire). */
-async function approverIds(store: Store, ctx: Ctx, creator: string): Promise<string[]> {
-  const out = new Set<string>(); try { for (const o of await store.listOwners(ctx.tenantId)) out.add(o.userId); } catch { /* annuaire indisponible */ }
-  for (const st of (await store.scan("staff", { tenantId: ctx.tenantId }, { maxRows: 500 })).rows) { if (st.active === false || !parse<string[]>(st.shopIds, []).includes(ctx.shopId)) continue; const rights = st.expenseRights != null && String(st.expenseRights) !== "" ? parse<string[]>(st.expenseRights, []) : [...(DEFAULT_EXPENSE_RIGHTS[String(st.role)] ?? [])]; if (rights.includes("approve")) out.add(String(st.userId)); }
-  const owners = new Set<string>(); try { for (const o of await store.listOwners(ctx.tenantId)) owners.add(o.userId); } catch { /* idem */ } if (!owners.has(creator)) out.delete(creator); return [...out];
+async function approverIds(store: Store, ctx: Ctx, creator: string): Promise<Map<string, Tier>> {
+  const out = new Map<string, Tier>(); try { for (const o of await store.listOwners(ctx.tenantId)) out.set(o.userId, "owner"); } catch { /* annuaire indisponible */ }
+  for (const st of (await store.scan("staff", { tenantId: ctx.tenantId }, { maxRows: 500 })).rows) { if (st.active === false || !parse<string[]>(st.shopIds, []).includes(ctx.shopId)) continue; const rights = st.expenseRights != null && String(st.expenseRights) !== "" ? parse<string[]>(st.expenseRights, []) : [...(DEFAULT_EXPENSE_RIGHTS[String(st.role)] ?? [])]; if (rights.includes("approve") && !out.has(String(st.userId))) out.set(String(st.userId), "manager"); }
+  const owners = new Set<string>(); try { for (const o of await store.listOwners(ctx.tenantId)) owners.add(o.userId); } catch { /* idem */ } if (!owners.has(creator)) out.delete(creator); return out;
 }
 const awaiting = async (store: Store, ctx: Ctx, id: unknown) => {
   const r = await store.get("expenses", String(id ?? "")); if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId) throw new HttpError(404, "Dépense introuvable"); const meta = parse<Record<string, unknown>>(r.meta, {});
@@ -210,11 +232,11 @@ export async function validateExpenseCode(store: Store, ctx: Ctx, b: { id?: stri
   if (r.createdBy !== ctx.userId) throw new HttpError(403, "Seul l'auteur de la dépense peut saisir son code de validation");
   const exp = String(meta.codeExpiresAt ?? ""); if (exp && Date.parse(exp) < Date.now()) throw new HttpError(409, "Code expiré : demandez au responsable de le renouveler");
   const fails = Number(meta.codeFails ?? 0); if (fails >= CODE_MAX_FAILS) throw new HttpError(409, "Trop d'essais incorrects : demandez au responsable de renouveler le code");
-  const given = normalizeCode(b.code); const seq = Number(meta.codeSeq ?? 0); let approver = "";
-  if (isCodeShape(given)) for (const uid of await approverIds(store, ctx, String(r.createdBy))) { const good = expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, seq, uid); if (timingSafeEqual(Buffer.from(given), Buffer.from(good)) && !approver) approver = uid; } // tous les candidats sont comparés (temps constant par comparaison)
+  const given = normalizeCode(b.code); const seq = Number(meta.codeSeq ?? 0); let approver = ""; let approverTier: Tier = "manager";
+  if (isCodeShape(given)) for (const [uid, tr] of await approverIds(store, ctx, String(r.createdBy))) { const good = expenseCode(ctx.tenantId, { id: r.$id, amount: r.amount, category: r.category, label: r.label, source: r.source, createdBy: r.createdBy }, seq, uid); if (timingSafeEqual(Buffer.from(given), Buffer.from(good)) && !approver) { approver = uid; approverTier = tr; } } // tous les candidats sont comparés (temps constant par comparaison)
   if (!approver) { meta.codeFails = fails + 1; await store.batch([{ kind: "update", table: "expenses", id: r.$id, data: { meta: JSON.stringify(meta) } }, ev(ctx, r.$id, "code_failed", { left: CODE_MAX_FAILS - fails - 1 }), aud(ctx, "expense.code.fail", `${r.number}`)]); throw new HttpError(403, `Code incorrect (${CODE_MAX_FAILS - fails - 1} essai(s) restant(s))`); }
   meta.validatedBy = approver; // le responsable dont le code a été saisi : connu et tracé
-  return approveRow(store, ctx, r, meta, "", {}, true, approver);
+  return advance(store, ctx, r, meta, { id: approver, tier: approverTier }, "code", "", {});
 }
 
 /** Annulation = opération corrective tracée : la dépense passe « annulée » (jamais supprimée) ; si elle avait sorti des espèces d'une session encore ouverte, une entrée de régularisation est écrite dans cette session. */
@@ -222,7 +244,7 @@ export async function cancelExpense(store: Store, ctx: Ctx, b: { id?: string; re
   await gate(store, ctx); const r = await store.get("expenses", String(b.id ?? "")); if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId) throw new HttpError(404, "Dépense introuvable");
   const rights = await expenseRights(store, ctx); if (!(rights.includes("cancel") || (r.status === "pending" && r.createdBy === ctx.userId))) throw new HttpError(403, "Droit manquant : Annuler une dépense");
   const reason = oneLine(b.reason, 200); if (reason.length < 3) throw new HttpError(400, "Motif d'annulation obligatoire (3 caractères au moins)");
-  if (r.status === "cancelled") throw new HttpError(409, "Dépense déjà annulée"); if (r.status === "rejected") throw new HttpError(409, "Une dépense rejetée est déjà sans effet");
+  if (r.status === "cancelled") throw new HttpError(409, "Dépense déjà annulée"); if (String(r.payMode ?? "immediate") === "deferred" && Number(r.paidAmount ?? 0) > 0) throw new HttpError(409, "Des paiements ont déjà été enregistrés sur cette dépense : elle ne peut plus être annulée (le solde restant peut être soldé ou la dépense corrigée)"); if (r.status === "rejected") throw new HttpError(409, "Une dépense rejetée est déjà sans effet");
   const meta = parse<Record<string, unknown>>(r.meta, {}); meta.cancelReason = reason; const now = new Date().toISOString(); const ops: BatchOp[] = []; let refund: string | null = null;
   if (r.status === "approved" && r.source === "till" && r.movementId) { const sess = await store.get("cash_sessions", String(r.sessionId)); if (sess && sess.status === "open") { const mv = moveOp(ctx, { id: r.$id, number: String(r.number), label: String(r.label), beneficiary: String(r.beneficiary ?? ""), amount: Number(r.amount) }, sess.$id, "in", `Annulation dépense ${r.number} — ${reason}`, "cancel"); ops.push(mv); refund = mv.id; } else meta.noCashReturn = "session fermée : aucun mouvement de caisse automatique"; }
   ops.unshift({ kind: "update", table: "expenses", id: r.$id, data: { status: "cancelled", meta: JSON.stringify({ ...meta, cancelledBy: ctx.userId, cancelledAt: now }) } }); ops.push(ev(ctx, r.$id, "cancel", { reason, previous: r.status, cashReturned: !!refund, ...(meta.noCashReturn ? { note: meta.noCashReturn } : {}) }, now, "cancel"), aud(ctx, "expense.cancel", `${r.number} ${reason}`));
@@ -270,3 +292,5 @@ export async function expenseReport(store: Store, ctx: Ctx, b: { from?: string; 
     { name: "Détail", columns: ["N°", "Date", "Libellé", "Catégorie", "Bénéficiaire", "Moyen", "Origine", "Statut", "Montant (FCFA)"], rows: rows.sort((a, c) => String(a.spentOn).localeCompare(String(c.spentOn))).map((r) => [String(r.number), storedToDay(String(r.spentOn)), String(r.label), label(String(r.category)), String(r.beneficiary ?? ""), mlab(String(r.method)), String(r.source) === "till" ? "Caisse" : "Compte externe", String(r.status), Number(r.amount)]) }] };
   return { ...report, export: exportData };
 }
+
+export { sha, newId, parse, iso, oneLine, fcfa, gate, needR, nameMap, view, settings, shopScope, ev, aud, moveOp, checkBalance, clean };
