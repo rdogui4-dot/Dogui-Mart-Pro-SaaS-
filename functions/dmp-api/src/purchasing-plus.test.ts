@@ -366,3 +366,11 @@ describe("tableau de bord Achats et connexions", () => {
     const r = await ok(call("own", "expense.report", { from: day(-1), to: day(0) })); expect(r.supplierPayments).toMatchObject({ total: 5000, fromTill: 4000, count: 2 }); expect(r.totals.period).toBe(0);
   });
 });
+
+describe("stock après réception (cas Orangina)", () => {
+  it("1 en stock + 15 commandés et reçus = 16, jamais « réinitialisé » ; l'endommagé n'entre pas", async () => {
+    await st.create("products", "p3", T, { tenantId: T, shopId: A, name: "Orangina 1.5l", price: 700, cost: 400 }); await st.create("stock_moves", "m3", T, { tenantId: T, shopId: A, productId: "p3", qty: 1, kind: "purchase" });
+    const po = await ok(call("own", "purch.po.save", { clientId: rid().slice(0, 16), supplierId: SUP, lines: [{ productId: "p3", qty: 15, unitPrice: 400 }] })); await ok(call("own", "purch.po.validate", { id: po.id }));
+    await recOk(po.id, [{ productId: "p3", accepted: 15, damaged: 1 }]); expect(await stockFor(st, "p3")).toBe(16);
+  });
+});

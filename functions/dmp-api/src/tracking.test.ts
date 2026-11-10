@@ -314,3 +314,16 @@ describe("combinaisons, rapports, droits, isolation", () => {
     expect(st.readableBy(U.cais!, "article_lots")).toHaveLength(1); expect(st.readableBy(U.cais!, "article_serials")).toHaveLength(1); expect(st.readableBy("intruder", "article_lots")).toHaveLength(0); expect(st.readableBy("intruder", "article_serials")).toHaveLength(0);
   });
 });
+
+describe("fiche article : ranger du stock dans un lot", () => {
+  const assign = (productId: string, lotNo: string, qty: number | string, extra: object = {}) => call("own", "lot.assign", { productId, lotNo, qty, ...extra });
+  it("le stock total ne change pas ; le lot reçoit sa part ; rejouable sans doublon", async () => {
+    await st.create("stock_moves", "seed1", T, { tenantId: T, shopId: A, productId: lotP, qty: 10, kind: "purchase" }); expect(await stockFor(st, lotP)).toBe(10);
+    const a = await ok(assign(lotP, "L1", 4, { requestId: "req-assign-0001", expiresAt: dayStr(30) })); expect(a.stockChanged).toBe(false); expect(await stockFor(st, lotP)).toBe(10); expect(await stockOfLot(lotP, "L1")).toBe(4);
+    expect((await ok(assign(lotP, "L1", 4, { requestId: "req-assign-0001" }))).duplicate).toBe(true); expect(await stockFor(st, lotP)).toBe(10); expect(await stockOfLot(lotP, "L1")).toBe(4);
+    await ok(assign(lotP, "L2", 6)); expect(await stockFor(st, lotP)).toBe(10); expect(st.rows("audit_log").some((l) => l.action === "lot.assign")).toBe(true);
+  });
+  it("refuse de ranger plus que le stock existant hors lot : le stock ne s'invente pas", async () => {
+    await st.create("stock_moves", "seed2", T, { tenantId: T, shopId: A, productId: lotP, qty: 3, kind: "purchase" }); await err(assign(lotP, "L1", 4), 409, "Seulement 3"); await ok(assign(lotP, "L1", 3)); await err(assign(lotP, "L2", 1), 409, "Seulement 0"); expect(await stockFor(st, lotP)).toBe(3);
+  });
+});

@@ -46,7 +46,7 @@ export function LotsSheet({ a, canManage, onClose, onChanged }: { a: ArticleRow;
   const rows = [...(q.data ?? [])].sort((x, y) => (x.lot.expiresAt ? 0 : 1) - (y.lot.expiresAt ? 0 : 1) || String(x.lot.expiresAt ?? "").localeCompare(String(y.lot.expiresAt ?? "")));
   const refresh = () => { void q.refetch(); onChanged(); };
   const save = useMutation({
-    mutationFn: () => api(s, "lot.receive", { requestId: reqId.current, productId: a.$id, lotNo: f.lotNo, qty: f.qty.trim(), ...(f.expiresAt ? { expiresAt: f.expiresAt } : {}), ...(f.unitCost ? { unitCost: f.unitCost.replace(/\s/g, "") } : {}) }),
+    mutationFn: () => api(s, "lot.assign", { requestId: reqId.current, productId: a.$id, lotNo: f.lotNo, qty: f.qty.trim(), ...(f.expiresAt ? { expiresAt: f.expiresAt } : {}), ...(f.unitCost ? { unitCost: f.unitCost.replace(/\s/g, "") } : {}) }),
     onSuccess: () => { setEntry(false); setErr(""); setF({ lotNo: "", qty: "", expiresAt: "", unitCost: "" }); reqId.current = crypto.randomUUID(); refresh(); },
     onError: (e) => setErr((e as Error).message),
   });
@@ -59,9 +59,9 @@ export function LotsSheet({ a, canManage, onClose, onChanged }: { a: ArticleRow;
   return (
     <Sheet title={`Lots · ${a.name}`} onClose={onClose} back>
       <p className="text-sm text-white/60">La vente prélève d'abord le lot qui expire le plus tôt (FEFO). Alerte à {EXPIRY_WARN_DAYS} jours de la péremption.</p>
-      {canManage && <button className="btn flex items-center justify-center gap-2" onClick={() => setEntry(true)}><Plus size={18} />Entrée dans un lot</button>}
+      {canManage && <button className="btn flex items-center justify-center gap-2" onClick={() => setEntry(true)}><Plus size={18} />Ranger du stock dans un lot</button>}
       {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
-      {!q.isLoading && rows.length === 0 && <p className="text-center text-white/50 text-sm py-4">Aucun lot. Une réception ou une entrée de stock en crée.</p>}
+      {!q.isLoading && rows.length === 0 && <p className="text-center text-white/50 text-sm py-4">Aucun lot. Une réception d'achat en crée, ou rangez du stock existant dans un lot.</p>}
       {rows.map(({ lot, scaled }) => {
         const st = expiryState(lot.expiresAt ?? null, today); const [lab, tone] = STATE_UI[st]; const n = fromScaled(scaled, scale); const blocked = lot.status === "blocked";
         return (
@@ -79,7 +79,8 @@ export function LotsSheet({ a, canManage, onClose, onChanged }: { a: ArticleRow;
       })}
       {entry && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4"><form className="card w-full max-w-sm flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-          <b>Entrée dans un lot</b>
+          <b>Ranger du stock dans un lot</b>
+          <p className="text-xs text-white/50">Le stock total ne change pas : vous indiquez dans quel lot se trouve du stock déjà enregistré. Pour ajouter du stock, utilisez une réception d'achat ou un ajustement.</p>
           <input aria-label="N° de lot *" className="input" placeholder="N° de lot *" required maxLength={40} value={f.lotNo} onChange={(e) => setF({ ...f, lotNo: e.target.value })} />
           <input aria-label="Quantité *" className="input" inputMode="decimal" placeholder="Quantité *" required value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
           <label className="text-xs text-white/60">Date de péremption<input className="input mt-1" type="date" value={f.expiresAt} onChange={(e) => setF({ ...f, expiresAt: e.target.value })} /></label>

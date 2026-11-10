@@ -140,6 +140,26 @@ function ArticleCard({ a, qty, grid, nVariants, onOpen }: { a: ArticleRow; qty?:
   );
 }
 
+
+type Mv = { id: string; at: string; kind: string; label: string; from: string; to: string; qty: number; ref: string; by: string; note: string };
+const fmtMv = (d: string) => (d ? new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
+/** Tous les mouvements de l'article (ventes, réceptions, retours, ajustements, transferts, inventaires, lots…), du plus récent au plus ancien, par pages de 50. */
+function MovementsBlock({ productId }: { productId: string }) {
+  const { session } = useSession(); const s = session!; const [pages, setPages] = useState<string[]>([]);
+  const first = useQuery({ queryKey: ["art-moves", s.shopId, productId], retry: 1, queryFn: () => api<{ moves: Mv[]; total: number; next: string | null }>(s, "stk.moves", { productId, limit: 50 }) });
+  const more = useQuery({ queryKey: ["art-moves", s.shopId, productId, pages.at(-1)], enabled: pages.length > 0, queryFn: () => api<{ moves: Mv[]; next: string | null }>(s, "stk.moves", { productId, limit: 50, before: pages.at(-1) }) });
+  const [acc, setAcc] = useState<Mv[]>([]); const [next, setNext] = useState<string | null | undefined>(undefined);
+  useEffect(() => { if (more.data) { setAcc((p) => (p.some((x) => x.id === more.data!.moves[0]?.id) ? p : [...p, ...more.data!.moves])); setNext(more.data.next); } }, [more.data]);
+  if (first.error) return null; if (!first.data) return null;
+  const all = [...first.data.moves, ...acc]; const nx = next === undefined ? first.data.next : next;
+  return (
+    <div className="card flex flex-col gap-1"><h3 className="font-semibold">Mouvements de stock ({first.data.total})</h3>
+      {all.length === 0 && <p className="text-xs text-white/50">Aucun mouvement enregistré.</p>}
+      {all.map((m) => <p key={m.id} className="text-xs text-white/70 border-t border-[var(--line)] pt-1"><span className="text-white/50">{fmtMv(m.at)}</span> · {m.label} · <b className={m.qty < 0 ? "text-red-300" : "text-emerald-300"}>{m.qty > 0 ? "+" : ""}{formatQty(m.qty)}</b>{m.from || m.to ? ` · ${m.from || "?"} → ${m.to || "?"}` : ""}{m.ref ? ` · ${m.ref}` : ""}{m.by ? ` · ${m.by}` : ""}{m.note ? ` · ${m.note}` : ""}</p>)}
+      {nx && <button className="btn-ghost" disabled={more.isFetching} onClick={() => setPages((p) => [...p, nx])}>Voir les mouvements plus anciens</button>}
+    </div>
+  );
+}
 function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdit, onChanged }: { autoOpen?: boolean; a: ArticleRow; qty: number; pro: boolean; variants: VariantRow[]; levels?: Map<string, number>; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
   const { session } = useSession(); const s = session!;
   const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
@@ -177,6 +197,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
       </div>
       {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
       {a.description && <div className="card text-sm whitespace-pre-line">{a.description}</div>}
+      {can(s, "stock") && <MovementsBlock productId={a.$id} />}
       <div className="card"><h3 className="font-semibold mb-1">Historique des prix</h3>
         {hist.isLoading ? <p className="text-sm text-white/50">Chargement…</p> : hist.error ? <p className="text-sm text-red-400">{(hist.error as Error).message}</p> : !hist.data?.length ? <p className="text-sm text-white/50">Aucune modification enregistrée.</p> :
           <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>

@@ -121,6 +121,11 @@ describe("multi-magasins", () => {
 });
 
 describe("anomalies expliquées", () => {
+  it("des ventes répétées du même article (même quantité, même vendeur) ne sont plus signalées ; les lignes d'une même pièce non plus", async () => {
+    await mv("p1", 100); for (let i = 0; i < 6; i++) await mv("p1", -1, "sale", -0.01, { refId: `V-${i % 3}`, userId: "stk" });
+    const r = await ok(call("ger", "stkp.anomalies")); expect(r.anomalies.filter((a: any) => a.kind === "repeated")).toHaveLength(0);
+    for (let i = 0; i < 4; i++) await mv("p1", -2, "adjust", -0.01, { refId: "AJ-1", userId: "stk" }); expect((await ok(call("ger", "stkp.anomalies"))).anomalies.filter((a: any) => a.kind === "repeated")).toHaveLength(0);
+  });
   it("mouvements répétés, stock négatif avec preuves, ajustements sans motif, coût manquant — jamais qualifiés de fraude", async () => {
     await mv("p1", 100); for (let i = 0; i < 4; i++) await mv("p1", -2, "adjust", -0.01, { refId: "", userId: "stk" }); await mv("p2", 3, "purchase", -3); await mv("p2", 5, "sale", -1); await mv("p3", 10, "purchase", -3, {}); st.rows("products").find((p) => p.$id === "p3")!.cost = 0; await sales("p3", 1, 3);
     const r = await ok(call("ger", "stkp.anomalies")); const k = (kind: string) => r.anomalies.filter((a: any) => a.kind === kind); expect(k("repeated").length).toBe(1); expect(k("repeated")[0].evidence.length).toBeGreaterThanOrEqual(3); expect(k("negative")[0]).toMatchObject({ priority: "high" }); expect(k("negative")[0].evidence.length).toBeGreaterThan(0); expect(k("negative")[0].title).toMatch(/Huile/); expect(k("unjustified").length).toBe(1); expect(k("no_cost").some((a: any) => /Sucre/.test(a.title))).toBe(true);

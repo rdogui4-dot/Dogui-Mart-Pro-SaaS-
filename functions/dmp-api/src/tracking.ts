@@ -90,6 +90,32 @@ export async function receiveLot(store: Store, ctx: Ctx, b: LotReceiveInput) {
   return { lotId: lot.$id, duplicate: !created };
 }
 
+/** Stock d'un article (ou d'une variante) NON affecté à un lot, en sous-unités : total du journal moins ce qui est déjà rangé dans des lots. */
+export async function unassignedStock(store: Store, productId: string, variantId: string): Promise<number> {
+  const { rows: moves } = await store.scan("stock_moves", { productId }, { maxRows: 200_000 }); let n = 0;
+  for (const m of moves) { if (m.lotId || String(m.variantId ?? "") !== variantId) continue; n += m.kind === "adjust" ? Number(m.qty) : (["sale", "loss", "transfer_out"].includes(String(m.kind)) ? -1 : 1) * Math.abs(Number(m.qty)); }
+  return n;
+}
+
+/** Fiche article : ranger du stock EXISTANT dans un lot (numéro, péremption). Le stock total ne change jamais : deux mouvements opposés (sortie hors lot, entrée dans le lot).
+ *  Refusé si la quantité dépasse le stock non encore affecté à un lot : le stock ne s'augmente que par une réception, un inventaire ou un ajustement motivé. */
+export async function assignLot(store: Store, ctx: Ctx, b: LotReceiveInput) {
+  needModule(ctx, "stock"); await needFeature(store, ctx, "lots");
+  const { p, vid } = await loadTracked(store, ctx, b.productId, b.variantId, "lot");
+  const scale = scaleOf(p); let qty: number; let parts: LotPart[];
+  try { qty = qtyFor(b.qty, scale); } catch (e) { throw new HttpError(400, `Quantité : ${(e as Error).message}`); }
+  parts = normalizeLotParts([{ lotNo: b.lotNo, qty, expiresAt: b.expiresAt, manufacturedAt: b.manufacturedAt }], qty, scale);
+  const req = String(b.requestId ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 26); const outId = req.length >= 8 ? `e${req}o` : newId(), inId = req.length >= 8 ? `e${req}i` : newId();
+  if (req.length >= 8 && (await store.get("stock_moves", inId))) return { lotId: lotRowId(p.$id, vid, parts[0]!.lotNo), duplicate: true, stockChanged: false };
+  const free = await unassignedStock(store, p.$id, vid); const want = scaledInt(qty, scale);
+  if (want > free) throw new HttpError(409, `Seulement ${fromScaled(Math.max(0, free), scale)} en stock hors lot pour « ${p.name} » : on ne peut pas ranger plus que le stock existant. Pour ajouter du stock, enregistrez une réception d'achat ou un ajustement.`);
+  const lot = await ensureLot(store, ctx, p, vid, parts[0]!, { supplierId: b.supplierId, unitCost: num(b.unitCost, "Coût") });
+  const base = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, ...(vid ? { variantId: vid } : {}), kind: "adjust", refId: "lot-assign", userId: ctx.userId };
+  await store.batch([{ kind: "create", table: "stock_moves", id: outId, tenantId: ctx.tenantId, data: { ...base, qty: -want } }, { kind: "create", table: "stock_moves", id: inId, tenantId: ctx.tenantId, data: { ...base, lotId: lot.$id, qty: want } }]);
+  await audit(store, ctx, "lot.assign", `${p.name} lot ${parts[0]!.lotNo} : ${qty} unité(s) rangée(s) depuis le stock existant (stock total inchangé)`);
+  return { lotId: lot.$id, duplicate: false, stockChanged: false };
+}
+
 /** Blocage / déblocage d'un lot (quarantaine, rappel fournisseur) et correction des dates. */
 export async function updateLot(store: Store, ctx: Ctx, b: { id: string; status?: string; expiresAt?: unknown; manufacturedAt?: unknown }) {
   needModule(ctx, "stock"); await needFeature(store, ctx, "lots");
