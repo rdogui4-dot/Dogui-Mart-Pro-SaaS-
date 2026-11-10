@@ -78,6 +78,10 @@ export function leadScore(l: LeadFacts): Score {
 // ------------------------------------------------------------------ campagnes : canaux, éligibilité, attribution, résultats
 export type Channel = "whatsapp" | "sms" | "email";
 export const CHANNELS: Record<Channel, string> = { whatsapp: "WhatsApp", sms: "SMS", email: "E-mail" };
+/** Canaux dont l'envoi est suspendu jusqu'à nouvel ordre (décision du propriétaire) : aucune campagne, aucun lien de contact. */
+export const SUSPENDED_CHANNELS: Channel[] = ["whatsapp"];
+export const isSuspended = (c: unknown): boolean => SUSPENDED_CHANNELS.includes(c as Channel);
+export const SUSPENDED_MSG = "L'envoi WhatsApp est suspendu jusqu'à nouvel ordre : choisissez SMS ou e-mail.";
 export const isChannel = (v: unknown): v is Channel => Object.hasOwn(CHANNELS, String(v));
 export type CampaignStatus = "draft" | "approved" | "running" | "completed" | "cancelled";
 export const CAMPAIGN_LABEL: Record<CampaignStatus, string> = { draft: "Brouillon", approved: "Autorisée", running: "En cours", completed: "Terminée", cancelled: "Annulée" };

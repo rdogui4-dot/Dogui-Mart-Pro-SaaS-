@@ -30,3 +30,6 @@ Module Clients + formule Pro côté serveur. Gérants : segments, campagnes, rè
 - Les retours de vente restituent les points avec les règles de fidélité en vigueur au moment du retour.
 - Calculs relus sur jusqu'à 20 000 ventes par boutique ; 500 cibles maximum par campagne.
 - Données par boutique (comme les clients) ; objectifs d'équipe en mois civil UTC.
+
+## Suspension WhatsApp (décision du propriétaire, jusqu'à nouvel ordre)
+L'envoi WhatsApp est suspendu : `SUSPENDED_CHANNELS` (src/domain/crm-pro.ts). Création, autorisation, démarrage et contact d'une campagne WhatsApp sont refusés (409) côté serveur ; le canal n'est plus proposé, les liens `wa.me` sont retirés du CRM, et l'éligibilité n'affiche plus que SMS et e-mail. Les consentements WhatsApp restent enregistrés et l'historique est conservé. Pour réactiver : retirer `whatsapp` de `SUSPENDED_CHANNELS`.

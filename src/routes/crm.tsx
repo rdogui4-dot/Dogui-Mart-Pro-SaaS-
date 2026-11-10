@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, MessageCircle, Phone, Plus } from "lucide-react";
+import { CalendarClock, Phone, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { Confirm, Sheet } from "@/components/ui";
@@ -31,7 +31,7 @@ const fmtDay = (d: string) => (d ? d.slice(0, 10).split("-").reverse().join("/")
 const localInput = (d = new Date(Date.now() + 864e5)) => { const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:00`; };
 const TL_LABEL: Record<string, string> = { sale: "Vente", return: "Retour", note: "Note", call: "Appel", meeting: "Rendez-vous", whatsapp: "WhatsApp", email: "E-mail", stage: "Étape", conversion: "Conversion", campaign: "Campagne", optout: "Désabonnement", task: "Agenda", consent: "Consentements", create: "Création", lost: "Perdu", reopen: "Réouverture" };
 const SEG_TONE: Record<string, string> = { new: "text-sky-300", active: "text-emerald-300", loyal: "text-[var(--gold)]", inactive: "text-amber-300", dormant: "text-red-300", never: "text-white/50" };
-const telHref = (p: string) => `tel:${p}`; const waHref = (p: string) => `https://wa.me/${p.replace(/\D/g, "")}`;
+const telHref = (p: string) => `tel:${p}`;
 type Tab = "dash" | "cust" | "lead" | "opp" | "agenda" | "credit" | "seg" | "camp" | "auto" | "team" | "ana" | "loy";
 const useOwners = () => { const { session } = useSession(); const s = session!; return useQuery({ queryKey: ["crm", "owners", s.shopId], retry: 1, staleTime: 5 * 60_000, queryFn: () => api<Owners>(s, "crm.owners") }); };
 
@@ -119,7 +119,7 @@ function Customers({ seg }: { seg: string }) {
 
 function ContactBar({ phone, email, consents }: { phone: string; email: string; consents?: { sms: boolean; whatsapp: boolean; email: boolean } }) {
   if (!phone && !email) return <p className="text-xs text-white/50">Aucun contact enregistré.</p>;
-  return <div className="flex gap-2 flex-wrap">{phone && <a className="btn-ghost !py-1 !px-3 text-sm flex items-center gap-1" href={telHref(phone)}><Phone size={14} />Appeler</a>}{phone && <a className="btn-ghost !py-1 !px-3 text-sm flex items-center gap-1" href={waHref(phone)} target="_blank" rel="noreferrer"><MessageCircle size={14} />WhatsApp</a>}{email && <a className="btn-ghost !py-1 !px-3 text-sm" href={`mailto:${email}`}>E-mail</a>}{consents && !consents.whatsapp && !consents.sms && !consents.email && <span className="text-[11px] text-amber-300 self-center">Aucun consentement de démarchage enregistré : contactez pour un échange lié à sa commande.</span>}</div>;
+  return <div className="flex gap-2 flex-wrap">{phone && <a className="btn-ghost !py-1 !px-3 text-sm flex items-center gap-1" href={telHref(phone)}><Phone size={14} />Appeler</a>}{email && <a className="btn-ghost !py-1 !px-3 text-sm" href={`mailto:${email}`}>E-mail</a>}{consents && !consents.whatsapp && !consents.sms && !consents.email && <span className="text-[11px] text-amber-300 self-center">Aucun consentement de démarchage enregistré : contactez pour un échange lié à sa commande.</span>}</div>;
 }
 function Timeline({ items }: { items: TL[] }) {
   return <section className="flex flex-col gap-1"><h3 className="text-sm font-semibold">Chronologie</h3>{items.length === 0 && <p className="text-xs text-white/50">Aucune interaction enregistrée.</p>}{items.map((e, i) => <p key={i} className="text-xs text-white/70 border-t border-[var(--line)] pt-1"><span className="text-white/50">{fmtAt(e.at)}</span> · <b>{e.type === "sale" || e.type === "return" ? e.title : TL_LABEL[e.type] ?? e.type}</b>{e.detail ? ` — ${e.detail}` : ""}{e.amount !== undefined ? <b className={e.amount < 0 ? " text-red-300" : " text-emerald-300"}> {formatFcfa(e.amount)}</b> : null}{e.by ? ` · ${e.by}` : ""}</p>)}</section>;
