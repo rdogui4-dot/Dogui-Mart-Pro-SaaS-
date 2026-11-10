@@ -144,6 +144,9 @@ describe("réceptions", () => {
     await err(rec(id, [{ productId: P1 }]), 400); await err(rec(id, [{ productId: P1, accepted: 1 }], { receivedOn: day(3) }), 400);
     expect(await stockFor(st, P1)).toBe(10);
   });
+  it("accepte des zéros explicites pour endommagé / refusé (formulaire)", async () => {
+    const id = await validatedPo(); await recOk(id, [{ productId: P1, accepted: 3, damaged: 0, refused: 0 }]); expect(await stockFor(st, P1)).toBe(13);
+  });
   it("une commande non validée ou annulée ne peut pas être réceptionnée", async () => {
     const d = await ok(call("own", "purch.po.save", poBody())); await err(rec(d.id, [{ productId: P1, accepted: 1 }]), 409);
   });

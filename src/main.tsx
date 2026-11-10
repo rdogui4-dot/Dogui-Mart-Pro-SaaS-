@@ -12,7 +12,7 @@ import { CreateTenantPage } from "@/routes/tenant-setup";
 import { PosPage } from "@/routes/pos";
 import { StockPage } from "@/routes/stock";
 import { ClientsPage } from "@/routes/simple";
-import { AchatsPage } from "@/routes/achats";
+import { FournisseursPage as AchatsPage } from "@/routes/fournisseurs";
 import { ComptaPage } from "@/routes/compta";
 import { SettingsPage } from "@/routes/settings";
 import { HomePage, PlusPage } from "@/routes/home";
