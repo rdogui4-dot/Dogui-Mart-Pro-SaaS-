@@ -133,3 +133,6 @@ Ventes atomiques (transactions Appwrite), anti-surventes, approbations hiérarch
 
 ## Dépenses et sorties de caisse (Business)
 Dépenses avec justificatif, sorties de caisse rattachées à la session, validation, annulation tracée et rapports : voir [docs/depenses-business.md](docs/depenses-business.md).
+
+## Dépenses Pro
+Budgets, circuit d'approbation, paiements partiels, récurrentes, trésorerie et prévisions indicatives : voir [docs/depenses-pro.md](docs/depenses-pro.md).
