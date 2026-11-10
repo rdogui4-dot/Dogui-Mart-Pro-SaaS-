@@ -17,7 +17,7 @@ type Inv = { id: string; number: string; supplierId: string; remaining: number; 
 const CREDIT_LABEL: Record<string, string> = { open: "Ouvert", partial: "Partiellement utilisé", settled: "Soldé", cancelled: "Annulé" };
 const METHODS: Record<string, string> = { card: "Banque / virement", wave: "Wave", orange: "Orange Money", cash: "Espèces (hors caisse)" };
 
-const useAct = (action: string, onOk?: () => void) => { const { session } = useSession(); const s = session!; const qc = useQueryClient(); return useMutation({ mutationFn: (b: object) => api<any>(s, action, b), onSuccess: () => { void qc.invalidateQueries({ predicate: (q) => ["claims", "credits", "purch", "stock", "art-moves", "fin"].some((k) => String(q.queryKey[0]).startsWith(k)) }); onOk?.(); } }); };
+const useAct = (action: string, onOk?: (r?: any) => void) => { const { session } = useSession(); const s = session!; const qc = useQueryClient(); return useMutation({ mutationFn: (b: object) => api<any>(s, action, b), onSuccess: (r) => { void qc.invalidateQueries({ predicate: (q) => ["claims", "credits", "purch", "stock", "art-moves", "fin"].some((k) => String(q.queryKey[0]).startsWith(k)) }); onOk?.(r); } }); };
 
 /** Bloc de la fiche article : unités endommagées/refusées/retournées de CET article et ce qu'elles sont devenues. */
 export function ClaimsBlock({ productId }: { productId: string }) {
@@ -62,11 +62,12 @@ function CreditSheet({ credit, onClose }: { credit: Credit; onClose: () => void 
   const due = (inv.data?.invoices ?? []).filter((i) => i.remaining > 0 && !i.provisional);
   const [mode, setMode] = useState<"" | "deduct" | "refund" | "cancel">(""); const [invoiceId, setInvoiceId] = useState(""); const [amount, setAmount] = useState(String(credit.remaining)); const [method, setMethod] = useState("card"); const [till, setTill] = useState(false); const [why, setWhy] = useState(""); const [key, setKey] = useState(rid);
   const done = () => { setMode(""); setKey(rid()); onClose(); };
-  const apply = useAct("credit.apply", done); const refund = useAct("credit.refund", done); const cancel = useAct("credit.cancel", done); const open = credit.status === "open" || credit.status === "partial";
+  const [warn, setWarn] = useState(""); const apply = useAct("credit.apply", done); const refund = useAct("credit.refund", (r) => { if (r?.treasuryWarning) { setWarn(String(r.treasuryWarning)); setMode(""); setKey(rid()); } else done(); }); const cancel = useAct("credit.cancel", done); const open = credit.status === "open" || credit.status === "partial";
   const chosen = due.find((i) => i.id === invoiceId);
   return (
     <Sheet title={`Avoir ${credit.number}`} onClose={onClose} back><div className="flex flex-col gap-3 p-3">
       <div className="card text-sm flex flex-col gap-1"><div className="flex justify-between"><b>{credit.supplier}</b><b>{formatFcfa(credit.amount)}</b></div><p className="text-xs text-white/50">{CREDIT_LABEL[credit.status]} · déduit {formatFcfa(credit.applied)} · remboursé {formatFcfa(credit.refunded)} · reste {formatFcfa(credit.remaining)}</p><p className="text-xs text-white/50">{credit.reason}</p></div>
+      {warn && <p className="card text-sm text-amber-300" role="alert">{warn}</p>}
       {credit.applications.map((a, i) => <p key={i} className="text-xs text-white/70">Déduit {formatFcfa(a.amount)} sur {a.invoice || "facture"} · {fmtDay(a.at)}</p>)}
       {credit.refunds.map((r, i) => <p key={i} className="text-xs text-white/70">Remboursé {formatFcfa(r.amount)} · {r.source === "till" ? "en caisse" : METHODS[r.method] ?? r.method} · {fmtDay(r.date)}</p>)}
       {open && <div className="flex gap-2 flex-wrap"><button className="btn-ghost" onClick={() => { setMode("deduct"); setAmount(String(credit.remaining)); }}>Déduire d'une facture</button><button className="btn-ghost" onClick={() => { setMode("refund"); setAmount(String(credit.remaining)); }}>Enregistrer un remboursement</button>{credit.applied + credit.refunded === 0 && <button className="btn-ghost" onClick={() => setMode("cancel")}>Annuler l'avoir</button>}</div>}

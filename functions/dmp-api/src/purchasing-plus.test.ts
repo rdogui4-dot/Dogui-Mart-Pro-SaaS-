@@ -425,4 +425,11 @@ describe("réclamations et avoirs fournisseur", () => {
     expect((await ok(call("own", "credit.create", { requestKey: k(), claimIds: [ret.id], reason: "Retour après facture" }))).amount).toBe(800);
   });
   it("isolation : une autre boutique ne voit ni ne décide les réclamations", async () => { await setup(); const c = (await claims())[0]; expect((await ok(call("gerB", "claim.list", {}, B))).claims).toHaveLength(0); await err(call("gerB", "claim.decide", { id: c.id, decision: "return", reason: "x1x" }, B), 404); });
+  it("remboursement banque : avertit si aucun compte Finance n'est rattaché, puis le solde de la banque bouge une fois le compte configuré ; trésorerie Dépenses Pro mise à jour depuis le dernier solde déclaré", async () => {
+    setPlan("pro"); const { id } = await credit(1000); await ok(call("own", "treasury.balance.save", { kind: "bank", amount: 50_000, asOf: day(-3) }));
+    const r = await ok(call("own", "credit.refund", { id, amount: 800, method: "card", requestKey: k() })); expect(r.treasuryWarning).toContain("aucun compte financier");
+    const t = await ok(call("own", "treasury.view", {})); const bank = t.balances.declared.items.find((x: any) => x.kind === "bank"); expect(bank).toMatchObject({ declaredAmount: 50_000, movedSince: 800, amount: 50_800 });
+    await ok(call("ger", "fin.account.save", { requestKey: k(), name: "Banque", kind: "bank", methods: ["card"], openingBalance: 10_000, openingDate: day(-2) }));
+    expect((await ok(call("own", "fin.accounts"))).accounts[0].balance).toBe(10_800); const r2 = await ok(call("own", "credit.refund", { id, amount: 200, method: "card", requestKey: k() })); expect(r2.treasuryWarning).toBeUndefined(); expect((await ok(call("own", "fin.accounts"))).accounts[0].balance).toBe(11_000);
+  });
 });
