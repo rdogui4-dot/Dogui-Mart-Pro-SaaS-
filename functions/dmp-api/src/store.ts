@@ -23,6 +23,8 @@ export interface Store {
   /** Fichiers (photos d'articles) : créés par la fonction uniquement, avec les mêmes droits de lecture que la ligne qui les porte. */
   putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]): Promise<void>;
   deleteFile(fileId: string): Promise<void>;
+  /** Relit un fichier (contrôle d'intégrité des pièces : l'empreinte recalculée est comparée à celle enregistrée). Absent : null. */
+  readFile(fileId: string): Promise<Uint8Array | null>;
   // Annuaire des comptes (Appwrite Users + Teams). Réservé aux actions « équipe » du propriétaire.
   createUser(a: { userId: string; email: string; password: string; name: string }): Promise<void>; // 409 si l'identifiant existe déjà
   deleteUser(userId: string): Promise<void>;

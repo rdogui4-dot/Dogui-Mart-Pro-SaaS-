@@ -37,6 +37,7 @@ export class MemoryStore implements Store {
   files = new Map<string, { data: Uint8Array; name: string; mime: string; readRoles: string[] }>();
   async putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]) { this.files.set(fileId, { data, name, mime, readRoles }); }
   async deleteFile(fileId: string) { this.files.delete(fileId); }
+  async readFile(fileId: string) { return this.files.get(fileId)?.data ?? null; }
   labels = new Map<string, string[]>();
   async setLabels(userId: string, labels: string[]) { this.labels.set(userId, labels); }
   /** Rôles d'authentification d'un utilisateur, comme Appwrite les calcule : compte, rôles d'équipe, étiquettes. */

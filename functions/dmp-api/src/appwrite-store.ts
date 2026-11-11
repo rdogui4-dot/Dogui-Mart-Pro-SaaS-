@@ -65,6 +65,7 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       void mime; // le type est déduit par Appwrite de l'extension et du contenu
       await storage.createFile({ bucketId: "articles", fileId, file: InputFile.fromBuffer(Buffer.from(data), name), permissions: readRoles.map((r) => Permission.read(r)) });
     },
+    async readFile(fileId) { try { return new Uint8Array(await storage.getFileDownload({ bucketId: "articles", fileId })); } catch (e: any) { if (e?.code === 404) return null; throw e; } },
     async deleteFile(fileId) { try { await storage.deleteFile({ bucketId: "articles", fileId }); } catch (e: any) { if (e?.code !== 404) throw e; } },
     async createUser(a) {
       try { await users.create({ userId: a.userId, email: a.email, password: a.password, name: a.name }); }
