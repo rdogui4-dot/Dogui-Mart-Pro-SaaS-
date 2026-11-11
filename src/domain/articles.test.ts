@@ -33,6 +33,6 @@ describe("articles : marge", () => {
 });
 describe("droits d'abonnement", () => {
   it("Articles : Business et Pro, pas Starter", () => { expect(planAllows("starter", "articles")).toBe(false); expect(planAllows("business", "articles")).toBe(true); expect(planAllows("pro", "articles")).toBe(true); });
-  it("fonctions avancées : Pro uniquement", () => { for (const k of PRO_LOCKED) { expect(planAllows("business", k)).toBe(false); expect(planAllows("pro", k)).toBe(true); } expect(PRO_LOCKED.length).toBe(Object.keys(FEATURES).length - 11); });
+  it("fonctions avancées : Pro uniquement", () => { for (const k of PRO_LOCKED) { expect(planAllows("business", k)).toBe(false); expect(planAllows("pro", k)).toBe(true); } expect(PRO_LOCKED.length).toBe(Object.keys(FEATURES).length - 12); });
   it("formule inconnue = aucun droit payant", () => { expect(planAllows(undefined, "articles")).toBe(false); expect(planAllows("zzz", "articles")).toBe(false); });
 });
