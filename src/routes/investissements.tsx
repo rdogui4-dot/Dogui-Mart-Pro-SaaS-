@@ -6,6 +6,7 @@ import { Sheet } from "@/components/ui";
 import { exportReport, type ExportFormat } from "@/lib/report-export";
 import type { ReportData } from "@/domain/exports";
 import { Err, Field, Kpi, Note, day, fmtDay, money, rid, useAct, useQ } from "./icompta-kit";
+import { PlacementPro, Portfolio, ProjectPro, Reglages } from "./investissements-pro";
 
 type Alert = { level: "critical" | "warn" | "info"; text: string; item?: string; id?: string };
 const TONE = { critical: "text-red-300", warn: "text-amber-300", info: "text-white/60" } as const;
@@ -15,16 +16,16 @@ const Alerts = ({ list }: { list: Alert[] }) => <>{list.map((a, i) => <p key={i}
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v} %`);
 const months = (v: number | null | undefined) => (v === null || v === undefined ? "jamais" : `${v} mois`);
 
-type Tab = "syn" | "proj" | "plac" | "reg";
+type Tab = "syn" | "proj" | "plac" | "port" | "rpro" | "reg";
 export function InvestPage() {
   const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const [tab, setTab] = useState<Tab>("syn");
-  const tabs: [Tab, string][] = [["syn", "Synthèse"], ["proj", "Projets"], ["plac", "Placements"], ["reg", "Profil de risque"]];
+  const tabs: [Tab, string][] = [["syn", "Synthèse"], ["proj", "Projets"], ["plac", "Placements"], ["port", "Portefeuille"], ["rpro", "Réglages Pro"], ["reg", "Profil de risque"]];
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">Investissements</h1>
       <p className="text-xs text-white/50">Étude de vos projets d'entreprise et suivi de vos placements déclarés. Outil d'analyse et de simulation : ce n'est ni un conseil financier ni une promesse de rendement, et aucune opération n'est exécutée.</p>
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections Investissements">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
-      {tab === "syn" && <Synthese onTab={setTab} />}{tab === "proj" && <Items kind="project" mgr={mgr} />}{tab === "plac" && <Items kind="placement" mgr={mgr} />}{tab === "reg" && <Profil owner={s.role === "owner"} />}
+      {tab === "syn" && <Synthese onTab={setTab} />}{tab === "proj" && <Items kind="project" mgr={mgr} />}{tab === "plac" && <Items kind="placement" mgr={mgr} />}{tab === "port" && <Portfolio owner={s.role === "owner"} />}{tab === "rpro" && <Reglages />}{tab === "reg" && <Profil owner={s.role === "owner"} />}
     </div>
   );
 }
@@ -104,6 +105,7 @@ function ProjectSheet({ id, onClose }: { id: string; onClose: () => void }) {
         {can && nexts[it.status] && <div className="card flex flex-col gap-2"><b className="text-sm">Statut</b><div className="flex gap-2 flex-wrap">{nexts[it.status]!.filter(([, , r]) => owner || r || false).map(([to, label, needs]) => <button key={to} className="btn-ghost" onClick={() => (needs ? setPick(to) : st.mutate({ id, status: to }))}>{label}</button>)}{!owner && <Note>Approbation, lancement et clôture : propriétaire seul.</Note>}</div>{pick && <div className="flex gap-2"><input className="input flex-1" aria-label="Motif du changement de statut" placeholder="Motif (5 caractères au moins)" value={why} onChange={(e) => setWhy(e.target.value)} /><button className="btn" disabled={why.trim().length < 5 || st.isPending} onClick={() => st.mutate({ id, status: pick, reason: why }, { onSuccess: () => { setPick(""); setWhy(""); } })}>Confirmer</button></div>}<Err e={st.error} /></div>}
         <div className="flex gap-2">{(["pdf", "xlsx", "csv"] as const).map((x) => <button key={x} className="btn-ghost" onClick={() => void exp(x)}>{x === "xlsx" ? "Excel" : x.toUpperCase()}</button>)}</div><Err e={err} />
         <b className="text-sm">Traçabilité</b>{q.data.trail.map((t, i) => <p key={i} className="text-xs text-white/60 border-t border-white/10 pt-1">{new Date(t.at).toLocaleString("fr-FR")} · {t.by} · {t.action} · {t.detail}</p>)}
+        <ProjectPro id={id} />
         <Limits items={q.data.limits} /></div>}
     </Sheet>
   );
@@ -136,7 +138,7 @@ function PlacementSheet({ id, onClose }: { id: string; onClose: () => void }) {
         {it.realized && <div className="card text-sm">Clôturé le {fmtDay(it.realized.closedOn)} : récupéré {money(it.realized.amount)} (saisi), soit {money(it.realized.gain)} par rapport au capital investi.</div>}
         <b className="text-sm">Échéances</b>{it.data.maturities.length === 0 && <p className="text-xs text-white/50">Aucune échéance.</p>}{it.data.maturities.map((m) => <div key={m.id} className="text-xs flex justify-between border-t border-white/10 pt-1"><span>{fmtDay(m.date)} · {m.label} · {money(m.amount)}</span>{can && it.status === "active" ? <button className="btn-ghost" onClick={() => mat.mutate({ id, maturity: m.id, done: !m.done })}>{m.done ? "Rouvrir" : "Constatée"}</button> : <span>{m.done ? "constatée" : ""}</span>}</div>)}
         {can && it.status === "active" && <><button className="btn-ghost self-start" onClick={() => setShow(!show)}>Clôturer ce placement…</button>{show && <div className="card flex flex-col gap-2"><Field label="Montant réellement récupéré (saisi par vous)"><input className="input" aria-label="Montant récupéré" inputMode="numeric" value={f.real} onChange={(e) => setF({ ...f, real: e.target.value })} /></Field><input className="input" aria-label="Motif de clôture" placeholder="Motif (5 caractères au moins)" value={f.why} onChange={(e) => setF({ ...f, why: e.target.value })} /><Err e={close.error} /><button className="btn" disabled={close.isPending} onClick={() => close.mutate({ id, status: "closed", realizedAmount: num(f.real), reason: f.why })}>Clôturer</button></div>}</>}
-        <Err e={mat.error} /><b className="text-sm">Traçabilité</b>{q.data.trail.map((t, i) => <p key={i} className="text-xs text-white/60 border-t border-white/10 pt-1">{new Date(t.at).toLocaleString("fr-FR")} · {t.by} · {t.action} · {t.detail}</p>)}<Limits items={q.data.limits} /></div>}
+        <Err e={mat.error} /><PlacementPro id={id} /><b className="text-sm">Traçabilité</b>{q.data.trail.map((t, i) => <p key={i} className="text-xs text-white/60 border-t border-white/10 pt-1">{new Date(t.at).toLocaleString("fr-FR")} · {t.by} · {t.action} · {t.detail}</p>)}<Limits items={q.data.limits} /></div>}
     </Sheet>
   );
 }
