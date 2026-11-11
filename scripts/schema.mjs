@@ -98,6 +98,10 @@ export const TABLES = {
   inv_scenarios: { cols: [...base, s("itemId", 64, true), s("name", 12, true), i("version"), t("assumptions"), t("history"), s("updatedBy", 64)], idx: [["item", ["itemId"]]] },
   inv_actuals: { cols: [...base, s("itemId", 64, true), s("date", 10, true), s("kind", 3, true), i("amount", true), s("label", 160), s("source", 12), s("sourceRef", 64), s("status", 8), s("createdBy", 64), s("voidedBy", 64), s("voidReason", 200), s("requestKey", 64)], idx: [["item", ["itemId"]], ["shop", ["tenantId", "shopId"]]] },
   inv_config: { cols: [...base, t("data"), s("updatedBy", 64)], idx: [["shop", ["tenantId", "shopId"]]] },
+  // IProj-Invest Pro : plans de financement (conditions saisies), échéancier des décaissements, valorisations saisies des placements.
+  inv_financing: { cols: [...base, s("itemId", 64, true), s("name", 120, true), s("kind", 6, true), t("data"), s("status", 8), s("createdBy", 64), s("updatedBy", 64), s("requestKey", 64)], idx: [["item", ["itemId"]]] },
+  inv_tranches: { cols: [...base, s("itemId", 64, true), s("dueOn", 10, true), i("amount", true), s("label", 160), s("status", 10), s("paidOn", 10), i("paidAmount"), s("approvedBy", 64), s("cancelReason", 200), s("createdBy", 64), s("updatedBy", 64), s("requestKey", 64)], idx: [["item", ["itemId"]], ["shop", ["tenantId", "shopId"]]] },
+  inv_values: { cols: [...base, s("itemId", 64, true), s("date", 10, true), i("value", true), s("note", 120), s("status", 8), s("voidReason", 200), s("createdBy", 64), s("requestKey", 64)], idx: [["item", ["itemId"]]] },
   fin_rules: { cols: [...base, t("data"), s("updatedBy", 64)], idx: [["shop", ["tenantId", "shopId"]]] },
   fin_scenarios: { cols: [...base, s("name", 80, true), t("params"), s("createdBy", 64), b("archived"), s("requestKey", 64)], idx: [["shop", ["tenantId", "shopId"]]] },
   fin_plans: { cols: [...base, s("kind", 4, true), s("label", 120, true), i("amount", true), s("dueOn", 10, true), s("party", 120), s("category", 40), s("status", 12), t("approvals"), s("note", 200), s("reference", 64), s("createdBy", 64), s("requestKey", 64), s("doneOn", 10)], idx: [["shop", ["tenantId", "shopId"]]] },
