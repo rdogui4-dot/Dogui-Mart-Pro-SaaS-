@@ -1,0 +1,11 @@
+import { describe, expect, it } from "vitest";
+import { EMPTY_MAPPING, canAutoActivate, expectedAmount, mappingComplete, parseEvent, pathGet } from "./master-pay";
+const M = { ref: "data.id", amount: "data.amount", email: "data.customer.email", status: "event", currency: "data.currency", successValues: ["charge.success"], expectedCurrency: "" };
+const P = { event: "charge.success", data: { id: "TX-1", amount: "15 000", currency: "xof", customer: { email: "Chef@Boutique.CI" } } };
+describe("notification de paiement", () => {
+  it("lecture par chemin : sûre (pas de prototype), tableaux, absents", () => { expect(pathGet(P, "data.customer.email")).toBe("Chef@Boutique.CI"); expect(pathGet(P, "data.nope.x")).toBeUndefined(); expect(pathGet(P, "__proto__.polluted")).toBeUndefined(); expect(pathGet({ a: [{ b: 2 }] }, "a.0.b")).toBe(2); expect(pathGet(null, "a")).toBeUndefined(); });
+  it("analyse : montant entier, e-mail normalisé, objets refusés", () => { const p = parseEvent(P, M); expect(p).toMatchObject({ ref: "TX-1", amount: 15000, email: "chef@boutique.ci", status: "charge.success", currency: "XOF", missing: [] }); expect(parseEvent({ data: { id: "x", amount: "12.5" } }, M).amount).toBeNull(); expect(parseEvent({ data: { id: { a: 1 } } }, M).missing).toContain("référence"); });
+  it("sans paramétrage complet : jamais d'activation automatique", () => { expect(mappingComplete(EMPTY_MAPPING)).toBe(false); expect(canAutoActivate(parseEvent(P, EMPTY_MAPPING), EMPTY_MAPPING).auto).toBe(false); expect(canAutoActivate(parseEvent(P, M), M)).toEqual({ auto: true, why: "" }); });
+  it("statut non abouti, champ manquant, devise inattendue : examen", () => { expect(canAutoActivate(parseEvent({ ...P, event: "charge.failed" }, M), M).auto).toBe(false); expect(canAutoActivate(parseEvent({ event: "charge.success", data: { id: "x", amount: 1 } }, M), M).why).toContain("absents"); expect(canAutoActivate(parseEvent(P, M), { ...M, expectedCurrency: "NGN" }).auto).toBe(false); expect(canAutoActivate(parseEvent(P, M), { ...M, expectedCurrency: "xof" }).auto).toBe(true); });
+  it("montant attendu", () => { expect(expectedAmount("first", 1, 15000, 2500)).toBe(15000); expect(expectedAmount("month", 3, 15000, 2500)).toBe(7500); });
+});

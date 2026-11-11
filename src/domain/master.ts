@@ -33,3 +33,13 @@ export function applyPurchase(lic: Lic, p: Purchase, now: Date): Applied {
   const cur = lic.paidUntil && t(lic.paidUntil) > now.getTime() ? lic.paidUntil : nowIso; const to = addMonths(cur, p.count); return { lic: { ...lic, paidUntil: to }, amount: MASTER.renewPrice * p.count, from: cur, to };
 }
 export const startTrial = (now: Date): Lic => ({ trialStartedAt: now.toISOString(), trialEndsAt: new Date(now.getTime() + MASTER.trialDays * DAY).toISOString() });
+
+export type Reminder = { level: "soon" | "urgent" | "last" | "expired"; text: string };
+/** Rappels affichés DANS l'application (aucun e-mail, aucun message externe) : à 7, 3 et 1 jour de l'échéance, puis à l'expiration. */
+export function reminderOf(v: View): Reminder | null {
+  if (v.state === "expired") return { level: "expired", text: "Licence MASTER DOGUI expirée : mode consultation. Renouvelez pour relancer les analyses." };
+  if ((v.state !== "trial" && v.state !== "active") || v.daysLeft === null) return null; const what = v.state === "trial" ? "Votre essai MASTER DOGUI se termine" : "Votre licence MASTER DOGUI arrive à échéance";
+  if (v.daysLeft <= 1) return { level: "last", text: `${what} aujourd'hui ou demain. Contactez l'équipe DOGUI MART PRO pour l'activation.` }; if (v.daysLeft <= 3) return { level: "urgent", text: `${what} dans ${v.daysLeft} jours.` }; if (v.daysLeft <= 7) return { level: "soon", text: `${what} dans ${v.daysLeft} jours.` }; return null;
+}
+/** Second critère anti-contournement : téléphone normalisé (9 derniers chiffres, indicatifs et zéros initiaux ignorés). Moins de 8 chiffres : invalide. */
+export function phoneKey(raw: unknown): string { const d = String(raw ?? "").replace(/\D/g, ""); return d.length < 8 ? "" : d.slice(-9); }

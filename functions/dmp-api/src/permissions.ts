@@ -135,6 +135,8 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   subscription_payments: (t) => [owner(t)],
   md_licenses: (t) => [owner(t)],
   md_trials: (t) => [owner(t)],
+  md_payments: (t) => [owner(t)],
+  md_events: () => [],
   // Réglages de plateforme : aucune lecture client (clé serveur uniquement)
   platform_settings: () => [],
 };

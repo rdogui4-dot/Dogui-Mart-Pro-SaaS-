@@ -128,6 +128,9 @@ export const TABLES = {
   // MASTER DOGUI : licence indépendante de l'abonnement principal (une ligne par entreprise, id = tenantId) et registre de l'essai unique (clé dérivée de l'e-mail du propriétaire).
   md_licenses: { cols: [s("tenantId", 64, true), s("status", 8), d("trialStartedAt"), d("trialEndsAt"), d("firstPaidAt"), d("paidUntil"), t("history"), s("trialKey", 64), s("updatedBy", 64)], idx: [["tenant", ["tenantId"], "unique"]] },
   md_trials: { cols: [s("tenantId", 64, true), d("startedAt")], idx: [] },
-  platform_settings: { cols: [t("selarLinks"), t("plans")], idx: [] },
+  // Paiement MASTER DOGUI : demandes du propriétaire (montant et e-mail attendus) et notifications reçues du prestataire (file d'examen ; brut conservé seulement tant que le paramétrage est incomplet).
+  md_payments: { cols: [s("tenantId", 64, true), s("kind", 6, true), i("count"), i("amount", true), s("payerEmail", 120), s("status", 10), s("reference", 16), s("eventId", 64), s("createdBy", 64)], idx: [["tenant", ["tenantId"]], ["status", ["status"]]] },
+  md_events: { cols: [s("tenantId", 64), s("status", 10, true), s("ref", 64), i("amount"), s("email", 120), s("currency", 8), s("bodyHash", 64), t("raw"), s("note", 200), s("requestId", 64), s("decidedBy", 64)], idx: [["status", ["status"]]] },
+  platform_settings: { cols: [t("selarLinks"), t("plans"), t("masterHook")], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
 };

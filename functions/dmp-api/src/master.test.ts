@@ -18,7 +18,19 @@ beforeEach(async () => {
   st = new MemoryStore(); await st.grant(T, "own", ["owner"], []); await st.grant(T2, "own2", ["owner"], []);
   A = (await ok(call("own", "shop.create", { name: "Dakar" }, "", T))).shopId; A2 = (await ok(call("own2", "shop.create", { name: "Thiès" }, "", T2))).shopId;
   for (const [u, role] of [["ger", "manager"], ["cais", "cashier"]] as const) U[u] = (await ok(call("own", "staff.create", { name: u, username: u, password: "motdepasse1", role, shopIds: [A] }, "", T))).userId;
-  st.ownerNames.set("own", "Propriétaire"); void A2;
+  st.ownerNames.set("own", "Propriétaire"); void A2; await st.update("shops", A, { phone: "+225 07 01 02 03 04" }); await st.update("shops", A2, { phone: "0505050505" });
+});
+
+describe("MASTER DOGUI — second critère et rappels", () => {
+  it("téléphone obligatoire ; même numéro (autre format, autre propriétaire) refusé ; l'échec ne laisse aucune réservation orpheline", async () => {
+    await st.update("shops", A, { phone: "" }); await err(call("own", "md.trial.start", {}, "", T), 400, "téléphone"); await st.update("shops", A, { phone: "+225 07 01 02 03 04" }); await ok(call("own", "md.trial.start", {}, "", T));
+    await st.update("shops", A2, { phone: "0701020304" }); const before = st.rows("md_trials").length; await err(call("own2", "md.trial.start", {}, "", T2), 409, "numéro de téléphone"); expect(st.rows("md_trials").length).toBe(before); expect(st.rows("md_licenses")).toHaveLength(1);
+    await st.update("shops", A2, { phone: "0505050505" }); expect((await ok(call("own2", "md.trial.start", {}, "", T2))).state).toBe("trial");
+  });
+  it("rappels dans l'application : aucun avant J-7, puis J-7, J-3, J-1, puis expiration ; jamais d'envoi externe", async () => {
+    await ok(call("own", "md.trial.start", {}, "", T)); expect((await lic()).reminder).toBeNull(); const row = st.rows("md_licenses")[0]!; const at = (d: number) => { row.trialEndsAt = new Date(Date.now() + d * 864e5 - 1000).toISOString(); };
+    at(7); expect((await lic()).reminder).toMatchObject({ level: "soon" }); at(3); expect((await lic()).reminder).toMatchObject({ level: "urgent" }); at(0.5); expect((await lic()).reminder).toMatchObject({ level: "last" }); at(-1); expect((await lic()).reminder).toMatchObject({ level: "expired" });
+  });
 });
 
 describe("MASTER DOGUI — licence", () => {
@@ -31,7 +43,7 @@ describe("MASTER DOGUI — licence", () => {
     expect(st.rows("md_licenses")).toHaveLength(1); expect(JSON.stringify(st.rows("subscriptions"))).toBe(subBefore); expect(st.rows("audit_log").filter((l) => l.action === "master.trial.start")).toHaveLength(1); const v = await lic(); expect(v.canStartTrial).toBe(false); expect(v.nextDue).toMatchObject({ amount: 15_000 });
   });
   it("essai unique par propriétaire : une autre entreprise du même propriétaire est refusée ; une entreprise d'un autre propriétaire est acceptée ; exception administrative motivée", async () => {
-    await ok(call("own", "md.trial.start", {}, "", T)); await st.grant("tenantmaster03", "own", ["owner"], []); await ok(call("own", "shop.create", { name: "Autre" }, "", "tenantmaster03")); await err(call("own", "md.trial.start", {}, "", "tenantmaster03"), 409, "déjà été utilisé"); expect(st.rows("audit_log").some((l) => l.action === "master.trial.refused")).toBe(true);
+    await ok(call("own", "md.trial.start", {}, "", T)); await st.grant("tenantmaster03", "own", ["owner"], []); const s3 = (await ok(call("own", "shop.create", { name: "Autre" }, "", "tenantmaster03"))).shopId; await st.update("shops", s3, { phone: "0709090909" }); await err(call("own", "md.trial.start", {}, "", "tenantmaster03"), 409, "déjà été utilisé"); expect(st.rows("audit_log").some((l) => l.action === "master.trial.refused")).toBe(true);
     expect((await ok(call("own2", "md.trial.start", {}, "", T2))).state).toBe("trial"); await err(adm("platform.master.trial", { tenantId: "tenantmaster03" }), 400, "Motif"); await err(call("own", "platform.master.trial", { tenantId: "tenantmaster03", note: "geste commercial" }, "", ""), 403); const g = await ok(adm("platform.master.trial", { tenantId: "tenantmaster03", note: "Erreur de création signalée" })); expect(g.state).toBe("trial"); await err(adm("platform.master.trial", { tenantId: "tenantmaster03", note: "Deuxième fois" }), 409);
   });
   it("garde needMaster : refuse sans essai, accepte en essai, refuse après expiration ; autres actions DOGUI MART PRO inchangées", async () => {

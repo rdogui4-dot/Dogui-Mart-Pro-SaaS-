@@ -27,3 +27,21 @@ Aucune IA à ce stade. Cette étape pose la licence, l'essai et le mode consulta
 
 ## Données (Appwrite, base `dmp`)
 `md_licenses` (index unique `tenant`), `md_trials`. Permissions : propriétaire uniquement ; écritures par la fonction `dmp-api` seulement.
+
+## Révision 1b (consignes de la direction)
+- **Second critère d'essai** : le **numéro de téléphone** de la boutique principale (9 derniers chiffres, indicatifs ignorés) s'ajoute à l'e-mail du propriétaire. Le téléphone est **obligatoire** pour démarrer l'essai ; si l'un des deux critères a déjà servi pour une autre entreprise, l'essai est refusé (et aucune réservation orpheline ne reste). Limite : le téléphone est déclaré, non vérifié (la vérification par SMS reste suspendue).
+- **Rappels dans l'application, pas par e-mail** : bandeau sur l'accueil et sur la page MASTER DOGUI à 7, 3 et 1 jour(s) de l'échéance, puis à l'expiration. Aucun envoi externe.
+- **Paiement unique** de 15 000 FCFA pour la première année, **sans délai de grâce** (valeurs déjà retenues) ; fuseau UTC conservé.
+- **Webhook de paiement** (voir ci-dessous).
+
+### Webhook de paiement
+Architecture : une fonction publique séparée `dmp-hooks` (adresse `https://dmp-hooks-dogui.fra.appwrite.run`) qui ne contient **que** le récepteur. Le routeur `dmp-api` (toutes les autres actions) reste réservé aux utilisateurs connectés.
+1. Le propriétaire prépare un paiement (`md.pay.request`) : référence `MD-…`, **montant exact** et **e-mail du payeur** sont enregistrés (une demande active à la fois).
+2. Il paie via le lien de paiement renseigné par l'administrateur.
+3. Le prestataire notifie l'adresse secrète `…/?k=<jeton>` (jeton généré, affiché une fois, seule son empreinte est conservée).
+4. Activation **automatique** seulement si : réception activée, **paramétrage des champs complet**, statut reconnu comme abouti, devise conforme si fixée, **une seule demande** avec le même e-mail et le même montant. Sinon la notification va dans la **file d'examen** de l'administrateur (validation motivée ou rejet).
+5. Idempotence : une notification rejouée ne crée rien ; deux notifications simultanées n'activent qu'une fois ; tout est journalisé.
+
+**Important — format du prestataire** : le format exact des notifications de Selar n'a pas pu être vérifié (documentation introuvable depuis cet environnement). Il n'est donc **pas présumé** : après la première notification (visible en file d'examen avec son contenu brut), l'administrateur déclare les champs (référence, montant, e-mail, statut, valeurs de succès). Tant que ce n'est pas fait, aucune activation automatique n'a lieu. Il faut aussi vérifier que Selar peut appeler une adresse avec paramètre `?k=` ; sinon, utiliser l'outil d'intégration du prestataire (type Zapier) qui relaie vers cette adresse.
+
+Données : `md_payments`, `md_events` (le contenu brut n'est conservé que tant que le paramétrage est incomplet), `platform_settings.masterHook`.

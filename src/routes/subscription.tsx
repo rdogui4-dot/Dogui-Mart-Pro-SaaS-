@@ -216,6 +216,7 @@ export function PlatformSection() {
       <PlatformSettingsForm />
       <GrantForm />
       <MasterGrantForm />
+      <MasterHookForm />
       <LifetimeForm />
       </>}
     </>
@@ -375,5 +376,45 @@ function MasterGrantForm() {
       <input aria-label="Référence du paiement MASTER" className="input" placeholder="Référence du paiement (ex. Selar, virement…)" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
       <button className="btn">Activer</button>{msg && <p className="text-sm text-amber-300">{msg}</p>}
     </form>
+  );
+}
+
+type HookV = { enabled: boolean; tokenSet: boolean; mapping: { ref: string; amount: string; email: string; status: string; currency: string; successValues: string[]; expectedCurrency: string }; mappingComplete: boolean; links: { first: string; month: string }; baseUrl: string; note: string };
+type EvV = { id: string; status: string; ref: string; amount: number | null; email: string; currency: string; note: string; raw: string; at: string };
+function MasterHookForm() {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [msg, setMsg] = useState(""); const [tok, setTok] = useState("");
+  const q = useQuery({ queryKey: ["md-hook"], queryFn: () => api<HookV>(s, "platform.master.hook.get", {}) }); const ev = useQuery({ queryKey: ["md-events"], queryFn: () => api<{ events: EvV[] }>(s, "platform.master.events", { status: "review" }) });
+  const [f, setF] = useState<{ ref: string; amount: string; email: string; status: string; currency: string; ok: string; cur: string; first: string; month: string; base: string } | null>(null);
+  if (q.data && !f) setF({ ref: q.data.mapping.ref, amount: q.data.mapping.amount, email: q.data.mapping.email, status: q.data.mapping.status, currency: q.data.mapping.currency, ok: q.data.mapping.successValues.join(","), cur: q.data.mapping.expectedCurrency, first: q.data.links.first, month: q.data.links.month, base: q.data.baseUrl });
+  const call = async (action: string, payload: object) => { setMsg(""); try { const r = await api<any>(s, action, payload); void qc.invalidateQueries({ queryKey: ["md-hook"] }); void qc.invalidateQueries({ queryKey: ["md-events"] }); return r; } catch (x) { setMsg((x as Error).message); return null; } };
+  if (!q.data || !f) return null; const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  return (
+    <div className="card flex flex-col gap-2">
+      <h2 className="font-semibold">Confirmation automatique des paiements MASTER DOGUI (webhook)</h2>
+      <p className="text-xs text-white/60">{q.data.note}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <input aria-label="Adresse de réception (fonction publique)" className="input col-span-2" placeholder="Adresse https de la fonction de réception" value={f.base} onChange={set("base")} />
+        <input aria-label="Champ référence" className="input" placeholder="Champ : référence (ex. data.id)" value={f.ref} onChange={set("ref")} /><input aria-label="Champ montant" className="input" placeholder="Champ : montant" value={f.amount} onChange={set("amount")} />
+        <input aria-label="Champ e-mail" className="input" placeholder="Champ : e-mail de l'acheteur" value={f.email} onChange={set("email")} /><input aria-label="Champ statut" className="input" placeholder="Champ : statut" value={f.status} onChange={set("status")} />
+        <input aria-label="Valeurs de succès" className="input" placeholder="Valeurs = paiement abouti (séparées par des virgules)" value={f.ok} onChange={set("ok")} /><input aria-label="Champ devise" className="input" placeholder="Champ : devise (facultatif)" value={f.currency} onChange={set("currency")} />
+        <input aria-label="Devise attendue" className="input" placeholder="Devise attendue (facultatif)" value={f.cur} onChange={set("cur")} /><span className={`text-xs self-center ${q.data.mappingComplete ? "text-emerald-300" : "text-amber-300"}`}>{q.data.mappingComplete ? "Paramétrage complet" : "Paramétrage incomplet : examen manuel"}</span>
+        <input aria-label="Lien de paiement première période" className="input" placeholder="Lien de paiement : première période" value={f.first} onChange={set("first")} /><input aria-label="Lien de paiement renouvellement" className="input" placeholder="Lien de paiement : renouvellement" value={f.month} onChange={set("month")} />
+      </div>
+      <div className="flex gap-2 flex-wrap"><button className="btn" onClick={async () => { const r = await call("platform.master.hook.save", { baseUrl: f.base, mapping: { ref: f.ref, amount: f.amount, email: f.email, status: f.status, currency: f.currency, successValues: f.ok.split(",").map((x) => x.trim()).filter(Boolean), expectedCurrency: f.cur }, links: { first: f.first, month: f.month } }); if (r) setMsg("Paramétrage enregistré"); }}>Enregistrer</button>
+        <button className="btn-ghost" onClick={async () => { const r = await call("platform.master.hook.rotate", {}); if (r) setTok(r.urlTemplate); }}>{q.data.tokenSet ? "Régénérer le jeton" : "Générer le jeton"}</button>
+        <button className="btn-ghost" onClick={() => void call("platform.master.hook.save", { enabled: !q.data.enabled })}>{q.data.enabled ? "Désactiver" : "Activer"} la réception</button></div>
+      {tok && <p className="text-xs break-all text-amber-300" role="status">À copier maintenant dans le prestataire de paiement (affichée une seule fois) : {tok}</p>}{msg && <p className="text-sm text-amber-300">{msg}</p>}<p className="text-xs text-white/50">Réception : {q.data.enabled ? "ACTIVE" : "désactivée"} · jeton : {q.data.tokenSet ? "défini" : "absent"}</p>
+      <b className="text-sm">Notifications à examiner</b>{ev.data?.events.length === 0 && <p className="text-xs text-white/50">Aucune notification en attente.</p>}
+      {ev.data?.events.map((e) => <EvRow key={e.id} e={e} onDone={() => { void qc.invalidateQueries({ queryKey: ["md-events"] }); }} />)}
+    </div>
+  );
+}
+function EvRow({ e, onDone }: { e: EvV; onDone: () => void }) {
+  const { session } = useSession(); const s = session!; const [f, setF] = useState({ tenantId: "", kind: "first", count: "1", note: "" }); const [msg, setMsg] = useState("");
+  async function go(action: string) { setMsg(""); try { await api(s, "platform.master.event.decide", { eventId: e.id, action, ...(action === "approve" ? { tenantId: f.tenantId.trim(), kind: f.kind, count: Number(f.count) } : {}), note: f.note }); onDone(); } catch (x) { setMsg((x as Error).message); } }
+  return (
+    <div className="border-t border-white/10 pt-2 flex flex-col gap-1 text-xs"><p><b>{e.ref || e.id}</b> · {e.amount ?? "?"} {e.currency} · {e.email || "e-mail ?"} · {new Date(e.at).toLocaleString("fr-FR")}</p><p className="text-amber-300">{e.note}</p>{e.raw && <details><summary className="cursor-pointer">Contenu reçu (calibrage)</summary><pre className="whitespace-pre-wrap break-all text-[10px] text-white/60">{e.raw}</pre></details>}
+      <div className="grid grid-cols-3 gap-1"><input aria-label="tenantId à activer" className="input !py-1" placeholder="tenantId" value={f.tenantId} onChange={(x) => setF({ ...f, tenantId: x.target.value })} /><select aria-label="Type" className="input !py-1" value={f.kind} onChange={(x) => setF({ ...f, kind: x.target.value })}><option value="first">Première période</option><option value="month">Mois</option></select><input aria-label="Mois" className="input !py-1" value={f.count} disabled={f.kind === "first"} onChange={(x) => setF({ ...f, count: x.target.value })} /></div>
+      <input aria-label="Motif de la décision" className="input !py-1" placeholder="Motif / vérification effectuée" value={f.note} onChange={(x) => setF({ ...f, note: x.target.value })} /><div className="flex gap-2"><button className="btn !py-1" onClick={() => void go("approve")}>Valider et activer</button><button className="btn-ghost !py-1" onClick={() => void go("reject")}>Rejeter</button></div>{msg && <p className="text-red-400">{msg}</p>}</div>
   );
 }
