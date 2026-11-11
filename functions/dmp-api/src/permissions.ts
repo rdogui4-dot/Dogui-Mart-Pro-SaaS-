@@ -133,6 +133,8 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   // Abonnement : propriétaire seulement
   subscriptions: (t) => [owner(t)],
   subscription_payments: (t) => [owner(t)],
+  md_licenses: (t) => [owner(t)],
+  md_trials: (t) => [owner(t)],
   // Réglages de plateforme : aucune lecture client (clé serveur uniquement)
   platform_settings: () => [],
 };

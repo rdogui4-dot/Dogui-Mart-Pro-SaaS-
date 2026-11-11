@@ -125,6 +125,9 @@ export const TABLES = {
   subscription_payments: { cols: [s("tenantId", 64, true), s("tenantName", 120), s("plan", 16, true), s("period", 16, true), i("count"), i("amount", true), s("provider", 16), s("reference", 40), t("url"), s("status", 24, true), s("txRef", 64), s("payerEmail", 160), s("requestedBy", 64), s("reviewedBy", 64), s("note", 200), d("startsAt"), d("endsAt")], idx: [["tenant", ["tenantId"]], ["status", ["status"]], ["tx", ["txRef"]]] },
   // Réglages de la plateforme (une seule ligne "main") : aucune lecture client, accessibles seulement par la fonction serveur.
   // selarLinks : JSON { "formule:période": "https://selar.co/…" } ; plans : surcharge JSON du catalogue.
+  // MASTER DOGUI : licence indépendante de l'abonnement principal (une ligne par entreprise, id = tenantId) et registre de l'essai unique (clé dérivée de l'e-mail du propriétaire).
+  md_licenses: { cols: [s("tenantId", 64, true), s("status", 8), d("trialStartedAt"), d("trialEndsAt"), d("firstPaidAt"), d("paidUntil"), t("history"), s("trialKey", 64), s("updatedBy", 64)], idx: [["tenant", ["tenantId"], "unique"]] },
+  md_trials: { cols: [s("tenantId", 64, true), d("startedAt")], idx: [] },
   platform_settings: { cols: [t("selarLinks"), t("plans")], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
 };

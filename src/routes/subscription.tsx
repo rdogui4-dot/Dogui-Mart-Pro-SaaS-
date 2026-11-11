@@ -215,6 +215,7 @@ export function PlatformSection() {
       {list.data?.payments.length === 0 && <p className="text-center text-white/50 py-4">Rien dans cette liste.</p>}
       <PlatformSettingsForm />
       <GrantForm />
+      <MasterGrantForm />
       <LifetimeForm />
       </>}
     </>
@@ -354,6 +355,25 @@ function LifetimeForm() {
       <label className="text-sm flex items-center gap-2"><input type="checkbox" checked={revoke} onChange={(e) => setRevoke(e.target.checked)} /> Retirer l'accès à vie</label>
       <button className="btn">{revoke ? "Retirer" : "Accorder"}</button>
       {msg && <p className="text-sm text-amber-300">{msg}</p>}
+    </form>
+  );
+}
+
+function MasterGrantForm() {
+  const { session } = useSession(); const s = session!; const grantId = useRef(crypto.randomUUID());
+  const [f, setF] = useState({ tenantId: "", kind: "first", count: "1", note: "" }); const [msg, setMsg] = useState("");
+  async function submit(e: React.FormEvent) {
+    e.preventDefault(); setMsg("");
+    try { const r = await api<{ endsAt: string; amount: number; duplicate: boolean }>(s, "platform.master.activate", { grantId: grantId.current, tenantId: f.tenantId.trim(), kind: f.kind, count: Number(f.count), note: f.note }); grantId.current = crypto.randomUUID(); setMsg(`MASTER DOGUI activé jusqu'au ${new Date(r.endsAt).toLocaleDateString("fr-FR")} (${formatFcfa(r.amount)})${r.duplicate ? " — déjà enregistré" : ""}`); }
+    catch (x) { setMsg((x as Error).message); }
+  }
+  return (
+    <form className="card flex flex-col gap-2" onSubmit={submit}>
+      <h2 className="font-semibold">Activer MASTER DOGUI (après vérification du paiement)</h2>
+      <input aria-label="Identifiant du commerce (tenantId) MASTER" className="input" placeholder="Identifiant du commerce (tenantId)" required value={f.tenantId} onChange={(e) => setF({ ...f, tenantId: e.target.value })} />
+      <div className="grid grid-cols-2 gap-2"><select aria-label="Type d'activation MASTER" className="input !px-2" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}><option value="first">Première période (12 mois, 15 000 FCFA)</option><option value="month">Renouvellement (2 500 FCFA / mois)</option></select><input aria-label="Nombre de mois MASTER" className="input !px-2" inputMode="numeric" disabled={f.kind === "first"} value={f.kind === "first" ? "1" : f.count} onChange={(e) => setF({ ...f, count: e.target.value })} /></div>
+      <input aria-label="Référence du paiement MASTER" className="input" placeholder="Référence du paiement (ex. Selar, virement…)" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+      <button className="btn">Activer</button>{msg && <p className="text-sm text-amber-300">{msg}</p>}
     </form>
   );
 }

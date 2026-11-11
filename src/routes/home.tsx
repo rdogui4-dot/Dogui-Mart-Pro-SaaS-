@@ -36,6 +36,7 @@ const TILES: { to: string; label: string; hint: string; icon: typeof ScanLine; p
   { to: "/achats", label: "Achats", hint: "Commandes & fournisseurs", icon: Receipt, perm: "purchases" },
   { to: "/finance", label: "Finance", hint: "Comptes, flux, virements, rapprochement", icon: Banknote, perm: "accounting" },
   { to: "/investissements", label: "Investissements", hint: "Projets, placements déclarés, scénarios", icon: TrendingUp, perm: "accounting" },
+  { to: "/master", label: "MASTER DOGUI", hint: "Licence, essai gratuit, conditions", icon: ShieldCheck, perm: "settings" },
   { to: "/icompta", label: "ICompta", hint: "Facturation, écritures, grand livre, clôture", icon: BookOpen, perm: "finance" },
   { to: "/reglages", label: "Réglages", hint: "Commerce, équipe, abonnement", icon: Settings, perm: "settings" },
 ];
