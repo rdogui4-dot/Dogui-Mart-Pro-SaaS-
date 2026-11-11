@@ -12,7 +12,7 @@ const err = async (r: Promise<any>, status: number, msg?: string) => { const x =
 const setPlan = (plan: string) => { const row = st.rows("subscriptions").find((r) => r.$id === T); const data = { tenantId: T, plan, period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }; if (row) Object.assign(row, data); else void st.create("subscriptions", T, T, data); };
 const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 let mvN = 0;
-const mv = (productId: string, qty: number, kind = "purchase", days = -1, extra: object = {}, shop = A) => st.create("stock_moves", `mv${++mvN}`, T, { tenantId: T, shopId: shop, productId, qty, kind, userId: "own", refId: kind === "purchase" ? "BC-X" : "", $createdAt: new Date(Date.now() + days * 864e5).toISOString(), ...extra });
+const mv = (productId: string, qty: number, kind = "purchase", days = -1, extra: object = {}, shop = A) => st.create("stock_moves", `mv${++mvN}`, T, { tenantId: T, shopId: shop, productId, qty, kind, userId: "own", refId: kind === "purchase" ? "BC-X" : "", $createdAt: new Date(Number.isInteger(days) ? Date.now() + days * 864e5 : Math.min(Date.now() - 1000, Date.parse(`${new Date(Date.now() + Math.ceil(days) * 864e5).toISOString().slice(0, 10)}T12:00:00.000Z`))).toISOString(), ...extra });
 /** Une vente par jour de `qty` unités pendant `n` jours (jusqu'à hier). */
 const sales = async (productId: string, qty: number, n: number, shop = A, from = 1, extra: object = {}) => { for (let i = from; i < from + n; i++) await mv(productId, qty, "sale", -i + 0.5, extra, shop); };
 const find = (r: { items: any[] }, id: string) => r.items.find((x) => x.productId === id);

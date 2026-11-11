@@ -11,7 +11,8 @@ const err = async (r: Promise<any>, status: number, msg?: string) => { const x =
 const setPlan = (plan: string) => { const row = st.rows("subscriptions").find((r) => r.$id === T); const data = { tenantId: T, plan, period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }; if (row) Object.assign(row, data); else void st.create("subscriptions", T, T, data); };
 const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 10);
-const at = (days: number, h = 10) => new Date(Date.now() + days * 864e5 + h * 36e5 - 12 * 36e5).toISOString();
+/** Instant ancré sur le jour civil UTC (indépendant de l'heure d'exécution du test). */
+const at = (days: number, h = 10) => `${day(days)}T${String(h).padStart(2, "0")}:00:00.000Z`;
 let sN = 0;
 const sale = (customerId: string, total: number, days: number, extra: object = {}, shop = A) => st.create("sales", `sl${++sN}`, T, { tenantId: T, shopId: shop, number: `V-${sN}`, total, customerId, cashierId: "own", status: "paid", payments: JSON.stringify([{ method: "cash", amount: total }]), lines: JSON.stringify([{ productId: "p1", name: "Riz", qty: 2, unitPrice: total / 2 }]), clientId: `cl${sN}`, soldAt: at(days), ...extra });
 const newCust = (name: string, extra: object = {}, user = "own") => ok(call(user, "crm.customer.save", { requestKey: rid(), name, ...extra }));
