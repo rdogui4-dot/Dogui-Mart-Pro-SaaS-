@@ -174,7 +174,7 @@ export async function entryList(store: Store, ctx: Ctx, b: { status?: string; jo
 }
 export async function entryGet(store: Store, ctx: Ctx, b: { id?: string }) {
   await gate(store, ctx); const e = entOf(await loadEntry(store, ctx, b.id)); const who = await names(store, ctx); const trail = (await store.scan("audit_log", MIN(ctx), { maxRows: 20_000 })).rows.filter((a) => String(a.action).startsWith("icompta.") && String(a.detail).includes(e.id) || (e.number && String(a.detail).includes(e.number))).map((a) => ({ at: iso(a.$createdAt), action: String(a.action), by: who.get(String(a.userId)) ?? "", detail: String(a.detail) })).sort((a, c) => a.at.localeCompare(c.at));
-  return { entry: { ...e, statusLabel: STATUS_LABEL[e.status], by: who.get(e.createdBy) ?? "", validator: who.get(e.validatedBy) ?? "" }, trail };
+  const pro = hooks.pro ? await hooks.pro(store, ctx) : null; return { entry: { ...e, statusLabel: STATUS_LABEL[e.status], by: who.get(e.createdBy) ?? "", validator: who.get(e.validatedBy) ?? "", approvals: e.approvals.map((x) => ({ ...x, name: who.get(x.by) ?? "" })), required: requiredApprovals(e.total, pro?.approval), requireOwner: !!pro?.approval.requireOwner && requiredApprovals(e.total, pro?.approval) === 2, pro: !!pro }, trail };
 }
 
 // ------------------------------------------------------------------ intégrité : chaîne et scellés
