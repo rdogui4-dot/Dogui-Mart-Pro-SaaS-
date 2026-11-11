@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { Sheet } from "@/components/ui";
+import { Profil } from "@/routes/master-profile";
 import { PRIO_LABEL, type Report, type Prio } from "@/domain/master-report";
 
 type Rem = { level: "soon" | "urgent" | "last" | "expired"; text: string };
@@ -86,9 +87,9 @@ function Rapports() {
   );
 }
 export function MasterPage() {
-  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<"lic" | "rep">("lic"); const mgr = s.role === "owner" || s.role === "manager";
+  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<"lic" | "rep" | "pro">("lic"); const mgr = s.role === "owner" || s.role === "manager";
   return (
-    <div className="flex flex-col gap-3"><div className="flex gap-2" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}</div>{tab === "lic" ? <Licence /> : <Rapports />}</div>
+    <div className="flex flex-col gap-3"><div className="flex gap-2" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "pro"} onClick={() => setTab("pro")}>Profil</button>}</div>{tab === "lic" ? <Licence /> : tab === "rep" ? <Rapports /> : <Profil />}</div>
   );
 }
 type OpenR = { skipped: string | null; message?: string } & Partial<Full>;
