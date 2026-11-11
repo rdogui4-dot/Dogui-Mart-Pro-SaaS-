@@ -45,3 +45,8 @@ Architecture : une fonction publique séparée `dmp-hooks` (adresse `https://dmp
 **Important — format du prestataire** : le format exact des notifications de Selar n'a pas pu être vérifié (documentation introuvable depuis cet environnement). Il n'est donc **pas présumé** : après la première notification (visible en file d'examen avec son contenu brut), l'administrateur déclare les champs (référence, montant, e-mail, statut, valeurs de succès). Tant que ce n'est pas fait, aucune activation automatique n'a lieu. Il faut aussi vérifier que Selar peut appeler une adresse avec paramètre `?k=` ; sinon, utiliser l'outil d'intégration du prestataire (type Zapier) qui relaie vers cette adresse.
 
 Données : `md_payments`, `md_events` (le contenu brut n'est conservé que tant que le paramétrage est incomplet), `platform_settings.masterHook`.
+
+### Révision 1c : Selar sans API ni webhook
+- Une **redirection après achat** n'est pas une notification serveur (c'est le navigateur de l'acheteur) et **ne doit jamais contenir le jeton**. Le récepteur n'accepte que POST.
+- Page de retour **`/merci`** (propriétaire) : affiche l'état réel de la demande de paiement et de la licence, rafraîchi toutes les 10 s pendant ~3 min ; elle n'active rien.
+- **Relais gratuit** Gmail + Google Apps Script : `docs/master-dogui/relais-gmail/` (script + guide). Le format des e-mails Selar n'est pas présumé : expressions à calibrer sur un vrai e-mail ; extraction impossible = rien n'est activé, texte envoyé en file d'examen.

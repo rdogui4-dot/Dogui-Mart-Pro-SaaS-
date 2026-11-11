@@ -104,3 +104,21 @@ export function MasterBriefing() {
       {open && <Sheet title="Briefing d'ouverture" onClose={() => setOpen(false)} back><div className="p-3"><ReportView r={r as Full} /></div></Sheet>}</div>
   );
 }
+
+/** Page de retour après paiement (adresse à renseigner comme redirection chez le prestataire, SANS jeton). Elle ne confirme rien par elle-même : elle affiche l'état réel de la demande de paiement et de la licence, relu toutes les 10 secondes pendant quelques minutes. */
+export function MerciPage() {
+  const { session } = useSession(); const s = session!; const [n, setN] = useState(0);
+  const list = useQuery({ queryKey: ["md", "pay", s.tenantId], retry: 1, refetchInterval: (qq) => (n < 18 && qq.state.data?.requests.some((r) => r.status === "awaiting") ? 10_000 : false), queryFn: async () => { setN((x) => x + 1); return api<{ requests: Req[] }>(s, "md.pay.list", {}); } });
+  const lic = useQuery({ queryKey: ["md", "license", s.tenantId], retry: 1, refetchInterval: (qq) => (n < 18 && qq.state.data?.state !== "active" ? 10_000 : false), queryFn: () => api<V>(s, "md.license", {}) });
+  const last = list.data?.requests[0]; const paid = last?.status === "paid";
+  return (
+    <div className="flex flex-col gap-3"><div><h1 className="text-lg font-semibold">Merci pour votre paiement</h1><p className="text-xs text-white/50">Cette page affiche l'état réel de votre paiement MASTER DOGUI ; elle ne l'active pas à elle seule.</p></div>
+      <div className="card text-sm flex flex-col gap-1" role="status" aria-live="polite">
+        {!last && !list.isLoading && <p>Aucune demande de paiement trouvée. Ouvrez MASTER DOGUI › Licence et choisissez « Préparer mon paiement ».</p>}
+        {last && paid && <p className="text-emerald-300">Paiement {last.reference} confirmé : votre licence est active{lic.data?.endsAt ? ` jusqu'au ${fmt(lic.data.endsAt)}` : ""}.</p>}
+        {last && last.status === "awaiting" && <><p className="text-amber-300">Paiement {last.reference} ({formatFcfa(last.amount)}) en attente de confirmation.</p><p className="text-xs text-white/60">La confirmation peut prendre quelques minutes. Si elle n'apparaît pas, l'équipe DOGUI MART PRO la vérifie manuellement à partir de votre reçu : conservez-le et indiquez la référence {last.reference}.</p></>}
+        {last && last.status === "cancelled" && <p className="text-white/70">La dernière demande ({last.reference}) a été remplacée par une plus récente.</p>}
+        {list.error && <p className="text-red-400" role="alert">{(list.error as Error).message}</p>}</div>
+      <a className="btn self-start" href={`${import.meta.env.BASE_URL}master`}>Aller à MASTER DOGUI</a></div>
+  );
+}
