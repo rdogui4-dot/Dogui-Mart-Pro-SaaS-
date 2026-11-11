@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useSession } from "@/lib/session";
+import { can, useSession } from "@/lib/session";
+import { CustomerInvoices, Reports as ActivityReports } from "./compta";
 import { Sheet } from "@/components/ui";
 import { formatFcfa } from "@/domain/money";
 import { JOURNALS, STATUS_LABEL } from "@/domain/icompta";
@@ -21,18 +22,19 @@ const useAct = (action: string, onOk?: (r: any) => void) => { const { session } 
 
 type Line = { account: string; debit: number; credit: number; label?: string };
 type Ent = { id: string; number: string; seq: number | null; journal: string; date: string; label: string; lines: Line[]; total: number; status: "draft" | "pending" | "validated" | "rejected"; statusLabel: string; kind: string; kindLabel: string; originRef: string; pieces: { ref: string }[]; by: string; validator: string; rejecter: string; rejectReason: string; reversalOf: string; reversedBy: string; correctionOf: string; selfValidated: boolean; hash: string; prevHash: string; note: string };
-type Tab = "syn" | "ent" | "prop" | "books" | "third" | "per" | "plan" | "rep";
+type Tab = "fact" | "act" | "syn" | "ent" | "prop" | "books" | "third" | "per" | "plan" | "rep";
 const ST_TONE: Record<string, string> = { draft: "text-white/60", pending: "text-amber-300", validated: "text-emerald-300", rejected: "text-red-300" };
 
 export function IComptaPage() {
-  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const [tab, setTab] = useState<Tab>("syn");
-  const tabs: [Tab, string][] = [["syn", "Synthèse"], ["ent", "Écritures"], ["prop", "Propositions"], ["books", "Grand livre"], ["third", "Tiers"], ["per", "Périodes"], ["plan", "Plan de comptes"], ["rep", "Rapports"]];
+  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager";
+  const all: [Tab, string, "invoices" | "reports" | "accounting"][] = [["fact", "Facturation", "invoices"], ["syn", "Synthèse", "accounting"], ["ent", "Écritures", "accounting"], ["prop", "Propositions", "accounting"], ["books", "Livres", "accounting"], ["third", "Tiers", "accounting"], ["per", "Périodes", "accounting"], ["plan", "Plan de comptes", "accounting"], ["rep", "Exports comptables", "accounting"], ["act", "Rapports d'activité", "reports"]];
+  const tabs = all.filter(([, , m]) => can(s, m)); const [pick, setTab] = useState<Tab>(tabs[0]?.[0] ?? "fact"); const tab = tabs.some(([k]) => k === pick) ? pick : tabs[0]?.[0] ?? "fact";
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">ICompta</h1>
-      <p className="text-xs text-white/50">Suivi comptable par boutique. Les écritures validées sont immuables et chaînées : toute modification ou suppression est détectée. Paramétrage et règles à faire confirmer par un expert-comptable.</p>
+      <p className="text-xs text-white/50">Facturation, comptabilité et rapports au même endroit. Les écritures validées sont immuables et chaînées : toute modification ou suppression est détectée. Paramétrage et règles à faire confirmer par un expert-comptable.</p>
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections ICompta">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
-      {tab === "syn" && <Synthese onTab={setTab} />}{tab === "ent" && <Entries mgr={mgr} />}{tab === "prop" && <Proposals />}{tab === "books" && <Books />}{tab === "third" && <Third />}{tab === "per" && <Periods mgr={mgr} owner={s.role === "owner"} />}{tab === "plan" && <Plan mgr={mgr} owner={s.role === "owner"} />}{tab === "rep" && <Reports />}
+      {tab === "fact" && <CustomerInvoices />}{tab === "act" && <ActivityReports />}{tab === "syn" && <Synthese onTab={setTab} />}{tab === "ent" && <Entries mgr={mgr} />}{tab === "prop" && <Proposals />}{tab === "books" && <Books />}{tab === "third" && <Third />}{tab === "per" && <Periods mgr={mgr} owner={s.role === "owner"} />}{tab === "plan" && <Plan mgr={mgr} owner={s.role === "owner"} />}{tab === "rep" && <Reports />}
     </div>
   );
 }
@@ -119,13 +121,13 @@ function Proposals() {
 }
 
 function Books() {
-  const [mode, setMode] = useState<"ledger" | "balance">("balance"); const [f, setF] = useState({ account: "571", from: `${day().slice(0, 4)}-01-01`, to: day() });
-  const led = useQ<{ account: string; label: string; opening: number; rows: { date: string; ref: string; label: string; debit: number; credit: number; balance: number; source: string; number: string }[]; debit: number; credit: number; closing: number; note: string }>("ic.ledger", f, mode === "ledger" && /^\d{2,8}$/.test(f.account)); const bal = useQ<{ rows: { account: string; label: string; debit: number; credit: number; solde: number; inPlan: boolean }[]; totals: { debit: number; credit: number; balanced: boolean }; outOfPlan: number; note: string }>("ic.balance", { from: f.from, to: f.to }, mode === "balance");
+  const [mode, setMode] = useState<"ledger" | "balance" | "journal">("balance"); const [f, setF] = useState({ account: "571", from: `${day().slice(0, 4)}-01-01`, to: day() });
+  const led = useQ<{ account: string; label: string; opening: number; rows: { date: string; ref: string; label: string; debit: number; credit: number; balance: number; source: string; number: string }[]; debit: number; credit: number; closing: number; note: string }>("ic.ledger", f, mode === "ledger" && /^\d{2,8}$/.test(f.account)); const jr = useQ<{ rows: { date: string; ref: string; account: string; accountLabel: string; label: string; debit: number; credit: number; source: string; number: string }[]; count: number; shown: number; note: string }>("ic.journal", { from: f.from, to: f.to }, mode === "journal"); const bal = useQ<{ rows: { account: string; label: string; debit: number; credit: number; solde: number; inPlan: boolean }[]; totals: { debit: number; credit: number; balanced: boolean }; outOfPlan: number; note: string }>("ic.balance", { from: f.from, to: f.to }, mode === "balance");
   return (
-    <div className="flex flex-col gap-3"><div className="flex gap-2"><button className="chip" aria-current={mode === "balance"} onClick={() => setMode("balance")}>Balance</button><button className="chip" aria-current={mode === "ledger"} onClick={() => setMode("ledger")}>Grand livre d'un compte</button></div>
+    <div className="flex flex-col gap-3"><div className="flex gap-2"><button className="chip" aria-current={mode === "balance"} onClick={() => setMode("balance")}>Balance</button><button className="chip" aria-current={mode === "ledger"} onClick={() => setMode("ledger")}>Grand livre d'un compte</button><button className="chip" aria-current={mode === "journal"} onClick={() => setMode("journal")}>Journal</button></div>
       <div className="grid grid-cols-2 gap-2"><Field label="Du"><input className="input" type="date" aria-label="Livre du" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></Field><Field label="Au"><input className="input" type="date" aria-label="Livre au" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></Field></div>
       {mode === "ledger" && <Field label="Compte"><input className="input" aria-label="Compte du grand livre" inputMode="numeric" value={f.account} onChange={(e) => setF({ ...f, account: e.target.value.replace(/\D/g, "") })} /></Field>}
-      <Err e={led.error ?? bal.error} />
+      <Err e={led.error ?? bal.error ?? jr.error} />{mode === "journal" && jr.data && <><p className="text-xs text-white/50">{jr.data.shown} ligne(s) affichée(s) sur {jr.data.count}</p>{jr.data.rows.map((r, i) => <p key={i} className="card flex justify-between text-xs"><span>{fmtDay(r.date)} · {r.ref} · {r.account}{r.accountLabel ? ` ${r.accountLabel}` : ""}<span className="block text-white/40">{r.label} · {r.source}{r.number ? ` ${r.number}` : ""}</span></span><span className="text-right">{r.debit ? `D ${money(r.debit)}` : `C ${money(r.credit)}`}</span></p>)}<Note>{jr.data.note}</Note></>}
       {mode === "balance" && bal.data && <><div className={`card text-sm ${bal.data.totals.balanced ? "text-emerald-300" : "text-red-300"}`}>Débits {money(bal.data.totals.debit)} · Crédits {money(bal.data.totals.credit)} · {bal.data.totals.balanced ? "équilibrée" : "NON ÉQUILIBRÉE"}</div>{bal.data.rows.map((r) => <p key={r.account} className="card flex justify-between text-sm"><span>{r.account} · {r.label}{!r.inPlan && <span className="text-amber-300"> (hors plan)</span>}<span className="block text-xs text-white/50">D {money(r.debit)} · C {money(r.credit)}</span></span><b>{money(r.solde)}</b></p>)}<Note>{bal.data.note}</Note></>}
       {mode === "ledger" && led.data && <><p className="text-sm">{led.data.account} · {led.data.label || "compte"} — ouverture {money(led.data.opening)} · clôture <b>{money(led.data.closing)}</b></p>{led.data.rows.slice(-200).map((r, i) => <p key={i} className="card flex justify-between text-xs"><span>{fmtDay(r.date)} · {r.ref} · {r.label}<span className="block text-white/40">{r.source}{r.number ? ` ${r.number}` : ""}</span></span><span className="text-right">{r.debit ? `D ${money(r.debit)}` : `C ${money(r.credit)}`}<span className="block text-white/50">{money(r.balance)}</span></span></p>)}<Note>{led.data.note}</Note></>}
     </div>

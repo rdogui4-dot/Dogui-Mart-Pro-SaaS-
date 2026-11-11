@@ -26,7 +26,6 @@ const PosPage = lazyPage(() => import("@/routes/pos"), "PosPage");
 const StockPage = lazyPage(() => import("@/routes/stock"), "StockPage");
 const ClientsPage = lazyPage(() => import("@/routes/simple"), "ClientsPage");
 const AchatsPage = lazyPage(() => import("@/routes/fournisseurs"), "FournisseursPage");
-const ComptaPage = lazyPage(() => import("@/routes/compta"), "ComptaPage");
 const SettingsPage = lazyPage(() => import("@/routes/settings"), "SettingsPage");
 const ArticlesPage = lazyPage(() => import("@/routes/articles"), "ArticlesPage");
 const BundlesPage = lazyPage(() => import("@/routes/bundles"), "BundlesPage");
@@ -63,7 +62,7 @@ const tree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
   r("/accueil", null, HomePage), r("/plus", null, PlusPage),
   r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/inventaire", "stock", InventairePage), r("/caisse", "pos", CaissePage), r("/caisse-pro", "pos", CaisseProPage), r("/depenses", "pos", DepensesPage), r("/depenses-pro", "pos", DepensesProPage), r("/ventes", "pos", VentesPage), r("/activite", "reports", ActivitePage), r("/pilotage", "reports", PilotagePage), r("/tableau", "stock", DashboardPage), r("/promotions", "stock", PromotionsPage), r("/clients", "customers", ClientsPage),
-  r("/finance", "accounting", FinancePage), r("/icompta", "accounting", IComptaPage), r("/achats", "purchases", AchatsPage), r("/compta", "finance", ComptaPage), r("/reglages", "settings", SettingsPage),
+  r("/finance", "accounting", FinancePage), r("/icompta", "finance", IComptaPage), createRoute({ getParentRoute: () => root, path: "/compta", beforeLoad: () => { throw redirect({ to: "/icompta" }); } }), r("/achats", "purchases", AchatsPage), r("/reglages", "settings", SettingsPage),
 ]);
 const router = createRouter({ routeTree: tree, basepath: routerBasepath(import.meta.env.BASE_URL) });
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }

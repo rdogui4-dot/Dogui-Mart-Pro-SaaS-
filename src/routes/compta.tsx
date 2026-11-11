@@ -14,46 +14,11 @@ type JE = { ref: string; account: string; debit: number; credit: number; label: 
 type Inv = { number: string; partyId: string; total: number; paid: number; vat?: number; status: string; dueAt?: string; saleId?: string; ref?: string; lines?: string; payments?: string };
 type Sale = { number: string; total: number; soldAt: string; customerId?: string; status: string };
 
-export function ComptaPage() {
-  const { session } = useSession();
-  const tabs = ([["invoices", "Factures", "invoices"], ["reports", "Rapports", "reports"], ["journal", "Journal", "accounting"]] as const).filter(([, , m]) => can(session, m));
-  const [pick, setTab] = useState<"invoices" | "journal" | "reports">(tabs[0]?.[0] ?? "invoices");
-  const tab = tabs.some(([k]) => k === pick) ? pick : tabs[0]?.[0] ?? "invoices";
-  return (
-    <div className="flex flex-col gap-3">
-      <h1 className="text-xl font-bold">Compta & factures</h1>
-      <div className="grid grid-flow-col auto-cols-fr gap-1 text-sm">
-        {tabs.map(([k, l]) => <button key={k} className={tab === k ? "btn !py-2" : "btn-ghost !py-2"} onClick={() => setTab(k)}>{l}</button>)}
-      </div>
-      {tab === "invoices" ? <CustomerInvoices /> : tab === "reports" ? <Reports /> : <Journal />}
-    </div>
-  );
-}
-
-function Journal() {
-  const { session } = useSession(); const s = session!;
-  const rows = useQuery({ queryKey: ["journal"], queryFn: () => list<JE>("journal_entries", s, [], 1000) });
-  const by = new Map<string, { d: number; c: number }>();
-  for (const r of rows.data ?? []) { const a = by.get(r.account) ?? { d: 0, c: 0 }; a.d += r.debit; a.c += r.credit; by.set(r.account, a); }
-  return (
-    <>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="card"><div className="text-xs text-white/50">Ventes HT (701)</div><b>{formatFcfa(by.get("701")?.c ?? 0)}</b></div>
-        <div className="card"><div className="text-xs text-white/50">Achats HT (601)</div><b>{formatFcfa(by.get("601")?.d ?? 0)}</b></div>
-      </div>
-      <div className="card">
-        <h2 className="font-semibold mb-2">Balance des comptes</h2>
-        <table className="w-full text-sm"><thead className="text-white/50"><tr><th className="text-left">Compte</th><th className="text-right">Débit</th><th className="text-right">Crédit</th></tr></thead>
-          <tbody>{[...by.entries()].sort().map(([a, v]) => <tr key={a}><td>{a}</td><td className="text-right">{formatFcfa(v.d)}</td><td className="text-right">{formatFcfa(v.c)}</td></tr>)}</tbody></table>
-      </div>
-    </>
-  );
-}
-
 const parse = <T,>(v: unknown, fb: T): T => { try { return JSON.parse(String(v)) as T; } catch { return fb; } };
 const LABEL: Record<string, string> = { unpaid: "À encaisser", partial: "Partiel", paid: "Payée" };
 
-function CustomerInvoices() {
+/** Facturation clients (onglet « Facturation » d'ICompta). */
+export function CustomerInvoices() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
   const refresh = () => void qc.invalidateQueries();
   const inv = useQuery({ queryKey: ["inv-customer"], queryFn: () => list<Inv>("invoices", s, [Query.equal("kind", "customer")], 200) });
@@ -203,7 +168,8 @@ function DailyChart({ daily }: { daily: ConsolidatedReport["daily"] }) {
   );
 }
 
-function Reports() {
+/** Rapport consolidé d'activité (onglet « Rapports d'activité » d'ICompta). */
+export function Reports() {
   const { session } = useSession(); const s = session!;
   const [range, setRange] = useState("7"); const [err, setErr] = useState("");
   const period = RANGES.find((r) => r.id === range)!.get();

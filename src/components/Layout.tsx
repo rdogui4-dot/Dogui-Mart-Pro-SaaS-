@@ -12,7 +12,7 @@ const MODULE_NAV: { to: string; label: string; icon: typeof Home; perm: Perm }[]
   { to: "/stock", label: "Stock", icon: Boxes, perm: "stock" },
   { to: "/clients", label: "Clients", icon: Users, perm: "customers" },
   { to: "/achats", label: "Achats", icon: Receipt, perm: "purchases" },
-  { to: "/compta", label: "Compta", icon: BookOpen, perm: "finance" },
+  { to: "/icompta", label: "ICompta", icon: BookOpen, perm: "finance" },
 ];
 
 export function Layout() {

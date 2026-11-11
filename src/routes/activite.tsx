@@ -107,7 +107,7 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
       {sale && <Sheet title={`Vente ${sale.number}`} onClose={() => setOpen(null)} back>
         <div className="card flex flex-col gap-1 text-sm"><div className="flex justify-between"><span className="text-white/50">Date</span><span>{dt(sale.at, tz)}</span></div><div className="flex justify-between"><span className="text-white/50">Paiement</span><span>{sale.methods.map((m) => METHOD[m] ?? m).join(" + ")}</span></div><div className="flex justify-between"><span className="text-white/50">Boutique</span><span>{sale.shop}</span></div><div className="flex justify-between font-semibold"><span>Total TTC</span><span>{formatFcfa(sale.total)}</span></div></div>
         <h3 className="font-semibold text-sm">Lignes</h3>{sale.lines.map((l, i) => <div key={i} className="flex justify-between gap-2 text-sm border-t border-[var(--line)] pt-1"><span className="truncate">{l.qty} × {l.name}</span><span>{formatFcfa(l.amount)}</span></div>)}
-        <Link to="/compta" className="btn-ghost text-center text-sm"><Tags size={14} className="inline mr-1" />Voir les rapports et factures</Link>
+        <Link to="/icompta" className="btn-ghost text-center text-sm"><Tags size={14} className="inline mr-1" />Voir les rapports et factures</Link>
       </Sheet>}
     </div>
   );

@@ -26,3 +26,10 @@ Validation par propriétaire et gérants (le comptable saisit/propose) · exerci
 TVA, impôts, amortissements, écarts d'inventaire et états financiers réglementaires ne sont pas calculés ; les comptes de charges et de contrepartie sont à paramétrer ; la chaîne protège contre les modifications courantes mais un administrateur de la base pourrait théoriquement la réécrire entièrement : conservez l'empreinte de tête (et les exports) hors de l'application.
 
 Fichiers : `src/domain/icompta.ts`, `functions/dmp-api/src/icompta.ts`, `src/routes/icompta.tsx`, tests `icompta.test.ts`, e2e `j32`.
+
+## Fusion Compta + Factures dans ICompta
+L'ancienne page `/compta` est supprimée (elle redirige vers `/icompta`). ICompta réunit :
+- **Facturation** (factures clients : création depuis une vente ou libre, encaissement, PDF) — code et données inchangés ; accès : module *factures*.
+- **Synthèse, Écritures, Propositions, Livres (balance, grand livre, journal unifié), Tiers, Périodes, Plan de comptes, Exports comptables** — accès : module *comptabilité*.
+- **Rapports d'activité** (ancien rapport consolidé) — accès : module *rapports*.
+Les onglets affichés dépendent des modules de l'utilisateur (un vendeur qui facture ne voit pas les écritures) ; le serveur applique les mêmes droits. Le « Journal » unifié remplace l'ancien Journal, qui ne montrait que les écritures automatiques. Les factures fournisseur restent dans Achats (ICompta les lit).
