@@ -5,12 +5,14 @@ import { Link } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
+import { Sheet } from "@/components/ui";
+import { PRIO_LABEL, type Report, type Prio } from "@/domain/master-report";
 
 type Rem = { level: "soon" | "urgent" | "last" | "expired"; text: string };
 type V = { reminder: Rem | null; state: "none" | "trial" | "active" | "grace" | "expired"; phase: string; endsAt: string | null; daysLeft: number | null; canAnalyze: boolean; consultOnly: boolean; trialUsed: boolean; canStartTrial: boolean; isOwner: boolean; trialDays: number; billingStartsAt: string | null; nextDue: { at: string; amount: number; label: string } | null; prices: { first: number; firstMonths: number; renew: number }; consequence: string; history: { id: string; kind: string; count?: number; amount: number; from: string; to: string; at: string; note: string }[]; notes: string[] };
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const LABEL: Record<V["state"], [string, string]> = { none: ["Non démarrée", "text-white/60"], trial: ["Essai gratuit en cours", "text-emerald-300"], active: ["Licence active", "text-emerald-300"], grace: ["Délai de grâce", "text-amber-300"], expired: ["Expirée — mode consultation", "text-amber-300"] };
-export function MasterPage() {
+function Licence() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
   const q = useQuery({ queryKey: ["md", "license", s.tenantId], retry: 1, queryFn: () => api<V>(s, "md.license", {}) }); const [err, setErr] = useState("");
   const start = useMutation({ mutationFn: () => api<V>(s, "md.trial.start", {}), onSuccess: () => { setErr(""); void qc.invalidateQueries({ queryKey: ["md"] }); }, onError: (e) => setErr((e as Error).message) });
@@ -51,4 +53,54 @@ function PayBlock({ first }: { first: boolean }) {
 export function MasterReminder() {
   const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["md", "license", s.tenantId], enabled: s.role === "owner", retry: 0, staleTime: 5 * 60_000, queryFn: () => api<V>(s, "md.license", {}) });
   const r = q.data?.reminder; if (!r) return null; return <Link to="/master" className={`card text-sm ${r.level === "soon" ? "text-amber-300" : "text-red-300"}`} role="status">{r.text} <u>Voir</u></Link>;
+}
+
+const PRIO_TONE: Record<Prio, string> = { critical: "text-red-300", high: "text-amber-300", medium: "text-amber-200", opportunity: "text-emerald-300", info: "text-white/60" };
+type Full = { id: string; sessionId?: string; type: string; businessDate: string; status: string; statusLabel: string; version: number; generatedAt: string; error: string; replacedBy: string; report: Report | null; missing: { section: string; reason: string }[] };
+const fmtV = (v: string | number | null) => (v === null ? "—" : typeof v === "number" ? v.toLocaleString("fr-FR") : v);
+export function ReportView({ r }: { r: Full }) {
+  const rep = r.report; if (!rep) return <p className="text-sm text-red-300">{r.status === "failed" ? `Génération échouée : ${r.error}` : "Rapport en cours de génération…"}</p>;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="card text-sm flex flex-col gap-1"><div className="flex justify-between"><b>{rep.title}</b><b className={r.status === "ready" ? "text-emerald-300" : r.status === "partial" ? "text-amber-300" : "text-white/60"}>{r.statusLabel}</b></div><p className="text-xs text-white/50">{rep.scope} · {rep.businessDate} · version {r.version}{r.generatedAt ? ` · généré le ${new Date(r.generatedAt).toLocaleString("fr-FR")}` : ""}</p><p className="text-xs text-white/60">{rep.confidence}</p></div>
+      {rep.alerts.map((a, i) => <p key={i} className={`card text-sm ${PRIO_TONE[a.prio]}`}><b>{PRIO_LABEL[a.prio]} · </b>{a.text}<span className="block text-[10px] text-white/40">Source : {a.source}</span></p>)}
+      {rep.sections.map((s) => <div key={s.id} className="card text-sm flex flex-col gap-1"><b>{s.title}</b>{s.available ? s.items.map((it, i) => <p key={i} className="flex justify-between gap-2 text-xs"><span className="text-white/70">{it.label}{it.note ? <i className="text-white/40"> · {it.note}</i> : null}</span><b>{fmtV(it.value)}</b></p>) : <p className="text-xs text-amber-300">Non disponible : {s.reason}</p>}<span className="text-[10px] text-white/40">Source : {s.source}</span></div>)}
+      {rep.recommendations.length > 0 && <div className="card text-sm flex flex-col gap-1"><b>Recommandations</b>{rep.recommendations.map((x, i) => <p key={i} className="text-xs"><b className={PRIO_TONE[x.prio]}>{PRIO_LABEL[x.prio]}</b> · {x.text}<span className="block text-[10px] text-white/40">Motif : {x.reason} · Source : {x.source} · {x.kind === "fact" ? "fait constaté" : "estimation"} · {x.status}</span></p>)}</div>}
+      {rep.missing.length > 0 && <div className="card text-xs text-amber-300 flex flex-col gap-1"><b>Données manquantes</b>{rep.missing.map((m, i) => <p key={i}>• {m.section} : {m.reason}</p>)}</div>}
+      <div className="card text-[11px] text-white/50 flex flex-col gap-1"><b className="text-white/70">Méthode et limites</b><p>{rep.method}</p>{rep.limits.map((l, i) => <p key={i}>• {l}</p>)}</div>
+    </div>
+  );
+}
+type Row = { id: string; type: string; businessDate: string; status: string; statusLabel: string; version: number; generatedAt: string; title: string; alerts: number; missing: number };
+function Rapports() {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [sel, setSel] = useState<string | null>(null);
+  const q = useQuery({ queryKey: ["md", "reports", s.shopId], retry: 1, queryFn: () => api<{ reports: Row[] }>(s, "md.reports", {}) }); const one = useQuery({ queryKey: ["md", "report", sel], enabled: !!sel, queryFn: () => api<Full>(s, "md.report", { id: sel }) });
+  const regen = useMutation({ mutationFn: (r: Full) => (r.type === "opening" ? api<Full>(s, "md.opening", { regenerate: true }) : api<Full>(s, "md.closing", { sessionId: r.sessionId, regenerate: true })), onSuccess: () => void qc.invalidateQueries({ queryKey: ["md"] }) });
+  if (q.error) return <p className="text-red-400 text-sm" role="alert">{(q.error as Error).message}</p>;
+  return (
+    <div className="flex flex-col gap-2"><p className="text-xs text-white/50">Briefings d'ouverture et rapports de clôture. Après expiration de la licence, l'historique reste consultable.</p>
+      {q.data?.reports.length === 0 && <p className="text-xs text-white/50">Aucun rapport pour l'instant. Le rapport de clôture se crée automatiquement quand une session de caisse est clôturée ; le briefing d'ouverture, à l'ouverture de l'application quand aucune session n'est ouverte.</p>}
+      {q.data?.reports.map((r) => <button key={r.id} className="card text-left text-sm flex justify-between" onClick={() => setSel(r.id)}><span><b>{r.type === "opening" ? "Briefing d'ouverture" : "Rapport de clôture"}</b><span className="block text-xs text-white/50">{r.businessDate} · v{r.version}{r.alerts ? ` · ${r.alerts} alerte(s)` : ""}{r.missing ? ` · ${r.missing} donnée(s) manquante(s)` : ""}</span></span><span className={r.status === "ready" ? "text-emerald-300" : r.status === "partial" ? "text-amber-300" : "text-white/50"}>{r.statusLabel}</span></button>)}
+      {sel && <Sheet title="Rapport" onClose={() => setSel(null)} back><div className="p-3">{one.error ? <p className="text-red-400 text-sm">{(one.error as Error).message}</p> : one.data ? <><ReportView r={one.data} />{one.data.status !== "superseded" && <button className="btn-ghost mt-2" disabled={regen.isPending} onClick={() => regen.mutate(one.data!)}>{one.data.type === "opening" ? "Régénérer le briefing du jour" : "Régénérer ce rapport (nouvelle version)"}</button>}</> : <div className="card h-24 animate-pulse bg-white/5" />}</div></Sheet>}
+    </div>
+  );
+}
+export function MasterPage() {
+  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<"lic" | "rep">("lic"); const mgr = s.role === "owner" || s.role === "manager";
+  return (
+    <div className="flex flex-col gap-3"><div className="flex gap-2" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}</div>{tab === "lic" ? <Licence /> : <Rapports />}</div>
+  );
+}
+type OpenR = { skipped: string | null; message?: string } & Partial<Full>;
+/** Briefing d'ouverture affiché à l'accueil (propriétaire / gérant). Le serveur décide : rien n'est affiché si une session est ouverte ou sans licence valide. */
+export function MasterBriefing() {
+  const { session } = useSession(); const s = session!; const [open, setOpen] = useState(false); const mgr = s.role === "owner" || s.role === "manager";
+  const q = useQuery({ queryKey: ["md", "opening", s.shopId], enabled: mgr, retry: 0, staleTime: 30 * 60_000, queryFn: () => api<OpenR>(s, "md.opening", {}) });
+  const r = q.data; if (!r || r.skipped || !r.report) return null; const rep = r.report; const top = rep.alerts.slice(0, 3);
+  return (
+    <div className="card flex flex-col gap-2 text-sm" aria-label="Briefing d'ouverture"><div className="flex justify-between"><b>Briefing d'ouverture</b><span className={r.status === "partial" ? "text-amber-300 text-xs" : "text-emerald-300 text-xs"}>{r.statusLabel}</span></div>
+      {top.map((a, i) => <p key={i} className={`text-xs ${PRIO_TONE[a.prio]}`}><b>{PRIO_LABEL[a.prio]} · </b>{a.text}</p>)}
+      <button className="btn-ghost self-start" onClick={() => setOpen(true)}>Voir le briefing complet</button>
+      {open && <Sheet title="Briefing d'ouverture" onClose={() => setOpen(false)} back><div className="p-3"><ReportView r={r as Full} /></div></Sheet>}</div>
+  );
 }

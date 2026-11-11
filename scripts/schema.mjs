@@ -130,6 +130,8 @@ export const TABLES = {
   md_trials: { cols: [s("tenantId", 64, true), d("startedAt")], idx: [] },
   // Paiement MASTER DOGUI : demandes du propriétaire (montant et e-mail attendus) et notifications reçues du prestataire (file d'examen ; brut conservé seulement tant que le paramétrage est incomplet).
   md_payments: { cols: [s("tenantId", 64, true), s("kind", 6, true), i("count"), i("amount", true), s("payerEmail", 120), s("status", 10), s("reference", 16), s("eventId", 64), s("createdBy", 64)], idx: [["tenant", ["tenantId"]], ["status", ["status"]]] },
+  // Rapports MASTER DOGUI (ouverture / clôture) : une ligne par version ; clé = boutique + type + date ou session.
+  md_reports: { cols: [...base, s("type", 8, true), s("businessDate", 10, true), s("sessionId", 64), s("status", 12, true), i("version"), t("data"), t("missing"), d("generatedAt"), s("error", 200), s("replacedBy", 64), s("trigger", 10), s("createdBy", 64)], idx: [["shop", ["tenantId", "shopId"]]] },
   md_events: { cols: [s("tenantId", 64), s("status", 10, true), s("ref", 64), i("amount"), s("email", 120), s("currency", 8), s("bodyHash", 64), t("raw"), s("note", 200), s("requestId", 64), s("decidedBy", 64)], idx: [["status", ["status"]]] },
   platform_settings: { cols: [t("selarLinks"), t("plans"), t("masterHook")], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },

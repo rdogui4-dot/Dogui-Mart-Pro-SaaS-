@@ -11,7 +11,7 @@ import { planAllows } from "@/domain/features";
 import { stateLabel } from "@/domain/reminders";
 import { useSubscription } from "./subscription";
 import { RejectedSales } from "@/components/RejectedSales";
-import { MasterReminder } from "./master";
+import { MasterBriefing, MasterReminder } from "./master";
 import { useProductsAll, useStockLevels, useVariantsAll } from "@/lib/queries";
 
 type Sale = { total: number; status: string; soldAt: string };
@@ -63,6 +63,7 @@ export function HomePage() {
     <div className="flex flex-col gap-4">
       <RejectedSales />
       <MasterReminder />
+      <MasterBriefing />
       <header>
         <p className="text-white/50 text-sm">{greeting()},</p>
         <h1 className="text-2xl font-bold">{s.name}</h1>

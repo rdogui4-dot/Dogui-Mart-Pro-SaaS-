@@ -137,6 +137,7 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   md_trials: (t) => [owner(t)],
   md_payments: (t) => [owner(t)],
   md_events: () => [],
+  md_reports: (t, d) => [owner(t), `label:${managerLabel(shopOf(d))}`],
   // Réglages de plateforme : aucune lecture client (clé serveur uniquement)
   platform_settings: () => [],
 };

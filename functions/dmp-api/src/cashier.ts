@@ -32,6 +32,8 @@ export async function sessionTotals(store: Store, ctx: Ctx, sess: Row, until?: s
 const view = (s: Row) => ({ id: s.$id, userId: String(s.userId), shopId: String(s.shopId), status: String(s.status), openedAt: iso(s.openedAt), closedAt: s.closedAt ? iso(s.closedAt) : null, openingFloat: Number(s.openingFloat ?? 0), countedCash: s.countedCash == null ? null : Number(s.countedCash), theoreticalCash: s.theoreticalCash == null ? null : Number(s.theoreticalCash), variance: s.variance == null ? null : Number(s.variance), note: s.note ? String(s.note) : "", register: String(s.register ?? ""), varianceStatus: String(s.varianceStatus ?? ""), handoverFrom: String(s.handoverFrom ?? "") });
 
 /** Session ouverte de CE vendeur dans CETTE boutique (une seule à la fois). */
+/** Abonnés à la clôture confirmée d'une session (rapports MASTER DOGUI…). Exécutés APRÈS la clôture ; une erreur ne doit jamais empêcher ni annuler la clôture. */
+export const closeHooks: ((store: Store, ctx: Ctx, sessionId: string) => Promise<void>)[] = [];
 export async function openSessionOf(store: Store, ctx: Ctx): Promise<Row | null> { return (await store.list("cash_sessions", { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, status: "open" }, 5))[0] ?? null; }
 /** La boutique exige-t-elle une session pour vendre ? Si oui, une session du vendeur doit couvrir l'instant de la vente (les ventes hors ligne gardent leur date réelle). */
 export async function assertSessionForSale(store: Store, ctx: Ctx, soldAt: string): Promise<void> {
@@ -93,7 +95,7 @@ export async function closeSession(store: Store, ctx: Ctx, b: { sessionId?: stri
   const variance = counted - t.theoreticalCash; const tol = Math.max(0, Number((await store.get("shops", ctx.shopId.slice(0, 36)))?.varianceTolerance ?? 0)); const varianceStatus = pro ? (Math.abs(variance) > tol ? "pending" : "ok") : "";
   await store.update("cash_sessions", s.$id, { status: "closed", closedAt: until, countedCash: counted, theoreticalCash: t.theoreticalCash, variance, ...(varianceStatus ? { varianceStatus } : {}), closedBy: ctx.userId, summary: JSON.stringify(t), note: String(b.note ?? s.note ?? "").slice(0, 200) });
   if (pro) await ledgerWrite(store, ctx, { kind: "session_close", ref: s.$id, amount: counted, at: until, sessionId: s.$id, userId: String(s.userId), payload: { theoretical: t.theoreticalCash, variance, varianceStatus } });
-  await audit(store, ctx, "cash.close", `${s.$id} compté ${counted} théorique ${t.theoreticalCash} écart ${variance}`); return { id: s.$id, variance, varianceStatus, theoreticalCash: t.theoreticalCash, totals: t };
+  await audit(store, ctx, "cash.close", `${s.$id} compté ${counted} théorique ${t.theoreticalCash} écart ${variance}`); for (const h of closeHooks) { try { await h(store, ctx, s.$id); } catch { /* rapport rejouable : la clôture reste valide */ } } return { id: s.$id, variance, varianceStatus, theoreticalCash: t.theoreticalCash, totals: t };
 }
 const dayStart = (d: string) => new Date(`${d}T00:00:00Z`).toISOString();
 async function nameMap(store: Store, ctx: Ctx): Promise<Map<string, string>> { const m = new Map<string, string>((await store.scan("staff", { tenantId: ctx.tenantId }, { maxRows: 500 })).rows.map((x) => [String(x.userId), String(x.name)])); try { for (const o of await store.listOwners(ctx.tenantId)) m.set(o.userId, o.name || "Propriétaire"); } catch { /* annuaire indisponible */ } return m; }
