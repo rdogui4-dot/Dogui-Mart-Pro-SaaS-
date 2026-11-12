@@ -10,6 +10,7 @@ import { MIN, iso, parse } from "./crm";
 import { roleKind } from "./fin-rules";
 import { names } from "./inventory";
 import { needMaster } from "./master";
+import { trackReportRecos } from "./master-reco";
 import { shopStock } from "./stock-biz";
 import { HttpError, type Ctx, type Row, type Store } from "./store";
 
@@ -39,7 +40,7 @@ async function persist(store: Store, ctx: Ctx, type: "opening" | "closing", key:
   let row: Row; let version: number;
   if (live && live.status === "failed" && !opts.regenerate) { row = live; version = Number(live.version ?? 1); await store.update("md_reports", live.$id, { status: "generating", error: "" }); }
   else { version = (rows.at(-1)?.version ? Number(rows.at(-1)!.version) : 0) + 1; const id = rid(ctx, type, key, version); const ok = await store.create("md_reports", id, ctx.tenantId, { ...MIN(ctx), type, businessDate, sessionId: type === "closing" ? key : "", status: "generating", version, trigger: opts.trigger, createdBy: ctx.userId }); if (!ok) { const again = await store.get("md_reports", id); return { row: again!, created: false }; } row = (await store.get("md_reports", id))!; }
-  try { const rep = await build(); const status: RStatus = rep.missing.length ? "partial" : "ready"; await store.update("md_reports", row.$id, { status, data: JSON.stringify(rep), missing: JSON.stringify(rep.missing), generatedAt: new Date().toISOString(), error: "" }); if (live && opts.regenerate && live.$id !== row.$id) await store.update("md_reports", live.$id, { status: "superseded", replacedBy: row.$id }); await audit(store, ctx, `master.report.${type}`, `${row.$id} v${version} ${status} ${key}${opts.regenerate ? " (régénéré)" : ""}`); }
+  try { const rep = await build(); const status: RStatus = rep.missing.length ? "partial" : "ready"; await store.update("md_reports", row.$id, { status, data: JSON.stringify(rep), missing: JSON.stringify(rep.missing), generatedAt: new Date().toISOString(), error: "" }); if (live && opts.regenerate && live.$id !== row.$id) await store.update("md_reports", live.$id, { status: "superseded", replacedBy: row.$id }); await audit(store, ctx, `master.report.${type}`, `${row.$id} v${version} ${status} ${key}${opts.regenerate ? " (régénéré)" : ""}`); await trackReportRecos(store, ctx, rep.recommendations); }
   catch (e) { await store.update("md_reports", row.$id, { status: "failed", error: String((e as Error).message ?? e).slice(0, 200) }); await audit(store, ctx, `master.report.${type}.failed`, `${row.$id} ${(e as Error).message}`); }
   return { row: (await store.get("md_reports", row.$id))!, created: true };
 }
