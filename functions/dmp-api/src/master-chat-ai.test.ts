@@ -24,7 +24,7 @@ afterEach(() => { for (const k of ["MASTER_AI_ENABLED", "GEMINI_API_KEY", "GEMIN
 
 describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => {
   it("désactivé par défaut : jamais d'appel externe ; activation exige drapeau, clé et modèle explicites (aucun modèle présumé)", async () => {
-    expect(aiConfig({})).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "bad model!" })).toBeNull();
+    expect(aiConfig({})).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "bad model!" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "models/m-1" })?.model).toBe("m-1");
     expect(aiStatus({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k" })).toMatchObject({ keyPresent: true, modelSet: false, active: false }); await sale("s1", 1000); const r = await ask({ qid: "sales", days: 1 }); expect(fetchMock).not.toHaveBeenCalled(); expect(r.assistant.answer.ai.used).toBe(false); expect((await ok(call("own", "md.chat.list"))).mode.ai).toBe(false);
   });
   it("rédaction : la conclusion vient du modèle, les chiffres et sources restent ceux de l'outil ; jetons enregistrés ; requête sans donnée nominative ; clé en en-tête seulement", async () => {
@@ -40,6 +40,7 @@ describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => 
   });
   it("panne du fournisseur (HTTP 500, réseau, sortie illisible) : la question n'échoue jamais, repli sur la réponse calculée, message sans clé", async () => {
     setEnv(ENV_ON); await sale("s1", 1000); fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) }); const a1 = (await ask({ qid: "sales", days: 1 })).assistant.answer as Answer; expect(a1.ai?.used).toBe(false); expect(a1.ai?.note).toContain("HTTP 500");
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ error: { message: `models/zzz is not found for API version v1beta. key=${KEY} AIzaSyABCDEFGHIJKLMNOP` } }) }); const a404 = (await ask({ qid: "sales", days: 1 })).assistant.answer as Answer; expect(a404.ai?.note).toContain("HTTP 404"); expect(a404.ai?.note).toContain("is not found"); expect(a404.ai?.note).not.toContain("AIzaSyABCDEFGHIJKLMNOP");
     fetchMock.mockRejectedValueOnce(new Error(`connexion refusée ${KEY}`)); const a2 = (await ask({ qid: "sales", days: 1 })).assistant.answer as Answer; expect(a2.ai?.note).toContain("erreur réseau"); expect(JSON.stringify(a2)).not.toContain(KEY); fetchMock.mockResolvedValueOnce(gem("ceci n'est pas du json")); expect(((await ask({ qid: "sales", days: 1 })).assistant.answer as Answer).ai?.note).toContain("illisible");
     expect(JSON.stringify(st.rows("audit_log"))).not.toContain(KEY);
   });
