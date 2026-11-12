@@ -20,7 +20,7 @@ beforeEach(async () => {
   st = new DatedStore(); n = 0; fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); await st.grant(T, "own", ["owner"], []); A = (await ok(call("own", "shop.create", { name: "Dakar" }))).shopId;
   void st.create("subscriptions", T, T, { tenantId: T, plan: "business", period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }); await st.update("shops", A, { phone: "0701020304" }); await ok(call("own", "md.trial.start", {}));
 });
-afterEach(() => { for (const k of ["MASTER_AI_ENABLED", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_VERSION", "MASTER_AI_DAILY_TOKENS"]) delete process.env[k]; vi.unstubAllGlobals(); });
+afterEach(() => { for (const k of ["MASTER_AI_ENABLED", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_VERSION", "GEMINI_API_STYLE", "MASTER_AI_DAILY_TOKENS"]) delete process.env[k]; vi.unstubAllGlobals(); });
 
 describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => {
   it("désactivé par défaut : jamais d'appel externe ; activation exige drapeau, clé et modèle explicites (aucun modèle présumé)", async () => {
@@ -67,8 +67,17 @@ describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => 
     expect(aiConfig({ ...ENV_ON })?.apiVersion).toBe("v1beta"); expect(aiConfig({ ...ENV_ON, GEMINI_API_VERSION: "v1" })?.apiVersion).toBe("v1"); expect(aiConfig({ ...ENV_ON, GEMINI_API_VERSION: "v9; DROP" })?.apiVersion).toBe("v1beta");
     setEnv({ ...ENV_ON, GEMINI_API_VERSION: "v1" }); await sale("s1", 1000); fetchMock.mockResolvedValue(gem({ conclusion: "1 vente pour 1 000 FCFA.", observations: [] })); await ask({ qid: "sales", days: 1 }); expect(String(fetchMock.mock.calls[0]![0])).toContain("/v1/models/modele-test-1:generateContent");
   });
+  it("API « interactions » (GEMINI_API_STYLE=interactions) : route et corps {model, input}, lecture tolérante de la réponse, jetons estimés à défaut", async () => {
+    expect(aiConfig({ ...ENV_ON })?.style).toBe("generate"); expect(aiConfig({ ...ENV_ON, GEMINI_API_STYLE: "interactions" })?.style).toBe("interactions"); expect(aiConfig({ ...ENV_ON, GEMINI_API_STYLE: "autre" })?.style).toBe("generate");
+    setEnv({ ...ENV_ON, GEMINI_API_STYLE: "interactions" }); await st.create("customers", "c1", T, { tenantId: T, shopId: A, name: "Awa Diop", creditLimit: 1, creditBalance: 1 }); await sale("s1", 1000);
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: "x", output_text: JSON.stringify({ conclusion: "1 vente pour 1 000 FCFA.", observations: [] }) }) });
+    const r = await ask({ qid: "sales", days: 1 }); expect((r.assistant.answer as Answer).ai?.used).toBe(true); const [url, init] = fetchMock.mock.calls[0]!; expect(String(url)).toBe("https://generativelanguage.googleapis.com/v1beta/interactions"); const body = JSON.parse(String((init as any).body)); expect(Object.keys(body).sort()).toEqual(["input", "model"]); expect(body.model).toBe("modele-test-1"); expect(body.input).toContain("[CONSIGNES]"); expect(body.input).not.toMatch(/Awa|AIza/); expect((init as any).headers["x-goog-api-key"]).toBe(KEY);
+    expect(st.rows("md_usage")[0]!.tokensIn).toBeGreaterThan(0);
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ outputs: [{ type: "text", text: JSON.stringify({ conclusion: "1 vente pour 1 000 FCFA.", observations: [] }) }], usage: { total_input_tokens: 321, total_output_tokens: 12 } }) }); const r2 = await ask({ qid: "sales", days: 1 }); expect((r2.assistant.answer as Answer).ai?.used).toBe(true); expect(st.rows("md_usage").some((u) => u.tokensIn === 321 && u.tokensOut === 12)).toBe(true);
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: "x", status: "ok" }) }); const r3 = await ask({ qid: "sales", days: 1 }); expect((r3.assistant.answer as Answer).ai?.note).toContain("champs reçus : id, status"); fetchMock.mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({ error: { message: "bad field" } }) }); expect(((await ask({ qid: "sales", days: 1 })).assistant.answer as Answer).ai?.note).toContain("bad field");
+  });
   it("adaptateur : délai dépassé signalé proprement", async () => {
     const slow: typeof fetch = (_u, init) => new Promise((_, rej) => { (init!.signal as AbortSignal).addEventListener("abort", () => rej(Object.assign(new Error("x"), { name: "AbortError" }))); });
-    await expect(geminiJson({ key: KEY, model: "m-1", apiVersion: "v1beta", maxOut: 100, dailyTokens: 5000, timeoutMs: 3000 }, "s", "u", slow)).rejects.toThrow("délai dépassé");
+    await expect(geminiJson({ key: KEY, model: "m-1", apiVersion: "v1beta", style: "generate", maxOut: 100, dailyTokens: 5000, timeoutMs: 3000 }, "s", "u", slow)).rejects.toThrow("délai dépassé");
   }, 8000);
 });
