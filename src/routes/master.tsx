@@ -8,6 +8,7 @@ import { formatFcfa } from "@/domain/money";
 import { Sheet } from "@/components/ui";
 import { Profil } from "@/routes/master-profile";
 import { Recos } from "@/routes/master-reco";
+import { Assistant } from "@/routes/master-chat";
 import { PRIO_LABEL, type Report, type Prio } from "@/domain/master-report";
 
 type Rem = { level: "soon" | "urgent" | "last" | "expired"; text: string };
@@ -88,9 +89,9 @@ function Rapports() {
   );
 }
 export function MasterPage() {
-  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<"lic" | "rep" | "pro" | "rec">("lic"); const mgr = s.role === "owner" || s.role === "manager";
+  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<"lic" | "rep" | "pro" | "rec" | "chat">("lic"); const mgr = s.role === "owner" || s.role === "manager";
   return (
-    <div className="flex flex-col gap-3"><div className="flex gap-2" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "pro"} onClick={() => setTab("pro")}>Profil</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "rec"} onClick={() => setTab("rec")}>Recommandations</button>}</div>{tab === "lic" ? <Licence /> : tab === "rep" ? <Rapports /> : tab === "rec" ? <Recos /> : <Profil />}</div>
+    <div className="flex flex-col gap-3"><div className="flex gap-2" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "pro"} onClick={() => setTab("pro")}>Profil</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "rec"} onClick={() => setTab("rec")}>Recommandations</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "chat"} onClick={() => setTab("chat")}>Assistant</button>}</div>{tab === "lic" ? <Licence /> : tab === "rep" ? <Rapports /> : tab === "rec" ? <Recos /> : tab === "chat" ? <Assistant /> : <Profil />}</div>
   );
 }
 type OpenR = { skipped: string | null; message?: string } & Partial<Full>;
