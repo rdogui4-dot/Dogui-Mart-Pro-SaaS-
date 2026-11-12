@@ -21,7 +21,7 @@ function AnswerView({ a }: { a: Answer }) {
       {a.facts.length > 0 && <div className="border-t border-white/10 pt-1">{a.facts.map((f, i) => <p key={i} className="text-xs flex justify-between gap-2"><span className="text-white/60">{f.label}</span><b>{fmt(f.value)}</b></p>)}</div>}
       {a.observations.length > 0 && <div className="text-xs text-white/70">{a.observations.map((o, i) => <p key={i}>{o.startsWith("•") ? o : `• ${o}`}</p>)}</div>}
       {a.recommendations.length > 0 && <div className="text-xs text-emerald-300">{a.recommendations.map((o, i) => <p key={i}>→ {o}</p>)}</div>}
-      <div className="text-[11px] text-white/45 border-t border-white/10 pt-1 flex flex-col gap-0.5">{a.method && <p>Méthode : {a.method}</p>}{a.sources.map((s, i) => <p key={i}>Source : {s.module} · {s.detail}</p>)}{a.limits.map((o, i) => <p key={i}>Limite : {o}</p>)}<p>{CONF_LABEL[a.confidence]}</p></div></div>
+      <div className="text-[11px] text-white/45 border-t border-white/10 pt-1 flex flex-col gap-0.5">{a.method && <p>Méthode : {a.method}</p>}{a.sources.map((s, i) => <p key={i}>Source : {s.module} · {s.detail}</p>)}{a.limits.map((o, i) => <p key={i}>Limite : {o}</p>)}<p>{CONF_LABEL[a.confidence]}</p>{a.ai?.used ? <p className="text-sky-300">Rédigé par IA (Gemini) : chiffres calculés et vérifiés par MASTER DOGUI.</p> : <p>Calculé par MASTER DOGUI, sans IA.</p>}{a.ai?.note && <p className="text-amber-300">{a.ai.note}</p>}</div></div>
   );
 }
 

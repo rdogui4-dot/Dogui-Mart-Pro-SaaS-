@@ -3,7 +3,8 @@
 import { createHash } from "node:crypto";
 import { addDays, boundsOf, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
-import { GUIDED, LIMITS, cleanQuestion, dayKey, matchQuestion, retentionCutoff, type Answer } from "../../../src/domain/master-chat";
+import { AI_QIDS, PROMPT_VERSION, CLASSIFY_SYSTEM, GUIDED, LIMITS, WRITE_SYSTEM, checkWrite, classifyInput, cleanQuestion, dayKey, matchQuestion, parseClassify, parseWrite, retentionCutoff, writeInput, type Answer } from "../../../src/domain/master-chat";
+import { AiError, aiConfig, aiStatus, geminiJson, type AiConfig } from "./ai-gemini";
 import { MIN, iso, parse } from "./crm";
 import { roleKind } from "./fin-rules";
 import { needMaster } from "./master";
@@ -86,8 +87,10 @@ const guide = (note: string): Answer => ({ ...base("none", "Question non compris
 
 const quotaDay = () => dayKey();
 async function quotaUsed(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.length; }
+async function tokensToday(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.reduce((s, r) => s + Number(r.tokensIn ?? 0) + Number(r.tokensOut ?? 0), 0); }
 async function claimQuota(store: Store, ctx: Ctx): Promise<string> { const day = quotaDay(); let n = (await quotaUsed(store, ctx.tenantId)) + 1; for (; n <= LIMITS.daily; n++) { const id = `us${sha(`${ctx.tenantId}|${day}|${n}`).slice(0, 28)}`; if (await store.create("md_usage", id, ctx.tenantId, { tenantId: ctx.tenantId, day, n, userId: ctx.userId })) return id; } throw new HttpError(429, `Plafond atteint : ${LIMITS.daily} questions par jour pour l'entreprise. Revenez demain.`); }
 
+const aiMode = () => { const s = aiStatus(); return s.active ? { ai: true, label: "Mode IA : la rédaction est confiée à un modèle de langage (Gemini) ; les chiffres restent calculés par MASTER DOGUI et vérifiés. Sont transmis : votre question et des résultats agrégés, jamais de noms de clients ni de données de paiement.", ...s } : { ai: false, label: "Mode guidé : réponses calculées par MASTER DOGUI, aucune donnée envoyée à un service externe.", ...s }; };
 const view = (m: Row) => ({ id: m.$id, role: String(m.role), text: String(m.text), answer: m.data ? parse<Answer | null>(m.data, null) : null, mode: String(m.mode ?? ""), createdAt: String(m.createdAt ?? "") });
 const mine = async (store: Store, ctx: Ctx, chatId: unknown): Promise<Row> => { const c = await store.get("md_chats", String(chatId ?? "")); if (!c || c.tenantId !== ctx.tenantId || c.userId !== ctx.userId) throw new HttpError(404, "Conversation introuvable"); return c; };
 
@@ -95,7 +98,7 @@ export async function chatList(store: Store, ctx: Ctx) {
   reader(ctx); const rows = (await store.scan("md_chats", { tenantId: ctx.tenantId, userId: ctx.userId }, { maxRows: 500 })).rows; const cut = retentionCutoff(); const old = rows.filter((c) => String(c.updatedAt ?? c.createdAt ?? "") < cut).slice(0, 50);
   for (const c of old) await purge(store, c); const keep = rows.filter((c) => !old.includes(c)).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 50);
   const e = await (await import("./master")).masterEntitlement(store, ctx.tenantId); const allowed = await myShops(store, ctx); const shops = (await store.scan("shops", { tenantId: ctx.tenantId }, { maxRows: 200 })).rows.filter((s) => allowed === "all" || allowed.includes(s.$id));
-  return { chats: keep.map((c) => ({ id: c.$id, title: String(c.title), updatedAt: String(c.updatedAt) })), mode: { ai: false, label: "Mode guidé : réponses calculées par MASTER DOGUI, aucune donnée envoyée à un service externe." }, canAsk: e.canAnalyze, quota: { limit: LIMITS.daily, used: await quotaUsed(store, ctx.tenantId) }, maxQuestion: LIMITS.question, retentionMonths: LIMITS.retentionMonths, guided: GUIDED.map((g) => ({ id: g.id, label: g.label, periodic: g.periodic, shopLevel: g.shopLevel })), shops: shops.map((s) => ({ id: s.$id, name: String(s.name) })), privacy: "Vos conversations sont privées : ni le propriétaire ni un autre utilisateur ne les consulte." };
+  return { chats: keep.map((c) => ({ id: c.$id, title: String(c.title), updatedAt: String(c.updatedAt) })), mode: aiMode(), canAsk: e.canAnalyze, quota: { limit: LIMITS.daily, used: await quotaUsed(store, ctx.tenantId) }, maxQuestion: LIMITS.question, retentionMonths: LIMITS.retentionMonths, guided: GUIDED.map((g) => ({ id: g.id, label: g.label, periodic: g.periodic, shopLevel: g.shopLevel })), shops: shops.map((s) => ({ id: s.$id, name: String(s.name) })), privacy: "Vos conversations sont privées : ni le propriétaire ni un autre utilisateur ne les consulte." };
 }
 async function purge(store: Store, c: Row) { for (const m of (await store.scan("md_msgs", { tenantId: String(c.tenantId), chatId: c.$id }, { maxRows: 2000 })).rows) await store.remove("md_msgs", m.$id); await store.remove("md_chats", c.$id); }
 export async function chatGet(store: Store, ctx: Ctx, b: { chatId?: string }) { reader(ctx); const c = await mine(store, ctx, b.chatId); const msgs = (await store.scan("md_msgs", { tenantId: ctx.tenantId, chatId: c.$id }, { maxRows: 1000 })).rows.filter((m) => m.userId === ctx.userId).sort((a, z) => String(a.createdAt).localeCompare(String(z.createdAt))); return { id: c.$id, title: String(c.title), messages: msgs.map(view) }; }
@@ -109,20 +112,31 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
   let text: string; let qid = ""; let days = 7;
   if (b.qid) { const g = GUIDED.find((x) => x.id === b.qid); if (!g) throw new HttpError(400, "Question inconnue"); qid = g.id; text = g.label; const d = Number(b.days ?? 7); days = [1, 7, 30].includes(d) ? d : 7; }
   else { const c = cleanQuestion(b.text); if (!c.ok) throw new HttpError(400, c.error); text = c.text; const m = matchQuestion(text); if (m.kind === "match") { qid = m.id; days = m.days; } }
-  const m = qid ? null : matchQuestion(text); let answer: Answer; let claim = "";
+  const m = qid || b.qid ? null : matchQuestion(text); let answer: Answer; let claim = ""; let mode = "guided"; const tok = { in: 0, out: 0 }; const notes: string[] = [];
   const chatId = b.chatId ? String((await mine(store, ctx, b.chatId)).$id) : `ch${sha(`${ctx.tenantId}|${ctx.userId}|${rk}|c`).slice(0, 28)}`; const t = nowIso();
+  const cfg = aiConfig(); let ai: AiConfig | null = null; if (cfg) { if ((await tokensToday(store, ctx.tenantId)) < cfg.dailyTokens) ai = cfg; else notes.push("Plafond de coût IA du jour atteint : réponse calculée sans rédaction par IA."); }
+  const callAi = async (system: string, user: string) => { const r = await geminiJson(ai!, system, user); tok.in += r.tokensIn; tok.out += r.tokensOut; return r.text; };
+  if (!qid && ai && !b.qid) { // question hors catalogue : l'IA ne fait que CHOISIR un sujet connu (la question seule est transmise) ; la demande consomme le quota, car elle coûte un appel
+    claim = await claimQuota(store, ctx); try { const c = parseClassify(await callAi(CLASSIFY_SYSTEM, classifyInput(text))); if (c && c.qid !== "none") { qid = c.qid; days = c.days; } else if (!c) notes.push("Classement par IA illisible : question non comprise."); } catch (e) { notes.push(e instanceof AiError ? `${e.message} : question non comprise.` : "IA indisponible."); }
+  }
   if (!qid) answer = guide(m?.kind === "ambiguous" ? "Votre question correspond à plusieurs sujets : précisez-la ou choisissez une question de la liste." : "Je n'ai pas de réponse calculée pour cette question en mode guidé.");
   else {
     const g = GUIDED.find((x) => x.id === qid)!; const allowed = await myShops(store, ctx); let shop: Row | null = null;
     if (g.shopLevel) { const sid = String(b.shopId ?? ""); if (!sid) throw new HttpError(400, "Choisissez une boutique"); shop = await store.get("shops", sid); if (!shop || shop.tenantId !== ctx.tenantId || (allowed !== "all" && !allowed.includes(sid))) throw new HttpError(404, "Boutique introuvable ou hors de votre périmètre"); }
-    claim = await claimQuota(store, ctx);
+    if (!claim) claim = await claimQuota(store, ctx);
     try { answer = await TOOLS[qid]!({ store, ctx, shop: shop ?? ({ $id: "", name: "Entreprise" } as Row), days }); }
     catch (e) { if (e instanceof HttpError && (e.status === 402 || e.status === 403)) answer = fail(qid, e.message); else { await store.remove("md_usage", claim); throw e; } }
+    if (ai && AI_QIDS.includes(qid) && answer.facts.length) { // rédaction : le modèle reformule, les chiffres et les sources restent ceux de l'outil ; toute rédaction non vérifiée est écartée
+      try { const w = parseWrite(await callAi(WRITE_SYSTEM, writeInput(answer, text))); const chk = w ? checkWrite(w, answer) : { ok: false, reason: "rédaction illisible" }; if (w && chk.ok) { answer = { ...answer, conclusion: w.conclusion, observations: w.observations.length ? w.observations : answer.observations, ai: { used: true } }; mode = "ai"; } else notes.push(`Rédaction par IA écartée (${chk.reason}) : réponse calculée affichée.`); }
+      catch (e) { notes.push(e instanceof AiError ? `${e.message} : réponse calculée affichée.` : "Rédaction par IA indisponible : réponse calculée affichée."); }
+    }
   }
+  if (!answer.ai) answer = { ...answer, ai: { used: false, ...(notes.length ? { note: notes.join(" ") } : {}) } };
+  if (claim && (tok.in || tok.out)) await store.update("md_usage", claim, { tokensIn: tok.in, tokensOut: tok.out });
   if (!b.chatId) await store.create("md_chats", chatId, ctx.tenantId, { tenantId: ctx.tenantId, userId: ctx.userId, title: text.slice(0, LIMITS.title), createdAt: t, updatedAt: t });
-  await store.create("md_msgs", uid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "user", text, qid, mode: "guided", createdAt: t });
-  await store.create("md_msgs", aid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "assistant", text: answer.conclusion.slice(0, 1000), data: JSON.stringify(answer), qid, mode: "guided", createdAt: new Date(Date.parse(t) + 1).toISOString() });
+  await store.create("md_msgs", uid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "user", text, qid, mode, createdAt: t });
+  await store.create("md_msgs", aid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "assistant", text: answer.conclusion.slice(0, 1000), data: JSON.stringify(answer), qid, mode, createdAt: new Date(Date.parse(t) + 1).toISOString() });
   if (b.chatId) await store.update("md_chats", chatId, { updatedAt: t });
-  await audit(store, ctx, "chat.ask", `${qid || "non-apparié"} · mode guidé · aucune donnée transmise à un fournisseur externe`);
+  await audit(store, ctx, "chat.ask", mode === "ai" || tok.in || tok.out ? `${qid || "non-apparié"} · mode IA (prompt ${PROMPT_VERSION}) · transmis : question (${text.length} car.) + résultats agrégés sans donnée nominative · jetons ${tok.in}/${tok.out}${notes.length ? " · repli : " + notes.join(" ").slice(0, 150) : ""}` : `${qid || "non-apparié"} · mode guidé · aucune donnée transmise à un fournisseur externe${notes.length ? " · " + notes.join(" ").slice(0, 150) : ""}`);
   return { chatId, user: view((await store.get("md_msgs", uid))!), assistant: view((await store.get("md_msgs", aid))!), duplicate: false };
 }
