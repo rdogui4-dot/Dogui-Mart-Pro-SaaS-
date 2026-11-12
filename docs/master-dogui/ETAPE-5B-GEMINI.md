@@ -8,6 +8,7 @@ Fournisseur choisi par la direction : **API Gemini**. Le code est déployé mais
 | `GEMINI_API_KEY` | Clé de l'API Gemini. **Jamais dans le code, le dépôt, une conversation ni une URL.** |
 | `GEMINI_MODEL` | Identifiant du modèle à utiliser. **Aucun modèle n'est présumé** : à choisir dans Google AI Studio. |
 | `MASTER_AI_ENABLED` | `true` pour activer. À ne poser **qu'après** avoir confirmé les conditions ci-dessous. |
+| `GEMINI_API_VERSION` | (facultatif) version de l'API : `v1beta` par défaut ; `v1` ou `v1alpha` si votre modèle n'existe que sur celle-ci (l'exemple « Get code » d'AI Studio l'indique dans l'URL). |
 | `MASTER_AI_DAILY_TOKENS` | (facultatif) plafond de jetons par entreprise et par jour, 200 000 par défaut. |
 | `MASTER_AI_MAX_OUTPUT_TOKENS` | (facultatif) longueur maximale d'une réponse, 700 par défaut. |
 | `MASTER_AI_TIMEOUT_MS` | (facultatif) délai maximal d'un appel, 20 000 par défaut. |

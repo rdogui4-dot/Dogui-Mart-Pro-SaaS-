@@ -20,7 +20,7 @@ beforeEach(async () => {
   st = new DatedStore(); n = 0; fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); await st.grant(T, "own", ["owner"], []); A = (await ok(call("own", "shop.create", { name: "Dakar" }))).shopId;
   void st.create("subscriptions", T, T, { tenantId: T, plan: "business", period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }); await st.update("shops", A, { phone: "0701020304" }); await ok(call("own", "md.trial.start", {}));
 });
-afterEach(() => { for (const k of ["MASTER_AI_ENABLED", "GEMINI_API_KEY", "GEMINI_MODEL", "MASTER_AI_DAILY_TOKENS"]) delete process.env[k]; vi.unstubAllGlobals(); });
+afterEach(() => { for (const k of ["MASTER_AI_ENABLED", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_VERSION", "MASTER_AI_DAILY_TOKENS"]) delete process.env[k]; vi.unstubAllGlobals(); });
 
 describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => {
   it("désactivé par défaut : jamais d'appel externe ; activation exige drapeau, clé et modèle explicites (aucun modèle présumé)", async () => {
@@ -63,8 +63,12 @@ describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => 
     expect(parseClassify('{"qid":"stock","days":30}')).toEqual({ qid: "stock", days: 30 }); expect(parseClassify('```json\n{"qid":"sales"}\n```')).toEqual({ qid: "sales", days: 7 }); expect(parseClassify('{"qid":"profile"}')).toBeNull(); expect(parseClassify("nope")).toBeNull(); expect(parseWrite('{"conclusion":"ok"}')).toEqual({ conclusion: "ok", observations: [] }); expect(parseWrite('{"conclusion":""}')).toBeNull(); expect(parseWrite('{"conclusion":"a","observations":[1]}')).toEqual({ conclusion: "a", observations: [] });
     const a = { qid: "sales", title: "Ventes", conclusion: "x", period: { from: "2026-01-01", to: "2026-01-07", label: "7 derniers jours" }, scope: "Dakar", facts: [{ label: "Total", value: 6000 }], sources: [], method: "", observations: ["Variation : +100 %."], limits: [], confidence: "high" } as unknown as Answer; expect(checkWrite({ conclusion: "6 000 FCFA sur 7 jours, +100 %", observations: [] }, a).ok).toBe(true); expect(checkWrite({ conclusion: "6 500 FCFA", observations: [] }, a).ok).toBe(false); expect(JSON.parse(writeInput(a, "q")).faits).toEqual([{ label: "Total", value: 6000 }]);
   });
+  it("version d'API configurable (v1beta par défaut, v1 ou v1alpha acceptées, valeur inconnue ignorée)", async () => {
+    expect(aiConfig({ ...ENV_ON })?.apiVersion).toBe("v1beta"); expect(aiConfig({ ...ENV_ON, GEMINI_API_VERSION: "v1" })?.apiVersion).toBe("v1"); expect(aiConfig({ ...ENV_ON, GEMINI_API_VERSION: "v9; DROP" })?.apiVersion).toBe("v1beta");
+    setEnv({ ...ENV_ON, GEMINI_API_VERSION: "v1" }); await sale("s1", 1000); fetchMock.mockResolvedValue(gem({ conclusion: "1 vente pour 1 000 FCFA.", observations: [] })); await ask({ qid: "sales", days: 1 }); expect(String(fetchMock.mock.calls[0]![0])).toContain("/v1/models/modele-test-1:generateContent");
+  });
   it("adaptateur : délai dépassé signalé proprement", async () => {
     const slow: typeof fetch = (_u, init) => new Promise((_, rej) => { (init!.signal as AbortSignal).addEventListener("abort", () => rej(Object.assign(new Error("x"), { name: "AbortError" }))); });
-    await expect(geminiJson({ key: KEY, model: "m-1", maxOut: 100, dailyTokens: 5000, timeoutMs: 3000 }, "s", "u", slow)).rejects.toThrow("délai dépassé");
+    await expect(geminiJson({ key: KEY, model: "m-1", apiVersion: "v1beta", maxOut: 100, dailyTokens: 5000, timeoutMs: 3000 }, "s", "u", slow)).rejects.toThrow("délai dépassé");
   }, 8000);
 });
