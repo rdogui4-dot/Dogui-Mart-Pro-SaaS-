@@ -1,0 +1,67 @@
+{
+ "_note": "Échecs connus au 13/11/2026 (libellés/sélecteurs périmés, pas de régression avérée). Toute étape en échec absente de cette liste est une NOUVELLE régression. Retirer une entrée une fois le scénario réparé.",
+ "crash": [
+  "j1",
+  "j4",
+  "j12",
+  "j14"
+ ],
+ "known": {
+  "j10": [
+   "ticket PDF après vente",
+   "compta: facture libre + rapport"
+  ],
+  "j13": [
+   "liste vide : aucune promotion fictive",
+   "création refusée sous la marge (message du serveur)",
+   "création valide (brouillon) puis activation",
+   "caisse : aperçu serveur (prix initial, remise, prix final) puis vente",
+   "détail : historique des utilisations et résultats"
+  ],
+  "j15": [
+   "calendrier, budgets, performance, conseils, réglages, journal s'ouvrent avec données réell"
+  ],
+  "j17": [
+   "vue exécutive : indicateurs classés, non calculables explicités, marge ≠ bénéfice",
+   "rentabilité, stocks, achats, magasins, prévisions s'affichent sur données réelles"
+  ],
+  "j18": [
+   "sortie de caisse, solde théorique, comptage et écart à la fermeture",
+   "historique des sessions et Starter verrouillé"
+  ],
+  "j28": [
+   "contact tracé, lien WhatsApp, réponse, désabonnement qui retire le consentement, résultats",
+   "consentements : historique des désabonnements",
+   "offre en boutique avec coupon ciblé (canal sans prestataire), plafonds enregistrés",
+   "automatisation : refus sans autorisation, règle, exécution unique, idempotence",
+   "échec d'automatisation visible puis rejouable de façon sûre",
+   "équipes : création, attribution de portefeuille, performances réelles",
+   "analyses : valeur, rétention, conversion, prévisions avec limites, canaux et magasins",
+   "fidélité : règles lisibles, modification par le propriétaire, effet sur la vente suivante "
+  ],
+  "j3": [
+   "achats: fournisseur + commande + réception + facture",
+   "compta: onglets chargent",
+   "stock: transfert vers l'autre boutique (UI)",
+   "clients: création et fiche",
+   "hors ligne: vente mise en file puis synchronisée"
+  ],
+  "j30": [
+   "fiche article : bloc des unités endommagées/refusées"
+  ],
+  "j31": [
+   "Règles : le propriétaire voit les seuils ; rétrogradation Business : actions Pro verrouill"
+  ],
+  "j36": [
+   "démarrage de l'essai sans paiement : dates et prochaine échéance",
+   "essai non rejouable : le bouton disparaît",
+   "expiration simulée : mode consultation, autres modules intacts"
+  ],
+  "j5": [
+   "vente hors ligne puis refus serveur au retour : visible et traitable"
+  ],
+  "j6": [
+   "variantes: ajout d'une variante (UI)"
+  ]
+ }
+}

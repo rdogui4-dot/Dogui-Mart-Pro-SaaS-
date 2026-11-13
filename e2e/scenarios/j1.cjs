@@ -1,5 +1,5 @@
 const { start } = require("../harness.cjs"); const fs = require("fs");
-const png = fs.readFileSync(__dirname + "/../site/Dogui-Mart-Pro-SaaS-/icon-192.png");
+const png = fs.readFileSync(__dirname + "/../.build/site/Dogui-Mart-Pro-SaaS-/icon-192.png");
 const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n")[0].slice(0, 220)); } };
 (async () => {
   const h = await start({ expect: [] }); const { page, st } = h;
