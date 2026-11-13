@@ -1,0 +1,11 @@
+const { start } = require("../harness.cjs");
+const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 4).join(" | ").slice(0, 600)); } };
+(async () => {
+  const h = await start({ plan: "business", expect: [] }); const { page, st } = h; const txt = async () => (await page.locator("body").innerText()).replace(/\s+/g, " "); const wait = (t) => page.waitForSelector(`text=${t}`, { timeout: 10000 });
+  await step("accueil : entrée MASTER DOGUI", async () => { await page.goto(h.url("")); await wait("MASTER DOGUI"); });
+  await step("licence non démarrée : tarifs, conditions et bouton d'essai", async () => { await page.goto(h.url("master")); await wait("Non démarrée"); const t = await txt(); if (!/15[   ]000/.test(t) || !/2[   ]500/.test(t) || !/Aucun débit automatique/.test(t) || !/indépendante/.test(t)) throw new Error(t.slice(0, 500)); });
+  await step("démarrage de l'essai sans paiement : dates et prochaine échéance", async () => { await page.getByRole("button", { name: /Démarrer l'essai gratuit/ }).click(); await wait("Essai gratuit en cours"); const t = await txt(); if (!/14 jour\(s\) restant/.test(t) || !/Première période de 12 mois/.test(t)) throw new Error(t.slice(0, 600)); if (st.rows("md_licenses").length !== 1) throw new Error("licence non créée"); });
+  await step("essai non rejouable : le bouton disparaît", async () => { await page.reload(); await wait("Essai gratuit en cours"); if (await page.getByRole("button", { name: /Démarrer l'essai/ }).count()) throw new Error("bouton encore présent"); });
+  await step("expiration simulée : mode consultation, autres modules intacts", async () => { st.rows("md_licenses")[0].trialEndsAt = new Date(Date.now() - 864e5).toISOString(); await page.reload(); await wait("Expirée"); const t = await txt(); if (!/autres modules/.test(t)) throw new Error(t.slice(0, 400)); await page.goto(h.url("stock")); await page.waitForTimeout(800); if (/Expirée — mode consultation/.test(await txt())) throw new Error("fuite sur un autre module"); });
+  console.log("ERRORS", h.errors.filter((e) => !/WebSocket|Realtime|Failed to load resource/.test(e)), "\nBAD", h.bad.map((b) => b.slice(0, 140))); await h.close();
+})();

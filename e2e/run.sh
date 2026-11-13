@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Tests navigateur : construit le site et le serveur en mémoire, puis lance le scénario demandé (par défaut : master).
-# Prérequis : Playwright disponible (require('playwright')) ; aucune clé ni réseau externe.
-set -euo pipefail
+# Tests navigateur. Usage : bash e2e/run.sh [master | jNN | all]  (par défaut : master)
+# Construit le site et le serveur en mémoire (même routeur que la fonction dmp-api), puis pilote Chromium via Playwright.
+# Prérequis : Playwright disponible (require('playwright')). Aucune clé, aucun réseau externe.
+set -uo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env.example; set +a
-OUT=e2e/.build; rm -rf "$OUT"; mkdir -p "$OUT/site"
-VITE_BASE_PATH=/Dogui-Mart-Pro-SaaS-/ npx vite build --outDir "$OUT/site/Dogui-Mart-Pro-SaaS-" --emptyOutDir >/dev/null
-npx esbuild e2e/entry.ts --bundle --platform=node --format=cjs --outfile="$OUT/server.cjs" --log-level=error
-mkdir -p e2e/out
-node "e2e/${1:-master}.cjs"
+OUT=e2e/.build; rm -rf "$OUT"; mkdir -p "$OUT/site" e2e/out
+VITE_BASE_PATH=/Dogui-Mart-Pro-SaaS-/ npx vite build --outDir "$OUT/site/Dogui-Mart-Pro-SaaS-" --emptyOutDir >/dev/null || exit 2
+npx esbuild e2e/entry.ts --bundle --platform=node --format=cjs --outfile="$OUT/server.cjs" --log-level=error || exit 2
+run() { local f="$1"; [ -f "e2e/scenarios/$f.cjs" ] && f="e2e/scenarios/$f.cjs" || f="e2e/$f.cjs"; timeout "${E2E_TIMEOUT:-240}" node "$f"; }
+case "${1:-master}" in
+  all) fail=0; for f in e2e/scenarios/j*.cjs e2e/master.cjs; do n=$(basename "$f" .cjs); echo "=== $n"; out=$(timeout "${E2E_TIMEOUT:-240}" node "$f" 2>&1); echo "$out" | grep -E "^(OK|FAIL)|ERRORS|BAD|TOUT PASSE|ÉCHEC" | cut -c1-260; echo "$out" | grep -q "^FAIL" && fail=$((fail+1)); done; echo "SCÉNARIOS EN ÉCHEC : $fail"; exit $((fail>0)) ;;
+  *) run "$1" ;;
+esac
