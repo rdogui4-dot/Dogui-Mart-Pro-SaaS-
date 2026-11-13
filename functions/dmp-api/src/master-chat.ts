@@ -80,7 +80,20 @@ async function toolProfile(e: Env): Promise<Answer> {
   const a = base("profile", "Profil de l'entreprise"); const p = await profileGet(e.store, e.ctx); a.sources = [{ module: "MASTER DOGUI", detail: "profil d'entreprise (faits déclarés et lus dans les modules)" }]; a.method = "Lecture du profil ; les faits déclarés sont cités comme tels, les faits vérifiés viennent des modules.";
   a.conclusion = p.facts.length ? `${p.facts.length} information(s) mémorisée(s).` : "Aucune information mémorisée pour l'instant."; a.facts = p.verified.map((v) => ({ label: v.label, value: v.value })); a.observations = p.facts.map((f) => `${f.label}${f.shopName ? ` · ${f.shopName}` : ""} : ${f.text} (${f.kind === "declared" ? "déclaré" : f.kind === "hypothesis" ? "hypothèse" : "estimation"})`); a.limits = ["Les informations déclarées sont celles saisies par le propriétaire."]; return a;
 }
-const TOOLS: Record<string, (e: Env) => Promise<Answer>> = { sales: toolSales, top: toolTop, stock: toolStock, cash: toolCash, credit: toolCredit, recos: toolRecos, profile: toolProfile };
+const RANK: Record<string, number> = { low: 0, medium: 1, high: 2 };
+/** Synthèse : assemble les réponses des outils existants (aucun calcul nouveau) ; une section refusée par les droits ou la formule est signalée, jamais inventée. */
+async function toolOverview(e: Env): Promise<Answer> {
+  const parts: [string, (x: Env) => Promise<Answer>][] = [["Ventes", toolSales], ["Stock", toolStock], ["Caisse", toolCash], ["Crédit clients", toolCredit], ["Recommandations", toolRecos]]; const got: { name: string; r: Answer }[] = []; const missing: string[] = [];
+  for (const [name, fn] of parts) { try { got.push({ name, r: await fn(e) }); } catch (err) { if (err instanceof HttpError && (err.status === 402 || err.status === 403)) missing.push(name); else throw err; } }
+  if (!got.length) return fail("overview", "Aucune section de la synthèse n'est accessible avec votre rôle ou votre formule.");
+  const a = base("overview", "Synthèse de l'activité"); const seen = new Set<string>(); const uniq = (xs: string[]) => xs.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
+  a.period = got.find((g) => g.r.period)?.r.period ?? null; a.scope = String(e.shop.name); a.conclusion = got.map((g) => `${g.name} : ${g.r.conclusion}`).join(" ");
+  a.facts = got.flatMap((g) => g.r.facts.map((f) => ({ label: `${g.name} · ${f.label}`, value: f.value }))); a.observations = got.flatMap((g) => g.r.observations.slice(0, 3).map((o) => `${g.name} : ${o.replace(/^•\s*/, "")}`));
+  a.sources = got.flatMap((g) => g.r.sources).filter((s, i, arr) => arr.findIndex((x) => x.module === s.module && x.detail === s.detail) === i); a.method = "Assemblage des réponses calculées par MASTER DOGUI pour la boutique et la période choisies (ventes, stock, caisse, crédit clients, recommandations) ; aucun calcul supplémentaire.";
+  seen.clear(); a.limits = uniq([...got.flatMap((g) => g.r.limits), ...(missing.length ? [`Sections non affichées (droits ou formule) : ${missing.join(", ")}.`] : [])]); a.recommendations = uniq(got.flatMap((g) => g.r.recommendations)).slice(0, 5);
+  a.confidence = got.map((g) => g.r.confidence).sort((x, y) => RANK[x]! - RANK[y]!)[0]!; return a;
+}
+const TOOLS: Record<string, (e: Env) => Promise<Answer>> = { overview: toolOverview, sales: toolSales, top: toolTop, stock: toolStock, cash: toolCash, credit: toolCredit, recos: toolRecos, profile: toolProfile };
 
 const fail = (qid: string, msg: string): Answer => ({ ...base(qid, "Accès refusé"), conclusion: msg, confidence: "low", limits: ["Aucun chiffre n'est présenté : votre accès ou votre formule ne le permet pas."] });
 const guide = (note: string, aiOn = false): Answer => ({ ...base("none", "Question non comprise"), conclusion: note, confidence: "low", observations: GUIDED.map((g) => `• ${g.label}`), limits: [aiOn ? "Cette question ne correspond à aucun sujet que MASTER DOGUI sait calculer (liste ci-dessus). L'IA ne répond qu'à partir de résultats calculés, jamais de sa propre connaissance : rien n'est improvisé." : "Mode guidé : l'assistant répond aux questions de la liste. Aucun fournisseur d'IA n'est configuré, donc aucune réponse n'est improvisée."] });

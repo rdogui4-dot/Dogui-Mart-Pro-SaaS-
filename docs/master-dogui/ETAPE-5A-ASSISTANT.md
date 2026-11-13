@@ -16,6 +16,9 @@ Plan validé (`AUDIT-ETAPE-5-ASSISTANT.md`), choix par défaut : 5A avant 5B ; 3
 - **Interface** : onglet « Assistant » (boutique, période, questions guidées, saisie libre, conversations, suppression, quota restant).
 - **Jeu de référence** (§18.1) : 17 tests serveur sur données de test avec chiffres exacts attendus (ventes, produits, stock, caisse, crédit), injection, fuite inter-entreprises, droits, quota, idempotence, conservation, licence.
 
+## Ajout : synthèse de l'activité
+Question « Comment se porte mon commerce ? » : sujet `overview` qui assemble les réponses des outils existants (ventes, stock, caisse, crédit clients, recommandations) pour la boutique et la période choisies, sans calcul supplémentaire. Une section refusée par les droits ou la formule est signalée dans les limites, jamais inventée. Une seule question consomme un seul quota.
+
 ## Limites assumées
 - **Aucun langage naturel libre** : sans fournisseur d'IA, l'assistant ne comprend que les sujets du catalogue ; le reste est signalé comme non couvert (étape 5B).
 - Les remboursements sont affichés à part, non déduits ; la marge n'est pas calculée (coût à la vente non enregistré).

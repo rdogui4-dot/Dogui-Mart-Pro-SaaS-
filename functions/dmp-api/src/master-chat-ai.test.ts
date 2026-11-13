@@ -46,7 +46,7 @@ describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => 
   });
   it("question hors catalogue : l'IA ne fait que CHOISIR un sujet connu (la question seule est transmise) et consomme le quota ; sujet inconnu refusé", async () => {
     setEnv(ENV_ON); await sale("s1", 1000); fetchMock.mockResolvedValueOnce(gem({ qid: "sales", days: 1 })).mockResolvedValueOnce(gem({ conclusion: "1 vente pour 1 000 FCFA.", observations: [] }));
-    const r = await ask({ text: "Comment se porte mon commerce ?" }); expect((r.assistant.answer as Answer).qid).toBe("sales"); expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as any).body)).contents[0].parts[0].text).toBe("<question>Comment se porte mon commerce ?</question>"); expect((await ok(call("own", "md.chat.list"))).quota.used).toBe(1);
+    const r = await ask({ text: "Peux-tu me dire où j'en suis cette semaine ?" }); expect((r.assistant.answer as Answer).qid).toBe("sales"); expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as any).body)).contents[0].parts[0].text).toBe("<question>Peux-tu me dire où j'en suis cette semaine ?</question>"); expect((await ok(call("own", "md.chat.list"))).quota.used).toBe(1);
     fetchMock.mockResolvedValueOnce(gem({ qid: "pirate", days: 1 })); const u = await ask({ text: "Raconte une histoire" }); expect((u.assistant.answer as Answer).qid).toBe("none"); expect((u.assistant.answer as Answer).limits.join(" ")).not.toContain("Aucun fournisseur d'IA n'est configuré"); expect((u.assistant.answer as Answer).conclusion).toContain("aucun des sujets"); expect((await ok(call("own", "md.chat.list"))).quota.used).toBe(2);
   });
   it("injection : une question qui réclame des chiffres inventés ne peut pas les faire afficher", async () => {
