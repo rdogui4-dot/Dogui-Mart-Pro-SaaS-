@@ -28,9 +28,9 @@ export function Scanner({ onCode, onClose }: { onCode: (c: string) => void; onCl
     return () => { stop = true; stream?.getTracks().forEach((t) => t.stop()); };
   }, [onCode]);
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+    <div data-theme="dark" className="fixed inset-0 z-50 bg-black flex flex-col">
       <video ref={ref} className="flex-1 object-cover" playsInline muted />
-      {err && <p className="p-4 text-center text-amber-300">{err}</p>}
+      {err && <p className="p-4 text-center text-warn">{err}</p>}
       <button className="btn m-4" onClick={onClose}>Fermer</button>
     </div>
   );

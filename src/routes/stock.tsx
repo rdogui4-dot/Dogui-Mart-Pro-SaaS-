@@ -60,14 +60,14 @@ function StockLegacy({ onCard }: { onCard?: (productId: string, variantId?: stri
       {track && (trackingOf(track) === "lot" ? <LotsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "lots")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} /> : <SerialsSheet a={track as unknown as ArticleRow} canManage={planAllows(sub.data?.entitlement.plan.id, "serials")} onClose={() => setTrack(null)} onChanged={() => void qc.invalidateQueries()} />)}
       {planAllows(sub.data?.entitlement.plan.id, "lots") && <ExpiryAlerts />}
       <div className="grid grid-cols-2 gap-2">
-        <div className="card"><div className="text-white/50 text-xs">Valeur du stock</div><div className="font-semibold">{formatFcfa(value)}</div></div>
-        <div className="card"><div className="text-white/50 text-xs">Ruptures / alertes</div><div className="font-semibold text-red-400">{low.length}</div></div>
+        <div className="card"><div className="text-muted text-xs">Valeur du stock</div><div className="font-semibold">{formatFcfa(value)}</div></div>
+        <div className="card"><div className="text-muted text-xs">Ruptures / alertes</div><div className="font-semibold text-bad">{low.length}</div></div>
       </div>
       <div className="flex gap-2">
         <input aria-label="Rechercher un article (nom, référence, code-barres)" className="input" placeholder="Rechercher un article (nom, référence, code-barres)" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
-      {note && <p className="text-sm text-amber-300" role="status">{note}</p>}
+      {note && <p className="text-sm text-warn" role="status">{note}</p>}
       {!hasArticles && can(s, "stock") && (
         <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
           <h2 className="font-semibold">Nouveau produit</h2>
@@ -80,22 +80,22 @@ function StockLegacy({ onCard }: { onCard?: (productId: string, variantId?: stri
             <input aria-label="Seuil d'alerte" className="input" inputMode="numeric" placeholder="Seuil d'alerte" value={nf.minStock} onChange={(e) => setNf({ ...nf, minStock: e.target.value })} />
           </div>
           <button className="btn" disabled={create.isPending}>Ajouter</button>
-          {nfErr && <p className="text-red-400 text-sm" role="alert">{nfErr}</p>}
+          {nfErr && <p className="text-bad text-sm" role="alert">{nfErr}</p>}
         </form>
       )}
-      <p className="text-xs text-white/50">Touchez un article pour ajuster son stock.{hasArticles ? " Pour créer un article, utilisez l'écran Articles." : ""}</p>
+      <p className="text-xs text-muted">Touchez un article pour ajuster son stock.{hasArticles ? " Pour créer un article, utilisez l'écran Articles." : ""}</p>
       {s.shops.length > 1 && can(s, "stock") && <Transfer products={(products.data ?? []).filter((p) => p.kind !== "bundle")} variants={variants.data ?? []} levels={levels.data} onDone={() => void qc.invalidateQueries()} />}
       <ul className="flex flex-col gap-2">
         {shown.map((p) => {
           const n = qtyOf(levels.data, p);
           return (
-            <li key={p.$id} className="card flex items-center justify-between gap-2 cursor-pointer active:scale-[.99]" onClick={() => can(s, "stock") && openStock(p as Product & { $id: string })}>
+            <li key={p.$id} className="card flex items-center justify-between gap-2 cursor-pointer " onClick={() => can(s, "stock") && openStock(p as Product & { $id: string })}>
               <div className="min-w-0">
                 <div className="truncate font-medium">{p.name}</div>
-                <div className="text-xs text-white/50">{formatFcfa(p.price)} · seuil {p.minStock ?? 0}{isLow(n, p.minStock ?? 0) && ` · à commander : ${reorderQty(n, 0, 14) || "à voir"}`}</div>
+                <div className="text-xs text-muted">{formatFcfa(p.price)} · seuil {p.minStock ?? 0}{isLow(n, p.minStock ?? 0) && ` · à commander : ${reorderQty(n, 0, 14) || "à voir"}`}</div>
               </div>
-              <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-red-400" : ""}`}>{formatQty(n)}</div>
-              {can(s, "stock") && <span className="text-[var(--gold)] text-sm">Ajuster</span>}
+              <div className={`text-lg font-bold ${isLow(n, p.minStock ?? 0) ? "text-bad" : ""}`}>{formatQty(n)}</div>
+              {can(s, "stock") && <span className="text-accent-text text-sm">Ajuster</span>}
               {onCard && !p.hasVariants && !isVirtualBundle(p) && <button className="btn-ghost !py-1 !px-2 text-sm" aria-label={`Fiche de stock ${p.name}`} onClick={(e) => { e.stopPropagation(); onCard(p.$id); }}>Fiche</button>}
               {onCard && p.hasVariants && (variants.data ?? []).filter((v) => v.productId === p.$id && !v.archived).map((v) => <button key={v.$id} className="btn-ghost !py-1 !px-2 text-xs" aria-label={`Fiche de stock ${p.name} ${v.label}`} onClick={(e) => { e.stopPropagation(); onCard(p.$id, v.$id); }}>{v.label}</button>)}
             </li>
@@ -114,9 +114,9 @@ function CountSheet({ p, n, busy, error, onClose, onCount }: { p: Product & { $i
   return (
     <Sheet title={p.name} onClose={onClose} back>
       <div className="card text-sm">Stock enregistré : <b>{formatQty(n)}</b>{(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}</div>
-      <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Quantité réellement comptée</span><input className="input" inputMode="decimal" autoFocus value={v} onChange={(e) => setV(e.target.value)} /></label>
-      <p className="text-xs text-white/50">L'écart sera enregistré comme mouvement d'inventaire (historique conservé).</p>
-      {error && <p className="text-red-400 text-sm" role="alert">{error}</p>}
+      <label className="flex flex-col gap-1 text-sm"><span className="text-muted">Quantité réellement comptée</span><input className="input" inputMode="decimal" autoFocus value={v} onChange={(e) => setV(e.target.value)} /></label>
+      <p className="text-xs text-muted">L'écart sera enregistré comme mouvement d'inventaire (historique conservé).</p>
+      {error && <p className="text-bad text-sm" role="alert">{error}</p>}
       <button className="btn" disabled={busy || !/^\d+([.,]\d{1,3})?$/.test(v.trim())} onClick={() => onCount(v.trim())}>Valider l'inventaire</button>
     </Sheet>
   );
@@ -146,14 +146,14 @@ function Transfer({ products, variants, levels, onDone }: { products: { $id: str
             <div key={i} className="grid grid-cols-[1fr_5rem] gap-1">
               <select className="input !px-2" value={r.productId} onChange={(e) => set(i, { productId: e.target.value })}><option value="">Produit…</option>{products.flatMap((p) => p.hasVariants ? variants.filter((v) => v.productId === p.$id && !v.archived).map((v) => <option key={v.$id} value={`${p.$id}:${v.$id}`}>{p.name} — {v.label} ({formatQty(variantQty(levels, v, p.qtyScale ?? 0))})</option>) : [<option key={p.$id} value={p.$id}>{p.name} ({formatQty(qtyOf(levels, p))})</option>])}</select>
               <input aria-label="Qté" className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
-              {(() => { const mode = products.find((p) => p.$id === r.productId.split(":")[0])?.tracking; return mode === "lot" ? <p className="col-span-2 text-xs text-white/50">Lots prélevés automatiquement, les plus proches de la péremption d'abord ; ils sont recréés à l'identique (numéro, péremption, coût) dans la boutique de destination.</p> : mode === "serial" ? <textarea className="input col-span-2" rows={2} placeholder="Numéros de série à transférer (facultatif : sinon les plus anciens disponibles)" aria-label="Numéros de série à transférer" value={r.serials} onChange={(e) => set(i, { serials: e.target.value })} /> : null; })()}
+              {(() => { const mode = products.find((p) => p.$id === r.productId.split(":")[0])?.tracking; return mode === "lot" ? <p className="col-span-2 text-xs text-muted">Lots prélevés automatiquement, les plus proches de la péremption d'abord ; ils sont recréés à l'identique (numéro, péremption, coût) dans la boutique de destination.</p> : mode === "serial" ? <textarea className="input col-span-2" rows={2} placeholder="Numéros de série à transférer (facultatif : sinon les plus anciens disponibles)" aria-label="Numéros de série à transférer" value={r.serials} onChange={(e) => set(i, { serials: e.target.value })} /> : null; })()}
             </div>
           ))}
           <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { productId: "", qty: "", serials: "" }])}>+ Ligne</button>
           <button className="btn" disabled={busy || !to}>Transférer</button>
         </form>
       )}
-      {msg && <p className="text-sm text-amber-300">{msg}</p>}
+      {msg && <p className="text-sm text-warn">{msg}</p>}
     </div>
   );
 }

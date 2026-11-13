@@ -10,6 +10,8 @@ import { can, useSession, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
 import { stateLabel } from "@/domain/reminders";
 import { useSubscription } from "./subscription";
+import { getTheme, setTheme, type Theme } from "@/lib/theme";
+import { useState } from "react";
 import { RejectedSales } from "@/components/RejectedSales";
 import { MasterBriefing, MasterReminder } from "./master";
 import { useProductsAll, useStockLevels, useVariantsAll } from "@/lib/queries";
@@ -65,28 +67,28 @@ export function HomePage() {
       <MasterReminder />
       <MasterBriefing />
       <header>
-        <p className="text-white/50 text-sm">{greeting()},</p>
+        <p className="text-muted text-sm">{greeting()},</p>
         <h1 className="text-2xl font-bold">{s.name}</h1>
-        {shopName && <p className="text-sm text-white/50">{shopName}</p>}
+        {shopName && <p className="text-sm text-muted">{shopName}</p>}
       </header>
-      {ent?.lifetime && s.role === "owner" && <div className="card flex items-center gap-3"><Crown className="text-[var(--gold)]" /><div className="text-sm"><b>Accès à vie</b><br /><span className="text-white/50">Toutes les fonctions et les prochaines mises à jour sont incluses.</span></div></div>}
+      {ent?.lifetime && s.role === "owner" && <div className="card flex items-center gap-3"><Crown className="text-accent-text" /><div className="text-sm"><b>Accès à vie</b><br /><span className="text-muted">Toutes les fonctions et les prochaines mises à jour sont incluses.</span></div></div>}
       {ent && !ent.lifetime && s.role === "owner" && (
-        <Link to="/reglages" className="card flex items-center justify-between text-sm"><span><b>Abonnement {ent.plan.name}</b><br /><span className="text-white/50">{stateLabel[ent.state]}</span></span><span className="text-[var(--gold)]">Gérer ›</span></Link>
+        <Link to="/reglages" className="card flex items-center justify-between text-sm"><span><b>Abonnement {ent.plan.name}</b><br /><span className="text-muted">{stateLabel[ent.state]}</span></span><span className="text-accent-text">Gérer ›</span></Link>
       )}
       {can(s, "pos") && (
         <div className="grid grid-cols-2 gap-3">
-          <div className="kpi"><TrendingUp size={18} className="text-[var(--gold)]" /><b>{formatFcfa(total)}</b><span>Ventes du jour</span></div>
-          <div className="kpi"><ShoppingBag size={18} className="text-[var(--gold)]" /><b>{paid.length}</b><span>Tickets</span></div>
+          <div className="kpi"><TrendingUp size={18} className="text-accent-text" /><b>{formatFcfa(total)}</b><span>Ventes du jour</span></div>
+          <div className="kpi"><ShoppingBag size={18} className="text-accent-text" /><b>{paid.length}</b><span>Tickets</span></div>
         </div>
       )}
       {can(s, "stock") && low.length > 0 && (
-        <Link to="/stock" className="card flex items-center gap-3 border-amber-400/30">
-          <AlertTriangle className="text-amber-300 shrink-0" /><span className="text-sm"><b>{low.length} produit(s) à réapprovisionner</b><br /><span className="text-white/50">{low.slice(0, 3).join(", ")}{low.length > 3 ? "…" : ""}</span></span>
+        <Link to="/stock" className="card flex items-center gap-3 border-warn/30">
+          <AlertTriangle className="text-warn shrink-0" /><span className="text-sm"><b>{low.length} produit(s) à réapprovisionner</b><br /><span className="text-muted">{low.slice(0, 3).join(", ")}{low.length > 3 ? "…" : ""}</span></span>
         </Link>
       )}
       <section aria-label="Modules" className="grid grid-cols-2 gap-3">
         {TILES.filter((t) => can(s, t.perm) && visible(t.to)).map(({ to, label, hint, icon: I }) => (
-          <Link key={to} to={to} className="tile"><I size={26} /><b>{label}</b><span className="text-xs text-white/50">{hint}</span></Link>
+          <Link key={to} to={to} className="tile"><I size={26} /><b>{label}</b><span className="text-xs text-muted">{hint}</span></Link>
         ))}
       </section>
     </div>
@@ -101,11 +103,26 @@ export function PlusPage() {
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Plus</h1>
       <RejectedSales />
-      <div className="card text-sm"><b>{s.name}</b><br /><span className="text-white/50">{s.role === "owner" ? "Gérant principal (propriétaire)" : s.role}</span></div>
+      <div className="card text-sm"><b>{s.name}</b><br /><span className="text-muted">{s.role === "owner" ? "Gérant principal (propriétaire)" : s.role}</span></div>
       {TILES.filter((t) => can(s, t.perm) && (t.to !== "/articles" || planAllows(plan, "articles")) && (t.to !== "/pilotage" || planAllows(plan, "proDashboard")) && (t.to !== "/caisse-pro" || planAllows(plan, "smartPosPro")) && (t.to !== "/depenses-pro" || planAllows(plan, "expensesPro")) && ((t.to !== "/caisse" && t.to !== "/ventes" && t.to !== "/depenses") || planAllows(plan, "smartPos"))).map(({ to, label, hint, icon: I }) => (
-        <Link key={to} to={to} className="card flex items-center gap-3"><I className="text-[var(--gold)]" /><span><b>{label}</b><br /><span className="text-xs text-white/50">{hint}</span></span></Link>
+        <Link key={to} to={to} className="card flex items-center gap-3"><I className="text-accent-text" /><span><b>{label}</b><br /><span className="text-xs text-muted">{hint}</span></span></Link>
       ))}
+      <ThemeSwitch />
       <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => void logout()}><LogOut size={18} />Se déconnecter</button>
+    </div>
+  );
+}
+
+function ThemeSwitch() {
+  const [t, set] = useState<Theme>(getTheme());
+  const pick = (x: Theme) => { setTheme(x); set(x); };
+  return (
+    <div className="card flex items-center justify-between gap-3" role="group" aria-label="Thème d'affichage">
+      <span className="text-sm font-medium">Affichage</span>
+      <div className="flex gap-2">
+        <button className="chip" aria-current={t === "light"} onClick={() => pick("light")}>Clair</button>
+        <button className="chip" aria-current={t === "dark"} onClick={() => pick("dark")}>Sombre</button>
+      </div>
     </div>
   );
 }

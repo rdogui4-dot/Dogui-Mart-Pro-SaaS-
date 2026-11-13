@@ -2,7 +2,7 @@ import { useState } from "react";
 import { formatFcfa } from "@/domain/money";
 
 /** Palette cohérente avec Dogui Mart Pro (or en tête), lisible sur fond sombre. */
-export const PALETTE = ["#d4af37", "#4fb3a5", "#6c8cff", "#e07a5f", "#a78bfa", "#9aa3b2"];
+export const PALETTE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--muted)"];
 const short = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1).replace(".0", "")} M` : n >= 1000 ? `${Math.round(n / 1000)} k` : String(n));
 
 /** Histogramme interactif (toucher une barre affiche sa valeur). Axe à zéro, valeurs réelles uniquement. */
@@ -11,7 +11,7 @@ export function BarChart({ data, label, format = formatFcfa }: { data: { key: st
   const cur = sel !== null ? data[sel] : undefined;
   return (
     <div>
-      <div className="text-xs text-white/60 h-4" aria-live="polite">{cur ? `${cur.label} : ${format(cur.value)}${cur.sub ? ` · ${cur.sub}` : ""}` : `Max ${format(max)} · touchez une barre`}</div>
+      <div className="text-xs text-muted h-4" aria-live="polite">{cur ? `${cur.label} : ${format(cur.value)}${cur.sub ? ` · ${cur.sub}` : ""}` : `Max ${format(max)} · touchez une barre`}</div>
       <svg viewBox={`0 0 ${W} ${H + 16}`} className="w-full" role="img" aria-label={label}>
         <line x1={P} y1={H} x2={W - P} y2={H} stroke="currentColor" strokeOpacity={0.25} />
         {data.map((d, i) => { const h = d.value > 0 ? Math.max(2, (d.value / max) * (H - 14)) : 0; const x = P + i * bw; return (
@@ -33,7 +33,7 @@ export function LineChart({ data, label }: { data: { key: string; label: string;
   const pick = (e: React.PointerEvent<SVGSVGElement>) => { const r = e.currentTarget.getBoundingClientRect(); const x = ((e.clientX - r.left) / r.width) * W; setSel(Math.max(0, Math.min(data.length - 1, Math.round((x - P) / (step || 1))))); };
   return (
     <div>
-      <div className="text-xs text-white/60 h-4" aria-live="polite">{cur ? `${cur.label} : ${formatFcfa(cur.value)}${cur.sub ? ` · ${cur.sub}` : ""}` : `Max ${formatFcfa(max)} · touchez le graphique`}</div>
+      <div className="text-xs text-muted h-4" aria-live="polite">{cur ? `${cur.label} : ${formatFcfa(cur.value)}${cur.sub ? ` · ${cur.sub}` : ""}` : `Max ${formatFcfa(max)} · touchez le graphique`}</div>
       <svg viewBox={`0 0 ${W} ${H + 16}`} className="w-full touch-none" role="img" aria-label={label} onPointerDown={pick} onPointerMove={(e) => e.buttons && pick(e)}>
         <line x1={P} y1={H} x2={W - P} y2={H} stroke="currentColor" strokeOpacity={0.25} />
         {data.length > 1 && <><path d={`${path} L${pts.at(-1)![0]},${H} L${pts[0]![0]},${H} Z`} fill={PALETTE[0]} fillOpacity={0.15} /><path d={path} fill="none" stroke={PALETTE[0]} strokeWidth={2} strokeLinejoin="round" /></>}
@@ -55,7 +55,7 @@ export function Donut({ data, label }: { data: { key: string; label: string; val
       <svg viewBox="0 0 120 120" className="w-28 h-28 shrink-0 -rotate-90" role="img" aria-label={label}>
         {data.map((d, i) => { const len = (d.value / total) * C; const el = <circle key={d.key} cx={60} cy={60} r={R} fill="none" stroke={PALETTE[i % PALETTE.length]} strokeWidth={sel === d.key ? 20 : 16} strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-off} opacity={sel && sel !== d.key ? 0.4 : 1} onClick={() => setSel(sel === d.key ? null : d.key)} style={{ cursor: "pointer" }} />; off += len; return el; })}
       </svg>
-      <ul className="flex-1 min-w-0 flex flex-col gap-1 text-sm">{data.map((d, i) => <li key={d.key}><button className="flex items-center gap-2 w-full text-left" onClick={() => setSel(sel === d.key ? null : d.key)}><span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: PALETTE[i % PALETTE.length] }} /><span className="truncate flex-1">{d.label}</span><span className="text-white/70 shrink-0">{Math.round((d.value / total) * 1000) / 10} %</span></button>{sel === d.key && <div className="text-xs text-white/50 pl-4">{formatFcfa(d.value)}</div>}</li>)}</ul>
+      <ul className="flex-1 min-w-0 flex flex-col gap-1 text-sm">{data.map((d, i) => <li key={d.key}><button className="flex items-center gap-2 w-full text-left" onClick={() => setSel(sel === d.key ? null : d.key)}><span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: PALETTE[i % PALETTE.length] }} /><span className="truncate flex-1">{d.label}</span><span className="text-soft shrink-0">{Math.round((d.value / total) * 1000) / 10} %</span></button>{sel === d.key && <div className="text-xs text-muted pl-4">{formatFcfa(d.value)}</div>}</li>)}</ul>
     </div>
   );
 }
@@ -63,5 +63,5 @@ export function Donut({ data, label }: { data: { key: string; label: string; val
 /** Barres horizontales classées (top articles, catégories). */
 export function HBars({ data, unit = "" }: { data: { key: string; label: string; value: number; sub?: string }[]; unit?: string }) {
   const max = Math.max(1, ...data.map((d) => d.value));
-  return <ul className="flex flex-col gap-2">{data.map((d, i) => <li key={d.key}><div className="flex justify-between gap-2 text-sm"><span className="truncate">{i + 1}. {d.label}</span><span className="shrink-0">{formatFcfa(d.value)}{unit}</span></div><div className="h-2 rounded bg-white/10"><div className="h-2 rounded" style={{ width: `${Math.max(2, (d.value / max) * 100)}%`, background: PALETTE[i % PALETTE.length] }} /></div>{d.sub && <div className="text-xs text-white/50">{d.sub}</div>}</li>)}</ul>;
+  return <ul className="flex flex-col gap-2">{data.map((d, i) => <li key={d.key}><div className="flex justify-between gap-2 text-sm"><span className="truncate">{i + 1}. {d.label}</span><span className="shrink-0">{formatFcfa(d.value)}{unit}</span></div><div className="h-2 rounded bg-subtle"><div className="h-2 rounded" style={{ width: `${Math.max(2, (d.value / max) * 100)}%`, background: PALETTE[i % PALETTE.length] }} /></div>{d.sub && <div className="text-xs text-muted">{d.sub}</div>}</li>)}</ul>;
 }

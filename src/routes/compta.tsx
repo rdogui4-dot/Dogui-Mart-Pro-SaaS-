@@ -28,7 +28,7 @@ export function CustomerInvoices() {
   const receivable = (inv.data ?? []).reduce((a, i) => a + Math.max(0, i.total - i.paid), 0);
   return (
     <>
-      <div className="card">Créances sur factures : <b className="text-[var(--gold)]">{formatFcfa(receivable)}</b></div>
+      <div className="card">Créances sur factures : <b className="text-accent-text">{formatFcfa(receivable)}</b></div>
       <div className="grid grid-cols-2 gap-2">
         <button className="btn-ghost" onClick={() => setMode(mode === "free" ? "" : "free")}>Facture libre</button>
         <button className="btn-ghost" onClick={() => setMode(mode === "sale" ? "" : "sale")}>Depuis une vente</button>
@@ -36,7 +36,7 @@ export function CustomerInvoices() {
       {mode === "free" && <FreeForm customers={customers.data ?? []} onDone={() => { setMode(""); refresh(); }} />}
       {mode === "sale" && <FromSale onDone={() => { setMode(""); refresh(); }} />}
       {(inv.data ?? []).map((i) => <InvoiceCard key={i.$id} inv={i} customer={customers.data?.find((c) => c.$id === i.partyId)} shop={shop.data ?? null} onChange={refresh} />)}
-      {inv.data?.length === 0 && <p className="text-center text-white/50 py-6">Aucune facture client.</p>}
+      {inv.data?.length === 0 && <p className="text-center text-muted py-6">Aucune facture client.</p>}
     </>
   );
 }
@@ -67,7 +67,7 @@ function FreeForm({ customers, onDone }: { customers: Row<Customer>[]; onDone: (
       <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { description: "", qty: "1", unitPrice: "" }])}>+ Ligne</button>
       <input aria-label="Référence / note (optionnel)" className="input" placeholder="Référence / note (optionnel)" value={note} onChange={(e) => setNote(e.target.value)} />
       <button className="btn" disabled={submit.isPending || !customerId}>Créer la facture · {formatFcfa(ht)} HT</button>
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </form>
   );
 }
@@ -82,12 +82,12 @@ function FromSale({ onDone }: { onDone: () => void }) {
       <h2 className="font-semibold">Ventes récentes</h2>
       {(sales.data ?? []).map((x) => (
         <div key={x.$id} className="flex items-center justify-between gap-2 text-sm">
-          <span>{x.number}<br /><span className="text-white/50">{new Date(x.soldAt).toLocaleDateString("fr-FR")} · {formatFcfa(x.total)}</span></span>
+          <span>{x.number}<br /><span className="text-muted">{new Date(x.soldAt).toLocaleDateString("fr-FR")} · {formatFcfa(x.total)}</span></span>
           <button className="btn-ghost !py-2" disabled={busy === x.$id} onClick={() => void make(x.$id)}>Facturer</button>
         </div>
       ))}
-      {sales.data?.length === 0 && <p className="text-white/50 text-sm">Aucune vente.</p>}
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {sales.data?.length === 0 && <p className="text-muted text-sm">Aucune vente.</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </div>
   );
 }
@@ -114,15 +114,15 @@ function InvoiceCard({ inv, customer, shop, onChange }: { inv: Row<Inv>; custome
   }
   return (
     <div className="card flex flex-col gap-2">
-      <div className="flex justify-between"><b>{inv.number}</b><span className={`text-sm ${inv.status === "paid" ? "text-emerald-400" : "text-amber-300"}`}>{LABEL[inv.status] ?? inv.status}{overdue && " · en retard"}</span></div>
-      <div className="text-sm text-white/60">{customer?.name ?? "Client comptoir"} · échéance {inv.dueAt?.slice(0, 10)}{inv.saleId ? " · issue d'une vente" : ""}</div>
-      <div className="text-sm">Total {formatFcfa(inv.total)} · réglé {formatFcfa(paidOf(payments))} · <b className={due ? "text-red-400" : ""}>reste {formatFcfa(due)}</b></div>
+      <div className="flex justify-between"><b>{inv.number}</b><span className={`text-sm ${inv.status === "paid" ? "text-ok" : "text-warn"}`}>{LABEL[inv.status] ?? inv.status}{overdue && " · en retard"}</span></div>
+      <div className="text-sm text-muted">{customer?.name ?? "Client comptoir"} · échéance {inv.dueAt?.slice(0, 10)}{inv.saleId ? " · issue d'une vente" : ""}</div>
+      <div className="text-sm">Total {formatFcfa(inv.total)} · réglé {formatFcfa(paidOf(payments))} · <b className={due ? "text-bad" : ""}>reste {formatFcfa(due)}</b></div>
       <div className="flex gap-2">
         <button className="btn-ghost !py-2" disabled={busy} onClick={() => void pdf()}>PDF / Partager</button>
         {due > 0 && !open && <button className="btn-ghost !py-2" onClick={() => { setAmount(String(due)); setOpen(true); }}>Encaisser</button>}
       </div>
       {open && (
-        <div className="flex flex-col gap-2 border-t border-white/10 pt-2">
+        <div className="flex flex-col gap-2 border-t border-line pt-2">
           <input className="input" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <select className="input" value={method} onChange={(e) => setMethod(e.target.value as Payment["method"])}>
             <option value="cash">Espèces</option><option value="wave">Wave</option><option value="orange">Orange Money</option><option value="card">Banque</option>
@@ -130,7 +130,7 @@ function InvoiceCard({ inv, customer, shop, onChange }: { inv: Row<Inv>; custome
           <button className="btn" disabled={busy || !(Number(amount) > 0)} onClick={() => void pay()}>Enregistrer l'encaissement</button>
         </div>
       )}
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </div>
   );
 }
@@ -159,7 +159,7 @@ function DailyChart({ daily }: { daily: ConsolidatedReport["daily"] }) {
       <svg viewBox={`0 0 ${W} ${H + 14}`} role="img" aria-label={`Chiffre d'affaires par jour, total ${formatFcfa(total)} sur ${daily.length} jours`} className="w-full">
         {daily.map((d, i) => { const h = d.revenueTtc > 0 ? Math.max(2, (d.revenueTtc / max) * H) : 0; return (
           <g key={d.date}><title>{`${new Date(d.date).toLocaleDateString("fr-FR")} : ${formatFcfa(d.revenueTtc)} (${d.count} vente(s))`}</title>
-            <rect x={i * (bw + gap)} y={H - h} width={bw} height={h} rx={1.5} fill="var(--gold)" />
+            <rect x={i * (bw + gap)} y={H - h} width={bw} height={h} rx={1.5} fill="var(--accent)" />
             {d.revenueTtc === 0 && <rect x={i * (bw + gap)} y={H - 1} width={bw} height={1} fill="currentColor" opacity={0.25} />}</g>); })}
         <text x={0} y={H + 11} fontSize={8} fill="currentColor" opacity={0.6}>{new Date(daily[0]!.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</text>
         <text x={W} y={H + 11} fontSize={8} textAnchor="end" fill="currentColor" opacity={0.6}>{new Date(daily[daily.length - 1]!.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} · max {formatFcfa(max)}</text>
@@ -179,15 +179,15 @@ export function Reports() {
     if (!r) return; setErr("");
     try { const shop = await getShop(s); await deliverPdf(await pdfBlob(reportModel(r, shop?.name ?? "Mon commerce")), `rapport-${r.period.from}_${r.period.to}.pdf`); } catch (e) { setErr((e as Error).message); }
   }
-  const card = (label: string, value: string, sub?: string) => <div className="card"><div className="text-xs text-white/50">{label}</div><div className="font-semibold">{value}</div>{sub && <div className="text-[11px] text-white/50">{sub}</div>}</div>;
+  const card = (label: string, value: string, sub?: string) => <div className="card"><div className="text-xs text-muted">{label}</div><div className="font-semibold">{value}</div>{sub && <div className="text-xs text-muted">{sub}</div>}</div>;
   return (
     <>
       <div className="flex flex-wrap gap-1 text-xs [&>button]:flex-1">{RANGES.map((x) => <button key={x.id} className={range === x.id ? "btn !py-2 !px-2 !text-xs" : "btn-ghost !py-2 !px-2 !text-xs"} onClick={() => setRange(x.id)}>{x.label}</button>)}</div>
-      <p className="text-xs text-white/50">Du {new Date(period.from).toLocaleDateString("fr-FR")} au {new Date(period.to).toLocaleDateString("fr-FR")} · jours en heure UTC</p>
-      {q.isLoading && <p className="text-white/50">Calcul en cours…</p>}
-      {q.error && <p className="text-red-400 text-sm">{(q.error as Error).message}</p>}
+      <p className="text-xs text-muted">Du {new Date(period.from).toLocaleDateString("fr-FR")} au {new Date(period.to).toLocaleDateString("fr-FR")} · jours en heure UTC</p>
+      {q.isLoading && <p className="text-muted">Calcul en cours…</p>}
+      {q.error && <p className="text-bad text-sm">{(q.error as Error).message}</p>}
       {r && T && <>
-        {r.partial && <p className="text-sm text-amber-300">Rapport partiel : le volume de ventes dépasse la limite de lecture. Choisissez une période plus courte.</p>}
+        {r.partial && <p className="text-sm text-warn">Rapport partiel : le volume de ventes dépasse la limite de lecture. Choisissez une période plus courte.</p>}
         <div className="grid grid-cols-2 gap-2">
           {card("Chiffre d'affaires TTC", money(T.revenueTtc), `${T.count} vente(s) · HT ${money(T.revenueHt)}`)}
           {card("Panier moyen", money(T.avgBasket))}
@@ -199,22 +199,22 @@ export function Reports() {
         <div className="card"><h2 className="font-semibold mb-1">Chiffre d'affaires par jour</h2><DailyChart daily={r.daily} /></div>
         <div className="card flex flex-col gap-1 text-sm"><h2 className="font-semibold">Encaissements par mode</h2>
           {Object.entries(T.byMethod).sort((a, b) => b[1] - a[1]).map(([m, v]) => <div key={m} className="flex justify-between"><span>{METHOD_FR[m] ?? m}</span><span>{formatFcfa(v)}</span></div>)}
-          {!Object.keys(T.byMethod).length && <span className="text-white/50">Aucune vente sur la période.</span>}</div>
+          {!Object.keys(T.byMethod).length && <span className="text-muted">Aucune vente sur la période.</span>}</div>
         <div className="card flex flex-col gap-2 text-sm"><h2 className="font-semibold">Par boutique</h2>
           {r.shops.map((x) => (
-            <div key={x.id} className="rounded-xl border border-white/10 p-2 flex flex-col gap-0.5">
-              <div className="flex justify-between"><b>{x.name}</b><span className="text-[var(--gold)]">{money(x.revenueTtc)}</span></div>
-              <div className="text-white/60">{x.count} vente(s) · panier {money(x.avgBasket)} · marge {x.grossMargin === null ? "—" : `${money(x.grossMargin)}${x.marginPct !== null ? ` (${x.marginPct} %)` : ""}`}</div>
-              <div className="text-white/60">Stock {money(x.stockValue)}{x.stockouts ? ` · ${x.stockouts} alerte(s)` : ""} · crédits {money(x.openCredit)} · dettes {money(x.payables)}</div>
-              {x.truncated.sales && <div className="text-amber-300 text-xs">Chiffres partiels (trop de ventes à lire).</div>}
+            <div key={x.id} className="rounded-xl border border-line p-2 flex flex-col gap-0.5">
+              <div className="flex justify-between"><b>{x.name}</b><span className="text-accent-text">{money(x.revenueTtc)}</span></div>
+              <div className="text-muted">{x.count} vente(s) · panier {money(x.avgBasket)} · marge {x.grossMargin === null ? "—" : `${money(x.grossMargin)}${x.marginPct !== null ? ` (${x.marginPct} %)` : ""}`}</div>
+              <div className="text-muted">Stock {money(x.stockValue)}{x.stockouts ? ` · ${x.stockouts} alerte(s)` : ""} · crédits {money(x.openCredit)} · dettes {money(x.payables)}</div>
+              {x.truncated.sales && <div className="text-warn text-xs">Chiffres partiels (trop de ventes à lire).</div>}
             </div>
           ))}
-          {!r.shops.length && <span className="text-white/50">Aucune boutique accessible.</span>}</div>
+          {!r.shops.length && <span className="text-muted">Aucune boutique accessible.</span>}</div>
         <div className="card flex flex-col gap-1 text-sm"><h2 className="font-semibold">Produits les plus vendus</h2>
-          {r.topProducts.map((p, i) => <div key={p.key} className="flex justify-between gap-2"><span className="truncate">{i + 1}. {p.name}</span><span className="text-white/60 whitespace-nowrap">{p.qty} · {formatFcfa(p.revenueTtc)}</span></div>)}
-          {!r.topProducts.length && <span className="text-white/50">Aucune vente sur la période.</span>}</div>
+          {r.topProducts.map((p, i) => <div key={p.key} className="flex justify-between gap-2"><span className="truncate">{i + 1}. {p.name}</span><span className="text-muted whitespace-nowrap">{p.qty} · {formatFcfa(p.revenueTtc)}</span></div>)}
+          {!r.topProducts.length && <span className="text-muted">Aucune vente sur la période.</span>}</div>
         <button className="btn-ghost" onClick={() => void pdf()}>Rapport PDF / Partager</button>
-        {err && <p className="text-red-400 text-sm">{err}</p>}
+        {err && <p className="text-bad text-sm">{err}</p>}
       </>}
     </>
   );

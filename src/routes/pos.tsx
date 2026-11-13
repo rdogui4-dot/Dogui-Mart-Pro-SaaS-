@@ -153,58 +153,58 @@ export function PosPage() {
     <div className="flex flex-col gap-3">
       <h1 className="sr-only">Caisse</h1>
       {smart && cashQ.data && (cashQ.data.session
-        ? <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-emerald-400/30"><span className="text-emerald-300">● Caisse ouverte depuis {new Date(cashQ.data.session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span><span className="text-white/50">Gérer ›</span></Link>
-        : <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-amber-400/30"><span className="text-amber-300">○ Caisse fermée{cashQ.data.required ? " — ouverture obligatoire pour vendre" : ""}</span><span className="text-white/50">Ouvrir ›</span></Link>)}
+        ? <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-ok/30"><span className="text-ok">● Caisse ouverte depuis {new Date(cashQ.data.session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span><span className="text-muted">Gérer ›</span></Link>
+        : <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-warn/30"><span className="text-warn">○ Caisse fermée{cashQ.data.required ? " — ouverture obligatoire pour vendre" : ""}</span><span className="text-muted">Ouvrir ›</span></Link>)}
       <div className="flex gap-2">
-        <div className="relative flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" /><input ref={searchRef} className="input !pl-9" aria-label="Rechercher" placeholder="Nom, référence, code-barres" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && q.trim()) { const hit = (products.data ?? []).find((p) => !p.archived && (p.barcode === q.trim() || p.sku === q.trim())); if (hit) { add(hit as Product & { $id: string }); setQ(""); } else if (shown.length === 1) { add(shown[0] as Product & { $id: string }); setQ(""); } } }} />{q && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40" aria-label="Effacer la recherche" onClick={() => setQ("")}><X size={16} /></button>}</div>
+        <div className="relative flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><input ref={searchRef} className="input !pl-9" aria-label="Rechercher" placeholder="Nom, référence, code-barres" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && q.trim()) { const hit = (products.data ?? []).find((p) => !p.archived && (p.barcode === q.trim() || p.sku === q.trim())); if (hit) { add(hit as Product & { $id: string }); setQ(""); } else if (shown.length === 1) { add(shown[0] as Product & { $id: string }); setQ(""); } } }} />{q && <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted" aria-label="Effacer la recherche" onClick={() => setQ("")}><X size={16} /></button>}</div>
         <button className="btn" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine /></button>
       </div>
-      {pro && <div className="flex items-center gap-2 text-xs text-white/50"><button className="chip" aria-pressed={favOnly} onClick={() => setFavOnly(!favOnly)}>★ Favoris ({favs.ids.length})</button><button className="chip" onClick={dens.toggle}>{dens.density === "compact" ? "Cartes larges" : "Cartes compactes"}</button><span className="hidden sm:inline">F2 recherche · F4 encaisser · F8 vider</span></div>}
+      {pro && <div className="flex items-center gap-2 text-xs text-muted"><button className="chip" aria-pressed={favOnly} onClick={() => setFavOnly(!favOnly)}>★ Favoris ({favs.ids.length})</button><button className="chip" onClick={dens.toggle}>{dens.density === "compact" ? "Cartes larges" : "Cartes compactes"}</button><span className="hidden sm:inline">F2 recherche · F4 encaisser · F8 vider</span></div>}
       {pro && <SuggestStrip data={sugg.data} hasCart={cart.length > 0} onAdd={(id) => { const p = (products.data ?? []).find((x) => x.$id === id); if (p) add(p as Product & { $id: string }); }} />}
       {categories.length > 0 && <div className="scroll-x"><button className="chip" aria-current={!cat} onClick={() => setCat("")}>Tout</button>{categories.map((c) => <button key={c} className="chip" aria-current={cat === c} onClick={() => setCat(cat === c ? "" : c)}>{c}</button>)}</div>}
-      {products.isLoading && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-24 animate-pulse bg-white/5" />)}</div>}
-      {products.error && <p className="text-red-400 text-sm" role="alert">Impossible de charger le catalogue : {(products.error as Error).message} <button className="underline" onClick={() => void products.refetch()}>Réessayer</button></p>}
+      {products.isLoading && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-24 animate-pulse bg-subtle" />)}</div>}
+      {products.error && <p className="text-bad text-sm" role="alert">Impossible de charger le catalogue : {(products.error as Error).message} <button className="underline" onClick={() => void products.refetch()}>Réessayer</button></p>}
       <div className={`grid gap-2 ${dens.density === "compact" ? "grid-cols-3" : "grid-cols-2"}`}>
         {shown.map((p) => {
           const n = qtyOf(stock.data, p); const tracked = !p.hasVariants && !isVirtualBundle(p); const out = tracked && n <= 0;
           return (
-            <button key={p.$id} disabled={out} onClick={() => add(p as Product & { $id: string })} className="card text-left active:scale-[.98] flex gap-2 items-start disabled:opacity-40">
+            <button key={p.$id} disabled={out} onClick={() => add(p as Product & { $id: string })} className="card text-left flex gap-2 items-start disabled:opacity-40">
               <Thumb id={p.imageFileId} size={48} className="shrink-0" />
               <span className="min-w-0 flex-1"><span className="flex items-start justify-between gap-1 font-medium leading-tight"><span>{p.name}</span>{pro && <FavStar on={favs.ids.includes(p.$id)} name={p.name} onClick={() => favs.toggle(p.$id)} />}</span>
-              <span className="block text-[var(--gold)]">{p.hasVariants ? `dès ${formatFcfa(Math.min(...(variantsOf(p.$id).length ? variantsOf(p.$id).map((v) => v.price) : [p.price])))}` : formatFcfa(p.price)}</span>{p.hasVariants && <span className="block text-xs text-white/50">Choisir une variante</span>}
-              <span className={`block text-xs ${out ? "text-red-400" : n <= (p.minStock ?? 0) ? "text-amber-300" : "text-white/50"}`}>{out ? "Rupture" : `Stock ${formatQty(n)}${(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}`}</span></span>
+              <span className="block text-accent-text">{p.hasVariants ? `dès ${formatFcfa(Math.min(...(variantsOf(p.$id).length ? variantsOf(p.$id).map((v) => v.price) : [p.price])))}` : formatFcfa(p.price)}</span>{p.hasVariants && <span className="block text-xs text-muted">Choisir une variante</span>}
+              <span className={`block text-xs ${out ? "text-bad" : n <= (p.minStock ?? 0) ? "text-warn" : "text-muted"}`}>{out ? "Rupture" : `Stock ${formatQty(n)}${(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}`}</span></span>
             </button>
           );
         })}
-        {!products.isLoading && shown.length === 0 && <p className="col-span-2 text-white/50 text-center py-6">{(products.data ?? []).length ? "Aucun article ne correspond à la recherche." : "Aucun produit. Ajoutez-en dans Stock."}</p>}
+        {!products.isLoading && shown.length === 0 && <p className="col-span-2 text-muted text-center py-6">{(products.data ?? []).length ? "Aucun article ne correspond à la recherche." : "Aucun produit. Ajoutez-en dans Stock."}</p>}
       </div>
       {cart.length > 0 && (
         <section className="card flex flex-col gap-2">
           {priced.map((l, i) => (
             <div key={l.key} className="flex items-center justify-between gap-2">
-              <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-white/50">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-white/40">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-emerald-300">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-emerald-300">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-emerald-300">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
-              {l.serials ? <><span className="text-xs text-white/60 max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost !p-2" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
+              <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-muted">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-muted">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-ok">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-ok">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-ok">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
+              {l.serials ? <><span className="text-xs text-muted max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost !p-2" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
               <button className="btn-ghost !p-2" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
               <button className="btn-ghost !p-2" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{(manager || pro) && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</>}
             </div>
           ))}
           {promoOn && <>
-            {pv && pv.discountTotal > 0 && <p className="text-sm text-emerald-300" role="status">Remises : −{formatFcfa(pv.discountTotal)} ({pv.promotions.map((p) => (p.code ? `${p.name} · ${p.code}` : p.name)).join(", ")})</p>}
+            {pv && pv.discountTotal > 0 && <p className="text-sm text-ok" role="status">Remises : −{formatFcfa(pv.discountTotal)} ({pv.promotions.map((p) => (p.code ? `${p.name} · ${p.code}` : p.name)).join(", ")})</p>}
             {proOn && <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setCoupon(couponIn.trim().toUpperCase()); }}><input className="input flex-1 !py-2" aria-label="Coupon" autoCapitalize="characters" placeholder="Coupon (facultatif)" value={couponIn} onChange={(e) => setCouponIn(e.target.value)} /><button className="btn-ghost !py-2" type="submit">Appliquer</button>{coupon && <button className="btn-ghost !py-2" type="button" onClick={() => { setCoupon(""); setCouponIn(""); }}>Retirer</button>}</form>}
-            {pv?.coupon && <p className={`text-xs ${pv.coupon.ok && pv.coupon.applied ? "text-emerald-300" : "text-amber-300"}`} role="status">{pv.coupon.ok && !pv.coupon.applied ? `${pv.coupon.message}, mais la campagne liée ne s'applique pas à ce panier` : pv.coupon.message}</p>}
-            {pv && !!pv.decisions?.length && <details className="text-xs text-white/60"><summary className="cursor-pointer">Pourquoi ces remises ? ({pv.decisions.length})</summary><ul className="pt-1 flex flex-col gap-0.5">{pv.decisions.map((d) => <li key={d.promoId + d.outcome}><span className={d.outcome === "applied" ? "text-emerald-300" : "text-white/50"}>{d.outcome === "applied" ? "✓" : "✗"} {d.name}</span> — {d.message}</li>)}{(pv.notes ?? []).map((n) => <li key={n}>ℹ {n}</li>)}</ul></details>}
-            {preview.isError && <p className="text-xs text-amber-300">Aperçu des promotions indisponible : {(preview.error as Error).message}</p>}
+            {pv?.coupon && <p className={`text-xs ${pv.coupon.ok && pv.coupon.applied ? "text-ok" : "text-warn"}`} role="status">{pv.coupon.ok && !pv.coupon.applied ? `${pv.coupon.message}, mais la campagne liée ne s'applique pas à ce panier` : pv.coupon.message}</p>}
+            {pv && !!pv.decisions?.length && <details className="text-xs text-muted"><summary className="cursor-pointer">Pourquoi ces remises ? ({pv.decisions.length})</summary><ul className="pt-1 flex flex-col gap-0.5">{pv.decisions.map((d) => <li key={d.promoId + d.outcome}><span className={d.outcome === "applied" ? "text-ok" : "text-muted"}>{d.outcome === "applied" ? "✓" : "✗"} {d.name}</span> — {d.message}</li>)}{(pv.notes ?? []).map((n) => <li key={n}>ℹ {n}</li>)}</ul></details>}
+            {preview.isError && <p className="text-xs text-warn">Aperçu des promotions indisponible : {(preview.error as Error).message}</p>}
           </>}
           {pro && <SimPanel sim={simD} manager={manager} approvals={approvals} pending={asked} onRequest={(k) => void requestApproval(k)} busy={askBusy} />}
           <CustomerPick customers={customers.data ?? []} value={customerId} onChange={(id) => { setCustomerId(id); setMsg(""); }} q={custQ} setQ={setCustQ} loading={customers.isLoading} />
           <PayPanel total={total} lines={payLines} onChange={(l) => { setPayLines(l); setMsg(""); }} voucherOk={pro} onCheckVoucher={(code) => api<{ balance: number; usable: boolean; reason: string }>(s, "voucher.check", { code, customerId: customerId || undefined }).then((v) => (v.usable ? `Bon valable : solde ${formatFcfa(v.balance)}` : `Bon inutilisable : ${v.reason}`)).catch((e: Error) => e.message)} hasCustomer={!!customer} credit={customer ? { balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 } : undefined} qrConfigured={qrConfigured} onQr={(id) => (navigator.onLine ? setQrLine(id) : setMsg("Le QR nécessite une connexion"))} disabled={busy} />
           <button className="btn text-lg disabled:opacity-40" disabled={waiting || busy || !payState.ok || needSession || blockedSim} onClick={checkout}>{waiting ? "Calcul des remises…" : `Encaisser ${formatFcfa(total)}`}</button>
-          {needSession && <p className="text-xs text-amber-300 text-center">Caisse fermée : <Link to="/caisse" className="underline">ouvrir la caisse</Link> pour vendre.</p>}
+          {needSession && <p className="text-xs text-warn text-center">Caisse fermée : <Link to="/caisse" className="underline">ouvrir la caisse</Link> pour vendre.</p>}
         </section>
       )}
-      {msg && <p className="text-center text-amber-300">{msg}</p>}
-      {lastId && cart.length === 0 && <p className={`text-center text-sm ${lastSync?.status === "synced" ? "text-emerald-300" : lastSync?.status === "rejected" ? "text-red-300" : "text-amber-300"}`} role="status" data-sync={lastSync?.status ?? "pending"}>{lastSync?.status === "synced" ? `✓ Vente confirmée par le serveur${lastSync.number ? ` (n° ${lastSync.number})` : ""}` : lastSync?.status === "rejected" ? `✗ Vente refusée par le serveur : ${lastSync.error} — voir les ventes en attente` : navigator.onLine ? "⏳ En attente de synchronisation : le serveur n'a pas encore confirmé cette vente" : "⏳ Hors ligne — vente conservée sur cet appareil, en attente de synchronisation"}</p>}
+      {msg && <p className="text-center text-warn">{msg}</p>}
+      {lastId && cart.length === 0 && <p className={`text-center text-sm ${lastSync?.status === "synced" ? "text-ok" : lastSync?.status === "rejected" ? "text-bad" : "text-warn"}`} role="status" data-sync={lastSync?.status ?? "pending"}>{lastSync?.status === "synced" ? `✓ Vente confirmée par le serveur${lastSync.number ? ` (n° ${lastSync.number})` : ""}` : lastSync?.status === "rejected" ? `✗ Vente refusée par le serveur : ${lastSync.error} — voir les ventes en attente` : navigator.onLine ? "⏳ En attente de synchronisation : le serveur n'a pas encore confirmé cette vente" : "⏳ Hors ligne — vente conservée sur cet appareil, en attente de synchronisation"}</p>}
       {last && cart.length === 0 && <div className="grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, lastName, { verifyCode: lastSync?.status === "synced" ? lastSync.verifyCode : undefined, pending: lastSync?.status !== "synced" }), w).then((b) => deliverPdf(b, `${last.number}-${w}mm.pdf`))}>Ticket {w} mm</button>)}</div>}
       {qrLine && (() => { const ln = payLines.find((x) => x.id === qrLine); return ln && (ln.method === "wave" || ln.method === "orange") ? <QrPay session={s} provider={ln.method} amount={Number(ln.amount.replace(/\s/g, ""))} onPaid={(id) => { setPayLines((ls) => ls.map((x) => (x.id === qrLine ? { ...x, linkId: id } : x))); setQrLine(null); }} onCancel={() => setQrLine(null)} /> : null; })()}
       {confirm && <Confirm text={`Valider la vente de ${formatFcfa(total)} ? ${payLines.map((l) => `${METHOD_LABEL[l.method]} ${formatFcfa(Number(l.amount.replace(/\s/g, "")) || 0)}`).join(" + ")}${payState.change ? ` · monnaie à rendre ${formatFcfa(payState.change)}` : ""}${customer ? ` · client ${customer.name}` : ""}. Le stock sera décrémenté à la confirmation.`} confirmLabel={busy ? "Validation…" : "Valider la vente"} onNo={() => setConfirm(false)} onYes={() => void submit()} />}
@@ -222,13 +222,13 @@ function QtyDialog({ p, v, units, onClose, onAdd }: { p: Product & { $id: string
   let base = 0, ok = false;
   try { const e = unit ? qtyFor(qty, 3) : qtyFor(qty, scale); base = unit ? convertQty(e, u!.factor, scale) : e; ok = true; } catch { /* saisie incomplète */ }
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Quantité">
+    <div className="fixed inset-0 z-50 bg-[var(--overlay)] flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Quantité">
       <form className="card w-full max-w-sm flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); try { onAdd(qty, unit); } catch (x) { setErr((x as Error).message); } }}>
         <b>{v ? `${p.name} — ${v.label}` : p.name}</b>
         {units.length > 0 && <div className="flex gap-2 flex-wrap">{[{ unit: "", label: unitLabel(p.unit) }, ...units.map((x) => ({ unit: x.unit, label: unitLabel(x.unit) }))].map((x) => <button type="button" key={x.unit} className="chip" aria-current={unit === x.unit} onClick={() => setUnit(x.unit)}>{x.label}</button>)}</div>}
         <input className="input" inputMode="decimal" autoFocus placeholder={`Quantité en ${unitLabel(unit ? unit : p.unit).toLowerCase()}`} value={qty} onChange={(e) => { setQty(e.target.value); setErr(""); }} />
-        {ok && <p className="text-sm text-white/60">{unit ? `= ${formatQty(base)} ${unitLabel(p.unit).toLowerCase()} · ` : ""}{formatFcfa(Math.round((v ? v.price : p.price) * base * 1e6) / 1e6)}</p>}
-        {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
+        {ok && <p className="text-sm text-muted">{unit ? `= ${formatQty(base)} ${unitLabel(p.unit).toLowerCase()} · ` : ""}{formatFcfa(Math.round((v ? v.price : p.price) * base * 1e6) / 1e6)}</p>}
+        {err && <p className="text-bad text-sm" role="alert">{err}</p>}
         <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={onClose}>Annuler</button><button className="btn flex-1" disabled={!ok}>Ajouter</button></div>
       </form>
     </div>
@@ -238,13 +238,13 @@ function QtyDialog({ p, v, units, onClose, onAdd }: { p: Product & { $id: string
 /** Choix de la variante d'un article décliné : prix et stock de chacune, les ruptures restent visibles mais non vendables. */
 function VariantDialog({ p, variants, levels, onClose, onPick }: { p: Product & { $id: string }; variants: VariantRow[]; levels?: Map<string, number>; onClose: () => void; onPick: (v: VariantRow) => void }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Variante">
+    <div className="fixed inset-0 z-50 bg-[var(--overlay)] flex items-end justify-center p-4" role="dialog" aria-modal="true" aria-label="Variante">
       <div className="card w-full max-w-sm flex flex-col gap-2 max-h-[80vh] overflow-y-auto">
-        <b>{p.name}</b><p className="text-sm text-white/60">Choisissez la variante :</p>
-        {variants.length === 0 && <p className="text-sm text-white/50">Aucune variante active.</p>}
+        <b>{p.name}</b><p className="text-sm text-muted">Choisissez la variante :</p>
+        {variants.length === 0 && <p className="text-sm text-muted">Aucune variante active.</p>}
         {variants.map((v) => { const n = variantQty(levels, v, scaleOf(p)); return (
           <button key={v.$id} className="btn-ghost flex justify-between items-center text-left !py-3 disabled:opacity-40" disabled={n <= 0} onClick={() => onPick(v)}>
-            <span><span className="block font-medium">{v.label}</span><span className="text-xs text-white/50">{n > 0 ? `${formatQty(n)} en stock` : "Rupture"}</span></span><span className="gold-text font-bold">{formatFcfa(v.price)}</span>
+            <span><span className="block font-medium">{v.label}</span><span className="text-xs text-muted">{n > 0 ? `${formatQty(n)} en stock` : "Rupture"}</span></span><span className="text-accent-text font-bold">{formatFcfa(v.price)}</span>
           </button>); })}
         <button className="btn-ghost" onClick={onClose}>Annuler</button>
       </div>
@@ -257,10 +257,10 @@ function CustomerPick({ customers, value, onChange, q, setQ, loading }: { custom
   const cur = customers.find((c) => c.$id === value); const hits = q.trim() ? customers.filter((c) => `${c.name} ${c.phone ?? ""}`.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 5) : [];
   return (
     <div className="flex flex-col gap-1">
-      {cur ? <div className="card !py-2 flex items-center justify-between text-sm"><span>Client : <b>{cur.name}</b>{cur.phone ? <span className="text-white/50"> · {cur.phone}</span> : null}{(cur.creditBalance ?? 0) > 0 ? <span className="text-amber-300 block text-xs">Dette actuelle {formatFcfa(cur.creditBalance ?? 0)}</span> : null}</span><button className="btn-ghost !py-1 !px-2 text-xs" onClick={() => { onChange(""); setQ(""); }}>Retirer</button></div>
+      {cur ? <div className="card !py-2 flex items-center justify-between text-sm"><span>Client : <b>{cur.name}</b>{cur.phone ? <span className="text-muted"> · {cur.phone}</span> : null}{(cur.creditBalance ?? 0) > 0 ? <span className="text-warn block text-xs">Dette actuelle {formatFcfa(cur.creditBalance ?? 0)}</span> : null}</span><button className="btn-ghost !py-1 !px-2 text-xs" onClick={() => { onChange(""); setQ(""); }}>Retirer</button></div>
         : <input className="input" aria-label="Rechercher un client" placeholder={loading ? "Chargement des clients…" : "Client comptoir — rechercher un client (nom, téléphone)"} value={q} onChange={(e) => setQ(e.target.value)} />}
-      {!cur && hits.map((c) => <button key={c.$id} className="btn-ghost !py-2 text-left text-sm flex justify-between" onClick={() => { onChange(c.$id); setQ(""); }}><span>{c.name}</span><span className="text-white/50 text-xs">{c.phone ?? ""}</span></button>)}
-      {!cur && q.trim() && !hits.length && <p className="text-xs text-white/50">Aucun client trouvé.</p>}
+      {!cur && hits.map((c) => <button key={c.$id} className="btn-ghost !py-2 text-left text-sm flex justify-between" onClick={() => { onChange(c.$id); setQ(""); }}><span>{c.name}</span><span className="text-muted text-xs">{c.phone ?? ""}</span></button>)}
+      {!cur && q.trim() && !hits.length && <p className="text-xs text-muted">Aucun client trouvé.</p>}
     </div>
   );
 }

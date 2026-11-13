@@ -24,16 +24,16 @@ export function QrPay({ session, provider, amount, onPaid, onCancel }: {
   async function cancel() { if (link) await api(session, "payment_link.cancel", { linkId: link.id }).catch(() => {}); onCancel(); }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center gap-3 p-6">
+    <div data-theme="dark" className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center gap-3 p-6">
       <h2 className="text-xl font-bold capitalize">{provider} Business · {formatFcfa(amount)}</h2>
-      {link ? <canvas ref={canvas} className="rounded-xl" /> : !err && <p className="text-white/60">Création du lien…</p>}
+      {link ? <canvas ref={canvas} className="rounded-xl" /> : !err && <p className="text-muted">Création du lien…</p>}
       {link && <>
-        {link.fixedLink && <p className="text-lg font-bold text-[var(--gold)] text-center">Le client saisit le montant : {formatFcfa(amount)}</p>}
-        <p className="text-sm text-white/60">Réf. {link.reference} — le client scanne, paie, puis saisissez l'ID de transaction reçu.</p>
+        {link.fixedLink && <p className="text-lg font-bold text-accent-text text-center">Le client saisit le montant : {formatFcfa(amount)}</p>}
+        <p className="text-sm text-muted">Réf. {link.reference} — le client scanne, paie, puis saisissez l'ID de transaction reçu.</p>
         <input aria-label="ID de transaction (SMS / app Business)" className="input max-w-xs" placeholder="ID de transaction (SMS / app Business)" value={tx} onChange={(e) => setTx(e.target.value)} />
         <button className="btn w-full max-w-xs" disabled={busy || tx.trim().length < 6} onClick={confirm}>Paiement reçu</button>
       </>}
-      {err && <p className="text-red-400 text-center">{err}</p>}
+      {err && <p className="text-bad text-center">{err}</p>}
       <button className="btn-ghost w-full max-w-xs" onClick={cancel}>Annuler</button>
     </div>
   );

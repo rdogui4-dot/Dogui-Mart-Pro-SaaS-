@@ -19,7 +19,7 @@ type Po = { number: string; supplierId: string; lines: string; total: number; st
 type Inv = { number: string; partyId: string; total: number; paid: number; status: string; dueAt?: string; ref?: string; payments?: string };
 const lines = (po: Row<Po>): PoLine[] => { try { return JSON.parse(po.lines); } catch { return []; } };
 const LABEL: Record<string, string> = { ordered: "Commandé", partial: "Reçu en partie", received: "Reçu", cancelled: "Annulé", unpaid: "À payer", paid: "Payée" };
-const tone = (s: string) => (s === "received" || s === "paid" ? "text-emerald-400" : s === "cancelled" ? "text-white/40" : "text-amber-300");
+const tone = (s: string) => (s === "received" || s === "paid" ? "text-ok" : s === "cancelled" ? "text-muted" : "text-warn");
 
 export function AchatsPage() {
   const { session } = useSession();
@@ -52,11 +52,11 @@ function Suppliers() {
         <input aria-label="Fournisseur" className="input" placeholder="Fournisseur" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         <button className="btn">Ajouter le fournisseur</button>
-        {add.error && <p className="text-red-400 text-sm">{(add.error as Error).message}</p>}
+        {add.error && <p className="text-bad text-sm">{(add.error as Error).message}</p>}
       </form>
       {(rows.data ?? []).map((x) => (
-        <div key={x.$id} className="card flex justify-between"><span>{x.name}<br /><span className="text-xs text-white/50">{x.phone}</span></span>
-          <span className={owed(x.$id) ? "text-red-400" : "text-white/50"}>{owed(x.$id) ? `Dû ${formatFcfa(owed(x.$id))}` : "Soldé"}</span></div>
+        <div key={x.$id} className="card flex justify-between"><span>{x.name}<br /><span className="text-xs text-muted">{x.phone}</span></span>
+          <span className={owed(x.$id) ? "text-bad" : "text-muted"}>{owed(x.$id) ? `Dû ${formatFcfa(owed(x.$id))}` : "Soldé"}</span></div>
       ))}
     </>
   );
@@ -76,7 +76,7 @@ function Orders() {
       <button className="btn" onClick={() => setCreating(!creating)}>{creating ? "Fermer" : "Nouvelle commande"}</button>
       {creating && <NewPo suppliers={sups.data ?? []} products={prods.data ?? []} variants={vars.data ?? []} links={links.data ?? []} onDone={() => { setCreating(false); refresh(); }} />}
       {(pos.data ?? []).map((po) => <PoCard key={po.$id} po={po} supplier={supName(po.supplierId)} onChange={refresh} />)}
-      {pos.data?.length === 0 && <p className="text-center text-white/50 py-6">Aucune commande.</p>}
+      {pos.data?.length === 0 && <p className="text-center text-muted py-6">Aucune commande.</p>}
     </>
   );
 }
@@ -108,12 +108,12 @@ function NewPo({ suppliers, products, variants, links, onDone }: { suppliers: Ro
           </select>
           <input aria-label="Qté" className="input !px-2" inputMode="decimal" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
           <input aria-label="Prix HT" className="input !px-2" inputMode="numeric" placeholder="Prix HT" value={r.unitCost} onChange={(e) => set(i, { unitCost: e.target.value })} />
-          {(() => { const [pid, vid] = r.productId.split(":"); const o = r.productId ? links.find((l) => l.supplierId === supplierId && l.productId === pid && (l.variantId ?? "") === (vid ?? "")) : undefined; const short = o?.minQty && Number(r.qty.replace(",", ".")) > 0 && Number(r.qty.replace(",", ".")) < o.minQty; return o && (o.minQty || o.leadDays) ? <p className={`col-span-3 text-xs ${short ? "text-amber-300" : "text-white/40"}`}>{o.minQty ? `Minimum chez ce fournisseur : ${o.minQty}${short ? " (quantité insuffisante)" : ""}` : ""}{o.minQty && o.leadDays ? " · " : ""}{o.leadDays ? `délai ${o.leadDays} j` : ""}</p> : null; })()}
+          {(() => { const [pid, vid] = r.productId.split(":"); const o = r.productId ? links.find((l) => l.supplierId === supplierId && l.productId === pid && (l.variantId ?? "") === (vid ?? "")) : undefined; const short = o?.minQty && Number(r.qty.replace(",", ".")) > 0 && Number(r.qty.replace(",", ".")) < o.minQty; return o && (o.minQty || o.leadDays) ? <p className={`col-span-3 text-xs ${short ? "text-warn" : "text-muted"}`}>{o.minQty ? `Minimum chez ce fournisseur : ${o.minQty}${short ? " (quantité insuffisante)" : ""}` : ""}{o.minQty && o.leadDays ? " · " : ""}{o.leadDays ? `délai ${o.leadDays} j` : ""}</p> : null; })()}
         </div>
       ))}
       <button type="button" className="btn-ghost" onClick={() => setRows([...rows, { productId: "", qty: "", unitCost: "" }])}>+ Ligne</button>
       <button className="btn" disabled={submit.isPending || !supplierId}>Commander · {formatFcfa(total)} HT</button>
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </form>
   );
 }
@@ -140,25 +140,25 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
   return (
     <div className="card flex flex-col gap-2">
       <div className="flex justify-between"><b>{po.number}</b><span className={`text-sm ${tone(po.status)}`}>{LABEL[po.status] ?? po.status}</span></div>
-      <div className="text-sm text-white/60">{supplier} · {formatFcfa(po.total)} HT</div>
-      <ul className="text-sm">{ls.map((l) => <li key={lineKey(l)} className="flex justify-between"><span>{l.name}</span><span className="text-white/60">{l.received}/{l.qty} reçus · {l.invoiced} facturés</span></li>)}</ul>
+      <div className="text-sm text-muted">{supplier} · {formatFcfa(po.total)} HT</div>
+      <ul className="text-sm">{ls.map((l) => <li key={lineKey(l)} className="flex justify-between"><span>{l.name}</span><span className="text-muted">{l.received}/{l.qty} reçus · {l.invoiced} facturés</span></li>)}</ul>
       {open && (
-        <div className="flex flex-col gap-1 border-t border-white/10 pt-2">
+        <div className="flex flex-col gap-1 border-t border-line pt-2">
           {ls.filter((l) => toReceive(l) > 0).map((l) => (
             <label key={lineKey(l)} className="flex items-center justify-between gap-2 text-sm">{l.name} (reste {toReceive(l)})
               <input className="input !w-20 !py-2" inputMode="decimal" value={qty[lineKey(l)] ?? ""} onChange={(e) => setQty({ ...qty, [lineKey(l)]: e.target.value })} /></label>
           ))}
           {ls.filter((l) => toReceive(l) > 0 && Number((qty[lineKey(l)] ?? "").replace(",", ".")) > 0 && modeOf(l.productId)).map((l) => { const k = lineKey(l); const t = trOf(k); const mode = modeOf(l.productId); let n = 0; try { n = t.serials.trim() ? parseSerials(t.serials).length : 0; } catch { n = -1; }
             return mode === "lot" ? (
-              <div key={`t${k}`} className="flex flex-col gap-1 rounded-xl border border-white/10 p-2 text-sm"><b>Lots reçus · {l.name}</b>
+              <div key={`t${k}`} className="flex flex-col gap-1 rounded-xl border border-line p-2 text-sm"><b>Lots reçus · {l.name}</b>
                 {t.lots.map((r, i) => <div key={i} className="grid grid-cols-[1fr_4rem_7.5rem] gap-1"><input className="input !px-2 !py-2" placeholder="N° de lot" aria-label="N° de lot" value={r.lotNo} onChange={(e) => setTr({ ...tr, [k]: { ...t, lots: t.lots.map((x, j) => (j === i ? { ...x, lotNo: e.target.value } : x)) } })} />
                   {t.lots.length > 1 ? <input className="input !px-2 !py-2" inputMode="decimal" placeholder="Qté" aria-label="Quantité du lot" value={r.qty} onChange={(e) => setTr({ ...tr, [k]: { ...t, lots: t.lots.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)) } })} /> : <span />}
                   <input className="input !px-2 !py-2" type="date" aria-label="Péremption" value={r.expiresAt} onChange={(e) => setTr({ ...tr, [k]: { ...t, lots: t.lots.map((x, j) => (j === i ? { ...x, expiresAt: e.target.value } : x)) } })} /></div>)}
-                <button type="button" className="text-xs text-[var(--gold)] text-left" onClick={() => setTr({ ...tr, [k]: { ...t, lots: [...t.lots, { lotNo: "", qty: "", expiresAt: "" }] } })}>+ autre lot</button></div>
+                <button type="button" className="text-xs text-accent-text text-left" onClick={() => setTr({ ...tr, [k]: { ...t, lots: [...t.lots, { lotNo: "", qty: "", expiresAt: "" }] } })}>+ autre lot</button></div>
             ) : (
-              <div key={`t${k}`} className="flex flex-col gap-1 rounded-xl border border-white/10 p-2 text-sm"><b>Numéros de série · {l.name}</b>
+              <div key={`t${k}`} className="flex flex-col gap-1 rounded-xl border border-line p-2 text-sm"><b>Numéros de série · {l.name}</b>
                 <textarea className="input" rows={3} placeholder="Un numéro par ligne" aria-label="Numéros de série reçus" value={t.serials} onChange={(e) => setTr({ ...tr, [k]: { ...t, serials: e.target.value } })} />
-                <span className={`text-xs ${n === Number(qty[k]) ? "text-emerald-300" : "text-amber-300"}`}>{n < 0 ? "Numéros invalides" : `${n} numéro(s) saisi(s) pour ${qty[k]} reçu(s)`}</span></div>
+                <span className={`text-xs ${n === Number(qty[k]) ? "text-ok" : "text-warn"}`}>{n < 0 ? "Numéros invalides" : `${n} numéro(s) saisi(s) pour ${qty[k]} reçu(s)`}</span></div>
             ); })}
           {proCosting && <label className="flex items-center justify-between gap-2 text-sm">Frais d'approvisionnement (transport, douane…) <input className="input !w-28 !py-2" inputMode="numeric" placeholder="FCFA" aria-label="Frais d'approvisionnement" value={fees} onChange={(e) => setFees(e.target.value)} /></label>}
           <button className="btn" disabled={busy || (!!fees && !/^\d+$/.test(fees.replace(/\s/g, "")))} onClick={() => void run(
@@ -176,7 +176,7 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
         <button className="btn-ghost !py-2" disabled={busy} onClick={() => void run(sharePdf)}>PDF / Partager</button>
         {po.status === "ordered" && <button className="btn-ghost !py-2" disabled={busy} onClick={() => confirm("Annuler cette commande ?") && void run(() => api(s, "po.cancel", { poId: po.$id }))}>Annuler</button>}
       </div>
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </div>
   );
 }
@@ -188,9 +188,9 @@ function Invoices() {
   const totalDue = (inv.data ?? []).reduce((a, i) => a + Math.max(0, i.total - i.paid), 0);
   return (
     <>
-      <div className="card">Dettes fournisseurs : <b className="text-red-400">{formatFcfa(totalDue)}</b></div>
+      <div className="card">Dettes fournisseurs : <b className="text-bad">{formatFcfa(totalDue)}</b></div>
       {(inv.data ?? []).map((i) => <InvoiceCard key={i.$id} inv={i} supplier={sups.data?.find((x) => x.$id === i.partyId)?.name ?? "—"} onChange={() => { refresh(); void inv.refetch(); }} />)}
-      {inv.data?.length === 0 && <p className="text-center text-white/50 py-6">Aucune facture. Réceptionnez une commande puis enregistrez sa facture.</p>}
+      {inv.data?.length === 0 && <p className="text-center text-muted py-6">Aucune facture. Réceptionnez une commande puis enregistrez sa facture.</p>}
     </>
   );
 }
@@ -211,11 +211,11 @@ function InvoiceCard({ inv, supplier, onChange }: { inv: Row<Inv>; supplier: str
   return (
     <div className="card flex flex-col gap-2">
       <div className="flex justify-between"><b>{inv.number}</b><span className={`text-sm ${tone(inv.status)}`}>{LABEL[inv.status] ?? inv.status}{overdue && " · en retard"}</span></div>
-      <div className="text-sm text-white/60">{supplier}{inv.ref ? ` · réf. ${inv.ref}` : ""} · échéance {inv.dueAt?.slice(0, 10)}</div>
-      <div className="text-sm">Total {formatFcfa(inv.total)} · payé {formatFcfa(paidOf(payments))} · <b className={due ? "text-red-400" : ""}>reste {formatFcfa(due)}</b></div>
+      <div className="text-sm text-muted">{supplier}{inv.ref ? ` · réf. ${inv.ref}` : ""} · échéance {inv.dueAt?.slice(0, 10)}</div>
+      <div className="text-sm">Total {formatFcfa(inv.total)} · payé {formatFcfa(paidOf(payments))} · <b className={due ? "text-bad" : ""}>reste {formatFcfa(due)}</b></div>
       {due > 0 && !open && <button className="btn-ghost !py-2" onClick={() => { setAmount(String(due)); setOpen(true); }}>Régler</button>}
       {open && (
-        <div className="flex flex-col gap-2 border-t border-white/10 pt-2">
+        <div className="flex flex-col gap-2 border-t border-line pt-2">
           <input className="input" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <select className="input" value={method} onChange={(e) => setMethod(e.target.value as Payment["method"])}>
             <option value="cash">Espèces</option><option value="wave">Wave</option><option value="orange">Orange Money</option><option value="card">Banque</option>
@@ -223,7 +223,7 @@ function InvoiceCard({ inv, supplier, onChange }: { inv: Row<Inv>; supplier: str
           <button className="btn" disabled={busy || !(Number(amount) > 0)} onClick={() => void pay()}>Enregistrer le règlement</button>
         </div>
       )}
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </div>
   );
 }

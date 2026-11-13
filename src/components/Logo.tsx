@@ -7,9 +7,9 @@ export function Logo({ size = 40, tagline = false }: { size?: number; tagline?: 
     <span className="inline-flex items-center gap-3">
       <LogoMark size={size} />
       <span className="flex flex-col leading-none">
-        <span className="gold-text font-extrabold tracking-wide" style={{ fontSize: size * 0.5 }}>DOGUI MART</span>
-        <span className="font-semibold text-white/90" style={{ fontSize: size * 0.34, letterSpacing: "0.5em", marginTop: size * 0.08 }}>PRO</span>
-        {tagline && <span className="text-white/50 mt-1" style={{ fontSize: size * 0.28 }}>Gestion de commerce</span>}
+        <span className="text-accent-text font-extrabold tracking-wide" style={{ fontSize: size * 0.5 }}>DOGUI MART</span>
+        <span className="font-semibold text-soft" style={{ fontSize: size * 0.34, letterSpacing: "0.5em", marginTop: size * 0.08 }}>PRO</span>
+        {tagline && <span className="text-muted mt-1" style={{ fontSize: size * 0.28 }}>Gestion de commerce</span>}
       </span>
     </span>
   );

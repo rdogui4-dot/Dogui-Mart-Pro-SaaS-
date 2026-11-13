@@ -20,18 +20,18 @@ export function useDensity() {
   const [d, setD] = useState<"comfort" | "compact">(() => read("dmp-density", "comfort")); return { density: d, toggle: () => setD((c) => { const n = c === "comfort" ? "compact" : "comfort"; write("dmp-density", n); return n; }) };
 }
 export const FavStar = ({ on, onClick, name }: { on: boolean; onClick: () => void; name: string }) => (
-  <span role="button" tabIndex={0} aria-label={`${on ? "Retirer des" : "Ajouter aux"} favoris : ${name}`} aria-pressed={on} className="p-1 -m-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); e.preventDefault(); onClick(); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); onClick(); } }}><Star size={14} className={on ? "fill-[var(--gold)] text-[var(--gold)]" : "text-white/30"} /></span>
+  <span role="button" tabIndex={0} aria-label={`${on ? "Retirer des" : "Ajouter aux"} favoris : ${name}`} aria-pressed={on} className="p-1 -m-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); e.preventDefault(); onClick(); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); onClick(); } }}><Star size={14} className={on ? "fill-[var(--accent)] text-accent-text" : "text-muted"} /></span>
 );
 
 /** Suggestions réelles (historique de la boutique) : chaque puce dit sur combien de ventes elle repose. */
 export function SuggestStrip({ data, onAdd, hasCart }: { data?: Suggest; onAdd: (productId: string) => void; hasCart: boolean }) {
   if (!data) return null;
-  if (!data.items.length) return hasCart ? <p className="text-[11px] text-white/40" role="status">{data.note}</p> : null;
+  if (!data.items.length) return hasCart ? <p className="text-xs text-muted" role="status">{data.note}</p> : null;
   return (
     <section aria-label="Suggestions" className="flex flex-col gap-1">
-      <p className="text-xs text-white/60 flex items-center gap-1"><Sparkles size={12} />{hasCart ? "Souvent acheté avec ce panier" : "Plus vendus ces 30 jours"} <span className="text-white/40">· d'après {data.basedOn.sales} ventes ({data.basedOn.days} j)</span></p>
+      <p className="text-xs text-muted flex items-center gap-1"><Sparkles size={12} />{hasCart ? "Souvent acheté avec ce panier" : "Plus vendus ces 30 jours"} <span className="text-muted">· d'après {data.basedOn.sales} ventes ({data.basedOn.days} j)</span></p>
       <div className="scroll-x">{data.items.map((i) => <button key={i.productId} className="chip" title={i.reason} onClick={() => onAdd(i.productId)}>＋ {i.name} · {formatFcfa(i.price)}</button>)}</div>
-      {data.items[0] && <p className="text-[11px] text-white/40">{data.items[0].reason} — indicatif, pas une certitude.</p>}
+      {data.items[0] && <p className="text-xs text-muted">{data.items[0].reason} — indicatif, pas une certitude.</p>}
     </section>
   );
 }
@@ -42,10 +42,10 @@ export function SimPanel({ sim, manager, approvals, pending, onRequest, busy }: 
   const need = sim.ok ? sim.needsApproval : { discount: false, margin: false };
   return (
     <section className="flex flex-col gap-1.5 text-sm" aria-label="Simulation avant validation">
-      {sim.alerts.map((a) => <p key={a.code + a.message} role="alert" className={`flex gap-1.5 items-start ${a.level === "block" ? "text-red-300" : "text-amber-300"}`}><ShieldAlert size={14} className="mt-0.5 shrink-0" />{a.message}</p>)}
-      {sim.ok && manager && sim.margin.coveredAmount > 0 && <p className="text-xs text-white/50">Marge estimée : {formatFcfa(sim.margin.estimated)} ({Math.round((sim.margin.estimated / sim.margin.coveredAmount) * 100)} % du montant dont le coût est connu)</p>}
+      {sim.alerts.map((a) => <p key={a.code + a.message} role="alert" className={`flex gap-1.5 items-start ${a.level === "block" ? "text-bad" : "text-warn"}`}><ShieldAlert size={14} className="mt-0.5 shrink-0" />{a.message}</p>)}
+      {sim.ok && manager && sim.margin.coveredAmount > 0 && <p className="text-xs text-muted">Marge estimée : {formatFcfa(sim.margin.estimated)} ({Math.round((sim.margin.estimated / sim.margin.coveredAmount) * 100)} % du montant dont le coût est connu)</p>}
       {(["margin", "discount"] as const).filter((k) => need[k]).map((k) => (
-        <div key={k} className="card !p-2 flex items-center justify-between gap-2 text-xs border border-amber-400/30">
+        <div key={k} className="card !p-2 flex items-center justify-between gap-2 text-xs border border-warn/30">
           <span>{approvals[k] ? "✓ Approbation accordée" : pending[k] ? "En attente de la décision d'un responsable…" : k === "margin" ? "Marge sous le seuil : approbation requise" : "Remise manuelle : approbation requise"}</span>
           {!approvals[k] && !pending[k] && <button className="btn-ghost !py-1 !px-2" disabled={busy} onClick={() => onRequest(k)}>Demander</button>}
         </div>

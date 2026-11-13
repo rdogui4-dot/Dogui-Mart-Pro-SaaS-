@@ -7,6 +7,7 @@ import { Navigate, RouterProvider, createRootRoute, createRoute, createRouter, r
 import { routerBasepath } from "@/lib/basepath";
 import { SessionProvider, can, homePath, useSession, type Perm } from "@/lib/session";
 import { Layout } from "@/components/Layout";
+import { ToastProvider } from "@/components/ui";
 import { AuthPage } from "@/routes/auth";
 import { CreateTenantPage } from "@/routes/tenant-setup";
 import { HomePage, PlusPage } from "@/routes/home";
@@ -18,7 +19,7 @@ function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>
     try { return { default: (await load())[name] }; }
     catch {
       try { await new Promise((ok) => setTimeout(ok, 600)); return { default: (await load())[name] }; }
-      catch { return { default: () => <div className="card flex flex-col gap-2 text-sm" role="alert"><b>Cette page n'a pas pu être chargée.</b><span className="text-white/60">Vous êtes peut-être hors ligne, ou une nouvelle version vient d'être publiée. Les pages déjà ouvertes en ligne restent disponibles hors ligne.</span><button className="btn" onClick={() => window.location.reload()}>Recharger</button></div> }; }
+      catch { return { default: () => <div className="card flex flex-col gap-2 text-sm" role="alert"><b>Cette page n'a pas pu être chargée.</b><span className="text-muted">Vous êtes peut-être hors ligne, ou une nouvelle version vient d'être publiée. Les pages déjà ouvertes en ligne restent disponibles hors ligne.</span><button className="btn" onClick={() => window.location.reload()}>Recharger</button></div> }; }
     }
   });
 }
@@ -52,14 +53,14 @@ onPlanDenied(() => void queryClient.invalidateQueries({ queryKey: ["subscription
 
 function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNode }) {
   const { session, loading } = useSession();
-  if (loading) return <p className="p-6 text-white/50">Chargement…</p>;
+  if (loading) return <p className="p-6 text-muted">Chargement…</p>;
   if (!session) return <AuthPage />;
   if (session.needsTenant) return <CreateTenantPage />;
   return perm === null || can(session, perm) ? <>{children}</> : <Navigate to={homePath(session)} />;
 }
 const root = createRootRoute({ component: () => <Guard perm={null}><Layout /></Guard> });
 const r = (path: string, perm: Perm | null, C: ComponentType) =>
-  createRoute({ getParentRoute: () => root, path, component: () => <Guard perm={perm}><Suspense fallback={<div className="card h-24 animate-pulse bg-white/5" aria-busy="true" aria-label="Chargement" />}><C /></Suspense></Guard> });
+  createRoute({ getParentRoute: () => root, path, component: () => <Guard perm={perm}><Suspense fallback={<div className="card h-24 animate-pulse bg-subtle" aria-busy="true" aria-label="Chargement" />}><C /></Suspense></Guard> });
 const tree = root.addChildren([
   // Redirection du routeur (et non d'un composant) : un composant d'accueil se monterait brièvement pendant un changement de page et renverrait à la caisse.
   createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
@@ -74,5 +75,5 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) void navigator.service
 // Préchargement discret des pages de comptoir (caisse, stock, ventes) : le service worker les met en cache pour le hors-ligne.
 if (import.meta.env.PROD) window.addEventListener("load", () => setTimeout(() => { if (navigator.onLine) for (const p of [import("@/routes/pos"), import("@/routes/stock"), import("@/routes/caisse"), import("@/routes/ventes")]) void p.catch(() => undefined); }, 4000), { once: true });
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><QueryClientProvider client={queryClient}><SessionProvider><RouterProvider router={router} /></SessionProvider></QueryClientProvider></StrictMode>,
+  <StrictMode><QueryClientProvider client={queryClient}><SessionProvider><ToastProvider><RouterProvider router={router} /></ToastProvider></SessionProvider></QueryClientProvider></StrictMode>,
 );

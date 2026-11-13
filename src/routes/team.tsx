@@ -29,11 +29,11 @@ export function ShopsSection() {
           <input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         </div>
         <button className="btn" disabled={add.isPending}>Créer la boutique</button>
-        {err && <p className="text-red-400 text-sm">{err}</p>}
-        <p className="text-xs text-white/50">Le catalogue, le stock et les caisses sont propres à chaque boutique. Pour déplacer du stock : Stock → Transférer.</p>
+        {err && <p className="text-bad text-sm">{err}</p>}
+        <p className="text-xs text-muted">Le catalogue, le stock et les caisses sont propres à chaque boutique. Pour déplacer du stock : Stock → Transférer.</p>
       </form>
       {(shops.data ?? []).map((x) => (
-        <div key={x.$id} className="card flex justify-between"><span>{x.name}<br /><span className="text-xs text-white/50">{[x.city, x.phone].filter(Boolean).join(" · ")}</span></span>{x.$id === s.shopId && <span className="text-xs text-[var(--gold)]">active</span>}</div>
+        <div key={x.$id} className="card flex justify-between"><span>{x.name}<br /><span className="text-xs text-muted">{[x.city, x.phone].filter(Boolean).join(" · ")}</span></span>{x.$id === s.shopId && <span className="text-xs text-accent-text">active</span>}</div>
       ))}
     </>
   );
@@ -46,10 +46,10 @@ export function StaffSection() {
   const refresh = () => void qc.invalidateQueries({ queryKey: ["staff"] });
   return (
     <>
-      <div className="card flex justify-between items-center"><span><b>{s.name}</b><br /><span className="text-xs text-white/50">Propriétaire · tous les accès, boutiques, équipe et abonnement</span></span><span className="text-xs text-[var(--gold)]">Gérant principal</span></div>
+      <div className="card flex justify-between items-center"><span><b>{s.name}</b><br /><span className="text-xs text-muted">Propriétaire · tous les accès, boutiques, équipe et abonnement</span></span><span className="text-xs text-accent-text">Gérant principal</span></div>
       <NewStaff onDone={refresh} />
       {(staff.data ?? []).map((m) => <StaffCard key={m.$id} m={m} onChange={refresh} />)}
-      {staff.data?.length === 0 && <p className="text-center text-white/50 py-4">Aucun employé pour le moment.</p>}
+      {staff.data?.length === 0 && <p className="text-center text-muted py-4">Aucun employé pour le moment.</p>}
     </>
   );
 }
@@ -59,7 +59,7 @@ function ShopChecks({ value, onChange }: { value: string[]; onChange: (v: string
   return (
     <div className="flex flex-wrap gap-2">
       {session!.shops.map((x) => (
-        <label key={x.id} className={`rounded-xl border px-3 py-2 text-sm ${value.includes(x.id) ? "border-[var(--gold)] text-[var(--gold)]" : "border-white/15"}`}>
+        <label key={x.id} className={`rounded-xl border px-3 py-2 text-sm ${value.includes(x.id) ? "border-accent text-accent-text" : "border-line"}`}>
           <input type="checkbox" className="mr-2" checked={value.includes(x.id)} onChange={(e) => onChange(e.target.checked ? [...value, x.id] : value.filter((v) => v !== x.id))} />{x.name}
         </label>
       ))}
@@ -75,13 +75,13 @@ function AccessPicker({ role, modules, onChange }: { role: StaffRole; modules: M
       <select className="input" aria-label="Rôle" value={role} onChange={(e) => { const r = e.target.value as StaffRole; onChange(r, modulesFor(r)); }}>
         {STAFF_ROLES.map((r) => <option key={r} value={r}>{ROLE_PRESETS[r].label}</option>)}
       </select>
-      <p className="text-xs text-white/50">{ROLE_PRESETS[role].description}{custom && " Accès personnalisés ci-dessous."}</p>
+      <p className="text-xs text-muted">{ROLE_PRESETS[role].description}{custom && " Accès personnalisés ci-dessous."}</p>
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-sm text-white/70 mb-1">Accès attribués</legend>
+        <legend className="text-sm text-soft mb-1">Accès attribués</legend>
         {MODULES.map((m) => (
           <label key={m} className="flex gap-2 items-start text-sm">
             <input type="checkbox" className="mt-1" checked={modules.includes(m)} onChange={(e) => onChange(role, MODULES.filter((x) => (x === m ? e.target.checked : modules.includes(x))))} />
-            <span><b>{MODULE_LABEL[m]}</b><br /><span className="text-xs text-white/50">{MODULE_HELP[m]}</span></span>
+            <span><b>{MODULE_LABEL[m]}</b><br /><span className="text-xs text-muted">{MODULE_HELP[m]}</span></span>
           </label>
         ))}
       </fieldset>
@@ -108,8 +108,8 @@ function NewStaff({ onDone }: { onDone: () => void }) {
       <AccessPicker role={f.role} modules={modules} onChange={(r, m) => { setF({ ...f, role: r }); setModules(m); }} />
       <ShopChecks value={shopIds} onChange={setShopIds} />
       <button className="btn" disabled={add.isPending || !shopIds.length || !modules.length}>Créer le compte</button>
-      {created && <p className="text-sm text-emerald-400">Compte créé. Identifiant : <b>{created}</b>. Communiquez-lui le mot de passe en personne.</p>}
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {created && <p className="text-sm text-ok">Compte créé. Identifiant : <b>{created}</b>. Communiquez-lui le mot de passe en personne.</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </form>
   );
 }
@@ -122,10 +122,10 @@ function StaffCard({ m, onChange }: { m: Row<StaffRow>; onChange: () => void }) 
   const shopNames = ids(m.shopIds).map((id) => s.shops.find((x) => x.id === id)?.name ?? "?").join(", ");
   return (
     <div className={`card flex flex-col gap-2 ${m.active === false ? "opacity-60" : ""}`}>
-      <div className="flex justify-between"><b>{m.name}</b><span className="text-sm text-white/60">{ROLE_PRESETS[m.role]?.label ?? m.role}{isCustomAccess(m.role, modulesFor(m.role, m.access)) && " (personnalisé)"}{m.active === false && " · désactivé"}</span></div>
-      <div className="text-sm text-white/60">Connexion : {m.username || m.email} · {shopNames || "aucune boutique"}<br />Accès : {modulesFor(m.role, m.access).map((x) => MODULE_LABEL[x]).join(", ")}</div>
+      <div className="flex justify-between"><b>{m.name}</b><span className="text-sm text-muted">{ROLE_PRESETS[m.role]?.label ?? m.role}{isCustomAccess(m.role, modulesFor(m.role, m.access)) && " (personnalisé)"}{m.active === false && " · désactivé"}</span></div>
+      <div className="text-sm text-muted">Connexion : {m.username || m.email} · {shopNames || "aucune boutique"}<br />Accès : {modulesFor(m.role, m.access).map((x) => MODULE_LABEL[x]).join(", ")}</div>
       {edit && (
-        <div className="flex flex-col gap-2 border-t border-white/10 pt-2">
+        <div className="flex flex-col gap-2 border-t border-line pt-2">
           <AccessPicker role={role} modules={modules} onChange={(r, mm) => { setRole(r); setModules(mm); }} />
           <ShopChecks value={shopIds} onChange={setShopIds} />
           <button className="btn" disabled={busy || !shopIds.length || !modules.length} onClick={() => void run(() => api(s, "staff.update", { userId: m.userId, role, shopIds, access: modules }), () => setEdit(false))}>Enregistrer</button>
@@ -136,7 +136,7 @@ function StaffCard({ m, onChange }: { m: Row<StaffRow>; onChange: () => void }) 
         <button className="btn-ghost !py-2" disabled={busy} onClick={() => { const p = prompt(`Nouveau mot de passe pour ${m.name} (8 caractères min.)`); if (p) void run(() => api(s, "staff.resetPassword", { userId: m.userId, password: p })); }}>Mot de passe</button>
         <button className="btn-ghost !py-2" disabled={busy} onClick={() => confirm(m.active === false ? `Réactiver ${m.name} ?` : `Désactiver ${m.name} ? Il ne pourra plus se connecter.`) && void run(() => api(s, "staff.update", { userId: m.userId, active: m.active === false }))}>{m.active === false ? "Réactiver" : "Désactiver"}</button>
       </div>
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
     </div>
   );
 }

@@ -76,8 +76,8 @@ export function SettingsPage() {
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}
       {tab === "platform" && me.data?.admin && <PlatformSection />}
       {(tab === "shop" || tab === "payments") && <>
-      {s.setupError && <div className="card text-sm text-amber-300">La première boutique n'a pas pu être créée ({s.setupError}). Les fonctions de gestion seront disponibles dès que le service sera prêt.</div>}
-      {tab === "shop" && <div className="card text-sm">Connecté : <b>{s.name}</b> · {s.role === "owner" ? "gérant principal" : s.role}<br />Boutique : {s.shops.find((x) => x.id === s.shopId)?.name ?? "—"}<br /><span className="text-xs text-white/50">Mon identifiant : {s.userId}</span></div>}
+      {s.setupError && <div className="card text-sm text-warn">La première boutique n'a pas pu être créée ({s.setupError}). Les fonctions de gestion seront disponibles dès que le service sera prêt.</div>}
+      {tab === "shop" && <div className="card text-sm">Connecté : <b>{s.name}</b> · {s.role === "owner" ? "gérant principal" : s.role}<br />Boutique : {s.shops.find((x) => x.id === s.shopId)?.name ?? "—"}<br /><span className="text-xs text-muted">Mon identifiant : {s.userId}</span></div>}
       {tab === "shop" && can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={saveShop}>
           <h2 className="font-semibold">Ma boutique (en-tête des factures et tickets)</h2>
@@ -90,46 +90,46 @@ export function SettingsPage() {
           <input aria-label="NINEA / RCCM (mentions légales)" className="input" placeholder="NINEA / RCCM (mentions légales)" value={sh.legal} onChange={(e) => setSh({ ...sh, legal: e.target.value })} />
           <input aria-label="TVA (%)" className="input" inputMode="numeric" placeholder="TVA (%)" value={sh.vatRatePct} onChange={(e) => setSh({ ...sh, vatRatePct: e.target.value })} />
           <button className="btn">Enregistrer</button>
-          {shMsg && <p className="text-sm text-amber-300">{shMsg}</p>}
+          {shMsg && <p className="text-sm text-warn">{shMsg}</p>}
         </form>
       )}
       {tab === "shop" && can(s, "settings") && (
         <div className="card flex flex-col gap-2">
           <h2 className="font-semibold">Valorisation du stock</h2>
-          <p className="text-xs text-white/50">Une seule méthode par boutique. Elle s'applique aux réceptions suivantes ; les ventes passées gardent le coût figé au moment de la vente.</p>
+          <p className="text-xs text-muted">Une seule méthode par boutique. Elle s'applique aux réceptions suivantes ; les ventes passées gardent le coût figé au moment de la vente.</p>
           <select className="input" aria-label="Méthode de valorisation" value={costMethod} disabled={costBusy} onChange={(e) => void saveMethod(e.target.value)}>{COST_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
-          <p className="text-xs text-white/50">{COST_METHODS.find((m) => m.id === costMethod)?.help}</p>
-          {!planAllows(sub.data?.entitlement.plan.id, "costing") && <p className="text-xs text-amber-300">Le choix de la méthode est réservé à la formule Pro (méthode actuelle : {methodLabel(costMethod)}).</p>}
-          {costMsg && <p className="text-sm text-amber-300" role="status">{costMsg}</p>}
+          <p className="text-xs text-muted">{COST_METHODS.find((m) => m.id === costMethod)?.help}</p>
+          {!planAllows(sub.data?.entitlement.plan.id, "costing") && <p className="text-xs text-warn">Le choix de la méthode est réservé à la formule Pro (méthode actuelle : {methodLabel(costMethod)}).</p>}
+          {costMsg && <p className="text-sm text-warn" role="status">{costMsg}</p>}
         </div>
       )}
       {tab === "shop" && can(s, "settings") && (
         <div className="card flex flex-col gap-2">
           <h2 className="font-semibold">Lots périmés</h2>
-          <p className="text-xs text-white/50">Pour les articles suivis par lot : que faire à la caisse d'un lot dont la date de péremption est dépassée ?</p>
+          <p className="text-xs text-muted">Pour les articles suivis par lot : que faire à la caisse d'un lot dont la date de péremption est dépassée ?</p>
           <select className="input" aria-label="Politique des lots périmés" value={expiredPolicy} disabled={!planAllows(sub.data?.entitlement.plan.id, "lots")} onChange={(e) => void savePolicy(e.target.value)}>{EXPIRED_POLICIES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
-          {!planAllows(sub.data?.entitlement.plan.id, "lots") && <p className="text-xs text-amber-300">Les lots et dates d'expiration sont réservés à la formule Pro.</p>}
-          {polMsg && <p className="text-sm text-amber-300" role="status">{polMsg}</p>}
+          {!planAllows(sub.data?.entitlement.plan.id, "lots") && <p className="text-xs text-warn">Les lots et dates d'expiration sont réservés à la formule Pro.</p>}
+          {polMsg && <p className="text-sm text-warn" role="status">{polMsg}</p>}
         </div>
       )}
       {tab === "shop" && can(s, "settings") && planAllows(sub.data?.entitlement.plan.id, "promotions") && (
         <div className="card flex flex-col gap-2">
           <h2 className="font-semibold">Promotions : marge minimale</h2>
-          <p className="text-xs text-white/50">Une promotion est refusée à la création, et ignorée à la caisse, si le prix final passe sous « coût × (1 + marge) ». 0 = seulement interdire de vendre sous le coût.</p>
+          <p className="text-xs text-muted">Une promotion est refusée à la création, et ignorée à la caisse, si le prix final passe sous « coût × (1 + marge) ». 0 = seulement interdire de vendre sous le coût.</p>
           <div className="flex gap-2"><input className="input" inputMode="numeric" aria-label="Marge minimale (%)" value={mm} onChange={(e) => setMm(e.target.value)} /><button className="btn" onClick={() => void saveMargin()}>Enregistrer</button></div>
-          {mmMsg && <p className="text-sm text-amber-300" role="status">{mmMsg}</p>}
+          {mmMsg && <p className="text-sm text-warn" role="status">{mmMsg}</p>}
         </div>
       )}
       {tab === "payments" && can(s, "settings") && (
         <form className="card flex flex-col gap-2" onSubmit={save}>
           <h2 className="font-semibold">Paiement par QR code</h2>
-          <p className="text-xs text-white/50">Collez un lien de paiement généré par votre compte Wave Business / Orange Business pour un montant d'essai (ex. 1000) : l'application remplace ce montant par le vrai montant de chaque vente. Vous pouvez aussi écrire vous-même <code>{"{amount}"}</code> (et <code>{"{ref}"}</code>) dans le lien. Un lien déjà enregistré n'est jamais réaffiché ; un champ laissé vide reste inchangé.</p>
-          <div className="flex gap-2 flex-wrap text-xs">{(["wave", "orange"] as const).map((p) => <span key={p} className="flex items-center gap-2 rounded-full border border-[var(--line)] px-3 py-1">{p === "wave" ? "Wave" : "Orange"} : {pay.data ? (pay.data[p] ? <><b className="text-emerald-300">configuré</b><button type="button" className="text-red-300 underline" onClick={() => void removeLink(p)}>retirer</button></> : "non configuré") : "…"}</span>)}</div>
+          <p className="text-xs text-muted">Collez un lien de paiement généré par votre compte Wave Business / Orange Business pour un montant d'essai (ex. 1000) : l'application remplace ce montant par le vrai montant de chaque vente. Vous pouvez aussi écrire vous-même <code>{"{amount}"}</code> (et <code>{"{ref}"}</code>) dans le lien. Un lien déjà enregistré n'est jamais réaffiché ; un champ laissé vide reste inchangé.</p>
+          <div className="flex gap-2 flex-wrap text-xs">{(["wave", "orange"] as const).map((p) => <span key={p} className="flex items-center gap-2 rounded-full border border-[var(--line)] px-3 py-1">{p === "wave" ? "Wave" : "Orange"} : {pay.data ? (pay.data[p] ? <><b className="text-ok">configuré</b><button type="button" className="text-bad underline" onClick={() => void removeLink(p)}>retirer</button></> : "non configuré") : "…"}</span>)}</div>
           <input aria-label="Modèle de lien Wave Business (https://…{amount}…)" className="input" placeholder="Modèle de lien Wave Business (https://…{amount}…)" value={f.waveTemplate} onChange={(e) => setF({ ...f, waveTemplate: e.target.value })} />
           <input aria-label="Modèle de lien Orange Business (https://…{amount}…)" className="input" placeholder="Modèle de lien Orange Business (https://…{amount}…)" value={f.orangeTemplate} onChange={(e) => setF({ ...f, orangeTemplate: e.target.value })} />
           <input aria-label="Validité du lien (minutes)" className="input" inputMode="numeric" placeholder="Validité du lien (minutes)" value={f.expiryMinutes} onChange={(e) => setF({ ...f, expiryMinutes: e.target.value })} />
           <button className="btn">Enregistrer</button>
-          {msg && <p className="text-sm text-amber-300" role="status">{msg}</p>}
+          {msg && <p className="text-sm text-warn" role="status">{msg}</p>}
         </form>
       )}
       {tab === "shop" && <button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button>}

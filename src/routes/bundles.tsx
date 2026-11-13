@@ -38,20 +38,20 @@ export function BundlesPage() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Bundles</h1>
-      <p className="text-sm text-white/60">Un bundle est un pack d'articles vendu à son propre prix. Il n'a pas de stock : chaque vente retire ses composants du stock.</p>
-      {!pro && <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-[var(--gold)]" />Réservé à la formule Pro</span><span className="text-white/60">Vos bundles existants restent visibles ; leur création, leur modification et leur vente reviennent avec Pro.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div>}
+      <p className="text-sm text-muted">Un bundle est un pack d'articles vendu à son propre prix. Il n'a pas de stock : chaque vente retire ses composants du stock.</p>
+      {!pro && <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">Vos bundles existants restent visibles ; leur création, leur modification et leur vente reviennent avec Pro.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div>}
       {canManage && <button className="btn flex items-center justify-center gap-2" onClick={() => setEdit("new")}><Plus size={18} />Nouveau bundle</button>}
       {(prods.data ?? []).some((p) => p.kind === "bundle") && <input aria-label="Rechercher un bundle" className="input" placeholder="Rechercher un bundle" value={q} onChange={(e) => setQ(e.target.value)} />}
-      {prods.isLoading && <p className="text-white/50 text-sm">Chargement…</p>}
-      {!prods.isLoading && bundles.length === 0 && <p className="text-center text-white/50 text-sm py-6">{q ? "Aucun résultat." : "Aucun bundle."}</p>}
+      {prods.isLoading && <p className="text-muted text-sm">Chargement…</p>}
+      {!prods.isLoading && bundles.length === 0 && <p className="text-center text-muted text-sm py-6">{q ? "Aucun résultat." : "Aucun bundle."}</p>}
       <ul className="flex flex-col gap-2">
         {bundles.map((b) => {
           const cs = compsOf(b.$id); const n = qtyOf(levels.data, b);
           return (
             <li key={b.$id}><button className={`card w-full text-left flex flex-col gap-1 ${b.archived ? "opacity-60" : ""}`} onClick={() => setEdit(b)}>
-              <div className="flex gap-3 items-center"><Thumb id={b.imageFileId} size={56} /><div className="min-w-0 flex-1 flex flex-col gap-1"><div className="flex justify-between gap-2"><b className="truncate">{b.name}</b><span className="gold-text font-bold">{formatFcfa(b.price)}</span></div>
-              <div className="text-xs text-white/50 truncate">{cs.length ? cs.map((c) => `${formatQty(readableQty(c, prods.data))}× ${name(c.componentId, c.variantId)}`).join(" + ") : "Aucun composant"}</div>
-              <div className="flex gap-2 text-xs flex-wrap"><span className={`rounded-full px-2 py-0.5 ${n <= 0 ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{isKit(b) ? `${formatQty(n)} en stock` : `${formatQty(n)} disponible${n > 1 ? "s" : ""}`}</span><span className="rounded-full px-2 py-0.5 bg-white/10 text-white/70">{isKit(b) ? "Kit physique" : "Virtuel"}</span>{b.archived && <span className="text-amber-300">Archivé</span>}{!cs.length && <span className="text-amber-300">{isKit(b) ? "Non assemblable" : "Non vendable"}</span>}</div></div></div>
+              <div className="flex gap-3 items-center"><Thumb id={b.imageFileId} size={56} /><div className="min-w-0 flex-1 flex flex-col gap-1"><div className="flex justify-between gap-2"><b className="truncate">{b.name}</b><span className="text-accent-text font-bold">{formatFcfa(b.price)}</span></div>
+              <div className="text-xs text-muted truncate">{cs.length ? cs.map((c) => `${formatQty(readableQty(c, prods.data))}× ${name(c.componentId, c.variantId)}`).join(" + ") : "Aucun composant"}</div>
+              <div className="flex gap-2 text-xs flex-wrap"><span className={`rounded-full px-2 py-0.5 ${n <= 0 ? "bg-bad-bg text-bad" : "bg-subtle text-soft"}`}>{isKit(b) ? `${formatQty(n)} en stock` : `${formatQty(n)} disponible${n > 1 ? "s" : ""}`}</span><span className="rounded-full px-2 py-0.5 bg-subtle text-soft">{isKit(b) ? "Kit physique" : "Virtuel"}</span>{b.archived && <span className="text-warn">Archivé</span>}{!cs.length && <span className="text-warn">{isKit(b) ? "Non assemblable" : "Non vendable"}</span>}</div></div></div>
             </button></li>
           );
         })}
@@ -109,20 +109,20 @@ function BundleEditor({ initial, comps, products, variants, levels, canManage, o
       <form onSubmit={save} className="flex flex-col gap-3">
         {canManage && (
           <div className="flex items-center gap-3">
-            {preview ? <img src={preview} alt="Aperçu" className="w-24 h-24 rounded-2xl object-cover" /> : removePhoto ? <Thumb size={96} /> : <Thumb id={initial?.imageFileId} size={96} />}
+            {preview ? <img src={preview} alt="Aperçu" className="w-24 h-24 rounded-lg object-cover" /> : removePhoto ? <Thumb size={96} /> : <Thumb id={initial?.imageFileId} size={96} />}
             <div className="flex flex-col gap-2 flex-1">
               <label className="btn-ghost flex items-center justify-center gap-2 cursor-pointer text-sm"><Camera size={18} />Prendre une photo<input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setRemovePhoto(false); }} /></label>
               <label className="btn-ghost flex items-center justify-center gap-2 cursor-pointer text-sm"><ImageIcon size={18} />Galerie<input type="file" accept="image/*" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setRemovePhoto(false); }} /></label>
-              {(photo || (initial?.imageFileId && existing && !removePhoto)) && <button type="button" className="text-xs text-red-300 text-left" onClick={() => { setPhoto(null); setRemovePhoto(true); }}>Retirer la photo</button>}
+              {(photo || (initial?.imageFileId && existing && !removePhoto)) && <button type="button" className="text-xs text-bad text-left" onClick={() => { setPhoto(null); setRemovePhoto(true); }}>Retirer la photo</button>}
             </div>
           </div>
         )}
-        {!initial && !bundleId && <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Type de bundle</span><select className="input" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value })}><option value="virtual">Virtuel : les composants sortent du stock à la vente</option><option value="kit">Kit physique : assemblé à l'avance, stock propre</option></select></label>}
-        {(initial || bundleId) && <p className="text-xs text-white/50">{kit ? "Kit physique : on l'assemble à l'avance (ordre d'assemblage), il a son propre stock." : "Bundle virtuel : pas de stock propre, chaque vente retire les composants."}</p>}
-        <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Nom du bundle *</span><input className="input" required maxLength={160} disabled={!canManage} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
+        {!initial && !bundleId && <label className="flex flex-col gap-1 text-sm"><span className="text-muted">Type de bundle</span><select className="input" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value })}><option value="virtual">Virtuel : les composants sortent du stock à la vente</option><option value="kit">Kit physique : assemblé à l'avance, stock propre</option></select></label>}
+        {(initial || bundleId) && <p className="text-xs text-muted">{kit ? "Kit physique : on l'assemble à l'avance (ordre d'assemblage), il a son propre stock." : "Bundle virtuel : pas de stock propre, chaque vente retire les composants."}</p>}
+        <label className="flex flex-col gap-1 text-sm"><span className="text-muted">Nom du bundle *</span><input className="input" required maxLength={160} disabled={!canManage} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Prix de vente (FCFA) *</span><input className="input" inputMode="numeric" required disabled={!canManage} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
-          <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Référence</span><input className="input" maxLength={64} disabled={!canManage} placeholder={initial?.sku ? "" : "Automatique"} value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} /></label>
+          <label className="flex flex-col gap-1 text-sm"><span className="text-muted">Prix de vente (FCFA) *</span><input className="input" inputMode="numeric" required disabled={!canManage} value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
+          <label className="flex flex-col gap-1 text-sm"><span className="text-muted">Référence</span><input className="input" maxLength={64} disabled={!canManage} placeholder={initial?.sku ? "" : "Automatique"} value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} /></label>
         </div>
         <h3 className="font-semibold">Composition</h3>
         {rows.map((r, i) => (
@@ -132,26 +132,26 @@ function BundleEditor({ initial, comps, products, variants, levels, canManage, o
               <input className="input !px-2" inputMode="decimal" aria-label="Quantité" placeholder="Qté" value={r.qty} onChange={(e) => set(i, { qty: e.target.value })} />
               <button type="button" className="btn-ghost !p-2" aria-label="Retirer" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
             </div> : <div className="flex justify-between"><span>{labelOf(r.key)}</span><b>× {r.qty}</b></div>}
-            {r.key && <p className="text-xs text-white/50">En stock : {formatQty(stockOfKey(r.key))} · coût {formatFcfa(unitCostOf(r.key))}</p>}
+            {r.key && <p className="text-xs text-muted">En stock : {formatQty(stockOfKey(r.key))} · coût {formatFcfa(unitCostOf(r.key))}</p>}
           </div>
         ))}
         {canManage && <button type="button" className="btn-ghost flex items-center justify-center gap-2" disabled={rows.length >= MAX_COMPONENTS} onClick={() => setRows([...rows, { key: "", qty: "1" }])}><Plus size={16} />Ajouter un composant</button>}
         <div className="card text-sm flex flex-col gap-1">
-          <div className="flex justify-between"><span className="text-white/50">{kit ? "Assemblables maintenant" : "Disponible maintenant"}</span><b>{formatQty(avail)}</b></div>
-          {kit && initial && <div className="flex justify-between"><span className="text-white/50">Kits en stock</span><b>{formatQty(qtyOf(levels, initial))}</b></div>}
-          <div className="flex justify-between"><span className="text-white/50">Coût des composants</span><b>{cost ? formatFcfa(cost) : "—"}</b></div>
-          {price > 0 && cost > 0 && <div className="flex justify-between"><span className="text-white/50">Marge indicative</span><b>{formatFcfa(m.amount)}{m.pct !== null ? ` (${m.pct} %)` : ""}</b></div>}
+          <div className="flex justify-between"><span className="text-muted">{kit ? "Assemblables maintenant" : "Disponible maintenant"}</span><b>{formatQty(avail)}</b></div>
+          {kit && initial && <div className="flex justify-between"><span className="text-muted">Kits en stock</span><b>{formatQty(qtyOf(levels, initial))}</b></div>}
+          <div className="flex justify-between"><span className="text-muted">Coût des composants</span><b>{cost ? formatFcfa(cost) : "—"}</b></div>
+          {price > 0 && cost > 0 && <div className="flex justify-between"><span className="text-muted">Marge indicative</span><b>{formatFcfa(m.amount)}{m.pct !== null ? ` (${m.pct} %)` : ""}</b></div>}
         </div>
-        {price > 0 && sellsAtLoss(price, cost) && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix du bundle est inférieur au coût de ses composants : vente à perte.</p>}
-        {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
-        {canManage ? <button className="btn" disabled={busy || !ok}>{busy ? "Enregistrement…" : initial || bundleId ? "Enregistrer" : "Créer le bundle"}</button> : <p className="text-xs text-amber-300">Lecture seule (formule Business ou accès insuffisant) : vos données sont conservées.</p>}
+        {price > 0 && sellsAtLoss(price, cost) && <p className="flex gap-2 text-sm text-warn"><AlertTriangle size={18} />Le prix du bundle est inférieur au coût de ses composants : vente à perte.</p>}
+        {err && <p className="text-bad text-sm" role="alert">{err}</p>}
+        {canManage ? <button className="btn" disabled={busy || !ok}>{busy ? "Enregistrement…" : initial || bundleId ? "Enregistrer" : "Créer le bundle"}</button> : <p className="text-xs text-warn">Lecture seule (formule Business ou accès insuffisant) : vos données sont conservées.</p>}
       </form>
       {canManage && initial && kit && comps.length > 0 && <button className="btn" onClick={() => setAsm(true)}>Assembler / démonter des kits</button>}
       {asm && initial && <AssemblySheet kit={initial} comps={comps} products={products} variants={variants} levels={levels} onClose={() => setAsm(false)} onDone={onSaved} />}
       {canManage && initial && (
         <div className="flex gap-2 flex-wrap">
           {initial.archived ? <button className="btn-ghost flex items-center gap-2" onClick={() => setAsk("restore")}><Undo2 size={16} />Restaurer</button> : <button className="btn-ghost flex items-center gap-2" onClick={() => setAsk("archive")}><Archive size={16} />Archiver</button>}
-          {(s.role === "owner" || s.role === "manager") && <button className="btn-ghost !text-red-300 flex items-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={16} />Supprimer</button>}
+          {(s.role === "owner" || s.role === "manager") && <button className="btn-ghost !text-bad flex items-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={16} />Supprimer</button>}
         </div>
       )}
       {ask === "archive" && <Confirm text={`Archiver « ${initial?.name} » ? Il ne sera plus proposé à la vente.`} confirmLabel="Archiver" onNo={() => setAsk(null)} onYes={() => act.mutate("archive")} />}
@@ -179,17 +179,17 @@ function AssemblySheet({ kit, comps, products, variants, levels, onClose, onDone
   });
   return (
     <Sheet title={`Assemblage · ${kit.name}`} onClose={onClose} back>
-      <div className="card text-sm flex flex-col gap-1"><div className="flex justify-between"><span className="text-white/50">Kits en stock</span><b>{formatQty(kitStock)}</b></div><div className="flex justify-between"><span className="text-white/50">Assemblables avec le stock actuel</span><b>{formatQty(maxAsm)}</b></div></div>
-      <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">Nombre de kits</span><input className="input" inputMode="numeric" value={qty} onChange={(e) => { setQty(e.target.value); setMsg(""); }} /></label>
-      {n > 0 && <div className="card text-sm flex flex-col gap-1"><b>Composants concernés</b>{cs.map((c, i) => <div key={i} className="flex justify-between gap-2"><span className="truncate">{name(c.productId, c.variantId)}</span><span className={stock(c.productId, c.variantId) < c.qty * n ? "text-red-300" : "text-white/70"}>{formatQty(Math.round(c.qty * n * 1000) / 1000)} (stock {formatQty(stock(c.productId, c.variantId))})</span></div>)}</div>}
-      {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}{msg && <p className="text-emerald-300 text-sm" role="status">{msg}</p>}
+      <div className="card text-sm flex flex-col gap-1"><div className="flex justify-between"><span className="text-muted">Kits en stock</span><b>{formatQty(kitStock)}</b></div><div className="flex justify-between"><span className="text-muted">Assemblables avec le stock actuel</span><b>{formatQty(maxAsm)}</b></div></div>
+      <label className="flex flex-col gap-1 text-sm"><span className="text-muted">Nombre de kits</span><input className="input" inputMode="numeric" value={qty} onChange={(e) => { setQty(e.target.value); setMsg(""); }} /></label>
+      {n > 0 && <div className="card text-sm flex flex-col gap-1"><b>Composants concernés</b>{cs.map((c, i) => <div key={i} className="flex justify-between gap-2"><span className="truncate">{name(c.productId, c.variantId)}</span><span className={stock(c.productId, c.variantId) < c.qty * n ? "text-bad" : "text-soft"}>{formatQty(Math.round(c.qty * n * 1000) / 1000)} (stock {formatQty(stock(c.productId, c.variantId))})</span></div>)}</div>}
+      {err && <p className="text-bad text-sm" role="alert">{err}</p>}{msg && <p className="text-ok text-sm" role="status">{msg}</p>}
       <div className="grid grid-cols-2 gap-2">
         <button className="btn" disabled={run.isPending || n < 1 || n > maxAsm} onClick={() => run.mutate("assemble")}>Assembler</button>
         <button className="btn-ghost" disabled={run.isPending || n < 1 || n > kitStock} onClick={() => run.mutate("disassemble")}>Démonter</button>
       </div>
-      <p className="text-xs text-white/50">Assembler retire les composants du stock et ajoute les kits (coût moyen mis à jour). Démonter fait l'inverse.</p>
+      <p className="text-xs text-muted">Assembler retire les composants du stock et ajoute les kits (coût moyen mis à jour). Démonter fait l'inverse.</p>
       <h3 className="font-semibold">Historique</h3>
-      {!orders.data?.length ? <p className="text-sm text-white/50">Aucun ordre.</p> : orders.data.map((o) => <div key={o.$id} className="flex justify-between gap-2 text-sm border-t border-[var(--line)] pt-1"><span>{o.number}</span><span className="text-white/60">{o.type === "assemble" ? "+" : "−"}{o.qty} kit{o.qty > 1 ? "s" : ""}{o.status === "pending" ? " · en cours" : ""}</span></div>)}
+      {!orders.data?.length ? <p className="text-sm text-muted">Aucun ordre.</p> : orders.data.map((o) => <div key={o.$id} className="flex justify-between gap-2 text-sm border-t border-[var(--line)] pt-1"><span>{o.number}</span><span className="text-muted">{o.type === "assemble" ? "+" : "−"}{o.qty} kit{o.qty > 1 ? "s" : ""}{o.status === "pending" ? " · en cours" : ""}</span></div>)}
     </Sheet>
   );
 }

@@ -29,8 +29,8 @@ const goUpgrade = () => window.location.assign(`${import.meta.env.BASE_URL}regla
 
 export function ArticlesPage() {
   const sub = useSubscription();
-  if (sub.isLoading) return <p className="text-white/50">Chargement…</p>;
-  if (sub.error) return <p className="text-red-400 text-sm">{(sub.error as Error).message}</p>;
+  if (sub.isLoading) return <p className="text-muted">Chargement…</p>;
+  if (sub.error) return <p className="text-bad text-sm">{(sub.error as Error).message}</p>;
   if (!planAllows(sub.data?.entitlement.plan.id, "articles")) return <Upsell />; // droit de FORMULE, indépendant du rôle
   return <Catalogue />;
 }
@@ -38,11 +38,11 @@ export function ArticlesPage() {
 function Upsell() {
   return (
     <div className="flex flex-col gap-4 text-center items-center py-6">
-      <Lock className="text-[var(--gold)]" size={36} />
+      <Lock className="text-accent-text" size={36} />
       <h1 className="text-2xl font-bold">Catalogue d'articles</h1>
-      <p className="text-white/60 text-sm max-w-xs">Fiches complètes avec photo, catégories, unités, fournisseur principal et historique des prix : inclus dans la formule <b>Business</b>.</p>
+      <p className="text-muted text-sm max-w-xs">Fiches complètes avec photo, catégories, unités, fournisseur principal et historique des prix : inclus dans la formule <b>Business</b>.</p>
       <button className="btn" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button>
-      <p className="text-xs text-white/40">L'écran Stock reste disponible avec votre formule actuelle.</p>
+      <p className="text-xs text-muted">L'écran Stock reste disponible avec votre formule actuelle.</p>
     </div>
   );
 }
@@ -86,11 +86,11 @@ function Catalogue() {
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div className="kpi"><b>{stats.data ? active.length : "…"}</b><span>Actifs</span></div>
-        <div className="kpi"><b className={alerts ? "text-red-400" : ""}>{stats.data ? alerts : "…"}</b><span>Alertes</span></div>
+        <div className="kpi"><b className={alerts ? "text-bad" : ""}>{stats.data ? alerts : "…"}</b><span>Alertes</span></div>
         <div className="kpi"><b className="!text-base">{stats.data ? formatFcfa(value) : "…"}</b><span>Valeur stock</span></div>
       </div>
       <div className="flex gap-2">
-        <label className="relative flex-1"><Search size={18} className="absolute left-3 top-3.5 text-white/40" />
+        <label className="relative flex-1"><Search size={18} className="absolute left-3 top-3.5 text-muted" />
           <input className="input !pl-10" type="search" aria-label="Rechercher" placeholder="Rechercher un article" value={qInput} onChange={(e) => setQInput(e.target.value)} /></label>
         <button className="btn-ghost !px-3" aria-label="Scanner un code-barres" onClick={() => setScan(true)}><ScanLine size={20} /></button>
         <button className="btn-ghost !px-3" aria-label={grid ? "Affichage en liste" : "Affichage en grille"} onClick={() => setGrid(!grid)}>{grid ? <List size={20} /> : <Grid2x2 size={20} />}</button>
@@ -102,9 +102,9 @@ function Catalogue() {
       </div>
 
       {page.isLoading && <div className="flex flex-col gap-2" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="card h-20 animate-pulse" />)}</div>}
-      {page.error && <div className="card text-sm"><p className="text-red-400">Chargement impossible : {(page.error as Error).message}</p><button className="btn-ghost mt-2" onClick={() => void page.refetch()}>Réessayer</button></div>}
+      {page.error && <div className="card text-sm"><p className="text-bad">Chargement impossible : {(page.error as Error).message}</p><button className="btn-ghost mt-2" onClick={() => void page.refetch()}>Réessayer</button></div>}
       {!page.isLoading && !page.error && rows.length === 0 && (
-        <div className="card text-center text-sm text-white/60 flex flex-col gap-2 items-center">
+        <div className="card text-center text-sm text-muted flex flex-col gap-2 items-center">
           {f.q || f.category || f.status !== "active" ? <p>Aucun article ne correspond à cette recherche.</p> : <><p>Votre catalogue est vide.</p><button className="btn" onClick={() => setForm("new")}>Ajouter mon premier article</button></>}
         </div>
       )}
@@ -131,10 +131,10 @@ function ArticleCard({ a, qty, grid, nVariants, onOpen }: { a: ArticleRow; qty?:
         <Thumb id={a.imageFileId} size={grid ? 96 : 56} className={grid ? "self-center" : ""} />
         <div className="min-w-0 flex-1">
           <div className="font-semibold truncate">{a.name}</div>
-          <div className="text-xs text-white/50 truncate">{[a.sku, a.category, nVariants ? `${nVariants} variante${nVariants > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</div>
-          <div className="flex items-center justify-between mt-1"><span className="gold-text font-bold">{formatFcfa(a.price)}</span>
-            <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"}`}>{qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
-          {a.archived && <span className="text-xs text-amber-300">Archivé</span>}
+          <div className="text-xs text-muted truncate">{[a.sku, a.category, nVariants ? `${nVariants} variante${nVariants > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</div>
+          <div className="flex items-center justify-between mt-1"><span className="text-accent-text font-bold">{formatFcfa(a.price)}</span>
+            <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-bad-bg text-bad" : "bg-subtle text-soft"}`}>{qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
+          {a.archived && <span className="text-xs text-warn">Archivé</span>}
         </div>
       </button>
     </li>
@@ -155,8 +155,8 @@ function MovementsBlock({ productId }: { productId: string }) {
   const all = [...first.data.moves, ...acc]; const nx = next === undefined ? first.data.next : next;
   return (
     <div className="card flex flex-col gap-1"><h3 className="font-semibold">Mouvements de stock ({first.data.total})</h3>
-      {all.length === 0 && <p className="text-xs text-white/50">Aucun mouvement enregistré.</p>}
-      {all.map((m) => <p key={m.id} className="text-xs text-white/70 border-t border-[var(--line)] pt-1"><span className="text-white/50">{fmtMv(m.at)}</span> · {m.label} · <b className={m.qty < 0 ? "text-red-300" : "text-emerald-300"}>{m.qty > 0 ? "+" : ""}{formatQty(m.qty)}</b>{m.from || m.to ? ` · ${m.from || "?"} → ${m.to || "?"}` : ""}{m.ref ? ` · ${m.ref}` : ""}{m.by ? ` · ${m.by}` : ""}{m.note ? ` · ${m.note}` : ""}</p>)}
+      {all.length === 0 && <p className="text-xs text-muted">Aucun mouvement enregistré.</p>}
+      {all.map((m) => <p key={m.id} className="text-xs text-soft border-t border-[var(--line)] pt-1"><span className="text-muted">{fmtMv(m.at)}</span> · {m.label} · <b className={m.qty < 0 ? "text-bad" : "text-ok"}>{m.qty > 0 ? "+" : ""}{formatQty(m.qty)}</b>{m.from || m.to ? ` · ${m.from || "?"} → ${m.to || "?"}` : ""}{m.ref ? ` · ${m.ref}` : ""}{m.by ? ` · ${m.by}` : ""}{m.note ? ` · ${m.note}` : ""}</p>)}
       {nx && <button className="btn-ghost" disabled={more.isFetching} onClick={() => setPages((p) => [...p, nx])}>Voir les mouvements plus anciens</button>}
     </div>
   );
@@ -184,69 +184,69 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
     onError: (e) => { setAsk(null); setErr((e as Error).message); },
   });
   const canDelete = s.role === "owner" || s.role === "manager";
-  const row = (k: string, v: ReactNode) => <div className="flex justify-between gap-3 text-sm py-1.5 border-b border-[var(--line)]"><span className="text-white/50">{k}</span><span className="text-right">{v || "—"}</span></div>;
+  const row = (k: string, v: ReactNode) => <div className="flex justify-between gap-3 text-sm py-1.5 border-b border-[var(--line)]"><span className="text-muted">{k}</span><span className="text-right">{v || "—"}</span></div>;
   return (
     <Sheet title={a.name} onClose={onClose} back>
       <Thumb id={a.imageFileId} size={160} className="self-center" />
-      {a.archived && <p className="text-amber-300 text-sm text-center">Article archivé : il n'apparaît plus dans les actifs.</p>}
+      {a.archived && <p className="text-warn text-sm text-center">Article archivé : il n'apparaît plus dans les actifs.</p>}
       <div className="card">
         {row("Référence", a.sku)}{row("Code-barres", a.barcode)}{row("Catégorie", a.category)}{row("Unité de vente", unitLabel(a.unit))}
         {row("Fournisseur principal", sup.data?.name ?? (a.supplierId && !can(s, "purchases") ? "Non visible avec vos accès" : ""))}
-        {a.hasVariants ? row("Prix de vente", <b className="gold-text">{prices.length ? (Math.min(...prices) === Math.max(...prices) ? formatFcfa(prices[0]!) : `${formatFcfa(Math.min(...prices))} – ${formatFcfa(Math.max(...prices))}`) : "—"}</b>) : <>{row("Prix de vente", <b className="gold-text">{formatFcfa(a.price)}</b>)}{row("Prix d'achat", a.cost ? formatFcfa(a.cost) : "")}
+        {a.hasVariants ? row("Prix de vente", <b className="text-accent-text">{prices.length ? (Math.min(...prices) === Math.max(...prices) ? formatFcfa(prices[0]!) : `${formatFcfa(Math.min(...prices))} – ${formatFcfa(Math.max(...prices))}`) : "—"}</b>) : <>{row("Prix de vente", <b className="text-accent-text">{formatFcfa(a.price)}</b>)}{row("Prix d'achat", a.cost ? formatFcfa(a.cost) : "")}
         {row("Marge brute indicative", a.cost ? `${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Prix d'achat non renseigné")}{proCosting && a.cost ? <>{row("Taux de marge (sur le coût)", `${(marginStats(a.price, a.cost).markupPct ?? "—").toLocaleString("fr-FR")} %`)}{row("Taux de marque (sur le prix)", `${(marginStats(a.price, a.cost).markPct ?? "—").toLocaleString("fr-FR")} %`)}</> : null}</>}
-        {row("Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-red-400" : ""}>{formatQty(qty)} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Précision des quantités", scaleLabel(a.qtyScale ?? 0))}{row("Seuil d'alerte", a.minStock ?? 0)}
+        {row("Stock", <b className={isLow(qty, a.minStock ?? 0) ? "text-bad" : ""}>{formatQty(qty)} {unitLabel(a.unit).toLowerCase()}</b>)}{row("Précision des quantités", scaleLabel(a.qtyScale ?? 0))}{row("Seuil d'alerte", a.minStock ?? 0)}
       </div>
-      {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-amber-300"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
+      {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-warn"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
       {a.description && <div className="card text-sm whitespace-pre-line">{a.description}</div>}
       {can(s, "stock") && <MovementsBlock productId={a.$id} />}
       {can(s, "purchases") && <ClaimsBlock productId={a.$id} />}
       <div className="card"><h3 className="font-semibold mb-1">Historique des prix</h3>
-        {hist.isLoading ? <p className="text-sm text-white/50">Chargement…</p> : hist.error ? <p className="text-sm text-red-400">{(hist.error as Error).message}</p> : !hist.data?.length ? <p className="text-sm text-white/50">Aucune modification enregistrée.</p> :
-          <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-white/50">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>
-            <span className="text-right">{h.oldPrice ? `${formatFcfa(h.oldPrice)} → ` : "Création : "}{formatFcfa(h.newPrice ?? 0)}<span className="text-white/40"> · achat {formatFcfa(h.newCost ?? 0)}</span></span></li>)}</ul>}
-        <p className="text-xs text-white/40 mt-2">Les ventes déjà enregistrées gardent le prix du jour de la vente.</p></div>
+        {hist.isLoading ? <p className="text-sm text-muted">Chargement…</p> : hist.error ? <p className="text-sm text-bad">{(hist.error as Error).message}</p> : !hist.data?.length ? <p className="text-sm text-muted">Aucune modification enregistrée.</p> :
+          <ul className="text-sm flex flex-col gap-1">{hist.data.map((h) => <li key={h.$id} className="flex justify-between gap-2"><span className="text-muted">{new Date(h.$createdAt).toLocaleDateString("fr-FR")}</span>
+            <span className="text-right">{h.oldPrice ? `${formatFcfa(h.oldPrice)} → ` : "Création : "}{formatFcfa(h.newPrice ?? 0)}<span className="text-muted"> · achat {formatFcfa(h.newCost ?? 0)}</span></span></li>)}</ul>}
+        <p className="text-xs text-muted mt-2">Les ventes déjà enregistrées gardent le prix du jour de la vente.</p></div>
       {(proCosting || !!links.data?.length) && (
-        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Fournisseurs & coûts</h3><button className="text-sm text-[var(--gold)]" onClick={() => setSupOpen(true)}>{proCosting ? "Gérer" : "Voir"}</button></div>
-          <p className="text-sm text-white/50 mt-1">{links.data?.length ? `${links.data.length} fournisseur${links.data.length > 1 ? "s" : ""} associé${links.data.length > 1 ? "s" : ""} · coût de revient, comparaison et évolution.` : "Aucun fournisseur associé : comparez vos fournisseurs et suivez l'évolution de vos coûts."}</p>
-          {!proCosting && <p className="text-xs text-amber-300 mt-2">Lecture seule (formule Business) : vos données sont conservées ; les frais d'approvisionnement ne sont plus appliqués.</p>}
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Fournisseurs & coûts</h3><button className="text-sm text-accent-text" onClick={() => setSupOpen(true)}>{proCosting ? "Gérer" : "Voir"}</button></div>
+          <p className="text-sm text-muted mt-1">{links.data?.length ? `${links.data.length} fournisseur${links.data.length > 1 ? "s" : ""} associé${links.data.length > 1 ? "s" : ""} · coût de revient, comparaison et évolution.` : "Aucun fournisseur associé : comparez vos fournisseurs et suivez l'évolution de vos coûts."}</p>
+          {!proCosting && <p className="text-xs text-warn mt-2">Lecture seule (formule Business) : vos données sont conservées ; les frais d'approvisionnement ne sont plus appliqués.</p>}
         </div>
       )}
       {(proPricing || !!rules.data?.length) && (
-        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Tarifs spéciaux</h3><button className="text-sm text-[var(--gold)]" onClick={() => setPriceOpen(true)}>{proPricing ? "Gérer" : "Voir"}</button></div>
-          <p className="text-sm text-white/50 mt-1">{rules.data?.length ? `${rules.data.length} tarif${rules.data.length > 1 ? "s" : ""} : promotions, prix de gros, paliers de quantité.` : "Aucun : le prix de base s'applique à tous."}</p>
-          {!proPricing && !!rules.data?.length && <p className="text-xs text-amber-300 mt-2">Tarifs désactivés (formule Business) : le prix de base s'applique ; vos tarifs sont conservés.</p>}
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Tarifs spéciaux</h3><button className="text-sm text-accent-text" onClick={() => setPriceOpen(true)}>{proPricing ? "Gérer" : "Voir"}</button></div>
+          <p className="text-sm text-muted mt-1">{rules.data?.length ? `${rules.data.length} tarif${rules.data.length > 1 ? "s" : ""} : promotions, prix de gros, paliers de quantité.` : "Aucun : le prix de base s'applique à tous."}</p>
+          {!proPricing && !!rules.data?.length && <p className="text-xs text-warn mt-2">Tarifs désactivés (formule Business) : le prix de base s'applique ; vos tarifs sont conservés.</p>}
         </div>
       )}
       {(proVariants || a.hasVariants) && (
-        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Variantes</h3><button className="text-sm text-[var(--gold)]" onClick={() => setVarsOpen(true)}>{proVariants ? "Gérer" : "Voir"}</button></div>
-          {!live.length ? <p className="text-sm text-white/50 mt-1">Aucune variante active.</p> :
-            <ul className="text-sm mt-1 flex flex-col gap-1">{live.slice(0, 5).map((v) => <li key={v.$id} className="flex justify-between gap-2"><span className="truncate">{v.label}</span><span className="text-white/60 whitespace-nowrap">{formatQty(variantQty(levels, v, scaleOf(a)))} · {formatFcfa(v.price)}</span></li>)}{live.length > 5 && <li className="text-white/40">+ {live.length - 5} autres…</li>}</ul>}
-          {!proVariants && <p className="text-xs text-amber-300 mt-2">Variantes en lecture seule (formule Business) : vos données sont conservées et la vente continue ; la gestion revient avec Pro.</p>}
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Variantes</h3><button className="text-sm text-accent-text" onClick={() => setVarsOpen(true)}>{proVariants ? "Gérer" : "Voir"}</button></div>
+          {!live.length ? <p className="text-sm text-muted mt-1">Aucune variante active.</p> :
+            <ul className="text-sm mt-1 flex flex-col gap-1">{live.slice(0, 5).map((v) => <li key={v.$id} className="flex justify-between gap-2"><span className="truncate">{v.label}</span><span className="text-muted whitespace-nowrap">{formatQty(variantQty(levels, v, scaleOf(a)))} · {formatFcfa(v.price)}</span></li>)}{live.length > 5 && <li className="text-muted">+ {live.length - 5} autres…</li>}</ul>}
+          {!proVariants && <p className="text-xs text-warn mt-2">Variantes en lecture seule (formule Business) : vos données sont conservées et la vente continue ; la gestion revient avec Pro.</p>}
         </div>
       )}
       {(pro || !!units.data?.length) && (
-        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Conditionnements</h3>{pro && <button className="text-sm text-[var(--gold)]" onClick={() => setUnitsOpen(true)}>Modifier</button>}</div>
-          {!units.data?.length ? <p className="text-sm text-white/50 mt-1">Vendu uniquement en {unitLabel(a.unit).toLowerCase()}.</p> :
-            <ul className="text-sm mt-1 flex flex-col gap-1">{units.data.map((u) => <li key={u.$id} className="flex justify-between"><span>1 {unitLabel(u.unit).toLowerCase()} = {formatQty(u.factor)} {unitLabel(a.unit).toLowerCase()}</span><span className="gold-text font-semibold">{formatFcfa(Math.round(a.price * u.factor * 1e6) / 1e6)}</span></li>)}</ul>}
-          {!pro && <p className="text-xs text-amber-300 mt-2">Conditionnements désactivés (formule Business) : vos données sont conservées, la vente se fait en {unitLabel(a.unit).toLowerCase()}.</p>}
+        <div className="card"><div className="flex items-center justify-between"><h3 className="font-semibold">Conditionnements</h3>{pro && <button className="text-sm text-accent-text" onClick={() => setUnitsOpen(true)}>Modifier</button>}</div>
+          {!units.data?.length ? <p className="text-sm text-muted mt-1">Vendu uniquement en {unitLabel(a.unit).toLowerCase()}.</p> :
+            <ul className="text-sm mt-1 flex flex-col gap-1">{units.data.map((u) => <li key={u.$id} className="flex justify-between"><span>1 {unitLabel(u.unit).toLowerCase()} = {formatQty(u.factor)} {unitLabel(a.unit).toLowerCase()}</span><span className="text-accent-text font-semibold">{formatFcfa(Math.round(a.price * u.factor * 1e6) / 1e6)}</span></li>)}</ul>}
+          {!pro && <p className="text-xs text-warn mt-2">Conditionnements désactivés (formule Business) : vos données sont conservées, la vente se fait en {unitLabel(a.unit).toLowerCase()}.</p>}
         </div>
       )}
-      {err && <p className="text-red-400 text-sm">{err}</p>}
+      {err && <p className="text-bad text-sm">{err}</p>}
       <div className="grid grid-cols-2 gap-2">
         <button className="btn flex items-center justify-center gap-2" onClick={onEdit}><Pencil size={18} />Modifier</button>
         {mode ? <button className="btn-ghost" onClick={() => (mode === "lot" ? setLotsOpen(true) : setSerOpen(true))}>{mode === "lot" ? "Lots & péremption" : "Numéros de série"}</button> : null}
         {!mode && <button className="btn-ghost" onClick={() => { if (a.hasVariants) { setVarsOpen(true); return; } setCounted(String(qty).replace(".", ",")); setAsk("count"); }}>{a.hasVariants ? "Stock par variante" : "Compter le stock"}</button>}
         {a.archived ? <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("restore")}><Undo2 size={18} />Restaurer</button> : <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => setAsk("archive")}><Archive size={18} />Archiver</button>}
-        {canDelete && <button className="btn-ghost !text-red-300 flex items-center justify-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={18} />Supprimer</button>}
+        {canDelete && <button className="btn-ghost !text-bad flex items-center justify-center gap-2" onClick={() => setAsk("delete")}><Trash2 size={18} />Supprimer</button>}
       </div>
       {ask === "archive" && <Confirm text={`Archiver « ${a.name} » ? Il ne sera plus proposé à la vente, son historique est conservé.`} confirmLabel="Archiver" onNo={() => setAsk(null)} onYes={() => act.mutate("archive")} />}
       {ask === "restore" && <Confirm text={`Restaurer « ${a.name} » ?`} confirmLabel="Restaurer" onNo={() => setAsk(null)} onYes={() => act.mutate("restore")} />}
       {ask === "delete" && <Confirm danger text={`Supprimer définitivement « ${a.name} » ? Possible seulement s'il n'a jamais été vendu, commandé ni transféré.`} confirmLabel="Supprimer" onNo={() => setAsk(null)} onYes={() => act.mutate("delete")} />}
       {ask === "count" && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4"><div className="card w-full max-w-sm flex flex-col gap-3">
+        <div className="fixed inset-0 z-50 bg-[var(--overlay)] flex items-end justify-center p-4"><div className="card w-full max-w-sm flex flex-col gap-3">
           <p>Inventaire de « {a.name} » : quantité réellement comptée ?</p>
           <input className="input" inputMode="decimal" autoFocus value={counted} onChange={(e) => setCounted(e.target.value)} />
-          <p className="text-xs text-white/50">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
+          <p className="text-xs text-muted">Stock enregistré : {formatQty(qty)}. L'écart sera tracé comme mouvement d'inventaire.</p>
           <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => setAsk(null)}>Annuler</button><button className="btn flex-1" disabled={act.isPending || !/^\d+([.,]\d{1,3})?$/.test(counted)} onClick={() => act.mutate("count")}>Valider</button></div></div></div>
       )}
       {lotsOpen && <LotsSheet a={a} canManage={proTracking && can(s, "stock")} onClose={() => setLotsOpen(false)} onChanged={onChanged} />}
@@ -275,19 +275,19 @@ function UnitsEditor({ a, current, onClose, onSaved }: { a: ArticleRow; current:
   }
   return (
     <Sheet title={`Conditionnements · ${a.name}`} onClose={onClose} back>
-      <p className="text-sm text-white/60">Unité de base : <b>{unitLabel(base)}</b>. Indiquez combien d'unités de base contient chaque conditionnement.{scale === 0 ? " Cet article se vend à l'unité entière : coefficients entiers." : ` Jusqu'à ${scale} décimale${scale > 1 ? "s" : ""}.`}</p>
+      <p className="text-sm text-muted">Unité de base : <b>{unitLabel(base)}</b>. Indiquez combien d'unités de base contient chaque conditionnement.{scale === 0 ? " Cet article se vend à l'unité entière : coefficients entiers." : ` Jusqu'à ${scale} décimale${scale > 1 ? "s" : ""}.`}</p>
       {rows.map((r, i) => (
         <div key={i} className="card flex flex-col gap-2">
           <div className="grid grid-cols-[1fr_6rem_auto] gap-2 items-center">
             <select className="input !px-2" aria-label="Unité" value={r.unit} onChange={(e) => set(i, { unit: e.target.value })}>{choices.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}</select>
             <input className="input !px-2" aria-label="Coefficient" inputMode="decimal" placeholder="Coef." value={r.factor} onChange={(e) => set(i, { factor: e.target.value })} />
-            <button type="button" className="p-2 text-red-300" aria-label="Retirer" onClick={() => setRows(rows.filter((_, j) => j !== i))}><X size={18} /></button>
+            <button type="button" className="p-2 text-bad" aria-label="Retirer" onClick={() => setRows(rows.filter((_, j) => j !== i))}><X size={18} /></button>
           </div>
-          <p className={`text-xs ${r.factor && !factorOk(r.factor) ? "text-red-300" : "text-white/50"}`}>{r.factor && factorOk(r.factor) ? `1 ${unitLabel(r.unit).toLowerCase()} = ${r.factor} ${unitLabel(base).toLowerCase()} · ${formatFcfa(Math.round(a.price * Number(r.factor.replace(",", ".")) * 1e6) / 1e6)}` : "Coefficient positif, dans la précision de l'article"}</p>
+          <p className={`text-xs ${r.factor && !factorOk(r.factor) ? "text-bad" : "text-muted"}`}>{r.factor && factorOk(r.factor) ? `1 ${unitLabel(r.unit).toLowerCase()} = ${r.factor} ${unitLabel(base).toLowerCase()} · ${formatFcfa(Math.round(a.price * Number(r.factor.replace(",", ".")) * 1e6) / 1e6)}` : "Coefficient positif, dans la précision de l'article"}</p>
         </div>
       ))}
       {rows.length < 8 && <button className="btn-ghost" onClick={() => setRows([...rows, { unit: choices.find((u) => !rows.some((r) => r.unit === u.id))?.id ?? choices[0]!.id, factor: "" }])}>+ Ajouter un conditionnement</button>}
-      {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}{done && <p className="text-emerald-400 text-sm" role="status">{done}</p>}
+      {err && <p className="text-bad text-sm" role="alert">{err}</p>}{done && <p className="text-ok text-sm" role="status">{done}</p>}
       <button className="btn" disabled={busy || rows.some((r) => !factorOk(r.factor))} onClick={() => void save()}>{busy ? "Enregistrement…" : "Enregistrer"}</button>
     </Sheet>
   );
@@ -330,16 +330,16 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
       if (!edit) { requestId.current = crypto.randomUUID(); }
     }
   }
-  const lbl = (t: string, c: ReactNode) => <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">{t}</span>{c}</label>;
+  const lbl = (t: string, c: ReactNode) => <label className="flex flex-col gap-1 text-sm"><span className="text-muted">{t}</span>{c}</label>;
   return (
     <Sheet title={edit ? "Modifier l'article" : "Nouvel article"} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          {preview ? <img src={preview} alt="Aperçu" className="w-24 h-24 rounded-2xl object-cover" /> : removePhoto ? <Thumb size={96} /> : <Thumb id={initial?.imageFileId} size={96} />}
+          {preview ? <img src={preview} alt="Aperçu" className="w-24 h-24 rounded-lg object-cover" /> : removePhoto ? <Thumb size={96} /> : <Thumb id={initial?.imageFileId} size={96} />}
           <div className="flex flex-col gap-2 flex-1">
             <label className="btn-ghost flex items-center justify-center gap-2 cursor-pointer text-sm"><Camera size={18} />Prendre une photo<input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setRemovePhoto(false); }} /></label>
             <label className="btn-ghost flex items-center justify-center gap-2 cursor-pointer text-sm"><ImageIcon size={18} />Galerie<input type="file" accept="image/*" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setRemovePhoto(false); }} /></label>
-            {(photo || (initial?.imageFileId && existingPhoto && !removePhoto)) && <button type="button" className="text-xs text-red-300 text-left" onClick={() => { setPhoto(null); setRemovePhoto(true); }}>Retirer la photo</button>}
+            {(photo || (initial?.imageFileId && existingPhoto && !removePhoto)) && <button type="button" className="text-xs text-bad text-left" onClick={() => { setPhoto(null); setRemovePhoto(true); }}>Retirer la photo</button>}
           </div>
         </div>
         {lbl("Désignation *", <input className="input" required maxLength={160} value={f.name} onChange={set("name")} />)}
@@ -352,20 +352,20 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
           {lbl("Prix de vente (FCFA) *", <input className="input" inputMode="numeric" required value={f.price} onChange={set("price")} />)}
           {lbl("Prix d'achat (FCFA)", <input className="input" inputMode="numeric" value={f.cost} onChange={set("cost")} />)}
         </div>
-        {f.price !== "" && <p className={`text-sm ${sellsAtLoss(price, cost) ? "text-amber-300" : "text-white/60"}`}>{sellsAtLoss(price, cost) ? <><AlertTriangle size={14} className="inline mr-1" />Prix de vente inférieur au prix d'achat : vente à perte.</> : cost ? `Marge brute indicative : ${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Renseignez le prix d'achat pour voir la marge."}</p>}
+        {f.price !== "" && <p className={`text-sm ${sellsAtLoss(price, cost) ? "text-warn" : "text-muted"}`}>{sellsAtLoss(price, cost) ? <><AlertTriangle size={14} className="inline mr-1" />Prix de vente inférieur au prix d'achat : vente à perte.</> : cost ? `Marge brute indicative : ${formatFcfa(m.amount)}${m.pct !== null ? ` (${m.pct} %)` : ""}` : "Renseignez le prix d'achat pour voir la marge."}</p>}
         <div className="grid grid-cols-2 gap-2">
           {lbl("Unité de vente", <select className="input" value={f.unit} onChange={set("unit")}>{UNITS.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}</select>)}
           {lbl("Seuil d'alerte", <input className="input" inputMode="numeric" value={f.minStock} onChange={set("minStock")} />)}
         </div>
         {pro && lbl("Précision des quantités", <select className="input" value={f.qtyScale} onChange={set("qtyScale")}>{SCALES.map((x) => <option key={x} value={x}>{scaleLabel(x)}</option>)}</select>)}
-        {pro && <p className="text-xs text-white/40 -mt-2">Pour vendre au kilo ou au litre. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
+        {pro && <p className="text-xs text-muted -mt-2">Pour vendre au kilo ou au litre. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
         {pro && lbl("Suivi du stock", <select className="input" value={f.tracking} onChange={set("tracking")}>{TRACKING_MODES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>)}
-        {pro && <p className="text-xs text-white/40 -mt-2">Par lot : péremption et prélèvement du plus ancien d'abord. Par numéro de série : une unité = un numéro. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
-        {f.tracking && !edit ? <p className="text-sm text-white/50">Le stock d'un article suivi s'ajoute après création : entrée de lot ou numéros de série.</p> : edit ? <p className="text-sm text-white/50">Stock actuel : <b>{formatQty(qty)}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="decimal" value={f.qty} onChange={set("qty")} />)}
+        {pro && <p className="text-xs text-muted -mt-2">Par lot : péremption et prélèvement du plus ancien d'abord. Par numéro de série : une unité = un numéro. Modifiable seulement tant que l'article n'a aucun mouvement de stock.</p>}
+        {f.tracking && !edit ? <p className="text-sm text-muted">Le stock d'un article suivi s'ajoute après création : entrée de lot ou numéros de série.</p> : edit ? <p className="text-sm text-muted">Stock actuel : <b>{formatQty(qty)}</b>. Pour le corriger, utilisez « Compter le stock » sur la fiche (mouvement d'inventaire tracé).</p> : lbl("Quantité en stock (initiale)", <input className="input" inputMode="decimal" value={f.qty} onChange={set("qty")} />)}
         {can(s, "purchases") && lbl("Fournisseur principal (facultatif)", <select className="input" value={f.supplierId} onChange={set("supplierId")}><option value="">Aucun</option>{(suppliers.data ?? []).map((x) => <option key={x.$id} value={x.$id}>{x.name}</option>)}</select>)}
         {lbl("Description", <textarea className="input" rows={3} maxLength={1000} value={f.description} onChange={set("description")} />)}
-        {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
-        {done && <p className="text-emerald-400 text-sm" role="status">{done}</p>}
+        {err && <p className="text-bad text-sm" role="alert">{err}</p>}
+        {done && <p className="text-ok text-sm" role="status">{done}</p>}
         <button className="btn" disabled={busy || !valid}>{busy ? "Enregistrement…" : edit ? "Enregistrer" : "Créer l'article"}</button>
       </form>
       {scan && <Scanner onCode={(c) => { setF((x) => ({ ...x, barcode: c })); setScan(false); }} onClose={() => setScan(false)} />}
@@ -377,11 +377,11 @@ function ProLocks() {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <section aria-label="Fonctions Pro" className="card flex flex-col gap-2 mt-2">
-      <h2 className="font-semibold flex items-center gap-2"><Lock size={16} className="text-[var(--gold)]" />Avec la formule Pro</h2>
+      <h2 className="font-semibold flex items-center gap-2"><Lock size={16} className="text-accent-text" />Avec la formule Pro</h2>
       <ul className="flex flex-col gap-1">
         {PRO_LOCKED.map((k) => (
-          <li key={k}><button className="w-full flex justify-between items-center text-sm py-2 border-b border-[var(--line)] text-white/70" onClick={() => setOpen(open === k ? null : k)}><span>{FEATURES[k].label}</span><Lock size={14} className="text-white/40" /></button>
-            {open === k && <div className="text-xs text-white/60 py-2 flex flex-col gap-2"><p>{FEATURES[k].help} Disponible avec la formule Pro.</p><button className="btn !py-2" onClick={goUpgrade}>Passer à Pro</button></div>}</li>
+          <li key={k}><button className="w-full flex justify-between items-center text-sm py-2 border-b border-[var(--line)] text-soft" onClick={() => setOpen(open === k ? null : k)}><span>{FEATURES[k].label}</span><Lock size={14} className="text-muted" /></button>
+            {open === k && <div className="text-xs text-muted py-2 flex flex-col gap-2"><p>{FEATURES[k].help} Disponible avec la formule Pro.</p><button className="btn !py-2" onClick={goUpgrade}>Passer à Pro</button></div>}</li>
         ))}
       </ul>
     </section>

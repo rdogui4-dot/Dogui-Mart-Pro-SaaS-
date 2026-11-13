@@ -11,14 +11,14 @@ export type PromoSettings = { tz: string; minMarginPct: number; maxLinePct: numb
 export type ListData = { pro: boolean; tz: string; settings: PromoSettings; promos: PromoView[]; overlaps: { a: string; b: string; why: string }[]; expiringSoon: { id: string; name: string; endAt: string }[]; shops: { id: string; name: string }[]; now: string };
 
 export const usePromoList = (enabled: boolean) => { const { session } = useSession(); const s = session!; return useQuery({ queryKey: ["promotions-list", s.shopId], enabled, queryFn: () => api<ListData>(s, "promotions.list") }); };
-export const TONE: Record<PromoStatus, string> = { draft: "bg-white/10 text-white/70", scheduled: "bg-sky-500/20 text-sky-300", active: "bg-emerald-500/20 text-emerald-300", suspended: "bg-amber-500/20 text-amber-300", ended: "bg-white/10 text-white/50" };
+export const TONE: Record<PromoStatus, string> = { draft: "bg-subtle text-soft", scheduled: "bg-info-bg text-info", active: "bg-ok-bg text-ok", suspended: "bg-warn-bg text-warn", ended: "bg-subtle text-muted" };
 export const fmtDate = (iso: string, tz: string) => new Date(iso).toLocaleString("fr-FR", { timeZone: tz, day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 export const fmtDay = (iso: string, tz: string) => new Date(iso).toLocaleDateString("fr-FR", { timeZone: tz, weekday: "short", day: "2-digit", month: "short" });
 export const FAMILY_LABEL: Record<Family, string> = { simple: "Remise simple", tiers: "Prix dégressifs", bogo: "Achetez X, obtenez Y", combo: "Pack", requires: "Conditionnée", cart: "Panier" };
 
 /** Carte « fonction Pro » proposée en mise à niveau (aucun accès côté serveur sans la formule). */
 export function ProLock({ what }: { what: string }) {
-  return <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-[var(--gold)]" />Réservé à la formule Pro</span><span className="text-white/60">{what}</span>
+  return <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">{what}</span>
     <button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div>;
 }
 

@@ -12,10 +12,10 @@ import type { ReportData } from "@/domain/exports";
 const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 24);
 const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 10);
 const fmtDay = (d: string) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
-const Err = ({ e }: { e: unknown }) => (e ? <p className="text-red-400 text-sm" role="alert">{(e as Error).message}</p> : null);
-const Field = ({ label, children }: { label: string; children: ReactNode }) => <label className="text-xs text-white/60 flex flex-col gap-1">{label}{children}</label>;
-const Kpi = ({ label, value, tone = "", hint }: { label: string; value: ReactNode; tone?: string; hint?: string }) => <div className="card"><div className="text-white/50 text-xs">{label}</div><div className={`font-semibold text-lg ${tone}`}>{value}</div>{hint && <div className="text-[11px] text-white/40">{hint}</div>}</div>;
-const Note = ({ children }: { children: ReactNode }) => <p className="text-[11px] text-white/40">{children}</p>;
+const Err = ({ e }: { e: unknown }) => (e ? <p className="text-bad text-sm" role="alert">{(e as Error).message}</p> : null);
+const Field = ({ label, children }: { label: string; children: ReactNode }) => <label className="text-xs text-muted flex flex-col gap-1">{label}{children}</label>;
+const Kpi = ({ label, value, tone = "", hint }: { label: string; value: ReactNode; tone?: string; hint?: string }) => <div className="card"><div className="text-muted text-xs">{label}</div><div className={`font-semibold text-lg ${tone}`}>{value}</div>{hint && <div className="text-xs text-muted">{hint}</div>}</div>;
+const Note = ({ children }: { children: ReactNode }) => <p className="text-xs text-muted">{children}</p>;
 const money = (n: number | null | undefined) => (n === null || n === undefined ? "—" : formatFcfa(n));
 
 type Acc = { id: string; name: string; kind: AccountKind; kindLabel: string; methods: string[]; methodLabels: string[]; openingBalance: number | null; openingDate: string | null; active: boolean; configured: boolean; balance: number | null; inflow: number; outflow: number; transfersIn: number; transfersOut: number };
@@ -36,7 +36,7 @@ export function FinancePage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">Finance</h1>
-      <p className="text-xs text-white/50">Boutique active : comptes et soldes sont gérés boutique par boutique. Les montants viennent des pièces réelles (ventes, dépenses, paiements) ; aucun solde n'est inventé.</p>
+      <p className="text-xs text-muted">Boutique active : comptes et soldes sont gérés boutique par boutique. Les montants viennent des pièces réelles (ventes, dépenses, paiements) ; aucun solde n'est inventé.</p>
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections de la finance">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
       {tab === "dash" && <Dash onTab={setTab} />}{tab === "accounts" && <Accounts />}{tab === "flows" && <Flows />}{tab === "transfers" && <Transfers />}{tab === "reco" && <Reco />}{tab === "dues" && <Dues />}{tab === "budgets" && <Budgets mgr={s.role === "owner" || s.role === "manager"} />}{tab === "reports" && <Reports />}{tab === "fc" && <Forecast canAll={s.role === "owner" || s.role === "manager"} />}{tab === "plans" && <Plans />}{tab === "an" && <Analyses canAll={s.role === "owner" || s.role === "manager"} mgr={s.role === "owner" || s.role === "manager"} />}{tab === "rules" && <RulesTab />}
     </div>
@@ -45,18 +45,18 @@ export function FinancePage() {
 
 function Dash({ onTab }: { onTab: (t: Tab) => void }) {
   const q = useFin<{ accounts: Acc[]; unassigned: Unassigned[]; totalConfigured: number; unconfigured: number; last30: { inflow: number; outflow: number; net: number }; receivables: { total: number; overdue: number; dueSoon: number }; payables: { total: number; overdue: number; dueSoon: number }; outlook30: { amount: number; basis: string }; alerts: { level: string; text: string }[] }>("fin.dashboard");
-  if (q.error) return <Err e={q.error} />; const d = q.data; if (!d) return <div className="card h-24 animate-pulse bg-white/5" aria-busy="true" />;
+  if (q.error) return <Err e={q.error} />; const d = q.data; if (!d) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-2">
         <Kpi label="Trésorerie (comptes configurés)" value={d.accounts.some((a) => a.active && a.configured) ? money(d.totalConfigured) : "À configurer"} hint={d.unconfigured ? `${d.unconfigured} compte(s) sans solde d'ouverture` : undefined} />
         <Kpi label="Perspective à 30 jours" value={money(d.outlook30.amount)} hint="Indicatif" />
-        <Kpi label="Entrées (30 j)" value={money(d.last30.inflow)} tone="text-emerald-300" /><Kpi label="Sorties (30 j)" value={money(d.last30.outflow)} tone="text-red-300" />
+        <Kpi label="Entrées (30 j)" value={money(d.last30.inflow)} tone="text-ok" /><Kpi label="Sorties (30 j)" value={money(d.last30.outflow)} tone="text-bad" />
         <Kpi label="À encaisser" value={money(d.receivables.total)} hint={`dont échu ${money(d.receivables.overdue)}`} /><Kpi label="À payer" value={money(d.payables.total)} hint={`dont échu ${money(d.payables.overdue)}`} />
       </div>
       {d.accounts.length === 0 && <div className="card text-sm flex flex-col gap-2"><p>Aucun compte financier pour cette boutique.</p><button className="btn" onClick={() => onTab("accounts")}>Créer un compte</button></div>}
-      {d.alerts.length > 0 && <div className="card flex flex-col gap-1" aria-label="Alertes">{d.alerts.map((a) => <p key={a.text} className={`text-sm ${a.level === "danger" ? "text-red-300" : "text-amber-300"}`}>{a.text}</p>)}</div>}
-      <div className="card flex flex-col gap-1">{d.accounts.filter((a) => a.active).map((a) => <div key={a.id} className="flex justify-between text-sm"><span>{a.name} <span className="text-white/40 text-xs">{a.kindLabel}</span></span><span className={a.balance !== null && a.balance < 0 ? "text-red-300" : ""}>{a.configured ? money(a.balance) : "Solde d'ouverture à saisir"}</span></div>)}</div>
+      {d.alerts.length > 0 && <div className="card flex flex-col gap-1" aria-label="Alertes">{d.alerts.map((a) => <p key={a.text} className={`text-sm ${a.level === "danger" ? "text-bad" : "text-warn"}`}>{a.text}</p>)}</div>}
+      <div className="card flex flex-col gap-1">{d.accounts.filter((a) => a.active).map((a) => <div key={a.id} className="flex justify-between text-sm"><span>{a.name} <span className="text-muted text-xs">{a.kindLabel}</span></span><span className={a.balance !== null && a.balance < 0 ? "text-bad" : ""}>{a.configured ? money(a.balance) : "Solde d'ouverture à saisir"}</span></div>)}</div>
       <Note>{d.outlook30.basis}</Note>
     </div>
   );
@@ -70,8 +70,8 @@ function AccountForm({ acc, methodsTaken, onDone }: { acc?: Acc; methodsTaken: M
     <div className="flex flex-col gap-3 p-3">
       <Field label="Nom du compte"><input className="input" aria-label="Nom du compte" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={80} /></Field>
       <Field label="Type"><select className="input" aria-label="Type de compte" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as AccountKind })}>{(Object.keys(KIND_LABEL) as AccountKind[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}</select></Field>
-      <fieldset className="flex flex-col gap-1"><legend className="text-xs text-white/60">Moyens de règlement qui alimentent ce compte</legend>
-        {Object.entries(METHOD_LABEL).map(([id, l]) => { const other = methodsTaken.get(id); const off = !!other && !f.methods.includes(id) && other !== acc?.name; return <label key={id} className={`flex gap-2 text-sm ${off ? "opacity-40" : ""}`}><input type="checkbox" checked={f.methods.includes(id)} disabled={off} onChange={() => tog(id)} />{l}{off && <span className="text-xs text-white/40"> (déjà sur « {other} »)</span>}</label>; })}
+      <fieldset className="flex flex-col gap-1"><legend className="text-xs text-muted">Moyens de règlement qui alimentent ce compte</legend>
+        {Object.entries(METHOD_LABEL).map(([id, l]) => { const other = methodsTaken.get(id); const off = !!other && !f.methods.includes(id) && other !== acc?.name; return <label key={id} className={`flex gap-2 text-sm ${off ? "opacity-40" : ""}`}><input type="checkbox" checked={f.methods.includes(id)} disabled={off} onChange={() => tog(id)} />{l}{off && <span className="text-xs text-muted"> (déjà sur « {other} »)</span>}</label>; })}
       </fieldset>
       <div className="grid grid-cols-2 gap-2"><Field label="Solde d'ouverture (FCFA)"><input className="input" aria-label="Solde d'ouverture" inputMode="numeric" value={f.ob} onChange={(e) => setF({ ...f, ob: e.target.value.replace(/[^0-9-]/g, "") })} /></Field><Field label="À la date du"><input className="input" type="date" aria-label="Date d'ouverture" value={f.od} max={day()} onChange={(e) => setF({ ...f, od: e.target.value })} /></Field></div>
       <Note>Sans solde d'ouverture, le compte reste « à configurer » et aucun solde n'est affiché. Les flux antérieurs à cette date sont ignorés.</Note>
@@ -83,16 +83,16 @@ function AccountForm({ acc, methodsTaken, onDone }: { acc?: Acc; methodsTaken: M
 
 function Accounts() {
   const { session } = useSession(); const mgr = session!.role === "owner" || session!.role === "manager"; const q = useFin<Accounts & { methods: { id: string; account: string | null }[] }>("fin.accounts"); const [edit, setEdit] = useState<Acc | "new" | null>(null);
-  if (q.error) return <Err e={q.error} />; const d = q.data; if (!d) return <div className="card h-24 animate-pulse bg-white/5" aria-busy="true" />; const taken = new Map(d.methods.filter((x) => x.account).map((x) => [x.id, x.account!]));
+  if (q.error) return <Err e={q.error} />; const d = q.data; if (!d) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />; const taken = new Map(d.methods.filter((x) => x.account).map((x) => [x.id, x.account!]));
   return (
     <div className="flex flex-col gap-3">
       {mgr && <button className="btn" onClick={() => setEdit("new")}>Nouveau compte</button>}
-      {d.accounts.length === 0 && <p className="text-sm text-white/50">Aucun compte. Créez par exemple « Caisse », « Banque », « Wave / Orange Money », « Coffre ».</p>}
-      {d.accounts.map((a) => <div key={a.id} className={`card flex flex-col gap-1 ${a.active ? "" : "opacity-50"}`}><div className="flex justify-between"><b>{a.name}</b><span>{a.configured ? money(a.balance) : <span className="text-amber-300 text-sm">À configurer</span>}</span></div>
-        <p className="text-xs text-white/50">{a.kindLabel} · {a.methodLabels.join(", ") || "aucun moyen rattaché"}{!a.active && " · désactivé"}</p>
-        {a.configured && <p className="text-xs text-white/40">Ouverture {money(a.openingBalance)} au {fmtDay(a.openingDate!)} · entrées {money(a.inflow)} · sorties {money(a.outflow)} · virements +{money(a.transfersIn)} / −{money(a.transfersOut)}</p>}
+      {d.accounts.length === 0 && <p className="text-sm text-muted">Aucun compte. Créez par exemple « Caisse », « Banque », « Wave / Orange Money », « Coffre ».</p>}
+      {d.accounts.map((a) => <div key={a.id} className={`card flex flex-col gap-1 ${a.active ? "" : "opacity-50"}`}><div className="flex justify-between"><b>{a.name}</b><span>{a.configured ? money(a.balance) : <span className="text-warn text-sm">À configurer</span>}</span></div>
+        <p className="text-xs text-muted">{a.kindLabel} · {a.methodLabels.join(", ") || "aucun moyen rattaché"}{!a.active && " · désactivé"}</p>
+        {a.configured && <p className="text-xs text-muted">Ouverture {money(a.openingBalance)} au {fmtDay(a.openingDate!)} · entrées {money(a.inflow)} · sorties {money(a.outflow)} · virements +{money(a.transfersIn)} / −{money(a.transfersOut)}</p>}
         {mgr && <button className="btn-ghost self-start" onClick={() => setEdit(a)}>Modifier</button>}</div>)}
-      {d.unassigned.length > 0 && <div className="card flex flex-col gap-1"><p className="text-sm text-amber-300">Flux non rattachés à un compte</p>{d.unassigned.map((u) => <p key={u.method} className="text-xs text-white/60">{u.label} : {u.count} flux, entrées {money(u.inflow)}, sorties {money(u.outflow)}</p>)}<Note>Rattachez ces moyens de règlement à un compte pour qu'ils comptent dans les soldes.</Note></div>}
+      {d.unassigned.length > 0 && <div className="card flex flex-col gap-1"><p className="text-sm text-warn">Flux non rattachés à un compte</p>{d.unassigned.map((u) => <p key={u.method} className="text-xs text-muted">{u.label} : {u.count} flux, entrées {money(u.inflow)}, sorties {money(u.outflow)}</p>)}<Note>Rattachez ces moyens de règlement à un compte pour qu'ils comptent dans les soldes.</Note></div>}
       <Note>{d.note}</Note>
       {edit && <Sheet title={edit === "new" ? "Nouveau compte" : `Modifier ${edit.name}`} onClose={() => setEdit(null)}><AccountForm acc={edit === "new" ? undefined : edit} methodsTaken={taken} onDone={() => setEdit(null)} /></Sheet>}
     </div>
@@ -108,9 +108,9 @@ function Flows() {
         <Field label="Source"><select className="input" aria-label="Source" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}><option value="">Toutes</option>{Object.entries(SOURCE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field></div>
       <input className="input" placeholder="Rechercher une pièce ou un libellé" aria-label="Recherche" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
       <Err e={q.error} />
-      {q.data && <><div className="grid grid-cols-2 gap-2"><Kpi label="Entrées" value={money(q.data.total.in)} tone="text-emerald-300" /><Kpi label="Sorties" value={money(q.data.total.out)} tone="text-red-300" /></div>
-        <p className="text-xs text-white/50">{q.data.shown} ligne(s) affichée(s) sur {q.data.count}</p>
-        <ul className="flex flex-col gap-1">{q.data.flows.map((x) => <li key={x.key} className="card flex justify-between gap-2 text-sm"><div><div>{x.label || x.sourceLabel}</div><div className="text-xs text-white/50">{fmtDay(x.date)} · {x.sourceLabel}{x.ref ? ` · ${x.ref}` : ""} · {x.methodLabel} · {x.account ?? "Non affecté"}{x.by ? ` · ${x.by}` : ""}</div></div><b className={x.amount >= 0 ? "text-emerald-300" : "text-red-300"}>{x.amount >= 0 ? "+" : "−"}{money(Math.abs(x.amount))}</b></li>)}</ul>
+      {q.data && <><div className="grid grid-cols-2 gap-2"><Kpi label="Entrées" value={money(q.data.total.in)} tone="text-ok" /><Kpi label="Sorties" value={money(q.data.total.out)} tone="text-bad" /></div>
+        <p className="text-xs text-muted">{q.data.shown} ligne(s) affichée(s) sur {q.data.count}</p>
+        <ul className="flex flex-col gap-1">{q.data.flows.map((x) => <li key={x.key} className="card flex justify-between gap-2 text-sm"><div><div>{x.label || x.sourceLabel}</div><div className="text-xs text-muted">{fmtDay(x.date)} · {x.sourceLabel}{x.ref ? ` · ${x.ref}` : ""} · {x.methodLabel} · {x.account ?? "Non affecté"}{x.by ? ` · ${x.by}` : ""}</div></div><b className={x.amount >= 0 ? "text-ok" : "text-bad"}>{x.amount >= 0 ? "+" : "−"}{money(Math.abs(x.amount))}</b></li>)}</ul>
         <Note>{q.data.note}</Note></>}
     </div>
   );
@@ -124,9 +124,9 @@ function Transfers() {
     <div className="flex flex-col gap-3">
       <button className="btn" disabled={active.length < 2} onClick={() => setOpen(true)}>Nouveau virement interne</button>{active.length < 2 && <Note>Il faut au moins deux comptes actifs dans cette boutique.</Note>}
       <Err e={q.error ?? confirm.error} />
-      {q.data?.transfers.map((t) => <div key={t.id} className="card flex flex-col gap-1"><div className="flex justify-between text-sm"><span>{t.from.name} → {t.to.name}</span><b>{money(t.amount)}</b></div><p className="text-xs text-white/50">{fmtDay(t.date)} · {t.statusLabel} · {t.reason}{t.cancelReason ? ` · annulé : ${t.cancelReason}` : ""}</p>
+      {q.data?.transfers.map((t) => <div key={t.id} className="card flex flex-col gap-1"><div className="flex justify-between text-sm"><span>{t.from.name} → {t.to.name}</span><b>{money(t.amount)}</b></div><p className="text-xs text-muted">{fmtDay(t.date)} · {t.statusLabel} · {t.reason}{t.cancelReason ? ` · annulé : ${t.cancelReason}` : ""}</p>
         <div className="flex gap-2">{t.status === "pending" && <button className="btn" disabled={confirm.isPending} onClick={() => confirm.mutate({ id: t.id })}>Confirmer</button>}{t.status === "pending" && mgr && confirm.error && <button className="btn-ghost" onClick={() => setForce(t.id)}>Forcer…</button>}{(t.status === "pending" || (t.status === "confirmed" && mgr)) && <button className="btn-ghost" onClick={() => setAsk({ t, cancel: true })}>Annuler</button>}</div></div>)}
-      {q.data && q.data.transfers.length === 0 && <p className="text-sm text-white/50">Aucun virement.</p>}
+      {q.data && q.data.transfers.length === 0 && <p className="text-sm text-muted">Aucun virement.</p>}
       <Note>Un virement déplace de l'argent entre deux comptes de la même boutique : il ne change pas la trésorerie totale. Il compte dans les soldes seulement une fois confirmé.</Note>
       {open && <Sheet title="Nouveau virement" onClose={() => setOpen(false)}><div className="flex flex-col gap-3 p-3">
         <Field label="Depuis"><select className="input" aria-label="Compte source" value={f.fromId} onChange={(e) => setF({ ...f, fromId: e.target.value })}><option value="">Choisir</option>{active.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
@@ -141,7 +141,7 @@ function Transfers() {
   );
 }
 function ForceSheet({ id, onClose }: { id: string; onClose: () => void }) { const [r, setR] = useState(""); const m = useAct("fin.transfer.confirm", onClose); return (
-  <Sheet title="Forcer le virement" onClose={onClose}><div className="flex flex-col gap-3 p-3"><p className="text-sm text-amber-300">Le solde du compte source est insuffisant : le forcer le rendra négatif. Justifiez-le.</p><Field label="Motif"><input className="input" aria-label="Motif du forçage" value={r} onChange={(e) => setR(e.target.value)} /></Field><Err e={m.error} /><button className="btn" disabled={m.isPending || r.trim().length < 5} onClick={() => m.mutate({ id, force: true, forceReason: r })}>Forcer et confirmer</button></div></Sheet>); }
+  <Sheet title="Forcer le virement" onClose={onClose}><div className="flex flex-col gap-3 p-3"><p className="text-sm text-warn">Le solde du compte source est insuffisant : le forcer le rendra négatif. Justifiez-le.</p><Field label="Motif"><input className="input" aria-label="Motif du forçage" value={r} onChange={(e) => setR(e.target.value)} /></Field><Err e={m.error} /><button className="btn" disabled={m.isPending || r.trim().length < 5} onClick={() => m.mutate({ id, force: true, forceReason: r })}>Forcer et confirmer</button></div></Sheet>); }
 
 type Prev = { account: string; asOf: string; bookBalance: number; statementBalance: number; diff: number; suggestions: { line: number; flowKey: string; score: number; why: string }[]; unmatchedLines: { i: number; date: string; amount: number; label: string }[]; unmatchedFlows: Flow[]; openCount: number; reconciledCount: number; note: string };
 function parseLines(t: string): { date: string; amount: number; label: string }[] { return t.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => { const [date = "", amount = "", ...rest] = l.split(/[;\t]/); return { date: date.trim(), amount: Number(amount.replace(/\s/g, "").replace(",", ".")), label: rest.join(" ").trim() }; }); }
@@ -156,39 +156,39 @@ function Reco() {
         <div className="grid grid-cols-2 gap-2"><Field label="Arrêté au"><input className="input" type="date" aria-label="Date du relevé" value={f.asOf} max={day()} onChange={(e) => setF({ ...f, asOf: e.target.value })} /></Field><Field label="Solde du relevé (FCFA)"><input className="input" aria-label="Solde du relevé" inputMode="numeric" value={f.balance} onChange={(e) => setF({ ...f, balance: e.target.value.replace(/[^0-9-]/g, "") })} /></Field></div>
         <Field label="Lignes du relevé (facultatif) : une par ligne « AAAA-MM-JJ;montant;libellé », montant négatif pour une sortie"><textarea className="input min-h-24" aria-label="Lignes du relevé" value={f.text} onChange={(e) => setF({ ...f, text: e.target.value })} /></Field>
         {pro && <Field label="Tolérance de dates (jours, Pro)"><input className="input" aria-label="Tolérance de dates" inputMode="numeric" value={tol} onChange={(e) => setTol(e.target.value.replace(/\D/g, ""))} /></Field>}<Err e={run.error} /><button className="btn" disabled={run.isPending || !f.accountId || f.balance === "" || f.balance === "-"} onClick={() => run.mutate({ ...body, ...(pro ? { toleranceDays: Number(tol || 3) } : {}) })}>Comparer au solde calculé</button></div>
-      {prev && <div className="card flex flex-col gap-2"><div className="grid grid-cols-3 gap-2 text-center text-sm"><div><div className="text-xs text-white/50">Calculé</div>{money(prev.bookBalance)}</div><div><div className="text-xs text-white/50">Relevé</div>{money(prev.statementBalance)}</div><div><div className="text-xs text-white/50">Écart</div><b className={prev.diff === 0 ? "text-emerald-300" : "text-amber-300"}>{money(prev.diff)}</b></div></div>
-        {prev.suggestions.length > 0 && <div><p className="text-sm font-medium">Correspondances proposées (à confirmer)</p>{prev.suggestions.map((s) => { const k = `${s.line}|${s.flowKey}`; const l = lines[s.line]!; const fl = prev.unmatchedFlows.find((x) => x.key === s.flowKey); return <label key={k} className="flex gap-2 text-xs py-1"><input type="checkbox" checked={sel.has(k)} onChange={() => setSel((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; })} />Relevé {fmtDay(l.date)} {money(l.amount)} {l.label} ↔ {fl ? `${fl.label || fl.sourceLabel} ${fmtDay(fl.date)}` : s.flowKey} <span className="text-white/40">({s.why})</span></label>; })}</div>}
-        {(prev as Prev & { groups?: { line: number; flowKeys: string[]; why: string }[] }).groups?.map((g) => { const ks = g.flowKeys.map((k) => `${g.line}|${k}`); const on = ks.every((k) => sel.has(k)); const l = lines[g.line]!; return <label key={`g${g.line}`} className="flex gap-2 text-xs py-1"><input type="checkbox" checked={on} onChange={() => setSel((p) => { const n = new Set(p); for (const k of ks) { if (on) n.delete(k); else n.add(k); } return n; })} />Groupe : relevé {fmtDay(l.date)} {money(l.amount)} ↔ {g.flowKeys.length} flux <span className="text-white/40">({g.why})</span></label>; })}
-        {prev.unmatchedLines.length > 0 && <p className="text-xs text-amber-300">{prev.unmatchedLines.length} ligne(s) du relevé sans correspondance dans l'application.</p>}
-        <p className="text-xs text-white/50">{prev.openCount} flux non encore rapprochés · {prev.reconciledCount} déjà rapprochés.</p>
+      {prev && <div className="card flex flex-col gap-2"><div className="grid grid-cols-3 gap-2 text-center text-sm"><div><div className="text-xs text-muted">Calculé</div>{money(prev.bookBalance)}</div><div><div className="text-xs text-muted">Relevé</div>{money(prev.statementBalance)}</div><div><div className="text-xs text-muted">Écart</div><b className={prev.diff === 0 ? "text-ok" : "text-warn"}>{money(prev.diff)}</b></div></div>
+        {prev.suggestions.length > 0 && <div><p className="text-sm font-medium">Correspondances proposées (à confirmer)</p>{prev.suggestions.map((s) => { const k = `${s.line}|${s.flowKey}`; const l = lines[s.line]!; const fl = prev.unmatchedFlows.find((x) => x.key === s.flowKey); return <label key={k} className="flex gap-2 text-xs py-1"><input type="checkbox" checked={sel.has(k)} onChange={() => setSel((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; })} />Relevé {fmtDay(l.date)} {money(l.amount)} {l.label} ↔ {fl ? `${fl.label || fl.sourceLabel} ${fmtDay(fl.date)}` : s.flowKey} <span className="text-muted">({s.why})</span></label>; })}</div>}
+        {(prev as Prev & { groups?: { line: number; flowKeys: string[]; why: string }[] }).groups?.map((g) => { const ks = g.flowKeys.map((k) => `${g.line}|${k}`); const on = ks.every((k) => sel.has(k)); const l = lines[g.line]!; return <label key={`g${g.line}`} className="flex gap-2 text-xs py-1"><input type="checkbox" checked={on} onChange={() => setSel((p) => { const n = new Set(p); for (const k of ks) { if (on) n.delete(k); else n.add(k); } return n; })} />Groupe : relevé {fmtDay(l.date)} {money(l.amount)} ↔ {g.flowKeys.length} flux <span className="text-muted">({g.why})</span></label>; })}
+        {prev.unmatchedLines.length > 0 && <p className="text-xs text-warn">{prev.unmatchedLines.length} ligne(s) du relevé sans correspondance dans l'application.</p>}
+        <p className="text-xs text-muted">{prev.openCount} flux non encore rapprochés · {prev.reconciledCount} déjà rapprochés.</p>
         <Field label={prev.diff === 0 ? "Note (facultative)" : "Explication de l'écart (obligatoire pour clôturer)"}><input className="input" aria-label="Note de rapprochement" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} maxLength={300} /></Field>
         <Err e={save.error} /><div className="flex gap-2"><button className="btn" disabled={save.isPending} onClick={() => save.mutate({ requestKey: key, ...body, matched: [...sel].map((k) => ({ line: Number(k.split("|")[0]), flowKey: k.split("|").slice(1).join("|") })), note: f.note, close: true })}>Clôturer le rapprochement</button><button className="btn-ghost" disabled={save.isPending} onClick={() => save.mutate({ requestKey: rid(), ...body, matched: [...sel].map((k) => ({ line: Number(k.split("|")[0]), flowKey: k.split("|").slice(1).join("|") })), note: f.note, close: false })}>Enregistrer en brouillon</button></div>
         <Note>{prev.note}</Note></div>}
       <p className="text-sm font-medium">Historique</p>
-      {hist.data?.reconciliations.map((r) => <div key={r.id} className="card text-sm flex justify-between"><span>{r.account} · {fmtDay(r.asOf)}<span className="block text-xs text-white/50">{r.status === "closed" ? "Clôturé" : "Brouillon"} · {r.matched} ligne(s){r.note ? ` · ${r.note}` : ""}</span></span><b className={r.diff === 0 ? "text-emerald-300" : "text-amber-300"}>{money(r.diff)}</b></div>)}
+      {hist.data?.reconciliations.map((r) => <div key={r.id} className="card text-sm flex justify-between"><span>{r.account} · {fmtDay(r.asOf)}<span className="block text-xs text-muted">{r.status === "closed" ? "Clôturé" : "Brouillon"} · {r.matched} ligne(s){r.note ? ` · ${r.note}` : ""}</span></span><b className={r.diff === 0 ? "text-ok" : "text-warn"}>{money(r.diff)}</b></div>)}
     </div>
   );
 }
 
 function DueSide({ title, s }: { title: string; s: Side }) {
   return (
-    <div className="card flex flex-col gap-2"><div className="flex justify-between"><b>{title}</b><b>{money(s.total)}</b></div><p className="text-xs text-white/50">Échu : {money(s.overdue)} · à 30 jours : {money(s.dueSoon)}</p>
-      <div className="grid grid-cols-3 gap-1 text-[11px]">{s.aging.map((a) => <div key={a.key} className="bg-white/5 rounded p-1"><div className="text-white/50">{a.label}</div>{money(a.amount)}</div>)}</div>
-      {s.items.slice(0, 40).map((i, n) => <div key={`${i.ref}${n}`} className="flex justify-between text-sm border-t border-white/10 pt-1"><span>{i.party}<span className="block text-xs text-white/50">{i.ref}{i.due ? ` · échéance ${fmtDay(i.due)}` : " · sans échéance"}{i.note ? ` · ${i.note}` : ""}</span></span><b>{money(i.remaining)}</b></div>)}
+    <div className="card flex flex-col gap-2"><div className="flex justify-between"><b>{title}</b><b>{money(s.total)}</b></div><p className="text-xs text-muted">Échu : {money(s.overdue)} · à 30 jours : {money(s.dueSoon)}</p>
+      <div className="grid grid-cols-3 gap-1 text-xs">{s.aging.map((a) => <div key={a.key} className="bg-subtle rounded p-1"><div className="text-muted">{a.label}</div>{money(a.amount)}</div>)}</div>
+      {s.items.slice(0, 40).map((i, n) => <div key={`${i.ref}${n}`} className="flex justify-between text-sm border-t border-line pt-1"><span>{i.party}<span className="block text-xs text-muted">{i.ref}{i.due ? ` · échéance ${fmtDay(i.due)}` : " · sans échéance"}{i.note ? ` · ${i.note}` : ""}</span></span><b>{money(i.remaining)}</b></div>)}
     </div>
   );
 }
-function Dues() { const q = useFin<{ receivables: Side; payables: Side; note: string }>("fin.dues"); if (q.error) return <Err e={q.error} />; if (!q.data) return <div className="card h-24 animate-pulse bg-white/5" aria-busy="true" />; return <div className="flex flex-col gap-3"><DueSide title="À encaisser (créances)" s={q.data.receivables} /><DueSide title="À payer (dettes)" s={q.data.payables} /><Note>{q.data.note}</Note></div>; }
+function Dues() { const q = useFin<{ receivables: Side; payables: Side; note: string }>("fin.dues"); if (q.error) return <Err e={q.error} />; if (!q.data) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />; return <div className="flex flex-col gap-3"><DueSide title="À encaisser (créances)" s={q.data.receivables} /><DueSide title="À payer (dettes)" s={q.data.payables} /><Note>{q.data.note}</Note></div>; }
 
 function Budgets({ mgr }: { mgr: boolean }) {
   const [month, setMonth] = useState(day().slice(0, 7)); const q = useFin<{ month: string; rows: { category: string; budget: number | null; spent: number; remaining: number | null; pct: number | null; state: string }[]; totals: { budget: number; spent: number; unbudgeted: number }; note: string }>("fin.budgets", { month }); const [f, setF] = useState({ category: "", amount: "" }); const m = useAct("fin.budget.save", () => setF({ category: "", amount: "" }));
-  const tone: Record<string, string> = { ok: "text-emerald-300", warn: "text-amber-300", over: "text-red-300", none: "text-white/50" }; const label: Record<string, string> = { ok: "OK", warn: "À surveiller", over: "Dépassé", none: "Sans budget" };
+  const tone: Record<string, string> = { ok: "text-ok", warn: "text-warn", over: "text-bad", none: "text-muted" }; const label: Record<string, string> = { ok: "OK", warn: "À surveiller", over: "Dépassé", none: "Sans budget" };
   return (
     <div className="flex flex-col gap-3">
       <Field label="Mois"><input className="input" type="month" aria-label="Mois du budget" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} /></Field><Err e={q.error} />
       {q.data && <><div className="grid grid-cols-2 gap-2"><Kpi label="Budgété" value={money(q.data.totals.budget)} /><Kpi label="Dépensé" value={money(q.data.totals.spent)} hint={`dont hors budget ${money(q.data.totals.unbudgeted)}`} /></div>
-        {q.data.rows.map((r) => <div key={r.category} className="card flex justify-between text-sm"><span>{r.category}<span className="block text-xs text-white/50">Budget {r.budget === null ? "—" : money(r.budget)} · dépensé {money(r.spent)}{r.pct !== null ? ` (${r.pct} %)` : ""}</span></span><b className={tone[r.state]}>{label[r.state]}</b></div>)}
-        {q.data.rows.length === 0 && <p className="text-sm text-white/50">Aucun budget ni dépense ce mois-ci.</p>}<Note>{q.data.note}</Note></>}
+        {q.data.rows.map((r) => <div key={r.category} className="card flex justify-between text-sm"><span>{r.category}<span className="block text-xs text-muted">Budget {r.budget === null ? "—" : money(r.budget)} · dépensé {money(r.spent)}{r.pct !== null ? ` (${r.pct} %)` : ""}</span></span><b className={tone[r.state]}>{label[r.state]}</b></div>)}
+        {q.data.rows.length === 0 && <p className="text-sm text-muted">Aucun budget ni dépense ce mois-ci.</p>}<Note>{q.data.note}</Note></>}
       {mgr && <div className="card flex flex-col gap-2"><b className="text-sm">Fixer un budget</b><input className="input" placeholder="Catégorie (comme dans les dépenses)" aria-label="Catégorie du budget" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} maxLength={40} /><input className="input" placeholder="Montant (FCFA)" aria-label="Montant du budget" inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/\D/g, "") })} /><Err e={m.error} /><button className="btn" disabled={m.isPending || f.category.trim().length < 2 || !f.amount} onClick={() => m.mutate({ month, category: f.category, amount: Number(f.amount) })}>Enregistrer le budget</button></div>}
     </div>
   );

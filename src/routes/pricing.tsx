@@ -32,19 +32,19 @@ export function PricingSheet({ a, variants, units, canManage, onClose, onChanged
   const describe = (r: RuleRow) => [r.unit ? `par ${unitLabel(r.unit).toLowerCase()}` : "", r.minQty ? `dès ${formatQty(r.minQty)}${r.unit ? "" : ` ${unitLabel(a.unit).toLowerCase()}`}` : "", r.customerCategory ? `clients ${categoryLabel(r.customerCategory).toLowerCase()}` : "", r.startsAt ? `du ${dateFr(r.startsAt)} au ${dateFr(r.endsAt)}` : "", r.priority ? `priorité ${r.priority}` : ""].filter(Boolean).join(" · ");
   return (
     <Sheet title={`Tarifs · ${a.name}`} onClose={onClose} back>
-      <p className="text-sm text-white/60">Prix de base : <b className="gold-text">{formatFcfa(a.hasVariants ? (live.find((v) => v.$id === variantId)?.price ?? 0) : a.price)}</b> par {unitLabel(a.unit).toLowerCase()}. Ordre d'application : promotion en cours, puis prix par catégorie de clients, puis prix par quantité, puis prix de base.</p>
-      {a.hasVariants && (live.length ? <select className="input" aria-label="Variante" value={variantId} onChange={(e) => setVariantId(e.target.value)}>{live.map((v) => <option key={v.$id} value={v.$id}>{v.label}</option>)}</select> : <p className="text-sm text-amber-300">Créez d'abord une variante : les tarifs d'un article décliné se définissent par variante.</p>)}
+      <p className="text-sm text-muted">Prix de base : <b className="text-accent-text">{formatFcfa(a.hasVariants ? (live.find((v) => v.$id === variantId)?.price ?? 0) : a.price)}</b> par {unitLabel(a.unit).toLowerCase()}. Ordre d'application : promotion en cours, puis prix par catégorie de clients, puis prix par quantité, puis prix de base.</p>
+      {a.hasVariants && (live.length ? <select className="input" aria-label="Variante" value={variantId} onChange={(e) => setVariantId(e.target.value)}>{live.map((v) => <option key={v.$id} value={v.$id}>{v.label}</option>)}</select> : <p className="text-sm text-warn">Créez d'abord une variante : les tarifs d'un article décliné se définissent par variante.</p>)}
       {canManage && (!a.hasVariants || variantId) && <button className="btn flex items-center justify-center gap-2" onClick={() => setEdit("new")}><Plus size={18} />Ajouter un tarif</button>}
-      {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
-      {rules.isLoading && <p className="text-white/50 text-sm">Chargement…</p>}
-      {rules.error && <p className="text-red-400 text-sm">{(rules.error as Error).message}</p>}
-      {!rules.isLoading && (!a.hasVariants || variantId) && shown.length === 0 && <p className="text-center text-white/50 text-sm py-3">Aucun tarif spécial : le prix de base s'applique.</p>}
+      {err && <p className="text-bad text-sm" role="alert">{err}</p>}
+      {rules.isLoading && <p className="text-muted text-sm">Chargement…</p>}
+      {rules.error && <p className="text-bad text-sm">{(rules.error as Error).message}</p>}
+      {!rules.isLoading && (!a.hasVariants || variantId) && shown.length === 0 && <p className="text-center text-muted text-sm py-3">Aucun tarif spécial : le prix de base s'applique.</p>}
       {shown.map((r) => (
         <div key={r.$id} className={`card flex flex-col gap-1 ${r.active === false ? "opacity-60" : ""}`}>
-          <div className="flex justify-between items-baseline"><b>{r.label || KIND_LABEL[r.kind as RuleKind]}</b><span className="gold-text font-bold">{formatFcfa(r.price)}</span></div>
-          <div className="text-xs text-white/50">{KIND_LABEL[r.kind as RuleKind]}{describe(r) ? ` · ${describe(r)}` : ""}</div>
-          {status(r) && <span className={`text-xs ${status(r) === "En cours" ? "text-emerald-300" : "text-amber-300"}`}>{status(r)}</span>}
-          {canManage && <div className="flex gap-2 pt-1 text-sm"><button className="btn-ghost !py-2 flex items-center gap-1" onClick={() => setEdit(r)}><Pencil size={14} />Modifier</button><button className="btn-ghost !py-2 !text-red-300 flex items-center gap-1" onClick={() => setDel(r)}><Trash2 size={14} />Supprimer</button></div>}
+          <div className="flex justify-between items-baseline"><b>{r.label || KIND_LABEL[r.kind as RuleKind]}</b><span className="text-accent-text font-bold">{formatFcfa(r.price)}</span></div>
+          <div className="text-xs text-muted">{KIND_LABEL[r.kind as RuleKind]}{describe(r) ? ` · ${describe(r)}` : ""}</div>
+          {status(r) && <span className={`text-xs ${status(r) === "En cours" ? "text-ok" : "text-warn"}`}>{status(r)}</span>}
+          {canManage && <div className="flex gap-2 pt-1 text-sm"><button className="btn-ghost !py-2 flex items-center gap-1" onClick={() => setEdit(r)}><Pencil size={14} />Modifier</button><button className="btn-ghost !py-2 !text-bad flex items-center gap-1" onClick={() => setDel(r)}><Trash2 size={14} />Supprimer</button></div>}
         </div>
       ))}
       {del && <Confirm danger text={`Supprimer ce tarif (${formatFcfa(del.price)}) ? Les ventes déjà faites gardent leur prix.`} confirmLabel="Supprimer" onNo={() => setDel(null)} onYes={() => remove.mutate(del)} />}
@@ -60,7 +60,7 @@ function RuleForm({ a, variantId, units, initial, onClose, onSaved }: { a: Artic
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value });
   const needQty = f.kind === "quantity", needCat = f.kind === "category", promo = f.kind === "promo";
   const valid = /^\d+$/.test(f.price.replace(/\s/g, "")) && (!needQty || f.minQty.trim()) && (!needCat || f.customerCategory) && (!promo || (f.startsAt && f.endsAt));
-  const lbl = (t: string, c: ReactNode) => <label className="flex flex-col gap-1 text-sm"><span className="text-white/60">{t}</span>{c}</label>;
+  const lbl = (t: string, c: ReactNode) => <label className="flex flex-col gap-1 text-sm"><span className="text-muted">{t}</span>{c}</label>;
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setErr(""); setDone(""); setWarn("");
     try {
@@ -84,8 +84,8 @@ function RuleForm({ a, variantId, units, initial, onClose, onSaved }: { a: Artic
         {promo && <div className="grid grid-cols-1 gap-2">{lbl("Début *", <input className="input" type="datetime-local" required value={f.startsAt} onChange={set("startsAt")} />)}{lbl("Fin *", <input className="input" type="datetime-local" required value={f.endsAt} onChange={set("endsAt")} />)}</div>}
         <div className="grid grid-cols-2 gap-2">{lbl("Priorité (-100 à 100)", <input className="input" inputMode="numeric" value={f.priority} onChange={set("priority")} />)}{lbl("Libellé (facultatif)", <input className="input" maxLength={60} value={f.label} onChange={set("label")} />)}</div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.active} onChange={set("active")} />Tarif actif</label>
-        {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}{done && <p className="text-emerald-400 text-sm" role="status">{done}</p>}
-        {warn && <p className="text-amber-300 text-sm flex gap-1"><AlertTriangle size={16} />{warn}</p>}
+        {err && <p className="text-bad text-sm" role="alert">{err}</p>}{done && <p className="text-ok text-sm" role="status">{done}</p>}
+        {warn && <p className="text-warn text-sm flex gap-1"><AlertTriangle size={16} />{warn}</p>}
         <button className="btn" disabled={busy || !valid}>{busy ? "Enregistrement…" : "Enregistrer"}</button>
       </form>
     </Sheet>

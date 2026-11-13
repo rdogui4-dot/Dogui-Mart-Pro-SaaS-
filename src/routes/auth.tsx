@@ -46,14 +46,14 @@ export function AuthPage() {
     } catch (x) { setErr(authMessage(x)); } finally { setBusy(false); }
   }
   return (
-    <div className="min-h-full flex flex-col justify-center gap-6 p-6 max-w-sm mx-auto" style={{ background: "radial-gradient(120% 60% at 50% 0%, rgba(212,175,55,.14), transparent 60%)" }}>
+    <div className="min-h-full flex flex-col justify-center gap-6 p-6 max-w-sm mx-auto">
       <div className="flex flex-col items-center gap-3 text-center pt-4">
         <Logo size={64} />
-        <p className="text-white/60 text-sm">Caisse, stock, achats, clients et compta dans votre poche.</p>
-        <ul className="flex gap-4 text-xs text-white/50">
-          <li className="flex items-center gap-1"><ScanLine size={14} className="text-[var(--gold)]" />Caisse</li>
-          <li className="flex items-center gap-1"><Boxes size={14} className="text-[var(--gold)]" />Multi-boutiques</li>
-          <li className="flex items-center gap-1"><WifiOff size={14} className="text-[var(--gold)]" />Hors ligne</li>
+        <p className="text-muted text-sm">Caisse, stock, achats, clients et compta dans votre poche.</p>
+        <ul className="flex gap-4 text-xs text-muted">
+          <li className="flex items-center gap-1"><ScanLine size={14} className="text-accent-text" />Caisse</li>
+          <li className="flex items-center gap-1"><Boxes size={14} className="text-accent-text" />Multi-boutiques</li>
+          <li className="flex items-center gap-1"><WifiOff size={14} className="text-accent-text" />Hors ligne</li>
         </ul>
       </div>
       <form onSubmit={submit} className="card flex flex-col gap-3">
@@ -64,10 +64,10 @@ export function AuthPage() {
         </>}
         {mode !== "reset" && <input className="input" aria-label={mode === "login" ? "E-mail ou identifiant" : "E-mail"} autoComplete={mode === "login" ? "username" : "email"} type={mode === "login" ? "text" : "email"} autoCapitalize="none" placeholder={mode === "login" ? "E-mail ou identifiant" : "E-mail"} value={f.email} onChange={set("email")} required />}
         {mode !== "forgot" && <input className="input" aria-label="Mot de passe" autoComplete={mode === "login" ? "current-password" : "new-password"} type="password" placeholder={mode === "reset" ? "Nouveau mot de passe (8+)" : "Mot de passe (8+)"} minLength={8} value={f.password} onChange={set("password")} required />}
-        {info && <p className="text-emerald-300 text-sm" role="status">{info}</p>}
-        {err && <p className="text-red-400 text-sm" role="alert">{err}</p>}
+        {info && <p className="text-ok text-sm" role="status">{info}</p>}
+        {err && <p className="text-bad text-sm" role="alert">{err}</p>}
         <button className="btn" disabled={busy}>{mode === "login" ? "Se connecter" : mode === "signup" ? "Créer mon commerce" : mode === "forgot" ? "Envoyer le lien" : "Enregistrer le mot de passe"}</button>
-        {mode === "login" && <button type="button" className="text-sm text-white/60 underline" onClick={() => { setMode("forgot"); setErr(""); setInfo(""); }}>Mot de passe oublié ?</button>}
+        {mode === "login" && <button type="button" className="text-sm text-muted underline" onClick={() => { setMode("forgot"); setErr(""); setInfo(""); }}>Mot de passe oublié ?</button>}
         <button type="button" className="btn-ghost" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setErr(""); setInfo(""); }}>
           {mode === "login" ? "Nouveau commerçant ?" : mode === "signup" ? "J'ai déjà un compte" : "Retour à la connexion"}
         </button>
