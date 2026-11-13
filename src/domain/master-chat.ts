@@ -2,7 +2,7 @@
  *  nettoyage, plafonds, contrôle de fondement (prêt pour le branchement d'un modèle de langage, qui rédigera sans jamais calculer). */
 export const LIMITS = { question: 600, daily: 30, retentionMonths: 12, title: 80 } as const;
 export type Conf = "high" | "medium" | "low";
-export type Answer = { qid: string; title: string; conclusion: string; period: { from: string; to: string; label: string } | null; scope: string; facts: { label: string; value: string | number }[]; sources: { module: string; detail: string }[]; method: string; observations: string[]; limits: string[]; confidence: Conf; recommendations: string[]; ai?: { used: boolean; note?: string } };
+export type Answer = { qid: string; title: string; conclusion: string; period: { from: string; to: string; label: string } | null; scope: string; facts: { label: string; value: string | number }[]; sources: { module: string; detail: string }[]; method: string; observations: string[]; limits: string[]; confidence: Conf; recommendations: string[]; ai?: { used: boolean; note?: string; model?: string; style?: string; prompt?: string } };
 export type Guided = { id: string; label: string; keywords: string[]; periodic: boolean; shopLevel: boolean; need: string };
 /** Catalogue fermé : chaque question correspond à un outil déterministe en lecture seule. */
 export const GUIDED: Guided[] = [

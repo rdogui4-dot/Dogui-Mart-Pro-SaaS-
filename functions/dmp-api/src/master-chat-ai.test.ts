@@ -15,17 +15,17 @@ const ask = (p: Record<string, unknown>) => ok(call("own", "md.chat.ask", { requ
 const gem = (obj: unknown, usage = { promptTokenCount: 120, candidatesTokenCount: 40 }) => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: typeof obj === "string" ? obj : JSON.stringify(obj) }] } }], usageMetadata: usage }) });
 const sale = (id: string, total: number) => st.create("sales", id, T, { tenantId: T, shopId: A, number: id, total, status: "paid", cashierId: "x", payments: JSON.stringify([{ method: "cash", amount: total }]), lines: "[]", soldAt: new Date(Date.now() - 1000).toISOString() });
 const setEnv = (e: Record<string, string>) => { for (const [k, v] of Object.entries(e)) process.env[k] = v; };
-const ENV_ON = { MASTER_AI_ENABLED: "true", GEMINI_API_KEY: KEY, GEMINI_MODEL: "modele-test-1" };
+const ENV_ON = { MASTER_AI_ENABLED: "true", MASTER_AI_BILLING_CONFIRMED: "true", GEMINI_API_KEY: KEY, GEMINI_MODEL: "modele-test-1" };
 
 beforeEach(async () => {
   st = new DatedStore(); n = 0; fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); await st.grant(T, "own", ["owner"], []); A = (await ok(call("own", "shop.create", { name: "Dakar" }))).shopId;
   void st.create("subscriptions", T, T, { tenantId: T, plan: "business", period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }); await st.update("shops", A, { phone: "0701020304" }); await ok(call("own", "md.trial.start", {}));
 });
-afterEach(() => { for (const k of ["MASTER_AI_ENABLED", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_VERSION", "GEMINI_API_STYLE", "MASTER_AI_RETRY_MS", "MASTER_AI_DAILY_TOKENS"]) delete process.env[k]; vi.unstubAllGlobals(); });
+afterEach(() => { for (const k of ["MASTER_AI_BILLING_CONFIRMED", "MASTER_AI_GLOBAL_DAILY_TOKENS", "MASTER_AI_ENABLED", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_VERSION", "GEMINI_API_STYLE", "MASTER_AI_RETRY_MS", "MASTER_AI_DAILY_TOKENS"]) delete process.env[k]; vi.unstubAllGlobals(); });
 
 describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => {
   it("désactivé par défaut : jamais d'appel externe ; activation exige drapeau, clé et modèle explicites (aucun modèle présumé)", async () => {
-    expect(aiConfig({})).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "bad model!" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "models/m-1" })?.model).toBe("m-1");
+    expect(aiConfig({})).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ GEMINI_API_KEY: "k", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "bad model!" })).toBeNull(); expect(aiConfig({ MASTER_AI_ENABLED: "true", MASTER_AI_BILLING_CONFIRMED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "models/m-1" })?.model).toBe("m-1"); expect(aiConfig({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "m-1" })).toBeNull(); expect(aiStatus({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k", GEMINI_MODEL: "m-1" })).toMatchObject({ billingConfirmed: false, active: false });
     expect(aiStatus({ MASTER_AI_ENABLED: "true", GEMINI_API_KEY: "k" })).toMatchObject({ keyPresent: true, modelSet: false, active: false }); await sale("s1", 1000); const r = await ask({ qid: "sales", days: 1 }); expect(fetchMock).not.toHaveBeenCalled(); expect(r.assistant.answer.ai.used).toBe(false); expect((await ok(call("own", "md.chat.list"))).mode.ai).toBe(false);
   });
   it("rédaction : la conclusion vient du modèle, les chiffres et sources restent ceux de l'outil ; jetons enregistrés ; requête sans donnée nominative ; clé en en-tête seulement", async () => {
@@ -85,6 +85,6 @@ describe("MASTER DOGUI — assistant 5B (Gemini), rédaction vérifiée", () => 
   });
   it("adaptateur : délai dépassé signalé proprement", async () => {
     const slow: typeof fetch = (_u, init) => new Promise((_, rej) => { (init!.signal as AbortSignal).addEventListener("abort", () => rej(Object.assign(new Error("x"), { name: "AbortError" }))); });
-    await expect(geminiJson({ key: KEY, model: "m-1", apiVersion: "v1beta", style: "generate", maxOut: 100, dailyTokens: 5000, timeoutMs: 3000, retryMs: 0 }, "s", "u", slow)).rejects.toThrow("délai dépassé");
+    await expect(geminiJson({ key: KEY, model: "m-1", apiVersion: "v1beta", style: "generate", maxOut: 100, dailyTokens: 5000, timeoutMs: 3000, retryMs: 0, globalDailyTokens: 1_000_000 }, "s", "u", slow)).rejects.toThrow("délai dépassé");
   }, 8000);
 });

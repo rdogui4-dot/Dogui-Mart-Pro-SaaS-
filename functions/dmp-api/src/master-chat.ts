@@ -35,7 +35,7 @@ async function myShops(store: Store, ctx: Ctx): Promise<string[] | "all"> {
 const methodsOf = (s: Row): Record<string, number> => { const pays = parse<{ method: string; amount: number }[]>(s.payments, []); if (!pays.length) return { cash: Number(s.total) }; const o: Record<string, number> = {}; for (const p of pays) o[p.method] = (o[p.method] ?? 0) + Number(p.amount); return o; };
 const METHOD: Record<string, string> = { cash: "Espèces", mobile: "Mobile money", card: "Carte", credit: "Crédit client", transfer: "Virement" };
 
-type Env = { store: Store; ctx: Ctx; shop: Row; days: number };
+export type Env = { store: Store; ctx: Ctx; shop: Row; days: number };
 const base = (qid: string, title: string): Answer => ({ qid, title, conclusion: "", period: null, scope: "", facts: [], sources: [], method: "", observations: [], limits: [], confidence: "high", recommendations: [] });
 const window = (e: Env) => { const tz = tzOf(e.shop); const to = todayIn(new Date(), tz); const from = addDays(to, -(e.days - 1)); const b = boundsOf(from, to, tz); const pf = addDays(from, -e.days); const pb = boundsOf(pf, addDays(from, -1), tz); return { from, to, b, pb, label: e.days === 1 ? "aujourd'hui" : `${e.days} derniers jours` }; };
 const salesIn = async (e: Env, b: { gte: string; lt: string }) => (await e.store.scan("sales", { ...MIN({ ...e.ctx, shopId: e.shop.$id }), status: "paid" }, { range: { field: "soldAt", from: b.gte, to: b.lt }, maxRows: 20_000 })).rows.filter((x) => iso(x.soldAt) >= b.gte && iso(x.soldAt) < b.lt);
@@ -186,12 +186,26 @@ async function toolOverview(e: Env): Promise<Answer> {
   seen.clear(); a.limits = uniq([...got.flatMap((g) => g.r.limits), ...(missing.length ? [`Sections non affichées (droits ou formule) : ${missing.join(", ")}.`] : [])]); a.recommendations = uniq(got.flatMap((g) => g.r.recommendations)).slice(0, 5);
   a.confidence = got.map((g) => g.r.confidence).sort((x, y) => RANK[x]! - RANK[y]!)[0]!; return a;
 }
-const TOOLS: Record<string, (e: Env) => Promise<Answer>> = { expenses: toolExpenses, purchases: toolPurchases, payables: toolPayables, treasury: toolTreasury, customers: toolCustomers, pipeline: toolPipeline, promos: toolPromos, inventories: toolInventories, transfers: toolTransfers, invest: toolInvest, accounting: toolAccounting, team: toolTeam, stockvalue: toolStockValue, overview: toolOverview, sales: toolSales, top: toolTop, stock: toolStock, cash: toolCash, credit: toolCredit, recos: toolRecos, profile: toolProfile };
+export const TOOLS: Record<string, (e: Env) => Promise<Answer>> = { expenses: toolExpenses, purchases: toolPurchases, payables: toolPayables, treasury: toolTreasury, customers: toolCustomers, pipeline: toolPipeline, promos: toolPromos, inventories: toolInventories, transfers: toolTransfers, invest: toolInvest, accounting: toolAccounting, team: toolTeam, stockvalue: toolStockValue, overview: toolOverview, sales: toolSales, top: toolTop, stock: toolStock, cash: toolCash, credit: toolCredit, recos: toolRecos, profile: toolProfile };
 
 const fail = (qid: string, msg: string): Answer => ({ ...base(qid, "Accès refusé"), conclusion: msg, confidence: "low", limits: ["Aucun chiffre n'est présenté : votre accès ou votre formule ne le permet pas."] });
 const guide = (note: string, aiOn = false): Answer => ({ ...base("none", "Question non comprise"), conclusion: note, confidence: "low", observations: GUIDED.map((g) => `• ${g.label}`), limits: [aiOn ? "Cette question ne correspond à aucun sujet que MASTER DOGUI sait calculer (liste ci-dessus). L'IA ne répond qu'à partir de résultats calculés, jamais de sa propre connaissance : rien n'est improvisé." : "Mode guidé : l'assistant répond aux questions de la liste. Aucun fournisseur d'IA n'est configuré, donc aucune réponse n'est improvisée."] });
 
+export type Caller = (system: string, user: string) => Promise<string>;
+export async function aiClassifyVia(call: Caller, text: string) { return parseClassify(await call(CLASSIFY_SYSTEM, classifyInput(text))); }
+/** Rédaction : le modèle reformule, la réponse n'est retenue que si elle passe le contrôle de fondement (aucun nombre inconnu, aucun lien ni balise). */
+export async function aiWriteVia(call: Caller, answer: Answer, text: string): Promise<{ answer: Answer | null; reason: string }> {
+  const w = parseWrite(await call(WRITE_SYSTEM, writeInput(answer, text))); const chk = w ? checkWrite(w, answer) : { ok: false, reason: "rédaction illisible" };
+  return w && chk.ok ? { answer: { ...answer, conclusion: w.conclusion, observations: w.observations.length ? w.observations : answer.observations }, reason: "" } : { answer: null, reason: chk.reason };
+}
 const quotaDay = () => dayKey();
+const GLOBAL_PREFIX = "ug";
+/** Compteur de jetons de TOUTE la plateforme pour le jour (plafond global de coût). Mise à jour par lecture puis écriture : l'application est volontairement approximative sous forte concurrence (plafond souple). */
+export async function globalTokensToday(store: Store, day = quotaDay()): Promise<number> { const r = await store.get("md_usage", `${GLOBAL_PREFIX}${day}`); return r ? Number(r.tokensIn ?? 0) + Number(r.tokensOut ?? 0) : 0; }
+export async function addGlobalTokens(store: Store, tin: number, tout: number, day = quotaDay()) {
+  const id = `${GLOBAL_PREFIX}${day}`; const r = await store.get("md_usage", id); if (!r) { if (await store.create("md_usage", id, "platform", { tenantId: "platform", day, n: 0, tokensIn: tin, tokensOut: tout })) return; }
+  const cur = (await store.get("md_usage", id))!; await store.update("md_usage", id, { tokensIn: Number(cur.tokensIn ?? 0) + tin, tokensOut: Number(cur.tokensOut ?? 0) + tout });
+}
 const envInt = (v: string | undefined, d: number, min: number, max: number) => { const n = Number(v); return v !== undefined && v !== "" && Number.isInteger(n) && n >= min && n <= max ? n : d; };
 /** Limites par utilisateur (en plus du plafond d'entreprise) : questions par jour et délai minimal entre deux questions ; réglables par variable de la fonction. */
 export const chatLimits = (env: Record<string, string | undefined> = process.env) => ({ userDaily: envInt(env.MASTER_CHAT_USER_DAILY, 15, 1, 1000), minIntervalMs: envInt(env.MASTER_CHAT_MIN_INTERVAL_MS, 5000, 0, 60_000) });
@@ -206,7 +220,9 @@ async function quotaUsed(store: Store, tenantId: string): Promise<number> { retu
 async function tokensToday(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.reduce((s, r) => s + Number(r.tokensIn ?? 0) + Number(r.tokensOut ?? 0), 0); }
 async function claimQuota(store: Store, ctx: Ctx): Promise<string> { const day = quotaDay(); let n = (await quotaUsed(store, ctx.tenantId)) + 1; for (; n <= LIMITS.daily; n++) { const id = `us${sha(`${ctx.tenantId}|${day}|${n}`).slice(0, 28)}`; if (await store.create("md_usage", id, ctx.tenantId, { tenantId: ctx.tenantId, day, n, userId: ctx.userId })) return id; } throw new HttpError(429, `Plafond atteint : ${LIMITS.daily} questions par jour pour l'entreprise. Revenez demain.`); }
 
-const aiMode = () => { const s = aiStatus(); return s.active ? { ai: true, label: "Mode IA : la rédaction est confiée à un modèle de langage (Gemini) ; les chiffres restent calculés par MASTER DOGUI et vérifiés. Sont transmis : votre question et des résultats agrégés, jamais de noms de clients ni de données de paiement.", ...s } : { ai: false, label: "Mode guidé : réponses calculées par MASTER DOGUI, aucune donnée envoyée à un service externe.", ...s }; };
+const aiMode = () => { const s = aiStatus(); const waiting = s.enabledFlag && s.keyPresent && s.modelSet && !s.billingConfirmed;
+  return s.active ? { ai: true, label: "Mode IA : la rédaction est confiée à un modèle de langage (Gemini) ; les chiffres restent calculés par MASTER DOGUI et vérifiés. Sont transmis : votre question et des résultats agrégés, jamais de noms de clients ni de données de paiement.", ...s }
+    : { ai: false, label: waiting ? "Mode guidé : l'IA est configurée mais en attente de la confirmation de l'offre payante du fournisseur (variable MASTER_AI_BILLING_CONFIRMED). Aucune donnée n'est envoyée." : "Mode guidé : réponses calculées par MASTER DOGUI, aucune donnée envoyée à un service externe.", ...s }; };
 const view = (m: Row) => ({ id: m.$id, role: String(m.role), text: String(m.text), answer: m.data ? parse<Answer | null>(m.data, null) : null, mode: String(m.mode ?? ""), createdAt: String(m.createdAt ?? "") });
 const mine = async (store: Store, ctx: Ctx, chatId: unknown): Promise<Row> => { const c = await store.get("md_chats", String(chatId ?? "")); if (!c || c.tenantId !== ctx.tenantId || c.userId !== ctx.userId) throw new HttpError(404, "Conversation introuvable"); return c; };
 
@@ -231,11 +247,14 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
   else { const c = cleanQuestion(b.text); if (!c.ok) throw new HttpError(400, c.error); text = c.text; const m = matchQuestion(text); if (m.kind === "match") { qid = m.id; days = m.days; } }
   const m = qid || b.qid ? null : matchQuestion(text); let answer: Answer; let claim = ""; let mode = "guided"; const tok = { in: 0, out: 0 }; const notes: string[] = [];
   const chatId = b.chatId ? String((await mine(store, ctx, b.chatId)).$id) : `ch${sha(`${ctx.tenantId}|${ctx.userId}|${rk}|c`).slice(0, 28)}`; const t = nowIso();
-  const cfg = aiConfig(); let ai: AiConfig | null = null; if (cfg) { if ((await tokensToday(store, ctx.tenantId)) < cfg.dailyTokens) ai = cfg; else notes.push("Plafond de coût IA du jour atteint : réponse calculée sans rédaction par IA."); }
+  const cfg = aiConfig(); let ai: AiConfig | null = null; let attempted = false; if (cfg) { if ((await tokensToday(store, ctx.tenantId)) >= cfg.dailyTokens) notes.push("Plafond de coût IA du jour atteint : réponse calculée sans rédaction par IA."); else if ((await globalTokensToday(store)) >= cfg.globalDailyTokens) notes.push("Plafond de coût IA de la plateforme atteint pour aujourd'hui : réponse calculée sans rédaction par IA."); else ai = cfg; }
   const t0 = Date.now(); // la fonction dispose de 30 s : tous les appels IA partagent un budget de 22 s, le reste sert aux lectures et écritures
-  const callAi = async (system: string, user: string) => { const left = 22_000 - (Date.now() - t0); if (left < 3000) throw new AiError("fournisseur IA : délai global épuisé"); const r = await geminiJson({ ...ai!, timeoutMs: Math.min(ai!.timeoutMs, left - 500) }, system, user); tok.in += r.tokensIn; tok.out += r.tokensOut; return r.text; };
-  if (!qid && ai && !b.qid) { // question hors catalogue : l'IA ne fait que CHOISIR un sujet connu (la question seule est transmise) ; la demande consomme le quota, car elle coûte un appel
-    claim = await claimQuota(store, ctx); try { const c = parseClassify(await callAi(CLASSIFY_SYSTEM, classifyInput(text))); if (c && c.qid !== "none") { qid = c.qid; days = c.days; } else if (!c) notes.push("Classement par IA illisible : question non comprise."); } catch (e) { notes.push(e instanceof AiError ? `${e.message} : question non comprise. Réessayez dans un instant.` : "IA indisponible."); if (!tok.in && !tok.out) { await store.remove("md_usage", claim); claim = ""; } }
+  const callAi: Caller = async (system, user) => { attempted = true; const left = 22_000 - (Date.now() - t0); if (left < 3000) throw new AiError("fournisseur IA : délai global épuisé"); const r = await geminiJson({ ...ai!, timeoutMs: Math.min(ai!.timeoutMs, left - 500) }, system, user); tok.in += r.tokensIn; tok.out += r.tokensOut; return r.text; };
+  if (ai && !b.qid) { // question saisie : l'IA CHOISIT le sujet parmi la liste fermée (seule la question est transmise) ; les mots-clés ne servent que de repli si l'IA échoue ; la demande consomme le quota, car elle coûte un appel
+    const pick = qid ? { qid, days } : null; qid = ""; claim = await claimQuota(store, ctx);
+    const fallbackToKeywords = (why: string) => { if (pick) { qid = pick.qid; days = pick.days; notes.push(`${why} : classement par mots-clés utilisé.`); } else notes.push(`${why} : question non comprise. Réessayez dans un instant.`); };
+    try { const c = await aiClassifyVia(callAi, text); if (!c) fallbackToKeywords("Classement par IA illisible"); else if (c.qid !== "none") { qid = c.qid; days = c.days; } }
+    catch (e) { fallbackToKeywords(e instanceof AiError ? e.message : "IA indisponible"); if (!tok.in && !tok.out) { await store.remove("md_usage", claim); claim = ""; } }
   }
   if (!qid) answer = guide(m?.kind === "ambiguous" ? "Votre question correspond à plusieurs sujets : précisez-la ou choisissez une question de la liste." : cfg ? "Cette question ne porte sur aucun des sujets que je sais calculer pour l'instant." : "Je n'ai pas de réponse calculée pour cette question en mode guidé.", !!cfg);
   else {
@@ -245,12 +264,13 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
     try { answer = await TOOLS[qid]!({ store, ctx, shop: shop ?? ({ $id: "", name: "Entreprise" } as Row), days }); }
     catch (e) { if (e instanceof HttpError && (e.status === 402 || e.status === 403)) answer = fail(qid, e.message); else { await store.remove("md_usage", claim); throw e; } }
     if (ai && AI_QIDS.includes(qid) && answer.facts.length) { // rédaction : le modèle reformule, les chiffres et les sources restent ceux de l'outil ; toute rédaction non vérifiée est écartée
-      try { const w = parseWrite(await callAi(WRITE_SYSTEM, writeInput(answer, text))); const chk = w ? checkWrite(w, answer) : { ok: false, reason: "rédaction illisible" }; if (w && chk.ok) { answer = { ...answer, conclusion: w.conclusion, observations: w.observations.length ? w.observations : answer.observations, ai: { used: true } }; mode = "ai"; } else notes.push(`Rédaction par IA écartée (${chk.reason}) : réponse calculée affichée.`); }
+      try { const w = await aiWriteVia(callAi, answer, text); if (w.answer) { answer = { ...w.answer, ai: { used: true, model: ai.model, style: ai.style, prompt: PROMPT_VERSION } }; mode = "ai"; } else notes.push(`Rédaction par IA écartée (${w.reason}) : réponse calculée affichée.`); }
       catch (e) { notes.push(e instanceof AiError ? `${e.message} : réponse calculée affichée.` : "Rédaction par IA indisponible : réponse calculée affichée."); }
     }
   }
-  if (!answer.ai) answer = { ...answer, ai: { used: false, ...(notes.length ? { note: notes.join(" ") } : {}) } };
-  if (claim && (tok.in || tok.out)) await store.update("md_usage", claim, { tokensIn: tok.in, tokensOut: tok.out });
+  if (!answer.ai) answer = { ...answer, ai: { used: false, ...(ai ? { model: ai.model, style: ai.style, prompt: PROMPT_VERSION } : {}), ...(notes.length ? { note: notes.join(" ") } : {}) } };
+  if (claim && (tok.in || tok.out || attempted)) await store.update("md_usage", claim, { tokensIn: tok.in, tokensOut: tok.out, aiUsed: mode === "ai" ? 1 : 0, fallback: attempted && notes.length ? 1 : 0 });
+  if (tok.in || tok.out) await addGlobalTokens(store, tok.in, tok.out).catch(() => undefined);
   if (!b.chatId) await store.create("md_chats", chatId, ctx.tenantId, { tenantId: ctx.tenantId, userId: ctx.userId, title: text.slice(0, LIMITS.title), createdAt: t, updatedAt: t });
   await store.create("md_msgs", uid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "user", text, qid, mode, createdAt: t });
   await store.create("md_msgs", aid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "assistant", text: answer.conclusion.slice(0, 1000), data: JSON.stringify(answer), qid, mode, createdAt: new Date(Date.parse(t) + 1).toISOString() });

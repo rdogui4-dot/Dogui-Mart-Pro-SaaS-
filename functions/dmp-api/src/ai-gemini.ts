@@ -1,16 +1,17 @@
 /** Adaptateur Gemini (étape 5B). Désactivé tant que MASTER_AI_ENABLED n'est pas « true » ET que GEMINI_API_KEY et GEMINI_MODEL ne sont pas définis dans les variables de la fonction :
  *  la clé n'apparaît jamais dans le code, les journaux, les erreurs ni la base. Aucun nom de modèle n'est présumé. */
 export type AiStyle = "generate" | "interactions";
-export type AiConfig = { key: string; model: string; apiVersion: string; style: AiStyle; maxOut: number; dailyTokens: number; timeoutMs: number; retryMs: number };
+export type AiConfig = { key: string; model: string; apiVersion: string; style: AiStyle; maxOut: number; dailyTokens: number; timeoutMs: number; retryMs: number; globalDailyTokens: number };
 type Env = Record<string, string | undefined>;
 const posInt = (v: string | undefined, d: number, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : d; };
 export function aiConfig(env: Env = process.env): AiConfig | null {
-  if (env.MASTER_AI_ENABLED !== "true") return null; const key = (env.GEMINI_API_KEY ?? "").trim(); const model = (env.GEMINI_MODEL ?? "").trim().replace(/^models\//, ""); if (!key || !/^[A-Za-z0-9._-]{3,60}$/.test(model)) return null;
+  if (env.MASTER_AI_ENABLED !== "true" || env.MASTER_AI_BILLING_CONFIRMED !== "true") return null; // double garde : activation ET confirmation de l'offre payante (aucune réutilisation des données par le fournisseur)
+  const key = (env.GEMINI_API_KEY ?? "").trim(); const model = (env.GEMINI_MODEL ?? "").trim().replace(/^models\//, ""); if (!key || !/^[A-Za-z0-9._-]{3,60}$/.test(model)) return null;
   const apiVersion = /^(v1|v1beta|v1alpha)$/.test((env.GEMINI_API_VERSION ?? "").trim()) ? (env.GEMINI_API_VERSION ?? "").trim() : "v1beta";
   const style: AiStyle = (env.GEMINI_API_STYLE ?? "").trim() === "interactions" ? "interactions" : "generate";
-  return { key, model, apiVersion, style, maxOut: posInt(env.MASTER_AI_MAX_OUTPUT_TOKENS, 700, 100, 2000), dailyTokens: posInt(env.MASTER_AI_DAILY_TOKENS, 200_000, 5_000, 5_000_000), timeoutMs: posInt(env.MASTER_AI_TIMEOUT_MS, 15_000, 3_000, 25_000), retryMs: posInt(env.MASTER_AI_RETRY_MS, 800, 0, 5_000) };
+  return { key, model, apiVersion, style, maxOut: posInt(env.MASTER_AI_MAX_OUTPUT_TOKENS, 700, 100, 2000), dailyTokens: posInt(env.MASTER_AI_DAILY_TOKENS, 200_000, 5_000, 5_000_000), timeoutMs: posInt(env.MASTER_AI_TIMEOUT_MS, 15_000, 3_000, 25_000), retryMs: posInt(env.MASTER_AI_RETRY_MS, 800, 0, 5_000), globalDailyTokens: posInt(env.MASTER_AI_GLOBAL_DAILY_TOKENS, 1_000_000, 10_000, 100_000_000) };
 }
-export const aiStatus = (env: Env = process.env) => ({ enabledFlag: env.MASTER_AI_ENABLED === "true", keyPresent: !!(env.GEMINI_API_KEY ?? "").trim(), modelSet: !!(env.GEMINI_MODEL ?? "").trim(), apiVersion: aiConfig(env)?.apiVersion ?? null, style: aiConfig(env)?.style ?? null, active: !!aiConfig(env) });
+export const aiStatus = (env: Env = process.env) => ({ enabledFlag: env.MASTER_AI_ENABLED === "true", billingConfirmed: env.MASTER_AI_BILLING_CONFIRMED === "true", keyPresent: !!(env.GEMINI_API_KEY ?? "").trim(), modelSet: !!(env.GEMINI_MODEL ?? "").trim(), apiVersion: aiConfig(env)?.apiVersion ?? null, style: aiConfig(env)?.style ?? null, active: !!aiConfig(env) });
 export class AiError extends Error { constructor(msg: string, readonly status?: number) { super(msg); } }
 export type AiResult = { text: string; tokensIn: number; tokensOut: number };
 /** Appel REST generateContent : clé en en-tête, sortie JSON demandée, délai borné. Les messages d'erreur ne contiennent ni la clé ni le contenu envoyé. */

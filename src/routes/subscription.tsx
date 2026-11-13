@@ -217,6 +217,7 @@ export function PlatformSection() {
       <GrantForm />
       <MasterGrantForm />
       <MasterHookForm />
+      <MasterAiPanel />
       <LifetimeForm />
       </>}
     </>
@@ -416,5 +417,32 @@ function EvRow({ e, onDone }: { e: EvV; onDone: () => void }) {
     <div className="border-t border-white/10 pt-2 flex flex-col gap-1 text-xs"><p><b>{e.ref || e.id}</b> · {e.amount ?? "?"} {e.currency} · {e.email || "e-mail ?"} · {new Date(e.at).toLocaleString("fr-FR")}</p><p className="text-amber-300">{e.note}</p>{e.raw && <details><summary className="cursor-pointer">Contenu reçu (calibrage)</summary><pre className="whitespace-pre-wrap break-all text-[10px] text-white/60">{e.raw}</pre></details>}
       <div className="grid grid-cols-3 gap-1"><input aria-label="tenantId à activer" className="input !py-1" placeholder="tenantId" value={f.tenantId} onChange={(x) => setF({ ...f, tenantId: x.target.value })} /><select aria-label="Type" className="input !py-1" value={f.kind} onChange={(x) => setF({ ...f, kind: x.target.value })}><option value="first">Première période</option><option value="month">Mois</option></select><input aria-label="Mois" className="input !py-1" value={f.count} disabled={f.kind === "first"} onChange={(x) => setF({ ...f, count: x.target.value })} /></div>
       <input aria-label="Motif de la décision" className="input !py-1" placeholder="Motif / vérification effectuée" value={f.note} onChange={(x) => setF({ ...f, note: x.target.value })} /><div className="flex gap-2"><button className="btn !py-1" onClick={() => void go("approve")}>Valider et activer</button><button className="btn-ghost !py-1" onClick={() => void go("reject")}>Rejeter</button></div>{msg && <p className="text-red-400">{msg}</p>}</div>
+  );
+}
+
+
+type AiDay = { day: string; questions: number; aiAnswers: number; fallbacks: number; tokensIn: number; tokensOut: number; globalTokens: number; tenants: number; top: { tenantId: string; name: string; tokens: number }[] };
+type AiUsage = { status: { enabledFlag: boolean; billingConfirmed: boolean; keyPresent: boolean; modelSet: boolean; active: boolean; apiVersion: string | null; style: string | null }; globalCap: number; days: AiDay[]; alerts: string[] };
+type EvR = { id: string; text: string; expected: string; matcher: string | null; ai: string | null; routed: string | null; classOk: boolean; factsOk: boolean; mismatches: string[]; written: string; reason: string; invented: boolean; tokens: number; ms: number };
+/** Administrateur : coût de l'IA par jour (jetons, replis, plafond global) et jeu de référence rejoué contre le vrai modèle sur des données synthétiques (aucune donnée d'entreprise). */
+function MasterAiPanel() {
+  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["md-ai-usage"], retry: 1, queryFn: () => api<AiUsage>(s, "platform.master.ai.usage", { days: 7 }) });
+  const [res, setRes] = useState<EvR[]>([]); const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [total, setTotal] = useState(25); const [tk, setTk] = useState(0);
+  const run = async () => { setBusy(true); setErr(""); setRes([]); setTk(0); let from: number | null = 0; try { while (from !== null) { const r: { results: EvR[]; next: number | null; total: number; tokens: { in: number; out: number } } = await api(s, "platform.master.ai.eval", { from, count: 3 }); setTotal(r.total); setRes((x) => [...x, ...r.results]); setTk((x) => x + r.tokens.in + r.tokens.out); from = r.next; } void q.refetch(); } catch (e) { setErr((e as Error).message); } setBusy(false); };
+  if (q.error) return null; if (!q.data) return null; const u = q.data; const pc = (n: number) => (res.length ? Math.round((n / res.length) * 100) : 0); const done = res.length === total && !busy;
+  const okFacts = res.filter((r) => r.factsOk).length; const okClass = res.filter((r) => r.classOk).length; const kept = res.filter((r) => r.written === "retenue").length; const disc = res.filter((r) => r.written === "écartée").length; const inv = res.filter((r) => r.invented).length;
+  return (
+    <div className="card flex flex-col gap-2 text-sm"><b>IA de MASTER DOGUI : coûts et qualité</b>
+      <p className="text-xs text-white/60">État : {u.status.active ? "active" : "inactive"} · offre payante confirmée : {u.status.billingConfirmed ? "oui" : "non"} · clé : {u.status.keyPresent ? "présente" : "absente"} · modèle : {u.status.modelSet ? "défini" : "absent"} · API : {u.status.style ?? "—"} {u.status.apiVersion ?? ""} · plafond global : {u.globalCap.toLocaleString("fr-FR")} jetons/jour</p>
+      {u.alerts.map((a) => <p key={a} className="text-xs text-amber-300" role="alert">{a}</p>)}
+      <div className="overflow-x-auto"><table className="text-xs w-full"><thead><tr className="text-white/50 text-left"><th>Jour</th><th>Questions</th><th>IA</th><th>Replis</th><th>Jetons</th><th>Global</th></tr></thead><tbody>{u.days.map((d) => <tr key={d.day} className="border-t border-white/10"><td>{d.day}</td><td>{d.questions}</td><td>{d.aiAnswers}</td><td>{d.fallbacks}</td><td>{(d.tokensIn + d.tokensOut).toLocaleString("fr-FR")}</td><td>{d.globalTokens.toLocaleString("fr-FR")}</td></tr>)}</tbody></table></div>
+      {u.days[0]?.top.length ? <p className="text-xs text-white/60">Plus gros consommateurs aujourd'hui : {u.days[0].top.map((x) => `${x.name} (${x.tokens.toLocaleString("fr-FR")})`).join(", ")}</p> : null}
+      <div className="border-t border-white/10 pt-2 flex flex-col gap-1"><b>Jeu de référence ({total} questions, données synthétiques)</b><p className="text-xs text-white/50">Rejoue chaque question contre le vrai modèle : classement du sujet, chiffres exacts, rédaction retenue ou écartée. Consomme de vrais jetons (comptés au plafond global).</p>
+        <button className="btn self-start" disabled={busy || !u.status.active} onClick={() => void run()}>{busy ? `Évaluation… ${res.length}/${total}` : "Lancer l'évaluation"}</button>{err && <p className="text-red-400 text-xs" role="alert">{err}</p>}
+        {res.length > 0 && <div className="text-xs flex flex-col gap-1"><p>Chiffres exacts : <b>{okFacts}/{res.length} ({pc(okFacts)} %)</b> · Sujet bien classé : <b>{okClass}/{res.length} ({pc(okClass)} %)</b> · Rédactions retenues : {kept} · écartées : {disc} (dont chiffres inventés bloqués : {inv}) · Jetons : {tk.toLocaleString("fr-FR")}</p>
+          {done && <p className={okFacts === res.length && okClass >= Math.ceil(res.length * 0.9) ? "text-emerald-300" : "text-amber-300"}>{okFacts === res.length && okClass >= Math.ceil(res.length * 0.9) ? "Seuil atteint (100 % de chiffres exacts, au moins 90 % de sujets bien classés)." : "Seuil non atteint : 100 % de chiffres exacts et au moins 90 % de sujets bien classés exigés avant production."}</p>}
+          {res.filter((r) => !r.factsOk || !r.classOk || r.invented).map((r) => <p key={r.id} className="text-white/70">• {r.text} → attendu {r.expected}, obtenu {r.routed ?? "rien"}{r.mismatches.length ? ` (${r.mismatches.slice(0, 2).join(" ; ")})` : ""}{r.invented ? " · chiffre inventé bloqué" : ""}</p>)}</div>}
+      </div>
+    </div>
   );
 }
