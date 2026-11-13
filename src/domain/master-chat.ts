@@ -9,13 +9,26 @@ export const GUIDED: Guided[] = [
   { id: "overview", label: "Comment se porte mon commerce ?", keywords: ["commerce", "porte", "situation", "bilan", "synthese", "resume", "sante", "global", "globale", "ensemble", "activite", "boutique"], periodic: true, shopLevel: true, need: "Caisse, Stock, Clients" },
   { id: "sales", label: "Quelles sont mes ventes ?", keywords: ["vente", "ventes", "chiffre", "affaires", "encaisse", "encaissement", "vendu"], periodic: true, shopLevel: true, need: "Caisse" },
   { id: "top", label: "Quels produits se vendent le plus ?", keywords: ["produit", "produits", "meilleur", "meilleurs", "top", "plus vendu", "populaire"], periodic: true, shopLevel: true, need: "Caisse" },
-  { id: "stock", label: "Quels articles sont en rupture ou à risque ?", keywords: ["stock", "rupture", "manque", "risque", "reapprovisionner", "reappro", "inventaire"], periodic: false, shopLevel: true, need: "Stock" },
+  { id: "stock", label: "Quels articles sont en rupture ou à risque ?", keywords: ["stock", "rupture", "manque", "risque", "reapprovisionner", "reappro"], periodic: false, shopLevel: true, need: "Stock" },
   { id: "cash", label: "Mes écarts de caisse ?", keywords: ["ecart", "ecarts", "caisse", "manquant", "difference"], periodic: true, shopLevel: true, need: "Caisse" },
   { id: "credit", label: "Quel est l'encours de crédit de mes clients ?", keywords: ["credit", "creance", "creances", "dette", "dettes", "impaye", "impayes", "encours"], periodic: false, shopLevel: true, need: "Clients" },
+  { id: "expenses", label: "Combien ai-je dépensé ?", keywords: ["depense", "depenses", "depense", "charge", "charges", "sorties", "decaissement", "decaissements"], periodic: true, shopLevel: true, need: "Dépenses" },
+  { id: "purchases", label: "Où en sont mes commandes fournisseurs ?", keywords: ["commande", "commandes", "fournisseur", "fournisseurs", "achat", "achats", "livraison", "livraisons", "reception", "receptions"], periodic: false, shopLevel: true, need: "Achats" },
+  { id: "payables", label: "Combien dois-je à mes fournisseurs ?", keywords: ["dois je", "dette", "dettes", "facture", "factures", "payer", "impayee", "impayees", "echeance", "echeances", "a payer"], periodic: false, shopLevel: true, need: "Achats" },
+  { id: "treasury", label: "Quelle est ma trésorerie ?", keywords: ["tresorerie", "solde", "soldes", "liquidite", "liquidites", "comptes bancaires", "argent", "cash flow"], periodic: false, shopLevel: true, need: "Finance" },
+  { id: "customers", label: "Combien ai-je de clients ?", keywords: ["client", "clients", "clientele", "nouveaux clients", "fiches clients"], periodic: true, shopLevel: true, need: "Clients" },
+  { id: "pipeline", label: "Où en est mon pipeline commercial ?", keywords: ["pipeline", "prospect", "prospects", "opportunite", "opportunites", "relance", "relances", "negociation", "negociations", "agenda", "taches"], periodic: false, shopLevel: true, need: "CRM" },
+  { id: "promos", label: "Où en sont mes promotions ?", keywords: ["promotion", "promotions", "promo", "promos", "coupon", "coupons", "remise", "remises", "reduction", "reductions"], periodic: true, shopLevel: true, need: "Promotions" },
+  { id: "inventories", label: "Où en sont mes inventaires ?", keywords: ["inventaire", "inventaires", "comptage", "comptages", "silent count"], periodic: false, shopLevel: true, need: "Inventaire" },
+  { id: "transfers", label: "Où en sont mes transferts de stock ?", keywords: ["transfert", "transferts", "transfert de stock", "transferts de stock", "transferts entre boutiques", "transit", "expedie", "expedies", "envoi", "envois"], periodic: false, shopLevel: true, need: "Stock" },
+  { id: "invest", label: "Où en sont mes investissements ?", keywords: ["investissement", "investissements", "projet", "projets", "placement", "placements", "investir"], periodic: false, shopLevel: true, need: "IProj-Invest" },
+  { id: "accounting", label: "Où en est ma comptabilité ?", keywords: ["comptabilite", "comptable", "ecriture", "ecritures", "journal", "grand livre", "balance comptable", "cloture"], periodic: false, shopLevel: true, need: "ICompta" },
+  { id: "team", label: "Combien de personnes dans mon équipe ?", keywords: ["equipe", "employe", "employes", "personnel", "vendeur", "vendeurs", "gerant", "gerants", "caissier", "caissiers", "staff"], periodic: false, shopLevel: false, need: "Équipe" },
+  { id: "stockvalue", label: "Quelle est la valeur de mon stock ?", keywords: ["valeur du stock", "valeur de mon stock", "valeur de stock", "valorisation du stock", "valorisation", "capital immobilise", "vaut mon stock"], periodic: false, shopLevel: true, need: "Stock" },
   { id: "recos", label: "Quelles recommandations sont ouvertes ?", keywords: ["recommandation", "recommandations", "conseil", "conseils", "action", "actions", "faire", "priorite", "priorites"], periodic: false, shopLevel: false, need: "MASTER DOGUI" },
   { id: "profile", label: "Que sait MASTER DOGUI de mon entreprise ?", keywords: ["profil", "entreprise", "memoire", "retenu", "sait", "connait"], periodic: false, shopLevel: false, need: "MASTER DOGUI" },
 ];
-export const normalize = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
+export const normalize = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 /** Texte de question nettoyé : caractères de contrôle et balises retirés, borné. Toujours traité comme du contenu, jamais comme une consigne. */
 export function cleanQuestion(raw: unknown): { ok: true; text: string } | { ok: false; error: string } {
   const t = String(raw ?? "").replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim(); if (!t) return { ok: false, error: "Question vide" }; if (t.length > LIMITS.question) return { ok: false, error: `Question trop longue (${LIMITS.question} caractères au plus)` }; return { ok: true, text: t };
@@ -24,7 +37,7 @@ export type Match = { kind: "match"; id: string; days: number } | { kind: "none"
 export function periodDays(norm: string): number { if (/\b(30|mois)\b/.test(norm)) return 30; if (/\b(7|semaine)\b/.test(norm)) return 7; if (/\b(aujourd|jour)\b/.test(norm)) return 1; return 7; }
 /** Appariement déterministe par mots-clés : aucune interprétation libre. Égalité de score : demander de préciser. */
 export function matchQuestion(text: string): Match {
-  const n = normalize(text); if (!n) return { kind: "none" }; const words = new Set(n.split(" ")); const scored = GUIDED.map((g) => ({ id: g.id, s: g.keywords.filter((k) => (k.includes(" ") ? n.includes(k) : words.has(k))).length })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+  const n = normalize(text); if (!n) return { kind: "none" }; const words = new Set(n.split(" ")); const scored = GUIDED.map((g) => ({ id: g.id, s: g.keywords.reduce((t, k) => t + (k.includes(" ") ? (n.includes(k) ? 2 : 0) : words.has(k) ? 1 : 0), 0) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
   if (!scored.length) return { kind: "none" }; let top = scored.filter((x) => x.s === scored[0]!.s); if (top.length > 1 && top.some((x) => x.id === "overview")) top = top.filter((x) => x.id !== "overview"); if (top.length > 1) return { kind: "ambiguous", ids: top.map((x) => x.id) }; return { kind: "match", id: top[0]!.id, days: periodDays(n) };
 }
 /** Nombres d'un texte (entiers et décimaux, séparateurs d'espaces/virgules ignorés). Sert au contrôle de fondement. */

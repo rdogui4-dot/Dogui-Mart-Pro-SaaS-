@@ -19,6 +19,9 @@ Plan validé (`AUDIT-ETAPE-5-ASSISTANT.md`), choix par défaut : 5A avant 5B ; 3
 ## Ajout : synthèse de l'activité
 Question « Comment se porte mon commerce ? » : sujet `overview` qui assemble les réponses des outils existants (ventes, stock, caisse, crédit clients, recommandations) pour la boutique et la période choisies, sans calcul supplémentaire. Une section refusée par les droits ou la formule est signalée dans les limites, jamais inventée. Une seule question consomme un seul quota.
 
+## Ajout : 13 sujets supplémentaires (21 au total)
+Dépenses, commandes fournisseurs, dettes fournisseurs, trésorerie (module Finance), clients, pipeline commercial (CRM), promotions, inventaires, transferts de stock, investissements, comptabilité (ICompta), équipe, valeur du stock. Chaque sujet lit les tables ou fonctions du module (lecture seule), applique le même contrôle de droits et de formule que le module (sinon « accès refusé » sans chiffres), reste limité à la boutique choisie (sauf l'équipe), ne présente aucun nom de client ni de personne, et cite ses limites (ex. une facture sans échéance n'est jamais « échue »). Le classement des questions pondère les expressions (ex. « transferts de stock », « dois-je ») et ignore les apostrophes. Jeu de test : `master-chat-topics.test.ts`.
+
 ## Limites assumées
 - **Aucun langage naturel libre** : sans fournisseur d'IA, l'assistant ne comprend que les sujets du catalogue ; le reste est signalé comme non couvert (étape 5B).
 - Les remboursements sont affichés à part, non déduits ; la marge n'est pas calculée (coût à la vente non enregistré).
