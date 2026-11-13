@@ -5,7 +5,7 @@ const { start } = require("./harness.cjs");
 const OUT = path.join(__dirname, "out"); const results = [];
 const step = async (name, fn) => { try { await fn(); results.push(["OK  ", name]); console.log("OK  ", name); } catch (e) { results.push(["FAIL", name]); console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 4).join(" | ").slice(0, 700)); } };
 (async () => {
-  const h = await start({ plan: "pro", expect: ["md.chat.ask"] }); // le 429 du délai entre deux questions est provoqué volontairement const { page, st } = h; const A = h.shop;
+  const h = await start({ plan: "pro", expect: ["md.chat.ask"] }); const { page, st } = h; const A = h.shop; // le 429 du délai entre deux questions est provoqué volontairement
   const txt = async () => (await page.locator("body").innerText()).replace(/\s+/g, " "); const wait = (t, ms = 8000) => page.waitForFunction((x) => document.body.innerText.replace(/\s+/g, " ").includes(x), t, { timeout: ms });
   const tab = async (n) => { await page.getByRole("tab", { name: n, exact: true }).click(); await page.waitForTimeout(500); };
   const shot = (n) => page.screenshot({ path: path.join(OUT, `${n}.png`) });
