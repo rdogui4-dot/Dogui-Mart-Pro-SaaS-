@@ -83,7 +83,7 @@ async function toolProfile(e: Env): Promise<Answer> {
 const TOOLS: Record<string, (e: Env) => Promise<Answer>> = { sales: toolSales, top: toolTop, stock: toolStock, cash: toolCash, credit: toolCredit, recos: toolRecos, profile: toolProfile };
 
 const fail = (qid: string, msg: string): Answer => ({ ...base(qid, "Accès refusé"), conclusion: msg, confidence: "low", limits: ["Aucun chiffre n'est présenté : votre accès ou votre formule ne le permet pas."] });
-const guide = (note: string): Answer => ({ ...base("none", "Question non comprise"), conclusion: note, confidence: "low", observations: GUIDED.map((g) => `• ${g.label}`), limits: ["Mode guidé : l'assistant répond aux questions de la liste. Aucun fournisseur d'IA n'est configuré, donc aucune réponse n'est improvisée."] });
+const guide = (note: string, aiOn = false): Answer => ({ ...base("none", "Question non comprise"), conclusion: note, confidence: "low", observations: GUIDED.map((g) => `• ${g.label}`), limits: [aiOn ? "Cette question ne correspond à aucun sujet que MASTER DOGUI sait calculer (liste ci-dessus). L'IA ne répond qu'à partir de résultats calculés, jamais de sa propre connaissance : rien n'est improvisé." : "Mode guidé : l'assistant répond aux questions de la liste. Aucun fournisseur d'IA n'est configuré, donc aucune réponse n'est improvisée."] });
 
 const quotaDay = () => dayKey();
 async function quotaUsed(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.length; }
@@ -119,7 +119,7 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
   if (!qid && ai && !b.qid) { // question hors catalogue : l'IA ne fait que CHOISIR un sujet connu (la question seule est transmise) ; la demande consomme le quota, car elle coûte un appel
     claim = await claimQuota(store, ctx); try { const c = parseClassify(await callAi(CLASSIFY_SYSTEM, classifyInput(text))); if (c && c.qid !== "none") { qid = c.qid; days = c.days; } else if (!c) notes.push("Classement par IA illisible : question non comprise."); } catch (e) { notes.push(e instanceof AiError ? `${e.message} : question non comprise.` : "IA indisponible."); }
   }
-  if (!qid) answer = guide(m?.kind === "ambiguous" ? "Votre question correspond à plusieurs sujets : précisez-la ou choisissez une question de la liste." : "Je n'ai pas de réponse calculée pour cette question en mode guidé.");
+  if (!qid) answer = guide(m?.kind === "ambiguous" ? "Votre question correspond à plusieurs sujets : précisez-la ou choisissez une question de la liste." : cfg ? "Cette question ne porte sur aucun des sujets que je sais calculer pour l'instant." : "Je n'ai pas de réponse calculée pour cette question en mode guidé.", !!cfg);
   else {
     const g = GUIDED.find((x) => x.id === qid)!; const allowed = await myShops(store, ctx); let shop: Row | null = null;
     if (g.shopLevel) { const sid = String(b.shopId ?? ""); if (!sid) throw new HttpError(400, "Choisissez une boutique"); shop = await store.get("shops", sid); if (!shop || shop.tenantId !== ctx.tenantId || (allowed !== "all" && !allowed.includes(sid))) throw new HttpError(404, "Boutique introuvable ou hors de votre périmètre"); }
