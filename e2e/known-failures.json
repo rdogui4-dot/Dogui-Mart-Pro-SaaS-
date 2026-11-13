@@ -1,7 +1,6 @@
 {
  "_note": "Échecs connus au 13/11/2026 (libellés/sélecteurs périmés, pas de régression avérée). Toute étape en échec absente de cette liste est une NOUVELLE régression. Retirer une entrée une fois le scénario réparé.",
  "crash": [
-  "j1",
   "j4",
   "j12",
   "j14"
@@ -62,6 +61,12 @@
   ],
   "j6": [
    "variantes: ajout d'une variante (UI)"
+  ],
+  "j1": [
+   "caisse: vente d'un article simple (clic, encaissement espèces)",
+   "caisse: vente du bundle (lot + série + simple) sans saisie de numéro",
+   "caisse: vente d'un article par série (numéro automatique)",
+   "stock: sélection d'un article et inventaire"
   ]
  }
 }
