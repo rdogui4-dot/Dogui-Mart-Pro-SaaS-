@@ -18,7 +18,7 @@ Calculs **déterministes** : aucune IA générative n'intervient dans les chiffr
 - **Journal** : `master.report.opening|closing[.failed]`.
 
 ## Marge : honnêteté sur les coûts
-Le coût d'un article **au moment de la vente n'est pas enregistré** dans les ventes. La marge est donc une **estimation au coût actuel** des articles et n'est affichée que si **toutes** les lignes vendues ont un coût connu ; les articles conditionnés (plusieurs unités), les bundles ou sans coût rendent la marge indisponible (donnée manquante signalée). Pour une marge historique exacte, il faudrait enregistrer le coût à la vente (évolution possible, à décider).
+**Correction du 13 novembre 2026** : chaque ligne de vente enregistre le **coût unitaire figé au moment de la vente** (`unitCost`, quand le coût de l'article est connu). La marge brute est donc **exacte** : montant des lignes vendues − coût figé ; elle n'est affichée que si **toutes** les lignes ont un coût figé (article sans coût, ou vente antérieure à cet enregistrement : marge non calculée, nombre de lignes concernées signalé). Elle ne dépend plus du coût actuel : changer le coût d'un article plus tard ne modifie pas la marge d'un rapport régénéré. Les remboursements ne sont pas déduits. (La version initiale de ce document affirmait à tort que le coût n'était pas enregistré.)
 
 ## Droits et licence
 - Lecture/génération : propriétaire et gérants de la boutique ; caissier refusé ; isolation par boutique et entreprise (permissions des lignes).

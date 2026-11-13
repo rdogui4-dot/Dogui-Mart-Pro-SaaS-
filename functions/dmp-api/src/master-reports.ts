@@ -20,13 +20,8 @@ const tzOf = (shop: Row | null) => (shop?.promoTz && isTimezone(String(shop.prom
 const mgr = (ctx: Ctx) => { if (roleKind(ctx) === "other") throw new HttpError(403, "Réservé au propriétaire et aux gérants"); if (!ctx.shopId) throw new HttpError(400, "Choisissez une boutique"); };
 const methodsOf = (s: Row): Record<string, number> => { const out: Record<string, number> = {}; const pays = parse<{ method: string; amount: number }[]>(s.payments, []); if (!pays.length) { out.cash = Number(s.total); return out; } for (const p of pays) out[p.method] = (out[p.method] ?? 0) + Number(p.amount); return out; };
 
-type CostIndex = { cost: (productId: string, variantId?: string) => number | null };
-async function costIndex(store: Store, ctx: Ctx): Promise<CostIndex> {
-  const prods = new Map((await store.scan("products", MIN(ctx), { maxRows: 20_000 })).rows.map((p) => [p.$id, p])); const vars = new Map((await store.scan("article_variants", MIN(ctx), { maxRows: 50_000 })).rows.map((v) => [v.$id, v]));
-  const packaged = new Set((await store.scan("article_units", MIN(ctx), { maxRows: 50_000 })).rows.filter((u) => u.active !== false).map((u) => String(u.productId)));
-  return { cost: (pid, vid) => { const p = prods.get(pid); if (!p || packaged.has(pid) || p.kind === "bundle") return null; const v = vid ? vars.get(vid) : null; const c = Number((v?.cost ?? p.cost) ?? 0); return c > 0 ? c : null; } };
-}
-const marginFor = async (store: Store, ctx: Ctx, sales: Row[]) => { try { const idx = await costIndex(store, ctx); const lines: MarginLine[] = []; for (const s of sales) for (const l of parse<{ productId: string; variantId?: string; qty: number; amount: number }[]>(s.lines, [])) lines.push({ qty: Number(l.qty), amount: Number(l.amount), cost: idx.cost(String(l.productId), l.variantId ? String(l.variantId) : undefined) }); return marginOf(lines); } catch { return null; } };
+/** Marge brute sur le coût FIGÉ de chaque ligne de vente (unitCost enregistré à la vente) ; une ligne sans coût figé rend la marge non calculable (jamais estimée au coût actuel). */
+const marginFor = async (_store: Store, _ctx: Ctx, sales: Row[]) => { try { const lines: MarginLine[] = []; for (const s of sales) for (const l of parse<{ qty: number; amount: number; unitCost?: number }[]>(s.lines, [])) lines.push({ qty: Number(l.qty), amount: Number(l.amount), cost: l.unitCost !== undefined && Number(l.unitCost) > 0 ? Number(l.unitCost) : null }); return marginOf(lines); } catch { return null; } };
 
 // ------------------------------------------------------------------ persistance idempotente
 const rid = (ctx: Ctx, type: string, key: string, v: number) => `mr${sha(`${ctx.tenantId}|${ctx.shopId}|${type}|${key}|${v}`).slice(0, 30)}`;

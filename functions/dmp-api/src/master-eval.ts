@@ -19,7 +19,7 @@ export async function evalDataset(): Promise<{ store: EvalStore; ctx: Ctx; shop:
   await st.create("shops", A, T, { tenantId: T, name: "Boutique de référence", varianceTolerance: 100 }); await st.create("shops", B, T, { tenantId: T, name: "Seconde boutique" }); await st.create("subscriptions", T, T, { tenantId: T, plan: "business", period: "month", status: "paid", startedAt: ago(10), renewsAt: fut(20) });
   await mk("products", "p1", { name: "Eau", price: 500, cost: 300 }); await mk("products", "p2", { name: "Riz", price: 500, cost: 300 });
   const pay = (m: string, a: number) => JSON.stringify([{ method: m, amount: a }]); const sale = (id: string, total: number, ago_: number, m: string, lines: object[]) => mk("sales", id, { number: id, total, status: "paid", cashierId: "x", payments: pay(m, total), lines: JSON.stringify(lines), soldAt: ago(ago_) });
-  await sale("s1", 4500, 1, "cash", [{ productId: "p1", qty: 9, amount: 4500 }]); await sale("s2", 1500, 2, "mobile", [{ productId: "p2", qty: 3, amount: 1500 }]); await sale("s4", 3000, 3, "cash", [{ productId: "p1", qty: 6, amount: 3000 }]); await sale("s3", 3000, 10, "cash", []);
+  await sale("s1", 4500, 1, "cash", [{ productId: "p1", qty: 9, amount: 4500, unitCost: 300 }]); await sale("s2", 1500, 2, "mobile", [{ productId: "p2", qty: 3, amount: 1500, unitCost: 300 }]); await sale("s4", 3000, 3, "cash", [{ productId: "p1", qty: 6, amount: 3000, unitCost: 300 }]); await sale("s3", 3000, 10, "cash", []);
   await mk("sale_returns", "r1", { status: "done", amount: 500, at: ago(1) });
   for (const [i, v] of [0, 50, -500].entries()) await mk("cash_sessions", `cs${i}`, { userId: "x", status: "closed", openedAt: ago(1), closedAt: ago(1), variance: v });
   await mk("customers", "c1", { name: "Client A", creditLimit: 1000, creditBalance: 1000 }); await mk("customers", "c2", { name: "Client B", creditLimit: 5000, creditBalance: 200 });
@@ -44,7 +44,7 @@ export async function evalDataset(): Promise<{ store: EvalStore; ctx: Ctx; shop:
 type Expect = Record<string, number | string>;
 export type RefQ = { id: string; text: string; qid: string; days: number; expect: Expect; free: boolean };
 const E: Record<string, Expect> = {
-  sales: { "Nombre de ventes": 3, "Total des ventes (FCFA)": 9000, "Remboursements (FCFA)": 500, "Espèces (FCFA)": 7500, "Mobile money (FCFA)": 1500, "Période précédente (FCFA)": 3000 },
+  sales: { "Nombre de ventes": 3, "Total des ventes (FCFA)": 9000, "Remboursements (FCFA)": 500, "Espèces (FCFA)": 7500, "Mobile money (FCFA)": 1500, "Période précédente (FCFA)": 3000, "Marge brute (FCFA)": 3600, "Taux de marge (%)": 40 },
   top: { "Eau (FCFA)": 7500, "Riz (FCFA)": 1500 }, cash: { "Sessions clôturées": 3, "Sessions avec écart": 2, "Hors tolérance": 1, "Cumul des écarts (FCFA)": -450 },
   credit: { "Clients avec encours": 2, "Encours total (FCFA)": 1200, "Au plafond de crédit": 1 }, customers: { "Clients actifs": 2, "Nouveaux clients (période)": 2, "Clients avec un crédit en cours": 2 },
   expenses: { "Dépenses approuvées (nombre)": 3, "Dépenses approuvées (FCFA)": 9000, "En attente d'approbation (nombre)": 1, "En attente d'approbation (FCFA)": 500, "Reste à payer sur dépenses différées (FCFA)": 3000, "Période précédente (FCFA)": 5000 },

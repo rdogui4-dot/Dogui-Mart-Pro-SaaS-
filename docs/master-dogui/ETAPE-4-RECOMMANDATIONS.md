@@ -18,4 +18,4 @@ Plan validé (`AUDIT-ETAPE-4-RECOMMANDATIONS.md`) avec les choix par défaut : p
 - **Créances échues** : aucune date d'échéance de crédit client n'existe dans les données ; la règle devient « encours client au plafond » (≥ 90 % du plafond, paramétrable) et le dit explicitement dans son motif.
 - **Actualisation à la demande** (bouton) ; l'accrochage automatique n'existe que pour les recommandations des rapports d'ouverture et de clôture, car aucun planificateur n'existe.
 - Les statuts de recommandations déjà acceptées ne changent jamais seuls : « réalisée » et « sans effet mesurable » restent un choix de l'utilisateur.
-- Aucune règle de marge (coût à la vente non enregistré).
+- Aucune règle de marge dans cette étape (le coût figé à la vente existe : une règle de marge pourrait être ajoutée ; voir la correction du 13 novembre 2026 dans `ETAPE-2-RAPPORTS.md`).

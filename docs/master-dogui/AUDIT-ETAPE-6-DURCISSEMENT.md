@@ -1,3 +1,5 @@
+> **Correction du 13 novembre 2026** : les constats C2 et la décision 8 ci-dessous reposaient sur une affirmation inexacte (« le coût au moment de la vente n'est pas enregistré »). Les lignes de vente conservent le coût unitaire figé ; la marge exacte a été mise en place sans modifier le module Caisse (voir `ETAPE-2-RAPPORTS.md`).
+
 # MASTER DOGUI — étape 6 : durcissement avant mise en vente — audit et plan (à valider)
 
 Aucun code modifié. Constats vérifiés dans le dépôt (lectures et recherches), classés par priorité : **P1** avant toute vente, **P2** avant la montée en charge.

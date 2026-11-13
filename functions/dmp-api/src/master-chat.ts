@@ -1,6 +1,7 @@
 /** MASTER DOGUI — étape 5A : assistant conversationnel, socle SANS fournisseur d'IA. Outils déterministes en lecture seule, questions guidées,
  *  conversations privées, quota quotidien, journal. Aucune donnée n'est transmise à un service externe dans ce mode. */
 import { createHash } from "node:crypto";
+import { marginOf, type MarginLine } from "../../../src/domain/master-report";
 import { addDays, boundsOf, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { AI_QIDS, PROMPT_VERSION, CLASSIFY_SYSTEM, GUIDED, LIMITS, WRITE_SYSTEM, checkWrite, classifyInput, cleanQuestion, dayKey, matchQuestion, parseClassify, parseWrite, retentionCutoff, writeInput, type Answer } from "../../../src/domain/master-chat";
@@ -48,16 +49,18 @@ async function toolSales(e: Env): Promise<Answer> {
   a.conclusion = cur.length ? `${cur.length} vente(s) pour ${fcfa(total)} (${w.label}).` : `Aucune vente encaissée (${w.label}).`;
   a.facts = [{ label: "Nombre de ventes", value: cur.length }, { label: "Total des ventes (FCFA)", value: total }, { label: "Remboursements (FCFA)", value: rets }, ...Object.entries(by).map(([m, x]) => ({ label: `${METHOD[m] ?? m} (FCFA)`, value: x })), { label: "Période précédente (FCFA)", value: ptotal }];
   a.observations = v === null ? ["Pas de ventes sur la période précédente : aucune variation calculable."] : [`Variation par rapport à la période précédente : ${v > 0 ? "+" : ""}${v} %.`];
-  a.limits = ["Les remboursements sont indiqués séparément, non déduits du total.", "La marge n'est pas calculée : le coût au moment de la vente n'est pas enregistré."]; a.confidence = "high"; return a;
+  const ml: MarginLine[] = cur.flatMap((s) => parse<{ qty: number; amount: number; unitCost?: number }[]>(s.lines, []).map((l) => ({ qty: Number(l.qty), amount: Number(l.amount), cost: l.unitCost !== undefined && Number(l.unitCost) > 0 ? Number(l.unitCost) : null }))); const mg = marginOf(ml);
+  if (mg.reliable) { a.facts.push({ label: "Marge brute (FCFA)", value: mg.margin! }, { label: "Taux de marge (%)", value: mg.marginPct ?? 0 }); a.observations.push(`Marge brute : ${fcfa(mg.margin!)} (${mg.marginPct} % du montant des lignes vendues), calculée sur le coût figé à la vente.`); } else if (ml.length) a.observations.push(`Marge brute non calculée : ${mg.unknownLines} ligne(s) vendue(s) sans coût figé à la vente.`);
+  a.limits = ["Les remboursements sont indiqués séparément, non déduits du total ni de la marge.", "La marge brute = montant des lignes vendues − coût figé à la vente ; elle n'est calculée que si toutes les lignes ont un coût figé (coût inconnu ou vente antérieure à son enregistrement : non calculée)."]; a.confidence = "high"; return a;
 }
 async function toolTop(e: Env): Promise<Answer> {
-  const w = window(e); const a = base("top", "Produits les plus vendus"); const cur = await salesIn(e, w.b); const agg = new Map<string, { qty: number; amount: number }>();
-  for (const s of cur) for (const l of parse<{ productId: string; qty: number; amount: number }[]>(s.lines, [])) { const x = agg.get(l.productId) ?? { qty: 0, amount: 0 }; x.qty += Number(l.qty); x.amount += Number(l.amount); agg.set(l.productId, x); }
+  const w = window(e); const a = base("top", "Produits les plus vendus"); const cur = await salesIn(e, w.b); const agg = new Map<string, { qty: number; amount: number; cost: number; unknown: number }>();
+  for (const s of cur) for (const l of parse<{ productId: string; qty: number; amount: number; unitCost?: number }[]>(s.lines, [])) { const x = agg.get(l.productId) ?? { qty: 0, amount: 0, cost: 0, unknown: 0 }; x.qty += Number(l.qty); x.amount += Number(l.amount); if (l.unitCost !== undefined && Number(l.unitCost) > 0) x.cost += Math.round(Number(l.qty) * Number(l.unitCost)); else x.unknown++; agg.set(l.productId, x); }
   const names = new Map((await e.store.scan("products", MIN({ ...e.ctx, shopId: e.shop.$id }), { maxRows: 20_000 })).rows.map((p) => [p.$id, String(p.name)] as [string, string])); const top = [...agg].sort((x, y) => y[1].amount - x[1].amount).slice(0, 5);
   a.period = { from: w.from, to: w.to, label: w.label }; a.scope = String(e.shop.name); a.sources = [{ module: "Caisse / Articles", detail: "lignes des ventes encaissées" }]; a.method = "Cumul par article des montants vendus sur la période, classement décroissant (5 premiers).";
   a.conclusion = top.length ? `Article le plus vendu : ${names.get(top[0]![0]) ?? "article supprimé"} (${fcfa(top[0]![1].amount)}).` : `Aucune vente sur la période (${w.label}).`;
-  a.facts = top.map(([id, x]) => ({ label: `${names.get(id) ?? "Article supprimé"} (FCFA)`, value: x.amount })); a.observations = top.map(([id, x]) => `${names.get(id) ?? "Article supprimé"} : quantité vendue ${x.qty}.`);
-  a.limits = ["Classement par chiffre d'affaires, pas par marge (coût à la vente non enregistré)."]; return a;
+  a.facts = top.map(([id, x]) => ({ label: `${names.get(id) ?? "Article supprimé"} (FCFA)`, value: x.amount })); a.observations = top.map(([id, x]) => `${names.get(id) ?? "Article supprimé"} : quantité vendue ${x.qty}${x.unknown === 0 ? `, marge brute ${fcfa(x.amount - x.cost)}` : ""}.`);
+  a.limits = ["Classement par chiffre d'affaires, pas par marge.", "La marge brute d'un article (montant − coût figé à la vente) n'est indiquée que si toutes ses lignes vendues ont un coût figé."]; return a;
 }
 async function toolStock(e: Env): Promise<Answer> {
   const a = base("stock", "Stock à surveiller"); const r = await stockAlerts(e.store, { ...e.ctx, shopId: e.shop.$id }); const al = r.alerts as { kind: string; title: string }[]; const bad = al.filter((x) => x.kind === "out" || x.kind === "negative"); const low = al.filter((x) => x.kind === "low");

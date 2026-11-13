@@ -49,7 +49,7 @@ Depuis le lot 2, l'IA exige `MASTER_AI_BILLING_CONFIRMED=true` : **tant que vous
 Règlement unique de 15 000 FCFA pour la première année puis 2 500 FCFA/mois, **sans délai de grâce**, rappels dans l'application seulement ; unicité de l'essai par e-mail du propriétaire **et** numéro de téléphone ; une licence par entreprise pour toutes les boutiques ; fournisseur d'IA : Gemini ; conversations privées (le propriétaire ne les consulte pas) ; périmètre de la version 1 ci-dessus. Les valeurs de listes du profil (secteurs, tailles, objectifs) sont celles proposées lors de l'audit.
 
 ## 8. Limites connues à garder en tête
-- La **marge** n'est qu'une estimation tant que le coût à la vente n'est pas enregistré (module Caisse, à étudier séparément).
+- La **marge brute** est exacte lorsque toutes les lignes vendues ont un coût figé à la vente (correction du 13 novembre 2026 : ma version initiale affirmait à tort que ce coût n'était pas enregistré) ; sinon elle est « non calculée ». Les ventes antérieures à l'enregistrement du coût restent sans marge.
 - Les « créances échues » n'existent pas faute de date d'échéance sur le crédit client : la règle s'appuie sur le plafond de crédit.
 - Les purges se font au fil des consultations (pas de planificateur) ; le plafond personnel de questions peut être dépassé de 1 en cas de demandes simultanées ; le compteur global de jetons est approximatif sous forte concurrence.
 - Un attaquant peut faire refuser environ une minute les envois légitimes de la réception de paiements (frein de rafale) ; le relais Gmail rejoue.

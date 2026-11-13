@@ -6,7 +6,7 @@
 
 **1. Objet.** MASTER DOGUI est une fonction d'aide à la décision de DOGUI MART PRO : rapports, recommandations et réponses à des questions de gestion, à partir des données que l'entreprise a saisies dans l'application.
 
-**2. Nature du service.** Les informations fournies sont des aides à la décision. Elles ne constituent ni un conseil comptable, fiscal, juridique, financier ou d'investissement, ni une certification. **Aucun résultat commercial ou financier n'est promis.** Les prévisions et estimations sont signalées comme telles et peuvent être inexactes ; la marge n'est qu'indicative tant que le coût à la vente n'est pas enregistré.
+**2. Nature du service.** Les informations fournies sont des aides à la décision. Elles ne constituent ni un conseil comptable, fiscal, juridique, financier ou d'investissement, ni une certification. **Aucun résultat commercial ou financier n'est promis.** Les prévisions et estimations sont signalées comme telles et peuvent être inexactes ; la marge brute n'est calculée que lorsque toutes les lignes vendues ont un coût figé à la vente.
 
 **3. Chiffres et rédaction.** Les chiffres sont calculés par l'application à partir des données de l'entreprise. Lorsque la rédaction est confiée à un modèle d'intelligence artificielle, celui-ci reformule des résultats déjà calculés ; une rédaction contenant un chiffre qui ne figure pas dans ces résultats est écartée. L'utilisateur reste responsable de vérifier les informations avant d'agir.
 

@@ -24,7 +24,7 @@ Dépenses, commandes fournisseurs, dettes fournisseurs, trésorerie (module Fina
 
 ## Limites assumées
 - **Aucun langage naturel libre** : sans fournisseur d'IA, l'assistant ne comprend que les sujets du catalogue ; le reste est signalé comme non couvert (étape 5B).
-- Les remboursements sont affichés à part, non déduits ; la marge n'est pas calculée (coût à la vente non enregistré).
+- Les remboursements sont affichés à part, non déduits. **La marge brute est calculée sur le coût figé à la vente** (correction du 13 novembre 2026) ; elle n'est affichée que si toutes les lignes vendues ont un coût figé, sinon « non calculée » avec le nombre de lignes concernées.
 - Appariement par mots-clés : une question à deux sujets équivalents est signalée ambiguë.
 - Pas encore d'export PDF/Excel/CSV des réponses, ni de limite par utilisateur (le plafond est par entreprise).
 

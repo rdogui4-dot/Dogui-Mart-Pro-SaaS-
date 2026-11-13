@@ -53,7 +53,7 @@ Chaque règle cite sa source (module, période, valeurs) ; les règles absentes 
 ## 4. Limites à connaître
 - Les mesures de suivi reposent sur ce que chaque module sait calculer à deux dates ; pour une règle sans mesure fiable, le suivi se limite au statut.
 - Sans historique suffisant, certaines règles resteront silencieuses : c'est voulu.
-- La marge n'est qu'estimée tant que le coût à la vente n'est pas enregistré ; aucune règle de marge n'est incluse dans cette étape.
+- (Correction du 13 novembre 2026 : le coût est figé à la vente, la marge exacte est possible.) Aucune règle de marge n'est incluse dans cette étape.
 
 ## 5. Décisions à valider
 1. **Qui décide** : propriétaire et gérants (pour leurs boutiques), ou propriétaire seul ?
