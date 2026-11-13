@@ -1,20 +1,20 @@
 /** Adaptateur Gemini (étape 5B). Désactivé tant que MASTER_AI_ENABLED n'est pas « true » ET que GEMINI_API_KEY et GEMINI_MODEL ne sont pas définis dans les variables de la fonction :
  *  la clé n'apparaît jamais dans le code, les journaux, les erreurs ni la base. Aucun nom de modèle n'est présumé. */
 export type AiStyle = "generate" | "interactions";
-export type AiConfig = { key: string; model: string; apiVersion: string; style: AiStyle; maxOut: number; dailyTokens: number; timeoutMs: number };
+export type AiConfig = { key: string; model: string; apiVersion: string; style: AiStyle; maxOut: number; dailyTokens: number; timeoutMs: number; retryMs: number };
 type Env = Record<string, string | undefined>;
 const posInt = (v: string | undefined, d: number, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : d; };
 export function aiConfig(env: Env = process.env): AiConfig | null {
   if (env.MASTER_AI_ENABLED !== "true") return null; const key = (env.GEMINI_API_KEY ?? "").trim(); const model = (env.GEMINI_MODEL ?? "").trim().replace(/^models\//, ""); if (!key || !/^[A-Za-z0-9._-]{3,60}$/.test(model)) return null;
   const apiVersion = /^(v1|v1beta|v1alpha)$/.test((env.GEMINI_API_VERSION ?? "").trim()) ? (env.GEMINI_API_VERSION ?? "").trim() : "v1beta";
   const style: AiStyle = (env.GEMINI_API_STYLE ?? "").trim() === "interactions" ? "interactions" : "generate";
-  return { key, model, apiVersion, style, maxOut: posInt(env.MASTER_AI_MAX_OUTPUT_TOKENS, 700, 100, 2000), dailyTokens: posInt(env.MASTER_AI_DAILY_TOKENS, 200_000, 5_000, 5_000_000), timeoutMs: posInt(env.MASTER_AI_TIMEOUT_MS, 20_000, 3_000, 55_000) };
+  return { key, model, apiVersion, style, maxOut: posInt(env.MASTER_AI_MAX_OUTPUT_TOKENS, 700, 100, 2000), dailyTokens: posInt(env.MASTER_AI_DAILY_TOKENS, 200_000, 5_000, 5_000_000), timeoutMs: posInt(env.MASTER_AI_TIMEOUT_MS, 15_000, 3_000, 25_000), retryMs: posInt(env.MASTER_AI_RETRY_MS, 800, 0, 5_000) };
 }
 export const aiStatus = (env: Env = process.env) => ({ enabledFlag: env.MASTER_AI_ENABLED === "true", keyPresent: !!(env.GEMINI_API_KEY ?? "").trim(), modelSet: !!(env.GEMINI_MODEL ?? "").trim(), apiVersion: aiConfig(env)?.apiVersion ?? null, style: aiConfig(env)?.style ?? null, active: !!aiConfig(env) });
 export class AiError extends Error { constructor(msg: string, readonly status?: number) { super(msg); } }
 export type AiResult = { text: string; tokensIn: number; tokensOut: number };
 /** Appel REST generateContent : clé en en-tête, sortie JSON demandée, délai borné. Les messages d'erreur ne contiennent ni la clé ni le contenu envoyé. */
-export async function geminiJson(cfg: AiConfig, system: string, user: string, doFetch: typeof fetch = fetch): Promise<AiResult> {
+async function geminiOnce(cfg: AiConfig, system: string, user: string, doFetch: typeof fetch): Promise<AiResult> {
   const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), cfg.timeoutMs);
   try {
     if (cfg.style === "interactions") return await interactions(cfg, system, user, doFetch, ctrl.signal);
@@ -49,4 +49,14 @@ async function interactions(cfg: AiConfig, system: string, user: string, doFetch
   const j = (await res.json()) as unknown; const text = textOf(j);
   if (!text) throw new AiError(`fournisseur IA : réponse sans texte exploitable (champs reçus : ${Object.keys((j && typeof j === "object" ? j : {}) as object).slice(0, 8).join(", ") || "aucun"})`);
   const tk = tokensOf(j); return { text, tokensIn: tk?.in ?? Math.ceil(input.length / 4), tokensOut: tk?.out ?? Math.ceil(text.length / 4) };
+}
+
+/** Appel avec une seule nouvelle tentative lorsque le fournisseur signale une surcharge temporaire (HTTP 503) et qu'il reste assez de temps dans le délai accordé. */
+export async function geminiJson(cfg: AiConfig, system: string, user: string, doFetch: typeof fetch = fetch): Promise<AiResult> {
+  const t0 = Date.now();
+  try { return await geminiOnce(cfg, system, user, doFetch); }
+  catch (e) {
+    if (!(e instanceof AiError) || e.status !== 503) throw e; const left = cfg.timeoutMs - (Date.now() - t0) - cfg.retryMs; if (left < 3000) throw e;
+    if (cfg.retryMs) await new Promise((ok) => setTimeout(ok, cfg.retryMs)); return geminiOnce({ ...cfg, timeoutMs: left }, system, user, doFetch);
+  }
 }
