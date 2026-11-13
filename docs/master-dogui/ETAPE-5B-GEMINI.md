@@ -31,7 +31,10 @@ Fournisseur choisi par la direction : **API Gemini**. Le code est déployé mais
 - Une question hors catalogue envoyée à l'IA **consomme le quota** (elle coûte un appel) ; pas de contournement par spam.
 - Question et données traitées comme du contenu délimité, jamais comme consigne ; sortie JSON stricte.
 
+## Validation réelle (2026-11-13)
+Premier appel réel réussi par la direction avec l'API « interactions » (`GEMINI_API_STYLE=interactions`, route `v1beta`) et le modèle indiqué par AI Studio : la réponse « Ventes » affiche « Rédigé par IA (Gemini) : chiffres calculés et vérifiés par MASTER DOGUI ». Le mode `generateContent` (défaut) reste testé uniquement avec des réponses simulées.
+
 ## Limites assumées
-- **Non testé avec la vraie API** : je n'ai ni clé ni accès réseau à Google depuis cet environnement. L'adaptateur (en-tête `x-goog-api-key`, route `v1beta/models/<modèle>:generateContent`, `systemInstruction`, `generationConfig`, `usageMetadata`) est testé avec des réponses simulées. Le premier appel réel est à vérifier ; en cas d'erreur de format, l'assistant retombe sur le mode guidé et la cause apparaît dans le message de repli.
+- **Mode `generateContent` non testé avec la vraie API** (le mode `interactions` l'est, voir ci-dessus) : je n'ai ni clé ni accès réseau à Google depuis cet environnement. L'adaptateur (en-tête `x-goog-api-key`, route `v1beta/models/<modèle>:generateContent`, `systemInstruction`, `generationConfig`, `usageMetadata`) est testé avec des réponses simulées. Le premier appel réel est à vérifier ; en cas d'erreur de format, l'assistant retombe sur le mode guidé et la cause apparaît dans le message de repli.
 - Les noms de champs de la réponse Gemini sont ceux que je connais ; seuls l'en-tête, la route et `usageMetadata.promptTokenCount` ont été recoupés avec la documentation publique.
 - Pas de mesure de qualité sur le jeu de référence avec un vrai modèle (seuil à fixer avant production, §18.1).
