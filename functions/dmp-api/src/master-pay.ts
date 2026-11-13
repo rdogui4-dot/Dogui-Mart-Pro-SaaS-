@@ -13,6 +13,9 @@ const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 30);
 const adminOnly = (ctx: Ctx) => { if (!ctx.admin) throw new HttpError(403, "Réservé à l'administrateur de la plateforme"); };
 const audit = (store: Store, userId: string, tenantId: string, action: string, detail: string) => store.create("audit_log", newId(), tenantId || "platform", { tenantId: tenantId || "platform", shopId: "platform", userId, action, detail: detail.slice(0, 500) });
 const PLATFORM = "main"; const MAX_BODY = 20_000;
+/** Forme du jeton (48 caractères hexadécimaux générés) : tout autre forme est rejetée SANS lecture de base. */
+export const TOKEN_RE = /^[A-Za-z0-9]{32,64}$/;
+let cfgCache: { at: number; cfg: HookCfg } | null = null;
 /** Adresse publique de la fonction de réception (règle de domaine Appwrite créée pour `dmp-hooks`). */
 export const DEFAULT_HOOK_URL = "https://dmp-hooks-dogui.fra.appwrite.run";
 export type HookCfg = { enabled: boolean; tokenHash: string; mapping: HookMapping; links: { first: string; month: string }; baseUrl: string };
@@ -35,13 +38,24 @@ export async function hookSave(store: Store, ctx: Ctx, b: { enabled?: unknown; m
 /** Génère (ou remplace) le jeton secret : il n'est affiché QU'UNE FOIS, seule son empreinte est conservée. */
 export async function hookRotate(store: Store, ctx: Ctx) { adminOnly(ctx); const token = randomBytes(24).toString("hex"); const c = await cfgOf(store); c.tokenHash = h256(token); await saveCfg(store, c); await audit(store, ctx.userId, "", "master.hook.rotate", "jeton secret régénéré"); return { token, urlTemplate: `${(c.baseUrl || DEFAULT_HOOK_URL).replace(/\/$/, "")}/?k=${token}`, note: "Copiez cette adresse maintenant : le jeton ne sera plus affiché. Régénérer le jeton invalide l'ancienne adresse." }; }
 const evOf = (r: Row) => ({ id: r.$id, status: String(r.status), tenantId: String(r.tenantId ?? ""), ref: String(r.ref ?? ""), amount: r.amount === null || r.amount === undefined ? null : Number(r.amount), email: String(r.email ?? ""), currency: String(r.currency ?? ""), note: String(r.note ?? ""), requestId: String(r.requestId ?? ""), raw: String(r.raw ?? ""), at: r.$createdAt ? new Date(String(r.$createdAt)).toISOString() : "" });
-export async function eventsList(store: Store, ctx: Ctx, b: { status?: string }) { adminOnly(ctx); const status = ["review", "matched", "rejected"].includes(String(b.status)) ? String(b.status) : "review"; const rows = await store.list("md_events", { status }, 100); return { events: rows.map(evOf).sort((a, c) => c.at.localeCompare(a.at)) }; }
+const DAY_MS = 864e5;
+/** Purge au fil des consultations (pas de planificateur) : contenu brut effacé après 30 jours ; notifications décidées supprimées après 12 mois ; 100 opérations au plus par appel. Les rapprochements et l'audit ne sont pas touchés. */
+export async function purgeEvents(store: Store, now = Date.now()): Promise<{ cleared: number; removed: number }> {
+  let cleared = 0; let removed = 0; let budget = 100;
+  for (const status of ["review", "matched", "rejected"]) for (const r of await store.list("md_events", { status }, 200)) {
+    if (budget <= 0) return { cleared, removed }; const at = r.$createdAt ? Date.parse(String(r.$createdAt)) : NaN; if (!Number.isFinite(at)) continue;
+    if (status !== "review" && now - at > 365 * DAY_MS) { await store.remove("md_events", r.$id); removed++; budget--; }
+    else if (r.raw && now - at > 30 * DAY_MS) { await store.update("md_events", r.$id, { raw: "" }); cleared++; budget--; }
+  }
+  return { cleared, removed };
+}
+export async function eventsList(store: Store, ctx: Ctx, b: { status?: string }) { adminOnly(ctx); try { await purgeEvents(store); } catch { /* la consultation reste possible */ } const status = ["review", "matched", "rejected"].includes(String(b.status)) ? String(b.status) : "review"; const rows = await store.list("md_events", { status }, 100); return { events: rows.map(evOf).sort((a, c) => c.at.localeCompare(a.at)) }; }
 export async function eventDecide(store: Store, ctx: Ctx, b: { eventId?: string; action?: string; tenantId?: string; kind?: string; count?: unknown; note?: string }) {
   adminOnly(ctx); const e = await store.get("md_events", String(b.eventId ?? "")); if (!e) throw new HttpError(404, "Notification introuvable"); const note = String(b.note ?? "").trim().slice(0, 150);
   if (e.status === "matched" || e.status === "rejected") return { id: e.$id, status: String(e.status), duplicate: true };
-  if (b.action === "reject") { if (note.length < 5) throw new HttpError(400, "Motif obligatoire (5 caractères au moins)"); await store.update("md_events", e.$id, { status: "rejected", note: note.slice(0, 200), decidedBy: ctx.userId }); await audit(store, ctx.userId, String(e.tenantId ?? ""), "master.event.reject", `${e.$id} ${note}`); return { id: e.$id, status: "rejected", duplicate: false }; }
+  if (b.action === "reject") { if (note.length < 5) throw new HttpError(400, "Motif obligatoire (5 caractères au moins)"); await store.update("md_events", e.$id, { status: "rejected", note: note.slice(0, 200), decidedBy: ctx.userId, raw: "" }); await audit(store, ctx.userId, String(e.tenantId ?? ""), "master.event.reject", `${e.$id} ${note}`); return { id: e.$id, status: "rejected", duplicate: false }; }
   if (b.action !== "approve") throw new HttpError(400, "Action : approve ou reject"); const tenantId = String(b.tenantId ?? ""); if (!(await store.list("shops", { tenantId }, 1)).length) throw new HttpError(404, "Commerce introuvable"); if (b.kind !== "first" && b.kind !== "month") throw new HttpError(400, "Type : first ou month"); if (note.length < 5) throw new HttpError(400, "Motif obligatoire (vérification effectuée)");
-  const r = await applyActivation(store, ctx, tenantId, `ev${String(e.$id).slice(2, 30)}`, b.kind, Number(b.count ?? 1), `notification ${String(e.ref ?? "")} — ${note}`); await store.update("md_events", e.$id, { status: "matched", tenantId, note: `validée manuellement : ${note}`.slice(0, 200), decidedBy: ctx.userId }); await audit(store, ctx.userId, tenantId, "master.event.approve", `${e.$id} ${e.ref ?? ""}`); return { id: e.$id, status: "matched", duplicate: false, activation: r };
+  const r = await applyActivation(store, ctx, tenantId, `ev${String(e.$id).slice(2, 30)}`, b.kind, Number(b.count ?? 1), `notification ${String(e.ref ?? "")} — ${note}`); await store.update("md_events", e.$id, { status: "matched", tenantId, note: `validée manuellement : ${note}`.slice(0, 200), decidedBy: ctx.userId, raw: "" }); await audit(store, ctx.userId, tenantId, "master.event.approve", `${e.$id} ${e.ref ?? ""}`); return { id: e.$id, status: "matched", duplicate: false, activation: r };
 }
 
 // ------------------------------------------------------------------ propriétaire : demande de paiement
@@ -62,8 +76,10 @@ export async function payList(store: Store, ctx: Ctx) { if (roleKind(ctx) === "o
 // ------------------------------------------------------------------ récepteur public (fonction dmp-hooks)
 const parseBody = (raw: string, ctype: string): unknown => { const t = raw.trim(); if (!t) return null; try { return JSON.parse(t); } catch { /* non JSON */ } if (/x-www-form-urlencoded/i.test(ctype) || /^[^{[]+=/.test(t)) { const o: Record<string, string> = {}; for (const [k, v] of new URLSearchParams(t)) o[k] = v; return o; } return null; };
 const same = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
-export async function processWebhook(store: Store, input: { token: string; raw: string; contentType?: string }): Promise<{ status: number; body: Record<string, unknown> }> {
-  const cfg = await cfgOf(store); if (!cfg.enabled || !cfg.tokenHash || !input.token || !same(h256(input.token), cfg.tokenHash)) return { status: 404, body: { ok: false } };
+export async function processWebhook(store: Store, input: { token: string; raw: string; contentType?: string }, opts: { cacheMs?: number } = {}): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (!TOKEN_RE.test(input.token)) return { status: 404, body: { ok: false } }; if (input.raw.length > MAX_BODY) return { status: 413, body: { ok: false, error: "trop volumineux" } };
+  const cacheMs = Math.max(0, opts.cacheMs ?? 0); let cfg: HookCfg; if (cacheMs && cfgCache && Date.now() - cfgCache.at < cacheMs) cfg = cfgCache.cfg; else { cfg = await cfgOf(store); cfgCache = cacheMs ? { at: Date.now(), cfg } : null; }
+  if (!cfg.enabled || !cfg.tokenHash || !input.token || !same(h256(input.token), cfg.tokenHash)) return { status: 404, body: { ok: false } };
   if (input.raw.length > MAX_BODY) return { status: 413, body: { ok: false, error: "trop volumineux" } }; const payload = parseBody(input.raw, input.contentType ?? ""); if (payload === null || typeof payload !== "object") return { status: 400, body: { ok: false, error: "notification illisible" } };
   const p = parseEvent(payload, cfg.mapping); const bodyHash = h256(input.raw); const id = `ev${sha(`master|${p.ref || bodyHash}`).slice(0, 28)}`; const complete = mappingComplete(cfg.mapping);
   const base = { status: "received", ref: p.ref, amount: p.amount ?? 0, email: p.email, currency: p.currency, bodyHash, raw: complete ? "" : input.raw.slice(0, 6000), note: "" };

@@ -192,6 +192,16 @@ const fail = (qid: string, msg: string): Answer => ({ ...base(qid, "Accès refus
 const guide = (note: string, aiOn = false): Answer => ({ ...base("none", "Question non comprise"), conclusion: note, confidence: "low", observations: GUIDED.map((g) => `• ${g.label}`), limits: [aiOn ? "Cette question ne correspond à aucun sujet que MASTER DOGUI sait calculer (liste ci-dessus). L'IA ne répond qu'à partir de résultats calculés, jamais de sa propre connaissance : rien n'est improvisé." : "Mode guidé : l'assistant répond aux questions de la liste. Aucun fournisseur d'IA n'est configuré, donc aucune réponse n'est improvisée."] });
 
 const quotaDay = () => dayKey();
+const envInt = (v: string | undefined, d: number, min: number, max: number) => { const n = Number(v); return v !== undefined && v !== "" && Number.isInteger(n) && n >= min && n <= max ? n : d; };
+/** Limites par utilisateur (en plus du plafond d'entreprise) : questions par jour et délai minimal entre deux questions ; réglables par variable de la fonction. */
+export const chatLimits = (env: Record<string, string | undefined> = process.env) => ({ userDaily: envInt(env.MASTER_CHAT_USER_DAILY, 15, 1, 1000), minIntervalMs: envInt(env.MASTER_CHAT_MIN_INTERVAL_MS, 5000, 0, 60_000) });
+async function userGuard(store: Store, ctx: Ctx) {
+  const lim = chatLimits(); const used = (await store.scan("md_usage", { tenantId: ctx.tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.filter((r) => r.userId === ctx.userId).length;
+  if (used >= lim.userDaily) throw new HttpError(429, `Plafond personnel atteint : ${lim.userDaily} questions par jour et par utilisateur. Revenez demain.`);
+  if (lim.minIntervalMs > 0) { const last = (await store.scan("md_chats", { tenantId: ctx.tenantId, userId: ctx.userId }, { maxRows: 200 })).rows.reduce((m, c) => Math.max(m, Date.parse(String(c.updatedAt ?? c.createdAt ?? "")) || 0), 0); if (Date.now() - last < lim.minIntervalMs) throw new HttpError(429, `Une question toutes les ${Math.round(lim.minIntervalMs / 1000)} secondes : patientez un instant.`); }
+}
+/** Purge au fil des consultations : lignes de décompte de plus de 90 jours (60 au plus par appel). */
+async function purgeUsage(store: Store, tenantId: string) { const cut = dayKey(new Date(Date.now() - 90 * 864e5)); const old = (await store.scan("md_usage", { tenantId }, { maxRows: 4000 })).rows.filter((r) => String(r.day) < cut).slice(0, 60); for (const r of old) await store.remove("md_usage", r.$id); }
 async function quotaUsed(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.length; }
 async function tokensToday(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.reduce((s, r) => s + Number(r.tokensIn ?? 0) + Number(r.tokensOut ?? 0), 0); }
 async function claimQuota(store: Store, ctx: Ctx): Promise<string> { const day = quotaDay(); let n = (await quotaUsed(store, ctx.tenantId)) + 1; for (; n <= LIMITS.daily; n++) { const id = `us${sha(`${ctx.tenantId}|${day}|${n}`).slice(0, 28)}`; if (await store.create("md_usage", id, ctx.tenantId, { tenantId: ctx.tenantId, day, n, userId: ctx.userId })) return id; } throw new HttpError(429, `Plafond atteint : ${LIMITS.daily} questions par jour pour l'entreprise. Revenez demain.`); }
@@ -202,7 +212,7 @@ const mine = async (store: Store, ctx: Ctx, chatId: unknown): Promise<Row> => { 
 
 export async function chatList(store: Store, ctx: Ctx) {
   reader(ctx); const rows = (await store.scan("md_chats", { tenantId: ctx.tenantId, userId: ctx.userId }, { maxRows: 500 })).rows; const cut = retentionCutoff(); const old = rows.filter((c) => String(c.updatedAt ?? c.createdAt ?? "") < cut).slice(0, 50);
-  for (const c of old) await purge(store, c); const keep = rows.filter((c) => !old.includes(c)).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 50);
+  for (const c of old) await purge(store, c); try { await purgeUsage(store, ctx.tenantId); } catch { /* la consultation reste possible */ } const keep = rows.filter((c) => !old.includes(c)).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 50);
   const e = await (await import("./master")).masterEntitlement(store, ctx.tenantId); const allowed = await myShops(store, ctx); const shops = (await store.scan("shops", { tenantId: ctx.tenantId }, { maxRows: 200 })).rows.filter((s) => allowed === "all" || allowed.includes(s.$id));
   return { chats: keep.map((c) => ({ id: c.$id, title: String(c.title), updatedAt: String(c.updatedAt) })), mode: aiMode(), canAsk: e.canAnalyze, quota: { limit: LIMITS.daily, used: await quotaUsed(store, ctx.tenantId) }, maxQuestion: LIMITS.question, retentionMonths: LIMITS.retentionMonths, guided: GUIDED.map((g) => ({ id: g.id, label: g.label, periodic: g.periodic, shopLevel: g.shopLevel })), shops: shops.map((s) => ({ id: s.$id, name: String(s.name) })), privacy: "Vos conversations sont privées : ni le propriétaire ni un autre utilisateur ne les consulte." };
 }
@@ -215,6 +225,7 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
   reader(ctx); await needMaster(store, ctx); const rk = String(b.requestKey ?? ""); if (!/^[A-Za-z0-9_-]{12,64}$/.test(rk)) throw new HttpError(400, "Identifiant de demande invalide");
   const uid = `mu${sha(`${ctx.tenantId}|${ctx.userId}|${rk}|u`).slice(0, 28)}`; const aid = `ma${sha(`${ctx.tenantId}|${ctx.userId}|${rk}|a`).slice(0, 28)}`;
   const prevU = await store.get("md_msgs", uid); if (prevU) { if (prevU.tenantId !== ctx.tenantId || prevU.userId !== ctx.userId) throw new HttpError(404, "Introuvable"); const prevA = await store.get("md_msgs", aid); return { chatId: String(prevU.chatId), user: view(prevU), assistant: prevA ? view(prevA) : null, duplicate: true }; }
+  await userGuard(store, ctx);
   let text: string; let qid = ""; let days = 7;
   if (b.qid) { const g = GUIDED.find((x) => x.id === b.qid); if (!g) throw new HttpError(400, "Question inconnue"); qid = g.id; text = g.label; const d = Number(b.days ?? 7); days = [1, 7, 30].includes(d) ? d : 7; }
   else { const c = cleanQuestion(b.text); if (!c.ok) throw new HttpError(400, c.error); text = c.text; const m = matchQuestion(text); if (m.kind === "match") { qid = m.id; days = m.days; } }

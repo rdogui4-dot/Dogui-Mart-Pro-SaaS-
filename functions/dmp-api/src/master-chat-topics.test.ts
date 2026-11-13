@@ -3,6 +3,7 @@ import { MemoryStore } from "./memory-store";
 import { handle } from "./main";
 import { GUIDED, matchQuestion } from "../../../src/domain/master-chat";
 
+process.env.MASTER_CHAT_MIN_INTERVAL_MS = "0"; process.env.MASTER_CHAT_USER_DAILY = "1000";
 class DatedStore extends MemoryStore { override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { return super.create(t, id, tenant, { $createdAt: new Date().toISOString(), ...d }); } }
 const T = "tenanttp0001"; let st: DatedStore; let A = "", B = ""; const U: Record<string, string> = {}; let n = 0;
 const call = (user: string, action: string, payload: unknown = {}, shop = "") => handle(st, U[user] ?? user, { action, tenantId: T, shopId: shop, payload }, { admins: ["admin1"] });

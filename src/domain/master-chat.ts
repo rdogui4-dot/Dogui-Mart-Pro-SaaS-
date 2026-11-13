@@ -30,8 +30,13 @@ export const GUIDED: Guided[] = [
 ];
 export const normalize = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 /** Texte de question nettoyé : caractères de contrôle et balises retirés, borné. Toujours traité comme du contenu, jamais comme une consigne. */
+/** Minimisation (§13.1) : numéros de téléphone et adresses e-mail remplacés avant stockage ET avant toute transmission. Un montant groupé par milliers (« 1 000 000 ») n'est pas un numéro. */
+export function maskPersonal(s: string): string {
+  const mail = s.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[e-mail]");
+  return mail.replace(/\+?\d[\d\s.\-()\u00a0]{6,}\d/g, (m) => { const digits = m.replace(/\D/g, "").length; if (digits < 8 || digits > 15) return m; if (/^\d{1,3}([ .,\u00a0]\d{3})+$/.test(m.trim())) return m; return "[numéro]"; });
+}
 export function cleanQuestion(raw: unknown): { ok: true; text: string } | { ok: false; error: string } {
-  const t = String(raw ?? "").replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim(); if (!t) return { ok: false, error: "Question vide" }; if (t.length > LIMITS.question) return { ok: false, error: `Question trop longue (${LIMITS.question} caractères au plus)` }; return { ok: true, text: t };
+  const t = maskPersonal(String(raw ?? "").replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim()); if (!t) return { ok: false, error: "Question vide" }; if (t.length > LIMITS.question) return { ok: false, error: `Question trop longue (${LIMITS.question} caractères au plus)` }; return { ok: true, text: t };
 }
 export type Match = { kind: "match"; id: string; days: number } | { kind: "none" } | { kind: "ambiguous"; ids: string[] };
 export function periodDays(norm: string): number { if (/\b(30|mois)\b/.test(norm)) return 30; if (/\b(7|semaine)\b/.test(norm)) return 7; if (/\b(aujourd|jour)\b/.test(norm)) return 1; return 7; }

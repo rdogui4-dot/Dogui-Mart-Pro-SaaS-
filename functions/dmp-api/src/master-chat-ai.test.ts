@@ -4,6 +4,7 @@ import { handle } from "./main";
 import { aiConfig, aiStatus, geminiJson } from "./ai-gemini";
 import { checkWrite, parseClassify, parseWrite, writeInput, type Answer } from "../../../src/domain/master-chat";
 
+process.env.MASTER_CHAT_MIN_INTERVAL_MS = "0"; process.env.MASTER_CHAT_USER_DAILY = "1000";
 class DatedStore extends MemoryStore { override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { return super.create(t, id, tenant, { $createdAt: new Date().toISOString(), ...d }); } }
 const T = "tenantai0001"; const KEY = "AIza-SECRET-KEY-0123456789";
 let st: DatedStore; let A = ""; let n = 0; const fetchMock = vi.fn();

@@ -137,7 +137,7 @@ export const TABLES = {
   md_reco_cfg: { cols: [s("tenantId", 64, true), t("data"), s("updatedBy", 64), d("updatedAt")], idx: [] },
   md_chats: { cols: [s("tenantId", 64, true), s("userId", 64, true), s("title", 80), d("createdAt"), d("updatedAt")], idx: [["owner", ["tenantId", "userId"]]] },
   md_msgs: { cols: [s("tenantId", 64, true), s("chatId", 64, true), s("userId", 64, true), s("role", 10, true), t("text"), t("data"), s("qid", 16), s("mode", 10), d("createdAt")], idx: [["chat", ["tenantId", "chatId"]]] },
-  md_usage: { cols: [s("tenantId", 64, true), s("day", 10, true), i("n"), s("userId", 64), i("tokensIn"), i("tokensOut")], idx: [["day", ["tenantId", "day"]]] },
+  md_usage: { cols: [s("tenantId", 64, true), s("day", 10, true), i("n"), s("userId", 64), i("tokensIn"), i("tokensOut")], idx: [["day", ["tenantId", "day"]], ["tenantonly", ["tenantId"]]] },
   md_events: { cols: [s("tenantId", 64), s("status", 10, true), s("ref", 64), i("amount"), s("email", 120), s("currency", 8), s("bodyHash", 64), t("raw"), s("note", 200), s("requestId", 64), s("decidedBy", 64)], idx: [["status", ["status"]]] },
   platform_settings: { cols: [t("selarLinks"), t("plans"), t("masterHook")], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
