@@ -13,7 +13,8 @@
     "functions:build": "node scripts/build-functions.mjs",
     "verify:isolation": "node scripts/verify-isolation.mjs",
     "docs:offers": "vite-node scripts/generate-selar-offers.ts",
-    "functions:deploy": "node scripts/deploy-function.mjs"
+    "functions:deploy": "node scripts/deploy-function.mjs",
+    "e2e:master": "bash e2e/run.sh master"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",

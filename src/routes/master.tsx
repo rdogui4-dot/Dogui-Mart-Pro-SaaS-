@@ -8,6 +8,8 @@ import { formatFcfa } from "@/domain/money";
 import { Sheet } from "@/components/ui";
 import { Profil } from "@/routes/master-profile";
 import { Recos } from "@/routes/master-reco";
+import { ExportBar } from "@/routes/master-export";
+import { reportToData } from "@/domain/master-export";
 import { Assistant } from "@/routes/master-chat";
 import { PRIO_LABEL, type Report, type Prio } from "@/domain/master-report";
 
@@ -66,6 +68,7 @@ export function ReportView({ r }: { r: Full }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="card text-sm flex flex-col gap-1"><div className="flex justify-between"><b>{rep.title}</b><b className={r.status === "ready" ? "text-emerald-300" : r.status === "partial" ? "text-amber-300" : "text-white/60"}>{r.statusLabel}</b></div><p className="text-xs text-white/50">{rep.scope} · {rep.businessDate} · version {r.version}{r.generatedAt ? ` · généré le ${new Date(r.generatedAt).toLocaleString("fr-FR")}` : ""}</p><p className="text-xs text-white/60">{rep.confidence}</p></div>
+      <ExportBar label="Exporter ce rapport" build={() => reportToData(rep, { statusLabel: r.statusLabel, version: r.version, generatedAt: r.generatedAt })} />
       {rep.alerts.map((a, i) => <p key={i} className={`card text-sm ${PRIO_TONE[a.prio]}`}><b>{PRIO_LABEL[a.prio]} · </b>{a.text}<span className="block text-[10px] text-white/40">Source : {a.source}</span></p>)}
       {rep.sections.map((s) => <div key={s.id} className="card text-sm flex flex-col gap-1"><b>{s.title}</b>{s.available ? s.items.map((it, i) => <p key={i} className="flex justify-between gap-2 text-xs"><span className="text-white/70">{it.label}{it.note ? <i className="text-white/40"> · {it.note}</i> : null}</span><b>{fmtV(it.value)}</b></p>) : <p className="text-xs text-amber-300">Non disponible : {s.reason}</p>}<span className="text-[10px] text-white/40">Source : {s.source}</span></div>)}
       {rep.recommendations.length > 0 && <div className="card text-sm flex flex-col gap-1"><b>Recommandations</b>{rep.recommendations.map((x, i) => <p key={i} className="text-xs"><b className={PRIO_TONE[x.prio]}>{PRIO_LABEL[x.prio]}</b> · {x.text}<span className="block text-[10px] text-white/40">Motif : {x.reason} · Source : {x.source} · {x.kind === "fact" ? "fait constaté" : "estimation"} · {x.status}</span></p>)}</div>}

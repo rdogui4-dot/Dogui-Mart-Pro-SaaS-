@@ -38,8 +38,9 @@ export const cfgFrom = (raw: unknown): RecoCfg => { try { const r = normalizeCfg
 /** Mesure suivie par une règle : un compteur dont la baisse est favorable. Texte factuel, sans causalité ni promesse. */
 export type Measure = { label: string; value: number };
 export function outcomeText(before: Measure | null, after: { value: number; at: string } | null, beforeAt: string | null): string {
-  if (!before || !after) return "Aucune mesure comparable pour cette recommandation.";
-  const d = (s: string | null) => (s ? new Date(s).toLocaleDateString("fr-FR") : "—"); const diff = after.value - before.value;
+  const d = (s: string | null) => (s ? new Date(s).toLocaleDateString("fr-FR") : "—");
+  if (!before) return "Aucune mesure comparable pour cette recommandation.";
+  if (!after) return `Mesure de départ : ${before.label} = ${before.value} le ${d(beforeAt)}. Elle sera relevée de nouveau à la prochaine actualisation ; l'évolution sera indiquée sans l'attribuer à cette action.`; const diff = after.value - before.value;
   const trend = diff === 0 ? "inchangé" : diff < 0 ? `en baisse de ${-diff}` : `en hausse de ${diff}`;
   return `${before.label} : ${before.value} le ${d(beforeAt)} -> ${after.value} le ${d(after.at)} (${trend}). Évolution observée entre deux dates ; elle n'est pas attribuée à cette action.`;
 }

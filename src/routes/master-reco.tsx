@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { CFG_HELP, STATUS_LABEL, type Prio, type RStatus, type RecoCfg } from "@/domain/master-reco";
 import { PRIO_LABEL } from "@/domain/master-report";
+import { ExportBar } from "@/routes/master-export";
+import { recosToData } from "@/domain/master-export";
 
 type Reco = { id: string; rule: string; module: string; shopName: string; prio: Prio; title: string; reason: string; sources: { module: string; period: string; detail: string }[]; kind: string; confidenceLabel: string; status: RStatus; statusLabel: string; statusAt: string; note: string; snoozeUntil: string | null; createdAt: string; limits: string; next: RStatus[]; metric: { label: string; value: number } | null; followUp: { text: string; due: boolean } | null };
 type L = { recos: Reco[]; total: number; counts: Record<RStatus, number>; order: string; canGenerate: boolean; canDecide: boolean; cfg: RecoCfg; rules: { id: string; label: string; module: string; pro: boolean; need: string }[]; shops: { id: string; name: string }[] };
@@ -30,6 +32,7 @@ export function Recos() {
       {cfgOpen && <CfgForm cfg={l.cfg} onDone={() => { setCfgOpen(false); refresh(); }} />}
       <div className="flex gap-2 flex-wrap" role="group" aria-label="Filtrer par statut"><button className="chip" aria-pressed={filter === ""} aria-current={filter === ""} onClick={() => setFilter("")}>Toutes ({l.total})</button>{(Object.keys(STATUS_LABEL) as RStatus[]).map((k) => <button key={k} className="chip" aria-pressed={filter === k} aria-current={filter === k} onClick={() => setFilter(k)}>{STATUS_LABEL[k]} ({l.counts[k] ?? 0})</button>)}</div>
       <p className="text-[11px] text-white/40">{l.order}</p>
+      {l.recos.length > 0 && <ExportBar label="Exporter la liste" build={() => recosToData(l.recos.map((r) => ({ ...r, kind: r.kind })), { scope: s.role === "owner" ? "Entreprise" : "Mes boutiques", filter: filter ? STATUS_LABEL[filter] : "" })} />}
       {l.recos.length === 0 && <p className="card text-sm text-white/60">Aucune recommandation{filter ? " pour ce statut" : ""}. {l.canGenerate ? "Lancez une actualisation : sans constat sur vos données, rien n'est proposé." : ""}</p>}
       {l.recos.map((r) => (
         <div key={r.id} className="card flex flex-col gap-1 text-sm"><div className="flex justify-between gap-2"><b className={`text-xs ${TONE[r.prio]}`}>{PRIO_LABEL[r.prio]}</b><span className="text-xs text-white/60">{r.statusLabel}</span></div>
