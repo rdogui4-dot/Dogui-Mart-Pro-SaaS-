@@ -24,6 +24,7 @@ describe("page publique /presentation/", () => {
   it("aucun contenu non vérifiable : pas de témoignage ni de chiffre de clientèle", () => {
     expect(text).not.toMatch(/témoignage|clients satisfaits|\d+\s*(commerçants|clients actifs)/i);
   });
+  it("contact WhatsApp fourni par le propriétaire", () => { expect(html).toContain("https://wa.me/2250544165418"); });
   it("le contenu reste visible sans JavaScript et en mouvement réduit", () => {
     expect(html).toContain("<noscript>"); expect(html).toContain("prefers-reduced-motion");
   });
