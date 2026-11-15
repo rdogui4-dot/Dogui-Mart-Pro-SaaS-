@@ -50,6 +50,7 @@ export function AuthPage() {
       <div className="flex flex-col items-center gap-3 text-center pt-4">
         <Logo size={64} />
         <p className="text-muted text-sm">Caisse, stock, achats, clients et compta dans votre poche.</p>
+        <a className="text-sm text-accent-text underline" href={`${import.meta.env.BASE_URL}presentation/`}>Découvrir Dogui Mart Pro</a>
         <ul className="flex gap-4 text-xs text-muted">
           <li className="flex items-center gap-1"><ScanLine size={14} className="text-accent-text" />Caisse</li>
           <li className="flex items-center gap-1"><Boxes size={14} className="text-accent-text" />Multi-boutiques</li>

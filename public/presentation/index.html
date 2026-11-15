@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dogui Mart Pro — caisse, stock, achats et comptabilité pour votre commerce</title>
+<meta name="description" content="Dogui Mart Pro : application de gestion de commerce en FCFA. Caisse, stock, achats, clients, tableaux de bord et comptabilité, avec ou sans connexion.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Dogui Mart Pro — gestion de commerce">
+<meta property="og:description" content="Caisse, stock, achats, clients, tableaux de bord et comptabilité. Montants en FCFA, utilisable avec ou sans connexion.">
+<meta property="og:image" content="https://rdogui4-dot.github.io/Dogui-Mart-Pro-SaaS-/logo.png">
+<meta name="theme-color" content="#f4f6f9">
+<link rel="icon" href="../icon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f4f6f9;--surface:#fff;--line:#d3dae4;--line-strong:#7b8798;--main:#10243a;--soft:#34465c;--muted:#54657a;--accent:#2563eb;--accent-ink:#fff;--accent-text:#1d4fc4;--accent-soft:#e3edfd;--dur:.5s;--ease:cubic-bezier(.2,0,0,1)}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1621;--surface:#152233;--line:#2a3b52;--line-strong:#6b7f99;--main:#e8eef6;--soft:#c3cfdd;--muted:#9db0c5;--accent:#6ea0ff;--accent-ink:#0b1a33;--accent-text:#8db4ff;--accent-soft:#1b2f52}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--main);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+a{color:var(--accent-text)}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:68rem;margin:0 auto;padding:0 1rem}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:center;gap:1rem;min-height:3.5rem}
+.brand{display:flex;align-items:center;gap:.6rem;font-weight:700;color:var(--main);text-decoration:none}
+.brand img{width:32px;height:32px;border-radius:8px}
+nav.links{margin-left:auto;display:flex;gap:1rem;align-items:center;font-size:.95rem}
+nav.links a.anchor{color:var(--soft);text-decoration:none;display:none}
+@media(min-width:760px){nav.links a.anchor{display:inline}}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:.5rem 1.1rem;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-weight:600;text-decoration:none;border:1px solid var(--accent)}
+.btn.ghost{background:transparent;color:var(--main);border-color:var(--line-strong)}
+.btn:hover{filter:brightness(.94)}
+.hero{padding:3.5rem 0 2.5rem}
+.hero h1{font-size:clamp(1.9rem,5vw,3rem);line-height:1.15;margin:0 0 1rem;letter-spacing:-.02em;max-width:22ch}
+.hero p.lead{font-size:1.15rem;color:var(--soft);max-width:46rem;margin:0 0 1.5rem}
+.cta{display:flex;gap:.75rem;flex-wrap:wrap}
+.facts{display:grid;gap:.75rem;margin:2rem 0 0;padding:0;list-style:none;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))}
+.facts li{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:.9rem 1rem;color:var(--soft)}
+.facts b{display:block;color:var(--main)}
+section{padding:2.5rem 0}section h2{font-size:1.6rem;margin:0 0 .5rem;letter-spacing:-.01em}
+section p.sub{color:var(--muted);margin:0 0 1.5rem;max-width:44rem}
+.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.1rem}
+.card h3{margin:0 0 .35rem;font-size:1.05rem}.card p{margin:0;color:var(--soft);font-size:.95rem}
+.plans{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))}
+.plan .price{font-size:1.7rem;font-weight:700;margin:.25rem 0}.plan .price small{font-size:.9rem;font-weight:400;color:var(--muted)}
+.plan ul{margin:.5rem 0 0;padding-left:1.1rem;color:var(--soft);font-size:.95rem}
+.note{color:var(--muted);font-size:.9rem;margin-top:1rem;max-width:46rem}
+.master{background:var(--accent-soft);border:1px solid var(--line);border-radius:12px;padding:1.25rem}
+details{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:.8rem 1rem;margin-bottom:.6rem}
+summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center}
+details p{margin:.25rem 0 .5rem;color:var(--soft)}
+footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--muted);font-size:.9rem}
+/* Mouvement : une seule animation d'apparition (opacité + 16 px), décalée de 60 ms ; contenu visible sans JavaScript et en mouvement réduit */
+.js [data-reveal]{opacity:0;transform:translateY(16px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);transition-delay:calc(var(--i,0)*60ms)}
+.js [data-reveal].in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.js [data-reveal]{opacity:1;transform:none;transition:none}}
+</style>
+<script>document.documentElement.className+=" js"</script>
+<noscript><style>.js [data-reveal]{opacity:1!important;transform:none!important}</style></noscript>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="./"><img src="../icon-192.png" alt="" width="32" height="32"><span>Dogui Mart Pro</span></a>
+  <nav class="links" aria-label="Sections">
+    <a class="anchor" href="#fonctions">Fonctions</a><a class="anchor" href="#offres">Offres</a><a class="anchor" href="#master">MASTER DOGUI</a><a class="anchor" href="#questions">Questions</a>
+    <a class="btn" href="../">Se connecter</a>
+  </nav>
+</div></header>
+
+<main>
+<div class="wrap">
+  <div class="hero">
+    <h1>Votre commerce, de la caisse à la comptabilité.</h1>
+    <p class="lead">Dogui Mart Pro réunit la caisse, le stock, les achats, les clients, les tableaux de bord et la comptabilité dans une application qui s'installe sur le téléphone et continue de vendre quand le réseau coupe. Tous les montants sont en FCFA.</p>
+    <div class="cta"><a class="btn" href="../">Créer mon commerce</a><a class="btn ghost" href="#offres">Voir les offres</a></div>
+    <ul class="facts">
+      <li><b>Avec ou sans connexion</b>Les ventes faites hors ligne sont mises en attente puis envoyées au retour du réseau.</li>
+      <li><b>Plusieurs boutiques</b>Une entreprise, plusieurs boutiques, des droits par personne.</li>
+      <li><b>Chiffres traçables</b>Ventes, remboursements, écarts de caisse et ajustements de stock sont journalisés.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="wrap" id="fonctions"><section>
+  <h2>Ce que vous pouvez gérer</h2>
+  <p class="sub">Les fonctions de base sont dans toutes les formules ; les fonctions avancées sont indiquées par leur formule.</p>
+  <div class="grid">
+    <div class="card" data-reveal style="--i:0"><h3>Caisse</h3><p>Encaissement rapide, paiements mixtes (espèces, mobile money, carte), tickets. Dès Business : sessions de caisse, écarts, remboursements et annulations tracés.</p></div>
+    <div class="card" data-reveal style="--i:1"><h3>Stock et inventaires</h3><p>Mouvements, alertes de rupture, transferts entre boutiques. Dès Business : inventaire en comptage à l'aveugle avec ajustements tracés.</p></div>
+    <div class="card" data-reveal style="--i:2"><h3>Achats et dépenses</h3><p>Fournisseurs, commandes, réceptions, factures et paiements. Dépenses avec justificatif et sorties de caisse rattachées à la session.</p></div>
+    <div class="card" data-reveal style="--i:3"><h3>Clients</h3><p>Fiches clients, historique réel des achats, fidélité et crédit. Prospects et relances dès Business.</p></div>
+    <div class="card" data-reveal style="--i:4"><h3>Tableaux de bord</h3><p>Chiffre d'affaires, ventes, marge, stock et alertes calculés à partir de vos données. Analyses de rentabilité et exports PDF, Excel, CSV en Pro.</p></div>
+    <div class="card" data-reveal style="--i:5"><h3>Comptabilité et finance</h3><p>Comptes par boutique, flux, rapprochement, écritures validées et chaînées, grand livre et clôture. Projets d'investissement et scénarios.</p></div>
+  </div>
+</section></div>
+
+<div class="wrap" id="offres"><section>
+  <h2>Offres</h2>
+  <p class="sub">Prix par mois en FCFA. D'autres durées (jour, semaine, trimestre, année) sont proposées dans l'application.</p>
+  <div class="plans">
+    <div class="card plan" data-reveal style="--i:0"><h3>Starter</h3><div class="price">7 500 FCFA <small>/ mois</small></div>
+      <ul><li>1 boutique</li><li>2 utilisateurs</li><li>200 articles</li></ul></div>
+    <div class="card plan" data-reveal style="--i:1"><h3>Business</h3><div class="price">15 000 FCFA <small>/ mois</small></div>
+      <ul><li>3 boutiques</li><li>10 utilisateurs</li><li>2 000 articles</li><li>Caisse intelligente, achats, CRM, finance, comptabilité</li></ul></div>
+    <div class="card plan" data-reveal style="--i:2"><h3>Pro</h3><div class="price">40 000 FCFA <small>/ mois</small></div>
+      <ul><li>20 boutiques</li><li>100 utilisateurs</li><li>Articles sans limite</li><li>Variantes, lots, séries, analyses avancées, exports</li></ul></div>
+  </div>
+  <p class="note">Ces tarifs sont ceux par défaut. Les tarifs en vigueur et les moyens de paiement s'affichent dans l'application (Réglages, Abonnement). Si vous passez à une formule inférieure, vos données sont conservées.</p>
+</section></div>
+
+<div class="wrap" id="master"><section>
+  <div class="master" data-reveal>
+    <h2>MASTER DOGUI</h2>
+    <p class="sub">Un module séparé qui lit vos données et vous aide à piloter : rapports de clôture, recommandations expliquées et assistant de questions.</p>
+    <ul>
+      <li>Essai gratuit de 14 jours, sans paiement, une seule fois.</li>
+      <li>Première période de 12 mois : 15 000 FCFA, réglés en une fois après l'essai ; ensuite 2 500 FCFA par mois.</li>
+      <li>Les chiffres affichés sont calculés par l'application à partir de vos ventes, de votre stock et de vos dépenses ; chaque réponse indique ses sources.</li>
+      <li>À l'expiration, vos rapports et conversations restent consultables.</li>
+    </ul>
+  </div>
+</section></div>
+
+<div class="wrap" id="questions"><section>
+  <h2>Questions fréquentes</h2>
+  <details><summary>Puis-je vendre sans connexion Internet ?</summary><p>Oui. Les ventes enregistrées hors ligne sont conservées sur l'appareil puis envoyées dès que le réseau revient. Si le serveur en refuse une, elle est signalée et reste à traiter.</p></details>
+  <details><summary>Comment installer l'application ?</summary><p>Ouvrez l'application dans le navigateur de votre téléphone puis utilisez « Ajouter à l'écran d'accueil ». Aucun magasin d'applications n'est nécessaire.</p></details>
+  <details><summary>Que deviennent mes données si je change de formule ?</summary><p>Elles sont conservées. Les fonctions d'une formule supérieure sont verrouillées, et vos données restent consultables.</p></details>
+  <details><summary>Qui peut voir quoi dans mon commerce ?</summary><p>Le gérant principal définit, pour chaque personne, les modules accessibles et les boutiques concernées.</p></details>
+  <details><summary>Où sont mes données ?</summary><p>Elles sont stockées sur un service d'hébergement de données (Appwrite). Les conditions d'utilisation et la politique de confidentialité seront publiées ici dès qu'elles auront été validées.</p></details>
+</section></div>
+</main>
+
+<footer><div class="wrap">© Dogui Mart Pro · <a href="../">Ouvrir l'application</a></div></footer>
+
+<script>
+(function(){
+  var els=document.querySelectorAll("[data-reveal]");
+  if(!("IntersectionObserver" in window)||matchMedia("(prefers-reduced-motion: reduce)").matches){els.forEach(function(e){e.classList.add("in")});return}
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target)}})},{threshold:.15});
+  els.forEach(function(e){io.observe(e)});
+})();
+</script>
+</body>
+</html>

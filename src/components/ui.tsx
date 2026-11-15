@@ -9,7 +9,7 @@ export function Thumb({ id, size = 64, className = "" }: { id?: string; size?: n
 
 export function Sheet({ title, onClose, children, back }: { title: string; onClose: () => void; children: ReactNode; back?: boolean }) {
   return (
-    <div className="fixed inset-0 z-40 bg-[var(--bg)] overflow-y-auto" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="sheet-in fixed inset-0 z-40 bg-[var(--bg)] overflow-y-auto" role="dialog" aria-modal="true" aria-label={title}>
       <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-3 bg-[var(--surface)] border-b border-[var(--line)]">
         <button className="p-2" aria-label="Fermer" onClick={onClose}>{back ? <ChevronLeft /> : <X />}</button><h2 className="font-bold truncate">{title}</h2>
       </div>
@@ -21,7 +21,7 @@ export function Sheet({ title, onClose, children, back }: { title: string; onClo
 export function Confirm({ text, confirmLabel, danger, onYes, onNo }: { text: string; confirmLabel: string; danger?: boolean; onYes: () => void; onNo: () => void }) {
   return (
     <div className="fixed inset-0 z-50 bg-[var(--overlay)] flex items-end sm:items-center justify-center p-4" role="alertdialog" aria-modal="true">
-      <div className="card w-full max-w-sm flex flex-col gap-3"><p>{text}</p>
+      <div className="card pop-in w-full max-w-sm flex flex-col gap-3"><p>{text}</p>
         <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={onNo}>Annuler</button><button className={`flex-1 ${danger ? "btn-ghost !border-bad !text-bad" : "btn"}`} onClick={onYes}>{confirmLabel}</button></div></div>
     </div>
   );
@@ -108,7 +108,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastCtx.Provider value={push}>
       {children}
       <div className="fixed z-[60] inset-x-3 bottom-20 md:bottom-4 md:left-auto md:right-4 md:w-96 flex flex-col gap-2 pointer-events-none" aria-live="polite">
-        {items.map((i) => <div key={i.id} className={`pointer-events-auto rounded-lg border px-3 py-2.5 text-sm bg-surface ${TONE_CLASS[i.tone]}`}>{i.text}</div>)}
+        {items.map((i) => <div key={i.id} className={`pop-in pointer-events-auto rounded-lg border px-3 py-2.5 text-sm bg-surface ${TONE_CLASS[i.tone]}`}>{i.text}</div>)}
       </div>
     </ToastCtx.Provider>
   );
