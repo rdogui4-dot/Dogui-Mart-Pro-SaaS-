@@ -1,16 +1,16 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, History, Tags, Layers, LayoutDashboard, Percent, LogOut, BookOpen, Boxes, Crown, Receipt, ScanLine, Settings, Users, AlertTriangle, TrendingUp, ShoppingBag, ShieldCheck, Banknote, PiggyBank, ClipboardList } from "lucide-react";
+import { LogOut, Crown, TrendingUp, AlertTriangle, ShoppingBag } from "lucide-react";
 import { formatFcfa } from "@/domain/money";
 import { isLow } from "@/domain/stock";
 import { isVirtualBundle } from "@/domain/bundles";
 import { Query } from "@/lib/appwrite";
 import { list, qtyOf, variantQty } from "@/lib/data";
-import { can, useSession, type Perm } from "@/lib/session";
-import { planAllows } from "@/domain/features";
+import { can, useSession } from "@/lib/session";
 import { stateLabel } from "@/domain/reminders";
 import { useSubscription } from "./subscription";
 import { getTheme, setTheme, type Theme } from "@/lib/theme";
+import { SPACES, itemsOf } from "@/lib/nav";
 import { useState } from "react";
 import { RejectedSales } from "@/components/RejectedSales";
 import { MasterBriefing, MasterReminder } from "./master";
@@ -20,29 +20,6 @@ type Sale = { total: number; status: string; soldAt: string };
 const greeting = () => { const h = new Date().getHours(); return h < 6 ? "Bonne nuit" : h < 18 ? "Bonjour" : "Bonsoir"; };
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); };
 
-const TILES: { to: string; label: string; hint: string; icon: typeof ScanLine; perm: Perm }[] = [
-  { to: "/pos", label: "Caisse", hint: "Encaisser une vente", icon: ScanLine, perm: "pos" },
-  { to: "/caisse", label: "Pilotage de caisse", hint: "Session, fond, écart, sorties", icon: Wallet, perm: "pos" },
-  { to: "/caisse-pro", label: "Caisse Pro", hint: "Approbations, écarts, performance, droits", icon: ShieldCheck, perm: "pos" },
-  { to: "/depenses", label: "Dépenses", hint: "Dépenses, justificatifs, sorties de caisse", icon: Banknote, perm: "pos" },
-  { to: "/depenses-pro", label: "Dépenses Pro", hint: "Budgets, échéances, trésorerie, prévisions", icon: PiggyBank, perm: "pos" },
-  { to: "/ventes", label: "Ventes", hint: "Historique, remboursements, tickets", icon: History, perm: "pos" },
-  { to: "/articles", label: "Articles", hint: "Catalogue, photos & prix", icon: Tags, perm: "stock" },
-  { to: "/promotions", label: "Promotions", hint: "Remises, codes & résultats", icon: Percent, perm: "stock" },
-  { to: "/activite", label: "Tableau de bord", hint: "Ventes, marge, stock & alertes", icon: LayoutDashboard, perm: "reports" },
-  { to: "/pilotage", label: "Pilotage Pro", hint: "Rentabilité, stocks, prévisions, exports", icon: TrendingUp, perm: "reports" },
-  { to: "/tableau", label: "Alertes articles", hint: "Péremption, marges, meilleurs articles (Pro)", icon: AlertTriangle, perm: "stock" },
-  { to: "/bundles", label: "Bundles", hint: "Packs d'articles à prix propre", icon: Layers, perm: "stock" },
-  { to: "/stock", label: "Stock", hint: "Produits & mouvements", icon: Boxes, perm: "stock" },
-  { to: "/inventaire", label: "Inventaire", hint: "Silent Count : comptage & écarts", icon: ClipboardList, perm: "stock" },
-  { to: "/clients", label: "Clients", hint: "Fidélité & crédit", icon: Users, perm: "customers" },
-  { to: "/achats", label: "Achats", hint: "Commandes & fournisseurs", icon: Receipt, perm: "purchases" },
-  { to: "/finance", label: "Finance", hint: "Comptes, flux, virements, rapprochement", icon: Banknote, perm: "accounting" },
-  { to: "/investissements", label: "Investissements", hint: "Projets, placements déclarés, scénarios", icon: TrendingUp, perm: "accounting" },
-  { to: "/master", label: "MASTER DOGUI", hint: "Licence, essai gratuit, conditions", icon: ShieldCheck, perm: "settings" },
-  { to: "/icompta", label: "ICompta", hint: "Facturation, écritures, grand livre, clôture", icon: BookOpen, perm: "finance" },
-  { to: "/reglages", label: "Réglages", hint: "Commerce, équipe, abonnement", icon: Settings, perm: "settings" },
-];
 
 export function HomePage() {
   const { session } = useSession(); const s = session!;
@@ -59,7 +36,6 @@ export function HomePage() {
   ];
   const low = lowNames;
   const ent = sub.data?.entitlement;
-  const visible = (to: string) => (to !== "/articles" || planAllows(ent?.plan.id, "articles")) && (to !== "/pilotage" || planAllows(ent?.plan.id, "proDashboard")) && (to !== "/caisse-pro" || planAllows(ent?.plan.id, "smartPosPro")) && (to !== "/depenses-pro" || planAllows(ent?.plan.id, "expensesPro")) && ((to !== "/caisse" && to !== "/ventes" && to !== "/depenses") || planAllows(ent?.plan.id, "smartPos")); // Articles : Business ou Pro uniquement
   const shopName = s.shops.find((x) => x.id === s.shopId)?.name;
   return (
     <div className="flex flex-col gap-4">
@@ -86,9 +62,9 @@ export function HomePage() {
           <AlertTriangle className="text-warn shrink-0" /><span className="text-sm"><b>{low.length} produit(s) à réapprovisionner</b><br /><span className="text-muted">{low.slice(0, 3).join(", ")}{low.length > 3 ? "…" : ""}</span></span>
         </Link>
       )}
-      <section aria-label="Modules" className="grid grid-cols-2 gap-3">
-        {TILES.filter((t) => can(s, t.perm) && visible(t.to)).map(({ to, label, hint, icon: I }) => (
-          <Link key={to} to={to} className="tile"><I size={26} /><b>{label}</b><span className="text-xs text-muted">{hint}</span></Link>
+      <section aria-label="Espaces" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {SPACES.filter((sp) => itemsOf(sp, s, ent?.plan.id).length > 0).map((sp) => (
+          <Link key={sp.id} to={`/espace/${sp.id}`} className="tile"><sp.icon size={22} /><b>{sp.label}</b><span className="text-sm text-muted">{itemsOf(sp, s, ent?.plan.id).map((i) => i.label).join(" · ")}</span></Link>
         ))}
       </section>
     </div>
@@ -104,9 +80,11 @@ export function PlusPage() {
       <h1 className="text-2xl font-bold">Plus</h1>
       <RejectedSales />
       <div className="card text-sm"><b>{s.name}</b><br /><span className="text-muted">{s.role === "owner" ? "Gérant principal (propriétaire)" : s.role}</span></div>
-      {TILES.filter((t) => can(s, t.perm) && (t.to !== "/articles" || planAllows(plan, "articles")) && (t.to !== "/pilotage" || planAllows(plan, "proDashboard")) && (t.to !== "/caisse-pro" || planAllows(plan, "smartPosPro")) && (t.to !== "/depenses-pro" || planAllows(plan, "expensesPro")) && ((t.to !== "/caisse" && t.to !== "/ventes" && t.to !== "/depenses") || planAllows(plan, "smartPos"))).map(({ to, label, hint, icon: I }) => (
-        <Link key={to} to={to} className="card flex items-center gap-3"><I className="text-accent-text" /><span><b>{label}</b><br /><span className="text-xs text-muted">{hint}</span></span></Link>
-      ))}
+      {SPACES.map((sp) => { const its = itemsOf(sp, s, plan); if (!its.length) return null; return (
+        <section key={sp.id} aria-label={sp.label} className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wide pt-2">{sp.label}</h2>
+          {its.map(({ to, label, hint }) => <Link key={to} to={to} className="card flex items-center gap-3"><span><b>{label}</b><br /><span className="text-xs text-muted">{hint}</span></span></Link>)}
+        </section>); })}
       <ThemeSwitch />
       <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => void logout()}><LogOut size={18} />Se déconnecter</button>
     </div>

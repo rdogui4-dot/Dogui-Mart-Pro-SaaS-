@@ -3,11 +3,12 @@ import { StrictMode, Suspense, lazy, type ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { onPlanDenied } from "@/lib/api";
-import { Navigate, RouterProvider, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { RouterProvider, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { routerBasepath } from "@/lib/basepath";
-import { SessionProvider, can, homePath, useSession, type Perm } from "@/lib/session";
+import { SessionProvider, can, useSession, type Perm } from "@/lib/session";
 import { Layout } from "@/components/Layout";
 import { ToastProvider } from "@/components/ui";
+import { ErrorPage, ForbiddenPage, NotFoundPage, SpacePage } from "@/routes/shell-pages";
 import { AuthPage } from "@/routes/auth";
 import { CreateTenantPage } from "@/routes/tenant-setup";
 import { HomePage, PlusPage } from "@/routes/home";
@@ -56,15 +57,15 @@ function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNod
   if (loading) return <p className="p-6 text-muted">Chargement…</p>;
   if (!session) return <AuthPage />;
   if (session.needsTenant) return <CreateTenantPage />;
-  return perm === null || can(session, perm) ? <>{children}</> : <Navigate to={homePath(session)} />;
+  return perm === null || can(session, perm) ? <>{children}</> : <ForbiddenPage />;
 }
-const root = createRootRoute({ component: () => <Guard perm={null}><Layout /></Guard> });
+const root = createRootRoute({ component: () => <Guard perm={null}><Layout /></Guard>, notFoundComponent: NotFoundPage, errorComponent: ({ error }) => <ErrorPage error={error} /> });
 const r = (path: string, perm: Perm | null, C: ComponentType) =>
   createRoute({ getParentRoute: () => root, path, component: () => <Guard perm={perm}><Suspense fallback={<div className="card h-24 animate-pulse bg-subtle" aria-busy="true" aria-label="Chargement" />}><C /></Suspense></Guard> });
 const tree = root.addChildren([
   // Redirection du routeur (et non d'un composant) : un composant d'accueil se monterait brièvement pendant un changement de page et renverrait à la caisse.
   createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
-  r("/accueil", null, HomePage), r("/plus", null, PlusPage),
+  r("/accueil", null, HomePage), r("/plus", null, PlusPage), r("/espace/$id", null, SpacePage),
   r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/inventaire", "stock", InventairePage), r("/caisse", "pos", CaissePage), r("/caisse-pro", "pos", CaisseProPage), r("/depenses", "pos", DepensesPage), r("/depenses-pro", "pos", DepensesProPage), r("/ventes", "pos", VentesPage), r("/activite", "reports", ActivitePage), r("/pilotage", "reports", PilotagePage), r("/tableau", "stock", DashboardPage), r("/promotions", "stock", PromotionsPage), r("/clients", "customers", ClientsPage),
   r("/finance", "accounting", FinancePage), r("/icompta", "finance", IComptaPage), r("/investissements", "accounting", InvestPage), r("/master", "settings", MasterPage), r("/merci", "settings", MerciPage), createRoute({ getParentRoute: () => root, path: "/compta", beforeLoad: () => { throw redirect({ to: "/icompta" }); } }), r("/achats", "purchases", AchatsPage), r("/reglages", "settings", SettingsPage),
 ]);

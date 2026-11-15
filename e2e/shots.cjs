@@ -11,7 +11,8 @@ const { start } = require("./harness.cjs");
   await h.call("article.save", { data: { name: "Huile 1 l", price: 1500, cost: 1100 }, initialQty: 20 }, A);
   await h.call("cash.open", { openingFloat: 5000 }, A);
   await h.call("checkout", { clientId: "shot-0001", lines: [{ productId: eau, qty: 4 }, { productId: riz, qty: 1 }], payments: [{ method: "cash", amount: 6500 }] }, A);
-  const pages = ["accueil", "plus", "pos", "stock", "articles", "ventes", "caisse", "activite", "reglages", "master"];
-  for (const p of pages) { try { await page.goto(h.url(p)); await page.waitForTimeout(1800); await page.screenshot({ path: path.join(dir, p + ".png") }); } catch (e) { console.log("KO", p, String(e.message).slice(0, 80)); } }
+  const pages = (process.argv[4] || "accueil,plus,espace/vendre,pos,stock,articles,ventes,caisse,activite,reglages,master,introuvable").split(",");
+  const W = Number(process.argv[5] || 390), H = Number(process.argv[6] || 800); await page.setViewportSize({ width: W, height: H });
+  for (const p of pages) { try { await page.goto(h.url(p)); await page.waitForTimeout(1800); await page.screenshot({ path: path.join(dir, p.replace("/", "-") + ".png") }); } catch (e) { console.log("KO", p, String(e.message).slice(0, 80)); } }
   await h.close?.(); process.exit(0);
 })();
