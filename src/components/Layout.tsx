@@ -7,7 +7,16 @@ import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
 import { LogoMark } from "./Logo";
 
+/** Écran large (≥ 768 px) : une seule navigation est rendue (latérale) ; sinon barre du bas. Évite deux navigations dans le DOM. */
+function useWide() {
+  const q = "(min-width: 768px)";
+  const [w, setW] = useState(() => typeof matchMedia === "function" && matchMedia(q).matches);
+  useEffect(() => { const m = matchMedia(q); const f = () => setW(m.matches); m.addEventListener("change", f); f(); return () => m.removeEventListener("change", f); }, []);
+  return w;
+}
+
 export function Layout() {
+  const wide = useWide();
   const { session, switchShop, logout, refresh } = useSession();
   const sub = useSubscription();
   const path = useRouterState({ select: (s) => s.location.pathname });
@@ -26,7 +35,7 @@ export function Layout() {
   const current = spaceOfPath(path);
   return (
     <div className="h-full flex flex-col md:flex-row pt-[env(safe-area-inset-top)]">
-      <aside aria-label="Espaces" className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-line bg-surface overflow-y-auto">
+      {wide && <aside aria-label="Espaces" className="flex flex-col w-60 shrink-0 border-r border-line bg-surface overflow-y-auto">
         <Link to="/accueil" className="flex items-center gap-2 px-4 py-3 border-b border-line"><LogoMark size={32} /><span className="font-bold">Dogui Mart Pro</span></Link>
         <nav aria-label="Navigation principale" className="flex flex-col gap-3 p-3">
           <SideLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
@@ -36,22 +45,22 @@ export function Layout() {
               {its.map((it) => <SideLink key={it.to} to={it.to} label={it.label} active={path === it.to || path.startsWith(it.to + "/")} />)}
             </div>); })}
         </nav>
-      </aside>
+      </aside>}
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="flex items-center gap-3 px-4 py-2 border-b border-line bg-surface">
-          <Link to="/accueil" aria-label="Accueil" className="p-1.5 -m-1.5 md:hidden"><LogoMark size={34} /></Link>
+          {!wide && <Link to="/accueil" aria-label="Accueil" className="p-1.5 -m-1.5"><LogoMark size={34} /></Link>}
           <div className="flex-1 min-w-0">
             {session && session.shops.length > 1
               ? <select aria-label="Boutique" className="bg-transparent font-semibold w-full max-w-xs outline-none truncate" value={session.shopId} onChange={(e) => switchShop(e.target.value)}>{session.shops.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
               : <span className="font-semibold truncate block">{shopName}</span>}
-            {current && <span className="hidden md:block text-xs text-muted">{current.label}</span>}
+            {wide && current && <span className="block text-xs text-muted">{current.label}</span>}
           </div>
           {rejected > 0 && <Link to="/plus" className="text-xs rounded-full bg-bad-bg text-bad border border-bad/40 px-3 py-1">{rejected} vente{rejected > 1 ? "s" : ""} à vérifier</Link>}
           {(!online || pending > 0) && <span className="flex items-center gap-1 text-xs rounded-full bg-warn-bg text-warn border border-warn/40 px-3 py-1">{!online && <WifiOff size={14} />}{online ? "Synchronisation" : "Hors ligne"} · {pending}</span>}
-          <div className="hidden md:flex items-center gap-2 pl-2 border-l border-line">
+          {wide && <div className="flex items-center gap-2 pl-2 border-l border-line">
             <span className="text-sm text-soft truncate max-w-40">{session?.name}</span>
             <button className="btn-ghost !py-1.5 !min-h-9 !px-3 text-sm flex items-center gap-1.5" onClick={() => void logout()}><LogOut size={15} />Quitter</button>
-          </div>
+          </div>}
         </header>
         <SubscriptionBanner />
         <main className="flex-1 overflow-y-auto p-4 pb-24 md:pb-6">
@@ -62,13 +71,13 @@ export function Layout() {
       
           </div>
         </main>
-        <BottomNav />
+        {!wide && <BottomNav />}
       </div>
     </div>
   );
   function BottomNav() {
     return (
-      <nav aria-label="Navigation" className="md:hidden fixed bottom-0 inset-x-0 bg-surface border-t border-line grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
+      <nav aria-label="Navigation" className="fixed bottom-0 inset-x-0 bg-surface border-t border-line grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
         <NavLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
         {PHONE_SPACES.map((id) => { const sp = SPACES.find((x) => x.id === id)!; return <NavLink key={id} to={`/espace/${id}`} label={sp.label} icon={sp.icon} active={current?.id === id || path === `/espace/${id}`} disabled={itemsOf(sp, session, plan).length === 0} />; })}
         <NavLink to="/plus" label="Plus" icon={MoreHorizontal} active={path === "/plus" || (!!current && !PHONE_SPACES.includes(current.id)) || (path.startsWith("/espace/") && !PHONE_SPACES.some((id) => path === `/espace/${id}`))} />
