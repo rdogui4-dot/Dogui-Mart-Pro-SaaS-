@@ -9,7 +9,7 @@ const dec = (t: string): unknown => JSON.parse(t, (_k, x) => (x && typeof x === 
 
 /** Recharge le cache de l'utilisateur AVANT l'affichage des écrans ; sans effet (et sans erreur) si rien n'est enregistré. */
 export async function restoreCache(qc: QueryClient, userId: string): Promise<void> {
-  try { const t = await (await db()).get("kv", `rq:${userId}`); if (typeof t === "string") hydrate(qc, dec(t) as DehydratedState); } catch { /* cache absent ou illisible : on repart du réseau */ }
+  try { const t = await (await db()).get("kv", `rq:${userId}`); if (typeof t === "string") { hydrate(qc, dec(t) as DehydratedState); /* données de l'appareil : affichées tout de suite mais jamais tenues pour fraîches, elles sont relues dès qu'un écran les demande */ void qc.invalidateQueries({ refetchType: "none" }); } } catch { /* cache absent ou illisible : on repart du réseau */ }
 }
 let stop: (() => void) | null = null;
 /** Enregistre (avec un court délai) les requêtes utiles à la caisse à chaque mise à jour du cache. */
