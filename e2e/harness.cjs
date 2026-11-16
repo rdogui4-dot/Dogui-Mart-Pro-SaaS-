@@ -54,7 +54,7 @@ async function start(opts = {}) {
     if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
     const json = (b, s = 200) => route.fulfill({ status: s, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(b) });
     if (p.includes("/storage/buckets/articles/files/")) { const id = p.split("/files/")[1].split("/")[0]; const f = st.files.get(id); return route.fulfill({ status: f ? 200 : 404, headers: { ...cors, "content-type": f?.mime ?? "text/plain" }, body: f ? Buffer.from(f.data) : "nf" }); }
-    if (p.endsWith("/account")) return json({ $id: "u1", name: "Dogui", email: "x@y.sn" });
+    if (p.endsWith("/account")) return json({ $id: "u1", name: "Dogui", email: "x@y.sn", emailVerification: true });
     if (p.endsWith("/teams")) return json({ total: 1, teams: [{ $id: T, name: "DOGUI MART" }] });
     if (p.includes("/memberships")) return json({ total: 1, memberships: [{ userId: "u1", roles: ["owner"] }] });
     if (p.includes("/executions")) {

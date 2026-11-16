@@ -4,12 +4,13 @@ import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
 import { authMessage } from "@/lib/auth-errors";
 import { Logo } from "@/components/Logo";
-import { ScanLine, Boxes, WifiOff } from "lucide-react";
+import { ScanLine, Boxes, WifiOff, Eye, EyeOff } from "lucide-react";
+import { hasRealEmail, sendVerification, takeVerifyResult } from "@/lib/verify";
 
 export function AuthPage() {
   // Retour du lien reçu par e-mail : Appwrite ajoute userId et secret à l'adresse de l'application.
-  const recoveryParams = (() => { const q = new URLSearchParams(window.location.search); return q.get("userId") && q.get("secret") ? { userId: q.get("userId")!, secret: q.get("secret")! } : null; })();
-  const [mode, setMode] = useState<"login" | "signup" | "forgot" | "reset">(recoveryParams ? "reset" : "login"); const [info, setInfo] = useState("");
+  const recoveryParams = (() => { const q = new URLSearchParams(window.location.search); return q.get("userId") && q.get("secret") && q.get("verify") !== "1" ? { userId: q.get("userId")!, secret: q.get("secret")! } : null; })();
+  const [mode, setMode] = useState<"login" | "signup" | "forgot" | "reset">(recoveryParams ? "reset" : "login"); const [info, setInfo] = useState(takeVerifyResult() === "ok" ? "Adresse e-mail confirmée. Connectez-vous pour continuer." : ""); const [show, setShow] = useState(false);
   const [f, setF] = useState({ name: "", shop: "", email: "", password: "" });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const { refresh } = useSession();
@@ -36,6 +37,7 @@ export function AuthPage() {
       if (mode === "signup") {
         await account.create({ userId: ID.unique(), email: login, password: f.password, name: f.name });
         await account.createEmailPasswordSession({ email: login, password: f.password });
+        if (hasRealEmail(login)) void sendVerification().catch(() => undefined); // non bloquant : un rappel s'affiche dans l'application tant que l'adresse n'est pas confirmée
         // Un commerçant = une Team (tenant) ; le créateur en est "owner".
         const team = await teams.create({ teamId: ID.unique(), name: f.shop || f.name, roles: ["owner"] });
         // Si le serveur est momentanément indisponible, l'inscription aboutit quand même : la première boutique sera recréée à la connexion.
@@ -60,11 +62,14 @@ export function AuthPage() {
       <form onSubmit={submit} className="card flex flex-col gap-3">
         <h1 className="text-lg font-bold">{mode === "login" ? "Connexion" : mode === "signup" ? "Créer mon commerce" : mode === "forgot" ? "Mot de passe oublié" : "Nouveau mot de passe"}</h1>
         {mode === "signup" && <>
-          <input aria-label="Votre nom" autoComplete="name" className="input" placeholder="Votre nom" value={f.name} onChange={set("name")} required />
-          <input aria-label="Nom de la boutique" autoComplete="organization" className="input" placeholder="Nom de la boutique" value={f.shop} onChange={set("shop")} required />
+          <label className="flex flex-col gap-1 text-sm"><span className="text-soft">Nom de votre boutique</span><input autoComplete="organization" className="input" placeholder="Ex. : Boutique Awa" value={f.shop} onChange={set("shop")} required /></label>
+          <label className="flex flex-col gap-1 text-sm"><span className="text-soft">Votre nom</span><input autoComplete="name" className="input" placeholder="Ex. : Awa Traoré" value={f.name} onChange={set("name")} required /></label>
         </>}
-        {mode !== "reset" && <input className="input" aria-label={mode === "login" ? "E-mail ou identifiant" : "E-mail"} autoComplete={mode === "login" ? "username" : "email"} type={mode === "login" ? "text" : "email"} autoCapitalize="none" placeholder={mode === "login" ? "E-mail ou identifiant" : "E-mail"} value={f.email} onChange={set("email")} required />}
-        {mode !== "forgot" && <input className="input" aria-label="Mot de passe" autoComplete={mode === "login" ? "current-password" : "new-password"} type="password" placeholder={mode === "reset" ? "Nouveau mot de passe (8+)" : "Mot de passe (8+)"} minLength={8} value={f.password} onChange={set("password")} required />}
+        {mode !== "reset" && <label className="flex flex-col gap-1 text-sm"><span className="text-soft">{mode === "login" ? "E-mail ou identifiant" : "Adresse e-mail"}</span><input className="input" autoComplete={mode === "login" ? "username" : "email"} type={mode === "login" ? "text" : "email"} autoCapitalize="none" placeholder={mode === "login" ? "E-mail ou identifiant d'employé" : "vous@exemple.com"} value={f.email} onChange={set("email")} required /></label>}
+        {mode !== "forgot" && <label className="flex flex-col gap-1 text-sm"><span className="text-soft">{mode === "reset" ? "Nouveau mot de passe" : "Mot de passe"}</span>
+          <span className="relative block"><input className="input pr-12" autoComplete={mode === "login" ? "current-password" : "new-password"} type={show ? "text" : "password"} minLength={8} required value={f.password} onChange={set("password")} />
+            <button type="button" className="absolute right-1 top-1/2 -translate-y-1/2 p-2 text-muted" aria-label={show ? "Masquer le mot de passe" : "Afficher le mot de passe"} onClick={() => setShow(!show)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></span>
+          {mode !== "login" && <span className="text-xs text-muted">8 caractères minimum.</span>}</label>}
         {info && <p className="text-ok text-sm" role="status">{info}</p>}
         {err && <p className="text-bad text-sm" role="alert">{err}</p>}
         <button className="btn" disabled={busy}>{mode === "login" ? "Se connecter" : mode === "signup" ? "Créer mon commerce" : mode === "forgot" ? "Envoyer le lien" : "Enregistrer le mot de passe"}</button>

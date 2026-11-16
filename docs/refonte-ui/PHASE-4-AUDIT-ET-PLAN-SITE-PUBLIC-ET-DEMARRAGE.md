@@ -45,3 +45,13 @@ Phases 1 à 3 publiées. Décision D3 actée : pas de nom de domaine, adresse Gi
 
 ## 5. Ce que je ne ferai pas
 Déplacer l'application, publier des conditions juridiques non validées, afficher des chiffres de clientèle ou des témoignages, collecter des e-mails de prospects (pas de formulaire de « newsletter » : aucun envoi externe n'est activé).
+
+---
+## 6. Réalisation (16/11/2026)
+| Élément | État | Vérification |
+|---|---|---|
+| Page publique `/presentation/` (WhatsApp +225 05 44 16 54 18) | publiée le 15/11 | test unitaire sur tarifs/limites ; **affichage réel à confirmer par le propriétaire** |
+| Guide de démarrage (accueil, propriétaire) | codé : 5 étapes déduites des données réelles (boutique renseignée, article, session de caisse si la formule la permet, vente, collaborateur), masquable par appareil, disparaît quand tout est fait | test unitaire de la logique + capture ; **non éprouvé sur un vrai compte** |
+| Vérification d'e-mail non bloquante | codée : envoi à l'inscription (vraie adresse seulement), bandeau de rappel avec renvoi, page de retour `?verify=1&userId=&secret=` | tests unitaires des règles ; **l'envoi réel et le retour du lien n'ont PAS été testés** (dépend de l'envoi d'e-mails du projet Appwrite et de la liste des plateformes autorisées) |
+| Inscription simplifiée | libellés visibles, exemples, bouton afficher/masquer le mot de passe, indication « 8 caractères minimum » | capture ; aucune règle d'inscription modifiée |
+À faire par le propriétaire pour valider la vérification d'e-mail : créer un compte avec une vraie adresse, vérifier la réception du message et l'ouverture du lien ; si Appwrite refuse l'URL de retour, ajouter le nom d'hôte du site dans la liste des plateformes du projet.

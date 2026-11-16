@@ -16,6 +16,8 @@ export type Session = {
   setupError?: string;
   /** Compte connecté mais sans commerce (inscription interrompue) : l'application propose de le créer. */
   needsTenant?: boolean;
+  /** Adresse du compte et état de confirmation (connus seulement en ligne). */
+  email?: string; emailVerified?: boolean;
 };
 type Ctx = { session: Session | null; loading: boolean; refresh: () => Promise<void>; logout: () => Promise<void>; switchShop: (id: string) => void };
 const C = createContext<Ctx>(null as never);
@@ -72,7 +74,7 @@ async function loadOnline(): Promise<Session | null> {
     }
     const want = remembered(me.$id);
     const shopId = shops.find((s) => s.id === want)?.id ?? shops[0]?.id ?? "";
-    return { userId: me.$id, name: me.name, tenantId: team.$id, shopId, role, shops, modules, setupError };
+    return { userId: me.$id, name: me.name, tenantId: team.$id, shopId, role, shops, modules, setupError, email: me.email, emailVerified: me.emailVerification };
   }
 }
 

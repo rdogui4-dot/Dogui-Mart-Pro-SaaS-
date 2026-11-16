@@ -6,6 +6,8 @@ import { SPACES, itemsOf, spaceOfPath } from "@/lib/nav";
 import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
 import { LogoMark } from "./Logo";
+import { Notice } from "./ui";
+import { clearVerifyResult, sendVerification, shouldAskVerification, takeVerifyResult } from "@/lib/verify";
 
 /** Écran large (≥ 768 px) : une seule navigation est rendue (latérale) ; sinon barre du bas. Évite deux navigations dans le DOM. */
 function useWide() {
@@ -63,6 +65,7 @@ export function Layout() {
           </div>}
         </header>
         <SubscriptionBanner />
+        <div className="px-4 pt-3 empty:hidden mx-auto w-full max-w-5xl"><VerifyBanner /></div>
         <main className="flex-1 overflow-y-auto p-4 pb-24 md:pb-6">
           <div key={path} className="page-in mx-auto w-full max-w-5xl">
         {sub.data?.entitlement.state === "locked" && !(session?.role === "owner" && path.startsWith("/reglages"))
@@ -95,4 +98,23 @@ function NavLink({ to, label, icon: I, active, disabled }: { to: string; label: 
 
 function SideLink({ to, label, icon: I, active }: { to: string; label: string; icon?: LucideIcon; active: boolean }) {
   return <Link to={to} aria-current={active ? "page" : undefined} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm min-h-9 ${active ? "bg-accent-soft text-accent-text font-semibold" : "text-soft hover:bg-subtle"}`}>{I && <I size={18} />}{label}</Link>;
+}
+
+/** Rappel non bloquant : adresse e-mail non confirmée (sert à récupérer le mot de passe). Aucune fonction n'est coupée. */
+export function VerifyBanner() {
+  const { session, refresh } = useSession();
+  const [result, setResult] = useState(takeVerifyResult()); const [sent, setSent] = useState(false); const [err, setErr] = useState(""); const [hide, setHide] = useState(false);
+  useEffect(() => { if (result === "ok") { void refresh(); clearVerifyResult(); } }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (result === "ok") return <Notice tone="ok" title="Adresse e-mail confirmée">Merci : vous pourrez récupérer votre mot de passe par e-mail.</Notice>;
+  if (result === "error") return <Notice tone="warn" title="Le lien de confirmation n'a pas fonctionné">Il a peut-être expiré. <button className="underline" onClick={() => { clearVerifyResult(); setResult(null); }}>Fermer</button> puis demandez un nouvel e-mail.</Notice>;
+  if (hide || !shouldAskVerification(session?.email, session?.emailVerified)) return null;
+  return (
+    <Notice tone="info" title="Confirmez votre adresse e-mail">
+      <span>Elle sert à récupérer votre mot de passe en cas d'oubli. {sent ? "E-mail envoyé : ouvrez le lien qu'il contient (vérifiez aussi les courriers indésirables)." : ""}{err && <b className="text-bad"> {err}</b>}</span>
+      <span className="flex gap-3 pt-1">
+        <button className="underline" onClick={async () => { setErr(""); try { await sendVerification(); setSent(true); } catch (e) { setErr((e as Error).message || "Envoi impossible pour le moment."); } }}>{sent ? "Renvoyer l'e-mail" : "Recevoir l'e-mail de confirmation"}</button>
+        <button className="underline text-muted" onClick={() => setHide(true)}>Plus tard</button>
+      </span>
+    </Notice>
+  );
 }

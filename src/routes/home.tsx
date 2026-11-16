@@ -11,6 +11,10 @@ import { stateLabel } from "@/domain/reminders";
 import { useSubscription } from "./subscription";
 import { getTheme, setTheme, type Theme } from "@/lib/theme";
 import { SPACES, itemsOf } from "@/lib/nav";
+import { startProgress, startSteps } from "@/domain/onboarding";
+import { getShop } from "@/lib/data";
+import { planAllows } from "@/domain/features";
+import { Check, Circle } from "lucide-react";
 import { useState } from "react";
 import { RejectedSales } from "@/components/RejectedSales";
 import { MasterBriefing, MasterReminder } from "./master";
@@ -42,6 +46,7 @@ export function HomePage() {
       <RejectedSales />
       <MasterReminder />
       <MasterBriefing />
+      <StartGuide />
       <header>
         <p className="text-muted text-sm">{greeting()},</p>
         <h1 className="text-2xl font-bold">{s.name}</h1>
@@ -102,5 +107,42 @@ function ThemeSwitch() {
         <button className="chip" aria-current={t === "dark"} onClick={() => pick("dark")}>Sombre</button>
       </div>
     </div>
+  );
+}
+
+const guideKey = (t: string) => `dmp.guide.hidden.${t}`;
+const guideHidden = (t: string) => { try { return localStorage.getItem(guideKey(t)) === "1"; } catch { return false; } };
+
+/** Guide de démarrage du propriétaire : l'état de chaque étape est déduit des données réelles ; masquable (par appareil) ; disparaît quand tout est fait. */
+function StartGuide() {
+  const { session } = useSession(); const s = session!; const sub = useSubscription();
+  const owner = s.role === "owner" && !!s.shopId;
+  const [hidden, setHidden] = useState(guideHidden(s.tenantId));
+  const one = (table: string, extra: string[] = []) => list<{ role?: string }>(table, s, extra, 5);
+  const q = useQuery({
+    queryKey: ["start-guide", s.shopId], enabled: owner && !hidden, staleTime: 10_000,
+    queryFn: async () => {
+      const [shop, products, sessions, sales, staff] = await Promise.all([getShop(s), one("products"), one("cash_sessions").catch(() => []), one("sales"), one("staff").catch(() => [])]);
+      return { shopDetails: !!(shop?.address || shop?.phone), articles: products.length, cashSessions: sessions.length, sales: sales.length, collaborators: staff.filter((x) => x.role !== "owner").length };
+    },
+  });
+  if (!owner || hidden || !q.data) return null;
+  const steps = startSteps({ ...q.data, cashSessionAvailable: planAllows(sub.data?.entitlement.plan.id, "smartPos") });
+  const p = startProgress(steps);
+  if (p.complete) return null;
+  return (
+    <section className="card flex flex-col gap-3" aria-label="Guide de démarrage">
+      <div className="flex items-start justify-between gap-3">
+        <div><h2 className="font-bold">Bien démarrer</h2><p className="text-sm text-muted">{p.done} étape{p.done > 1 ? "s" : ""} sur {p.total} terminée{p.done > 1 ? "s" : ""}</p></div>
+        <button className="text-sm text-muted underline" onClick={() => { try { localStorage.setItem(guideKey(s.tenantId), "1"); } catch { /* préférence non mémorisée */ } setHidden(true); }}>Masquer</button>
+      </div>
+      <div className="h-1.5 rounded bg-subtle" role="progressbar" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done} aria-label="Progression du démarrage"><div className="h-1.5 rounded bg-accent" style={{ width: `${(p.done / p.total) * 100}%` }} /></div>
+      <ul className="flex flex-col">{steps.map((st) => (
+        <li key={st.id}><Link to={st.to} className="flex items-center gap-3 py-2.5 border-t border-line first:border-t-0">
+          {st.done ? <Check size={18} className="text-ok shrink-0" aria-label="Terminé" /> : <Circle size={18} className="text-muted shrink-0" aria-label="À faire" />}
+          <span className={st.done ? "text-muted" : ""}><b className={st.done ? "font-medium line-through" : ""}>{st.label}</b><br /><span className="text-xs text-muted">{st.hint}</span></span>
+        </Link></li>))}
+      </ul>
+    </section>
   );
 }
