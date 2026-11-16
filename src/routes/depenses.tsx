@@ -1,4 +1,8 @@
 import { useState } from "react";
+import { DataGrid, StatusPill } from "@/components/DataGrid";
+import { ExpensesTabs } from "@/components/ExpensesTabs";
+import { useMinWidth } from "@/lib/media";
+import { usePersistedState } from "@/lib/prefs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, Paperclip, Plus, WifiOff } from "lucide-react";
 import { Link } from "@tanstack/react-router";
@@ -39,38 +43,50 @@ export function DepensesPage() {
   const [tab, setTab] = useState<"list" | "report" | "settings">("list"); const [form, setForm] = useState(false); const [open, setOpen] = useState<string | null>(null);
   const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("exp") || String(q.queryKey[0]).startsWith("cash") || String(q.queryKey[0]) === "overview" });
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Dépenses</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Dépenses avec justificatif, sorties de caisse, validation et rapports.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>;
-  const tabs: [string, string][] = [["list", "Dépenses"], ...(R.includes("view") ? ([["report", "Rapports"]] as [string, string][]) : []), ...(owner || R.includes("approve") ? ([["settings", "Réglages"]] as [string, string][]) : [])];
+  const tabs: [string, string][] = [["list", "Liste"], ...(R.includes("view") ? ([["report", "Rapports"]] as [string, string][]) : []), ...(owner || R.includes("approve") ? ([["settings", "Réglages"]] as [string, string][]) : [])];
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2"><h1 className="text-2xl font-bold">Dépenses</h1>{R.includes("create") && <button className="btn !py-2 flex items-center gap-1" onClick={() => setForm(true)}><Plus size={16} />Nouvelle</button>}</div>
       {!navigator.onLine && <div className="card border border-warn/40 text-sm flex gap-2" role="alert"><WifiOff size={16} className="text-warn shrink-0 mt-0.5" /><span>Hors ligne : les dépenses nécessitent une connexion (validation et caisse côté serveur).</span></div>}
+      <ExpensesTabs current="/depenses" />
       <nav aria-label="Sections" className="scroll-x">{tabs.map(([k, l]) => <button key={k} className="chip" aria-current={tab === k} onClick={() => setTab(k as never)}>{l}</button>)}</nav>
       {rights.error && <Err e={rights.error} />}
       {tab === "list" && <List cats={cats.data} canViewAll={R.includes("view")} onOpen={setOpen} />}
       {tab === "report" && R.includes("view") && <Report cats={cats.data} />}
       {tab === "settings" && <Settings cats={cats.data} owner={owner} onDone={refresh} />}
-      {form && <Sheet title="Nouvelle dépense" onClose={() => setForm(false)} back><Form cats={cats.data} canApprove={R.includes("approve")} onDone={() => { setForm(false); refresh(); }} /></Sheet>}
-      {open && <Sheet title="Dépense" onClose={() => setOpen(null)} back><DetailView id={open} cats={cats.data} rights={R} onChanged={refresh} /></Sheet>}
+      {form && <Sheet title="Nouvelle dépense" onClose={() => setForm(false)} back size="lg"><Form cats={cats.data} canApprove={R.includes("approve")} onDone={() => { setForm(false); refresh(); }} /></Sheet>}
+      {open && <Sheet title="Dépense" onClose={() => setOpen(null)} back size="panel"><DetailView id={open} cats={cats.data} rights={R} onChanged={refresh} /></Sheet>}
     </div>
   );
 }
 
 function List({ cats, canViewAll, onOpen }: { cats?: Cats; canViewAll: boolean; onOpen: (id: string) => void }) {
-  const { session } = useSession(); const s = session!; const [f, setF] = useState({ from: dayOff(-30), to: today(), q: "", category: "", status: "", source: "", method: "", userId: "" });
+  const { session } = useSession(); const s = session!; const md = useMinWidth(768); const wide = useMinWidth(1024); const [pf, setPf, resetPf] = usePersistedState(`dmp.pref.${s.tenantId}.depenses`, { category: "", status: "", source: "", method: "", userId: "" }); const [dt, setDt] = useState({ from: dayOff(-30), to: today(), q: "" }); const f = { ...dt, ...pf }; const setF = (v: typeof f) => { setDt({ from: v.from, to: v.to, q: v.q }); setPf({ category: v.category, status: v.status, source: v.source, method: v.method, userId: v.userId }); }; const nActive = [pf.category, pf.status, pf.source, pf.method, pf.userId].filter(Boolean).length;
   const q = useQuery({ queryKey: ["exp-list", s.shopId, f], retry: 1, queryFn: () => api<{ expenses: Exp[]; total: number; restricted: boolean }>(s, "expense.list", { ...f }) });
   const authors = [...new Map((q.data?.expenses ?? []).map((e) => [e.createdBy, e.author])).entries()]; const sel = "input !py-2 !px-2 text-sm";
-  return <div className="flex flex-col gap-2">
-    <input className="input" aria-label="Rechercher une dépense" placeholder="Libellé, bénéficiaire, référence, numéro" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
-    <div className="grid grid-cols-2 gap-2"><label className="text-xs text-muted">Du<input type="date" className={sel} aria-label="Du" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></label><label className="text-xs text-muted">Au<input type="date" className={sel} aria-label="Au" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></label>
-      <select className={sel} aria-label="Catégorie" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}><option value="">Toutes catégories</option>{[...(cats?.predefined ?? []).map((c) => [c.id, c.label]), ...(cats?.custom ?? []).map((c) => [c, c])].map(([id, l]) => <option key={id} value={id}>{l}</option>)}</select>
+  const selects = <><select className={sel} aria-label="Catégorie" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}><option value="">Toutes catégories</option>{[...(cats?.predefined ?? []).map((c) => [c.id, c.label]), ...(cats?.custom ?? []).map((c) => [c, c])].map(([id, l]) => <option key={id} value={id}>{l}</option>)}</select>
       <select className={sel} aria-label="Statut" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">Tous statuts</option>{Object.entries(STATUS_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
       <select className={sel} aria-label="Origine" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}><option value="">Toutes origines</option>{SOURCES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
       <select className={sel} aria-label="Moyen de paiement" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}><option value="">Tous moyens</option>{METHODS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
-      {canViewAll && <select className={`${sel} col-span-2`} aria-label="Auteur" value={f.userId} onChange={(e) => setF({ ...f, userId: e.target.value })}><option value="">Tous les auteurs</option>{authors.map(([id, n]) => <option key={id} value={id}>{n || id}</option>)}</select>}</div>
+      {canViewAll && <select className={`${sel} md:col-span-1`} aria-label="Auteur" value={f.userId} onChange={(e) => setF({ ...f, userId: e.target.value })}><option value="">Tous les auteurs</option>{authors.map(([id, n]) => <option key={id} value={id}>{n || id}</option>)}</select>}</>;
+  return <div className="flex flex-col gap-2">
+    <input className="input" aria-label="Rechercher une dépense" placeholder="Libellé, bénéficiaire, référence, numéro" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2"><label className="text-xs text-muted">Du<input type="date" className={sel} aria-label="Du" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></label><label className="text-xs text-muted">Au<input type="date" className={sel} aria-label="Au" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></label>
+      {md && selects}
+    </div>
+    {!md && <details className="card !py-2"><summary className="cursor-pointer text-sm font-medium min-h-9 flex items-center">Filtres{nActive ? ` (${nActive})` : ""}</summary><div className="grid grid-cols-2 gap-2 pt-2">{selects}</div></details>}
+    {nActive > 0 && <button className="chip self-start" onClick={resetPf}>Réinitialiser les filtres</button>}
     {q.isLoading && <div className="card h-20 animate-pulse bg-subtle" aria-busy="true" />}<Err e={q.error} />
     {q.data && <p className="text-xs text-muted">{q.data.total} dépense(s){q.data.restricted ? " · vos propres dépenses" : ""}</p>}
     {q.data && !q.data.expenses.length && <p className="text-center text-muted text-sm py-6">Aucune dépense sur cette période avec ces filtres.</p>}
-    {q.data?.expenses.map((e) => <button key={e.id} className="card text-left flex justify-between gap-2" onClick={() => onOpen(e.id)}><span className="min-w-0"><b className="block truncate">{e.label}</b><span className="text-xs text-muted block">{e.number} · {dd(e.spentOn)} · {catName(e.category, cats)}{e.beneficiary ? ` · ${e.beneficiary}` : ""}</span><span className="text-xs text-muted block">{e.source === "till" ? "Caisse" : "Compte externe"} · {methodLabel(e.method)}{e.receipts.length ? ` · 📎 ${e.receipts.length}` : ""}</span></span><span className="text-right shrink-0"><b className={e.status === "cancelled" || e.status === "rejected" ? "line-through text-muted" : ""}>{formatFcfa(e.amount)}</b><span className={`block text-xs ${TONE[e.status] ?? ""}`}>{e.awaitingCode ? "En attente du code" : e.payMode === "deferred" || e.status !== "approved" ? LIFE[e.lifecycle] ?? e.status : STATUS_LABEL[e.status] ?? e.status}</span>{e.payMode === "deferred" && e.status === "approved" && e.remaining > 0 && <span className="block text-xs text-muted">reste {formatFcfa(e.remaining)} · éch. {dd(e.dueOn)}</span>}</span></button>)}
+    {wide && q.data && q.data.expenses.length > 0 && <DataGrid label="Dépenses" rows={q.data.expenses} rowKey={(e) => e.id} onRow={(e) => onOpen(e.id)} columns={[
+      { label: "Libellé", cell: (e) => <>{e.label}<span className="block text-xs font-normal text-muted">{e.number}</span></> },
+      { label: "Date", cell: (e) => dd(e.spentOn) }, { label: "Catégorie", cell: (e) => catName(e.category, cats) }, { label: "Bénéficiaire", cell: (e) => e.beneficiary || "—" },
+      { label: "Paiement", cell: (e) => `${e.source === "till" ? "Caisse" : "Compte externe"} · ${methodLabel(e.method)}${e.receipts.length ? ` · ${e.receipts.length} justificatif(s)` : ""}` },
+      { label: "Montant", align: "right", cell: (e) => <b className={e.status === "cancelled" || e.status === "rejected" ? "line-through text-muted" : ""}>{formatFcfa(e.amount)}</b> },
+      { label: "Statut", cell: (e) => <StatusPill tone={e.status === "approved" ? "ok" : e.status === "pending" ? "warn" : e.status === "rejected" ? "bad" : "muted"}>{STATUS_LABEL[e.status] ?? e.status}</StatusPill> },
+    ]} />}
+    {!wide && q.data?.expenses.map((e) => <button key={e.id} className="card text-left flex justify-between gap-2" onClick={() => onOpen(e.id)}><span className="min-w-0"><b className="block truncate">{e.label}</b><span className="text-xs text-muted block">{e.number} · {dd(e.spentOn)} · {catName(e.category, cats)}{e.beneficiary ? ` · ${e.beneficiary}` : ""}</span><span className="text-xs text-muted block">{e.source === "till" ? "Caisse" : "Compte externe"} · {methodLabel(e.method)}{e.receipts.length ? ` · 📎 ${e.receipts.length}` : ""}</span></span><span className="text-right shrink-0"><b className={e.status === "cancelled" || e.status === "rejected" ? "line-through text-muted" : ""}>{formatFcfa(e.amount)}</b><span className={`block text-xs ${TONE[e.status] ?? ""}`}>{e.awaitingCode ? "En attente du code" : e.payMode === "deferred" || e.status !== "approved" ? LIFE[e.lifecycle] ?? e.status : STATUS_LABEL[e.status] ?? e.status}</span>{e.payMode === "deferred" && e.status === "approved" && e.remaining > 0 && <span className="block text-xs text-muted">reste {formatFcfa(e.remaining)} · éch. {dd(e.dueOn)}</span>}</span></button>)}
   </div>;
 }
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ExpensesTabs } from "@/components/ExpensesTabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
@@ -28,7 +29,7 @@ export function DepensesProPage() {
   const rq = useQuery({ queryKey: ["exp-rights", s.shopId], enabled: allowed, retry: 1, queryFn: () => api<{ rights: string[] }>(s, "expense.myRights") }); const R = rq.data?.rights ?? []; const view = R.includes("view"); const approve = R.includes("approve");
   const tabs: [string, string][] = [...(view ? ([["budgets", "Budgets"], ["pay", "Échéances"], ["control", "Contrôle"], ["treasury", "Trésorerie"], ["report", "Rapports"]] as [string, string][]) : []), ...(approve ? ([["circuit", "Circuit & plafonds"]] as [string, string][]) : [])]; const [tab, setTab] = useState("budgets");
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Dépenses Pro</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">Budgets, circuits d'approbation, dépenses récurrentes, paiements partiels, trésorerie et prévisions. Vos dépenses restent dans <Link to="/depenses" className="underline">Dépenses</Link> ; les budgets et données avancées déjà saisis sont conservés et réapparaissent avec la formule Pro.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div></div>;
-  return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Dépenses Pro</h1><Err e={rq.error} />{!view && !rq.isLoading && <p className="card text-sm text-muted">Votre rôle ne permet pas de consulter les analyses. Vos dépenses sont dans <Link to="/depenses" className="underline">Dépenses</Link>.</p>}
+  return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Dépenses Pro</h1><ExpensesTabs current="/depenses-pro" /><Err e={rq.error} />{!view && !rq.isLoading && <p className="card text-sm text-muted">Votre rôle ne permet pas de consulter les analyses. Vos dépenses sont dans <Link to="/depenses" className="underline">Dépenses</Link>.</p>}
     <nav aria-label="Sections" className="scroll-x">{tabs.map(([k, l]) => <button key={k} className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>
     {tab === "budgets" && view && <Budgets approve={approve} />}{tab === "pay" && view && <Payables approve={approve} />}{tab === "control" && view && <Control />}{tab === "treasury" && view && <Treasury approve={approve} />}{tab === "report" && view && <Report />}{tab === "circuit" && approve && <Circuit />}</div>;
 }

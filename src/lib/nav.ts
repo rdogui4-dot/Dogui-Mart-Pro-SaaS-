@@ -21,8 +21,7 @@ export const SPACES: Space[] = [
   ] },
   { id: "acheter", label: "Acheter et dépenser", icon: Receipt, hint: "Achats, fournisseurs, dépenses", items: [
     { to: "/achats", label: "Achats", hint: "Commandes et fournisseurs", perm: "purchases" },
-    { to: "/depenses", label: "Dépenses", hint: "Dépenses, justificatifs, sorties de caisse", perm: "pos" },
-    { to: "/depenses-pro", label: "Dépenses Pro", hint: "Budgets, échéances, trésorerie, prévisions", perm: "pos" },
+    { to: "/depenses", label: "Dépenses", hint: "Dépenses, justificatifs, sorties de caisse, budgets et prévisions", perm: "pos", also: ["/depenses-pro"] },
   ] },
   { id: "piloter", label: "Piloter", icon: TrendingUp, hint: "Tableaux de bord et MASTER DOGUI", items: [
     { to: "/activite", label: "Tableau de bord", hint: "Ventes, marge, stock et alertes", perm: "reports" },
