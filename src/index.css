@@ -34,10 +34,11 @@
 @keyframes dmp-sheet { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes dmp-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes dmp-dot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
-.page-in { animation: dmp-in var(--dur-base) var(--ease-out) both; }
-.sheet-in { animation: dmp-sheet var(--dur-base) var(--ease-out) both; }
-.pop-in { animation: dmp-in var(--dur-fast) var(--ease-out) both; }
-.fade-in { animation: dmp-fade var(--dur-base) var(--ease-out) both; }
+/* Pas de transform ni de remplissage final sur le conteneur de page : un transform actif ferait des éléments « fixed » (fiches, boîtes de dialogue, barre de total) des éléments positionnés par rapport à la page et non à l'écran. */
+.page-in { animation: dmp-fade var(--dur-base) var(--ease-out) backwards; }
+.sheet-in { animation: dmp-sheet var(--dur-base) var(--ease-out) backwards; }
+.pop-in { animation: dmp-in var(--dur-fast) var(--ease-out) backwards; }
+.fade-in { animation: dmp-fade var(--dur-base) var(--ease-out) backwards; }
 .dots { display: inline-flex; gap: 3px; } .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: dmp-dot 1.2s infinite; } .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
 html, body, #root { height: 100%; }
 body { background: var(--bg); color: var(--main); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
@@ -49,6 +50,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .btn:hover:not(:disabled) { filter: brightness(.94); }
 .btn-ghost { @apply rounded-lg px-4 py-2.5 text-base font-medium border transition disabled:opacity-40 min-h-11; border-color: var(--line-strong); background: var(--surface); color: var(--main); }
 .btn-ghost:hover:not(:disabled) { background: var(--subtle); }
+.icon-btn { padding: 0; min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; }
 .input { @apply w-full rounded-lg px-3 py-2.5 text-base border min-h-11; background: var(--surface); border-color: var(--line-strong); color: var(--main); }
 .input::placeholder { color: var(--muted); }
 .input:focus { border-color: var(--accent); }
