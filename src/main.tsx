@@ -38,8 +38,8 @@ const CaisseProPage = lazyPage(() => import("@/routes/caisse-pro"), "CaisseProPa
 const DepensesPage = lazyPage(() => import("@/routes/depenses"), "DepensesPage");
 const InventairePage = lazyPage(() => import("@/routes/inventaire"), "InventairePage");
 const FinancePage = lazyPage(() => import("@/routes/finance"), "FinancePage");
-const MasterPage = lazyPage(() => import("@/routes/master"), "MasterPage");
-const MerciPage = lazyPage(() => import("@/routes/master"), "MerciPage");
+const MasterPage = lazyPage(() => import("@/routes/master-route"), "MasterRoute");
+const MerciPage = lazyPage(() => import("@/routes/master-route"), "MerciRoute");
 const InvestPage = lazyPage(() => import("@/routes/investissements"), "InvestPage");
 const IComptaPage = lazyPage(() => import("@/routes/icompta"), "IComptaPage");
 const DepensesProPage = lazyPage(() => import("@/routes/depenses-pro"), "DepensesProPage");

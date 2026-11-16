@@ -1,11 +1,15 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { Home, LogOut, MoreHorizontal, WifiOff, type LucideIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { useSession } from "@/lib/session";
-import { SPACES, itemsOf, matchesItem, spaceOfPath } from "@/lib/nav";
+import { SPACES, itemsOf, matchesItem, spaceOfPath, type NavItem } from "@/lib/nav";
 import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
 import { LogoMark } from "./Logo";
+import { MasterModalCtx, type MasterTab } from "@/lib/master-modal";
+import { MasterWindow } from "@/routes/master";
+import { ItemLink } from "./ItemLink";
+import { can } from "@/lib/session";
 import { Notice } from "./ui";
 import { clearVerifyResult, sendVerification, shouldAskVerification, takeVerifyResult } from "@/lib/verify";
 
@@ -18,6 +22,12 @@ function useWide() {
 }
 
 export function Layout() {
+  const [mOpen, setMOpen] = useState(false); const [mTab, setMTab] = useState<MasterTab>("lic");
+  const mctx = { open: (t?: MasterTab) => { if (t) setMTab(t); setMOpen(true); }, close: () => setMOpen(false), isOpen: mOpen };
+  return <MasterModalCtx.Provider value={mctx}><LayoutInner />{mOpen && <MasterWindow tab={mTab} setTab={setMTab} onClose={() => setMOpen(false)} />}</MasterModalCtx.Provider>;
+}
+
+function LayoutInner() {
   const wide = useWide();
   const { session, switchShop, logout, refresh } = useSession();
   const sub = useSubscription();
@@ -44,7 +54,7 @@ export function Layout() {
           {SPACES.map((sp) => { const its = itemsOf(sp, session, plan); if (!its.length) return null; return (
             <div key={sp.id} className="flex flex-col gap-0.5">
               <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">{sp.label}</p>
-              {its.map((it) => <SideLink key={it.to} to={it.to} label={it.label} active={matchesItem(it, path)} />)}
+              {its.map((it) => <SideLink key={it.to} item={it} label={it.label} active={matchesItem(it, path)} />)}
             </div>); })}
         </nav>
       </aside>}
@@ -57,6 +67,7 @@ export function Layout() {
               : <span className="font-semibold truncate block">{shopName}</span>}
             {wide && current && <span className="block text-xs text-muted">{current.label}</span>}
           </div>
+          {can(session, "settings") && <MasterButton />}
           {rejected > 0 && <Link to="/plus" className="text-xs rounded-full bg-bad-bg text-bad border border-bad/40 px-3 py-1">{rejected} vente{rejected > 1 ? "s" : ""} à vérifier</Link>}
           {(!online || pending > 0) && <span className="flex items-center gap-1 text-xs rounded-full bg-warn-bg text-warn border border-warn/40 px-3 py-1">{!online && <WifiOff size={14} />}{online ? "Synchronisation" : "Hors ligne"} · {pending}</span>}
           {wide && <div className="flex items-center gap-2 pl-2 border-l border-line">
@@ -96,8 +107,16 @@ function NavLink({ to, label, icon: I, active, disabled }: { to: string; label: 
   return <Link to={to} aria-current={active ? "page" : undefined} className={`flex flex-col items-center gap-0.5 py-2 text-xs ${active ? "text-accent-text font-semibold" : "text-muted"}`}><I size={22} />{label}</Link>;
 }
 
-function SideLink({ to, label, icon: I, active }: { to: string; label: string; icon?: LucideIcon; active: boolean }) {
-  return <Link to={to} aria-current={active ? "page" : undefined} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm min-h-9 ${active ? "bg-accent-soft text-accent-text font-semibold" : "text-soft hover:bg-subtle"}`}>{I && <I size={18} />}{label}</Link>;
+function SideLink({ to, item, label, icon: I, active }: { to?: string; item?: NavItem; label: string; icon?: LucideIcon; active: boolean }) {
+  const cls = `flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm min-h-9 w-full ${active ? "bg-accent-soft text-accent-text font-semibold" : "text-soft hover:bg-subtle"}`;
+  const body = <>{I && <I size={18} />}{label}</>;
+  if (item) return <ItemLink item={item} className={cls} current={active}>{body}</ItemLink>;
+  return <Link to={to!} aria-current={active ? "page" : undefined} className={cls}>{body}</Link>;
+}
+
+function MasterButton() {
+  const m = useContext(MasterModalCtx);
+  return <button type="button" className="btn-ghost !py-1.5 !min-h-9 !px-3 text-sm shrink-0" aria-haspopup="dialog" aria-label="MASTER DOGUI" onClick={() => m.open()}><span className="md:hidden">MASTER</span><span className="hidden md:inline">MASTER DOGUI</span></button>;
 }
 
 /** Rappel non bloquant : adresse e-mail non confirmée (sert à récupérer le mot de passe). Aucune fonction n'est coupée. */

@@ -1,5 +1,6 @@
 /** MASTER DOGUI — étape 1 : état de la licence (essai, période payante, consultation). Aucune analyse IA à ce stade. */
 import { useState } from "react";
+import { useMasterModal, type MasterTab } from "@/lib/master-modal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { api } from "@/lib/api";
@@ -56,8 +57,8 @@ function PayBlock({ first }: { first: boolean }) {
   );
 }
 export function MasterReminder() {
-  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["md", "license", s.tenantId], enabled: s.role === "owner", retry: 0, staleTime: 5 * 60_000, queryFn: () => api<V>(s, "md.license", {}) });
-  const r = q.data?.reminder; if (!r) return null; return <Link to="/master" className={`card text-sm ${r.level === "soon" ? "text-warn" : "text-bad"}`} role="status">{r.text} <u>Voir</u></Link>;
+  const m = useMasterModal(); const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["md", "license", s.tenantId], enabled: s.role === "owner", retry: 0, staleTime: 5 * 60_000, queryFn: () => api<V>(s, "md.license", {}) });
+  const r = q.data?.reminder; if (!r) return null; return <button type="button" onClick={() => m.open("lic")} className={`card text-sm text-left ${r.level === "soon" ? "text-warn" : "text-bad"}`} role="status">{r.text} <u>Voir</u></button>;
 }
 
 const PRIO_TONE: Record<Prio, string> = { critical: "text-bad", high: "text-warn", medium: "text-warn", opportunity: "text-ok", info: "text-muted" };
@@ -91,11 +92,16 @@ function Rapports() {
     </div>
   );
 }
-export function MasterPage() {
-  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<"lic" | "rep" | "pro" | "rec" | "chat">("lic"); const mgr = s.role === "owner" || s.role === "manager";
+export function MasterBody({ tab, setTab }: { tab: MasterTab; setTab: (t: MasterTab) => void }) {
+  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager";
   return (
     <div className="flex flex-col gap-3"><div className="flex gap-2" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "pro"} onClick={() => setTab("pro")}>Profil</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "rec"} onClick={() => setTab("rec")}>Recommandations</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "chat"} onClick={() => setTab("chat")}>Assistant</button>}</div>{tab === "lic" ? <Licence /> : tab === "rep" ? <Rapports /> : tab === "rec" ? <Recos /> : tab === "chat" ? <Assistant /> : <Profil />}</div>
   );
+}
+
+/** MASTER DOGUI en fenêtre : s'ouvre par-dessus l'écran courant (bouton de la barre supérieure, menu, rappels), garde son onglet tant qu'elle est ouverte. */
+export function MasterWindow({ tab, setTab, onClose }: { tab: MasterTab; setTab: (t: MasterTab) => void; onClose: () => void }) {
+  return <Sheet title="MASTER DOGUI" onClose={onClose} size="modal"><MasterBody tab={tab} setTab={setTab} /></Sheet>;
 }
 type OpenR = { skipped: string | null; message?: string } & Partial<Full>;
 /** Briefing d'ouverture affiché à l'accueil (propriétaire / gérant). Le serveur décide : rien n'est affiché si une session est ouverte ou sans licence valide. */
@@ -112,7 +118,7 @@ export function MasterBriefing() {
 }
 
 /** Page de retour après paiement (adresse à renseigner comme redirection chez le prestataire, SANS jeton). Elle ne confirme rien par elle-même : elle affiche l'état réel de la demande de paiement et de la licence, relu toutes les 10 secondes pendant quelques minutes. */
-export function MerciPage() {
+export function MerciPage({ onOpenMaster }: { onOpenMaster: () => void }) {
   const { session } = useSession(); const s = session!; const [n, setN] = useState(0);
   const list = useQuery({ queryKey: ["md", "pay", s.tenantId], retry: 1, refetchInterval: (qq) => (n < 18 && qq.state.data?.requests.some((r) => r.status === "awaiting") ? 10_000 : false), queryFn: async () => { setN((x) => x + 1); return api<{ requests: Req[] }>(s, "md.pay.list", {}); } });
   const lic = useQuery({ queryKey: ["md", "license", s.tenantId], retry: 1, refetchInterval: (qq) => (n < 18 && qq.state.data?.state !== "active" ? 10_000 : false), queryFn: () => api<V>(s, "md.license", {}) });
@@ -125,6 +131,6 @@ export function MerciPage() {
         {last && last.status === "awaiting" && <><p className="text-warn">Paiement {last.reference} ({formatFcfa(last.amount)}) en attente de confirmation.</p><p className="text-xs text-muted">La confirmation peut prendre quelques minutes. Si elle n'apparaît pas, l'équipe DOGUI MART PRO la vérifie manuellement à partir de votre reçu : conservez-le et indiquez la référence {last.reference}.</p></>}
         {last && last.status === "cancelled" && <p className="text-soft">La dernière demande ({last.reference}) a été remplacée par une plus récente.</p>}
         {list.error && <p className="text-bad" role="alert">{(list.error as Error).message}</p>}</div>
-      <a className="btn self-start" href={`${import.meta.env.BASE_URL}master`}>Aller à MASTER DOGUI</a></div>
+      <button type="button" className="btn self-start" onClick={onOpenMaster}>Ouvrir MASTER DOGUI</button></div>
   );
 }

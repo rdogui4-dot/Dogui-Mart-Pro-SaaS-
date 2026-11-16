@@ -4,6 +4,7 @@ import { useSession } from "@/lib/session";
 import { SPACES, itemsOf } from "@/lib/nav";
 import { useSubscription } from "./subscription";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { ItemLink } from "@/components/ItemLink";
 
 /** Liste des modules d'un espace (même rendu sur téléphone et ordinateur). */
 export function SpacePage() {
@@ -19,7 +20,7 @@ export function SpacePage() {
       {items.length === 0
         ? <EmptyState title="Aucun module disponible" hint="Votre profil ou votre formule ne donne accès à aucun module de cet espace. Demandez au gérant principal d'ajuster vos droits." action={<Link to="/accueil" className="btn-ghost">Retour à l'accueil</Link>} />
         : <ul className="flex flex-col gap-2">{items.map((it) => (
-            <li key={it.to}><Link to={it.to} className="card flex items-center justify-between gap-3 hover:bg-subtle"><span><b>{it.label}</b><br /><span className="text-sm text-muted">{it.hint}</span></span><ChevronRight size={18} className="text-muted shrink-0" /></Link></li>
+            <li key={it.to}><ItemLink item={it} className="card flex items-center justify-between gap-3 hover:bg-subtle w-full"><span><b>{it.label}</b><br /><span className="text-sm text-muted">{it.hint}</span></span><ChevronRight size={18} className="text-muted shrink-0" /></ItemLink></li>
           ))}</ul>}
     </div>
   );

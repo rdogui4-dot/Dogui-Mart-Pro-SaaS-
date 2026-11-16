@@ -1,4 +1,8 @@
 import { useRef, useState, type ReactNode } from "react";
+import { GroupedTabs } from "@/components/GroupedTabs";
+import { DataGrid, StatusPill } from "@/components/DataGrid";
+import { useMinWidth } from "@/lib/media";
+import { usePersistedState } from "@/lib/prefs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Phone, Plus } from "lucide-react";
 import { api } from "@/lib/api";
@@ -42,7 +46,11 @@ export function CrmHub({ legacy }: { legacy: ReactNode }) {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="sr-only">Clients & CRM</h1>
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections du CRM">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <GroupedTabs label="Sections du CRM" value={tab} onChange={setTab} groups={[
+        { label: "Suivi", items: tabs.filter(([k]) => k === "dash" || k === "agenda").map(([k, l]) => ({ key: k, label: l })) },
+        { label: "Relations", items: tabs.filter(([k]) => k === "cust" || k === "lead" || k === "opp" || k === "credit").map(([k, l]) => ({ key: k, label: l })) },
+        { label: "Pro", items: tabs.filter(([k]) => ["seg", "camp", "auto", "team", "ana", "loy"].includes(k)).map(([k, l]) => ({ key: k, label: l })) },
+      ]} />
       {tab === "dash" && <Dashboard onSegment={(x) => { setSeg(x); setTab("cust"); }} onTab={setTab} />}
       {tab === "cust" && <Customers key={seg} seg={seg} />}
       {tab === "lead" && <Leads />}
@@ -69,7 +77,7 @@ function Dashboard({ onSegment, onTab }: { onSegment: (s: string) => void; onTab
       <Field label="Période"><select className="input" aria-label="Période du tableau de bord" value={days} onChange={(e) => setDays(Number(e.target.value))}>{[7, 30, 90, 365].map((x) => <option key={x} value={x}>{x} jours</option>)}</select></Field>
       {q.isLoading && <p className="text-sm text-muted" role="status">Chargement…</p>}<Err e={q.error} />
       {d && <>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
           <Kpi label="Clients" value={d.customers.total} hint={`${d.customers.newInPeriod} nouveau(x) sur la période`} onClick={() => onSegment("")} />
           <Kpi label="Clients inactifs" value={d.inactiveCount} tone={d.inactiveCount ? "text-warn" : ""} hint={`Sans achat depuis plus de ${d.inactiveDays} j`} onClick={() => onSegment("inactive")} />
           <Kpi label="Prospects ouverts" value={d.leads.open} onClick={() => onTab("lead")} hint={d.leads.conversionRate !== null ? `Conversion ${d.leads.conversionRate} %` : "Pas encore de prospects créés sur la période"} />
@@ -94,18 +102,27 @@ function Dashboard({ onSegment, onTab }: { onSegment: (s: string) => void; onTab
 
 // ------------------------------------------------------------------ clients
 function Customers({ seg }: { seg: string }) {
-  const { session } = useSession(); const s = session!; const [f, setF] = useState({ q: "", segment: seg, source: "", mine: false, sort: "name" }); const [limit, setLimit] = useState(40); const [open, setOpen] = useState<string | null>(null); const [form, setForm] = useState(false);
+  const { session } = useSession(); const s = session!; const wide = useMinWidth(1024); const [pf, setPf, resetPf] = usePersistedState(`dmp.pref.${s.tenantId}.clients`, { source: "", mine: false, sort: "name" }); const [fq, setFq] = useState({ q: "", segment: seg }); const f = { ...fq, ...pf }; const setF = (v: typeof f) => { setFq({ q: v.q, segment: v.segment }); setPf({ source: v.source, mine: v.mine, sort: v.sort }); }; const [limit, setLimit] = useState(40); const [open, setOpen] = useState<string | null>(null); const [form, setForm] = useState(false);
   const q = useQuery({ queryKey: ["crm", "cust", s.shopId, f, limit], retry: 1, placeholderData: (p) => p, queryFn: () => api<CustList>(s, "crm.customers", { q: f.q || undefined, segment: f.segment || undefined, source: f.source || undefined, owner: f.mine ? "mine" : undefined, sort: f.sort, limit }) }); const d = q.data;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-2"><input aria-label="Rechercher un client" className="input" placeholder="Nom, téléphone, e-mail, entreprise" value={f.q} onChange={(e) => { setF({ ...f, q: e.target.value }); setLimit(40); }} /><button className="btn !px-3" aria-label="Nouveau client" onClick={() => setForm(true)}><Plus /></button></div>
       <div className="flex gap-2 overflow-x-auto" role="group" aria-label="Filtrer par segment">{([["", "Tous"], ...(Object.keys(SEGMENT_LABEL) as Segment[]).map((k) => [k, `${SEGMENT_LABEL[k].split(" (")[0]}${d ? ` (${d.segments[k] ?? 0})` : ""}`])] as [string, string][]).map(([k, l]) => <button key={k} className="chip" aria-current={f.segment === k} onClick={() => { setF({ ...f, segment: k }); setLimit(40); }}>{l}</button>)}</div>
-      <div className="grid grid-cols-3 gap-2"><select aria-label="Origine" className="input !px-2 text-sm" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}><option value="">Toutes origines</option>{Object.entries(SOURCES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+      <div className="grid grid-cols-3 md:grid-cols-4 gap-2 items-center"><select aria-label="Origine" className="input !px-2 text-sm" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}><option value="">Toutes origines</option>{Object.entries(SOURCES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
         <select aria-label="Tri" className="input !px-2 text-sm" value={f.sort} onChange={(e) => setF({ ...f, sort: e.target.value })}><option value="name">Nom</option><option value="recent">Dernier achat</option><option value="spent">Chiffre le plus élevé</option><option value="inactive">Plus anciens achats</option></select>
-        <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={f.mine} onChange={(e) => setF({ ...f, mine: e.target.checked })} />Mes clients</label></div>
+        <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={f.mine} onChange={(e) => setF({ ...f, mine: e.target.checked })} />Mes clients</label>{(f.source !== "" || f.mine || f.sort !== "name") && <button className="chip" onClick={resetPf}>Réinitialiser</button>}</div>
       {q.isLoading && <p className="text-sm text-muted" role="status">Chargement…</p>}<Err e={q.error} />
       {d && d.total === 0 && <p className="card text-sm text-soft">{f.q || f.segment || f.source || f.mine ? "Aucun client ne correspond à ces filtres." : "Aucun client pour le moment. Créez une fiche avec « + » : elle se mettra à jour toute seule à chaque vente rattachée à ce client."}</p>}
-      <ul className="flex flex-col gap-2">{(d?.customers ?? []).map((c) => (
+      {wide && d && d.customers.length > 0 && <DataGrid label="Clients" rows={d.customers} rowKey={(c) => c.id} onRow={(c) => setOpen(c.id)} columns={[
+        { label: "Client", cell: (c) => <>{c.name}{c.company ? ` · ${c.company}` : ""}</> },
+        { label: "Contact", cell: (c) => c.phone || c.email || "Sans contact" },
+        { label: "Segment", cell: (c) => <StatusPill tone={c.segment === "active" || c.segment === "loyal" ? "ok" : c.segment === "inactive" ? "warn" : c.segment === "dormant" ? "bad" : "info"}>{c.segmentLabel}</StatusPill> },
+        { label: "Dernier achat", cell: (c) => (c.daysSince !== null ? `il y a ${c.daysSince} j` : "—") },
+        { label: "Achats", align: "right", cell: (c) => String(c.salesCount) },
+        { label: "Total", align: "right", cell: (c) => formatFcfa(c.total) },
+        { label: "Crédit dû", align: "right", cell: (c) => (c.creditBalance > 0 ? <b className="text-bad">{formatFcfa(c.creditBalance)}</b> : "—") },
+      ]} />}
+      <ul className={wide ? "hidden" : "flex flex-col gap-2"}>{(d?.customers ?? []).map((c) => (
         <li key={c.id}><button className="card w-full text-left flex justify-between gap-2" onClick={() => setOpen(c.id)}>
           <span className="min-w-0"><span className="block truncate font-medium">{c.name}{c.company ? ` · ${c.company}` : ""}</span><span className="block text-xs text-muted truncate">{c.phone || c.email || "Sans contact"}{c.owner ? ` · ${c.owner}` : ""}</span><span className={`block text-xs ${SEG_TONE[c.segment]}`}>{c.segmentLabel}{c.daysSince !== null ? ` · dernier achat il y a ${c.daysSince} j` : ""}{c.openTasks ? ` · ${c.openTasks} relance(s)` : ""}</span></span>
           <span className="text-right text-sm shrink-0">{formatFcfa(c.total)}<span className="block text-xs text-muted">{c.salesCount} achat(s)</span>{c.creditBalance > 0 && <span className="block text-xs text-bad">Doit {formatFcfa(c.creditBalance)}</span>}</span></button></li>))}</ul>
@@ -128,7 +145,7 @@ function CustomerSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const { session } = useSession(); const s = session!; const pro = planAllows(useSubscription().data?.entitlement.plan.id, "crmPro"); const qc = useQueryClient(); const q = useQuery({ queryKey: ["crm", "cust1", s.shopId, id], retry: 1, queryFn: () => api<CustFull>(s, "crm.customer", { id }) }); const c = q.data; const [mode, setMode] = useState<"" | "edit" | "note" | "task" | "opp">("");
   const done = () => { setMode(""); void qc.invalidateQueries({ queryKey: ["crm"] }); };
   return (
-    <Sheet title={c?.name ?? "Fiche client"} onClose={onClose} back>
+    <Sheet title={c?.name ?? "Fiche client"} onClose={onClose} back size="panel">
       {q.isLoading && <p className="text-sm text-muted" role="status">Chargement…</p>}<Err e={q.error} />
       {c && <>
         <div className="card flex flex-col gap-1 text-sm"><span className={`font-semibold ${SEG_TONE[c.segment]}`}>{c.segmentLabel}</span><span className="text-soft">{c.company && `${c.company} · `}{c.phone || "Sans téléphone"}{c.email ? ` · ${c.email}` : ""}</span>{c.address && <span className="text-muted text-xs">{c.address}</span>}<span className="text-xs text-muted">{c.source ? `Origine : ${SOURCES[c.source] ?? c.source} · ` : ""}{c.owner ? `Responsable : ${c.owner} · ` : ""}client depuis le {fmtDay(c.createdAt)}</span>{c.tags.length > 0 && <span className="text-xs text-accent-text">{c.tags.map((t) => `#${t}`).join(" ")}</span>}</div>
@@ -159,7 +176,7 @@ function PartyForm({ kind, initial, onClose, onSaved }: { kind: "customer" | "le
   const body = (confirmDuplicate: boolean) => ({ ...(initial ? { id: initial.id } : { requestKey: key.current }), name: v.name, phone: v.phone, email: v.email, company: v.company, address: v.address, source: v.source, tags: v.tags, prefs: { channel: v.channel, bestTime: v.bestTime, language: initial?.prefs?.language ?? "", interest: initial?.prefs?.interest ?? "" }, consents: { call: v.call, sms: v.sms, email: v.email2, whatsapp: v.wa }, ...(lead ? { notes: v.notes } : {}), ...(v.ownerId && owners.data?.manager ? { ownerId: v.ownerId } : {}), ...(confirmDuplicate ? { confirmDuplicate: true } : {}) });
   const m = useMutation({ mutationFn: (c: boolean) => api<{ id: string }>(s, lead ? "crm.lead.save" : "crm.customer.save", body(c)), onSuccess: (r) => { key.current = rid(); setDup(false); onSaved(r.id); }, onError: (e) => setDup(/DOUBLON_POSSIBLE/.test((e as Error).message)) });
   return (
-    <Sheet title={`${initial ? "Modifier" : lead ? "Nouveau prospect" : "Nouveau client"}`} onClose={onClose} back>
+    <Sheet title={`${initial ? "Modifier" : lead ? "Nouveau prospect" : "Nouveau client"}`} onClose={onClose} back size="lg">
       <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); m.mutate(false); }}>
         <Field label="Nom *"><input className="input" aria-label="Nom" required maxLength={160} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
         <div className="grid grid-cols-2 gap-2"><Field label="Téléphone"><input className="input" aria-label="Téléphone" inputMode="tel" value={v.phone} onChange={(e) => setV({ ...v, phone: e.target.value })} /></Field><Field label="E-mail"><input className="input" aria-label="E-mail" inputMode="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} /></Field></div>
@@ -258,7 +275,7 @@ function LeadSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const arch = useMutation({ mutationFn: (a: boolean) => api(s, "crm.lead.archive", { id, archived: a }), onSuccess: () => { refresh(); onClose(); } });
   const open = l && l.stage !== "won" && l.stage !== "lost";
   return (
-    <Sheet title={l?.name ?? "Prospect"} onClose={onClose} back>
+    <Sheet title={l?.name ?? "Prospect"} onClose={onClose} back size="panel">
       {q.isLoading && <p className="text-sm text-muted" role="status">Chargement…</p>}<Err e={q.error} />
       {l && <>
         <div className="card flex flex-col gap-1 text-sm"><span className="font-semibold text-warn">{l.stageLabel}</span><span className="text-soft">{l.company && `${l.company} · `}{l.phone || "Sans téléphone"}{l.email ? ` · ${l.email}` : ""}</span>{l.address && <span className="text-xs text-muted">{l.address}</span>}<span className="text-xs text-muted">{l.source ? `Origine : ${SOURCES[l.source] ?? l.source} · ` : ""}{l.owner ? `Responsable : ${l.owner} · ` : ""}créé le {fmtDay(l.createdAt)}{l.createdBy ? ` par ${l.createdBy}` : ""}</span>{l.notes && <span className="text-sm">{l.notes}</span>}{l.lostReason && <span className="text-xs text-bad">Perdu : {l.lostReason}</span>}{l.customerId && <span className="text-xs text-ok">Converti en client le {fmtDay(l.convertedAt)}</span>}</div>
@@ -302,7 +319,7 @@ function OppForm({ initial, onClose, onSaved, edit }: { initial: { party: Party 
   const [v, setV] = useState({ title: o?.title ?? "", value: o ? String(o.value) : "", stage: (o?.stage ?? "qualified") as Stage, prob: o ? String(o.probability) : String(STAGE_PROB.qualified), dueOn: o?.dueOn ?? "", nextAction: o?.nextAction ?? "", nextActionOn: o?.nextActionOn ?? "", ownerId: o?.ownerId ?? "", notes: o?.notes ?? "" });
   const m = useMutation({ mutationFn: () => api(s, "crm.opp.save", { ...(edit ? { id: edit.id } : { requestKey: key.current, stage: v.stage, ...(party ? (party.kind === "customer" ? { customerId: party.id } : { leadId: party.id }) : {}) }), title: v.title, value: v.value.replace(/\s/g, ""), probability: v.prob, dueOn: v.dueOn, nextAction: v.nextAction, nextActionOn: v.nextActionOn, notes: v.notes, ...(v.ownerId && owners.data?.manager ? { ownerId: v.ownerId } : {}) }), onSuccess: () => { key.current = rid(); onSaved(); } });
   return (
-    <Sheet title={edit ? "Modifier l'opportunité" : "Nouvelle opportunité"} onClose={onClose} back>
+    <Sheet title={edit ? "Modifier l'opportunité" : "Nouvelle opportunité"} onClose={onClose} back size="lg">
       {!edit && <PartyPicker value={party} onChange={setParty} />}
       <Field label="Intitulé"><input className="input" aria-label="Intitulé de l'opportunité" maxLength={160} value={v.title} onChange={(e) => setV({ ...v, title: e.target.value })} /></Field>
       <div className="grid grid-cols-2 gap-2"><Field label="Valeur estimée (FCFA)"><input className="input" aria-label="Valeur estimée" inputMode="numeric" value={v.value} onChange={(e) => setV({ ...v, value: e.target.value.replace(/[^\d]/g, "") })} /></Field><Field label="Probabilité (%)"><input className="input" aria-label="Probabilité" inputMode="numeric" value={v.prob} onChange={(e) => setV({ ...v, prob: e.target.value.replace(/\D/g, "") })} /></Field></div>
@@ -336,7 +353,7 @@ function OppSheet({ o, onClose, onChanged }: { o: Opp; onClose: () => void; onCh
   const { session } = useSession(); const s = session!; const isOpen = o.stage !== "won" && o.stage !== "lost"; const [mode, setMode] = useState<"" | "edit" | "lost" | "note" | "task">(""); const [reason, setReason] = useState(""); const [msg, setMsg] = useState("");
   const stage = useMutation({ mutationFn: (v: { stage: Stage; reason?: string }) => api<{ suggestConvert?: boolean }>(s, "crm.opp.stage", { id: o.id, ...v }), onSuccess: (r, v) => { if (r.suggestConvert && v.stage === "won") { setMsg("Opportunité gagnée. Le prospect n'est pas encore client : convertissez-le depuis sa fiche."); return; } onChanged(); } });
   return (
-    <Sheet title={o.title} onClose={msg ? onChanged : onClose} back>
+    <Sheet title={o.title} onClose={msg ? onChanged : onClose} back size="panel">
       <div className="card text-sm flex flex-col gap-1"><b className={o.stage === "won" ? "text-ok" : o.stage === "lost" ? "text-bad" : "text-warn"}>{o.stageLabel}</b><span>{o.party} · {formatFcfa(o.value)} · {o.probability} % → {formatFcfa(o.weighted)}</span><span className="text-xs text-muted">Responsable {o.owner || "—"}{o.dueOn ? ` · échéance ${fmtDay(o.dueOn)}${o.overdue ? " (dépassée)" : ""}` : ""}</span>{o.nextAction && <span className="text-xs">Prochaine action : {o.nextAction}{o.nextActionOn ? ` le ${fmtDay(o.nextActionOn)}` : ""}</span>}{o.notes && <span className="text-xs text-muted">{o.notes}</span>}{o.closedAt && <span className="text-xs text-muted">Clôturée le {fmtAt(o.closedAt)}{o.closedBy ? ` par ${o.closedBy}` : ""}{o.lostReason ? ` — ${o.lostReason}` : ""}</span>}</div>
       {msg && <p className="card text-sm text-ok" role="status">{msg}</p>}<Err e={stage.error} />
       {isOpen && !msg && <><Field label="Étape"><select className="input" aria-label="Étape de l'opportunité" value={o.stage} onChange={(e) => stage.mutate({ stage: e.target.value as Stage })}>{(["qualified", "proposal", "negotiation"] as Stage[]).map((k) => <option key={k} value={k}>{STAGE_LABEL[k]}</option>)}</select></Field>

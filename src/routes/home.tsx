@@ -11,6 +11,7 @@ import { stateLabel } from "@/domain/reminders";
 import { useSubscription } from "./subscription";
 import { getTheme, setTheme, type Theme } from "@/lib/theme";
 import { SPACES, itemsOf } from "@/lib/nav";
+import { ItemLink } from "@/components/ItemLink";
 import { startProgress, startSteps } from "@/domain/onboarding";
 import { getShop } from "@/lib/data";
 import { planAllows } from "@/domain/features";
@@ -88,7 +89,7 @@ export function PlusPage() {
       {SPACES.map((sp) => { const its = itemsOf(sp, s, plan); if (!its.length) return null; return (
         <section key={sp.id} aria-label={sp.label} className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-muted uppercase tracking-wide pt-2">{sp.label}</h2>
-          {its.map(({ to, label, hint }) => <Link key={to} to={to} className="card flex items-center gap-3"><span><b>{label}</b><br /><span className="text-xs text-muted">{hint}</span></span></Link>)}
+          {its.map((it) => <ItemLink key={it.to} item={it} className="card flex items-center gap-3 w-full"><span><b>{it.label}</b><br /><span className="text-xs text-muted">{it.hint}</span></span></ItemLink>)}
         </section>); })}
       <ThemeSwitch />
       <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => void logout()}><LogOut size={18} />Se déconnecter</button>

@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import { GroupedTabs } from "@/components/GroupedTabs";
+import { DataGrid } from "@/components/DataGrid";
+import { useMinWidth } from "@/lib/media";
+import { usePersistedState } from "@/lib/prefs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Lock, Pencil, Plus, Tag, Trash2 } from "lucide-react";
 import { Query } from "@/lib/appwrite";
@@ -38,7 +42,12 @@ export function PromotionsPage() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Promotions</h1>
-      <nav aria-label="Sections" className="scroll-x">{TABS.map((t) => <button key={t.k} className="chip" aria-current={tab === t.k} onClick={() => setTab(t.k)}>{t.l}{t.pro && !pro ? " 🔒" : ""}</button>)}</nav>
+      <GroupedTabs label="Sections des promotions" value={tab} onChange={setTab} groups={[
+        { label: "Campagnes", items: TABS.filter((t) => t.k === "list" || t.k === "calendar").map((t) => ({ key: t.k, label: t.l })) },
+        { label: "Suivi", items: TABS.filter((t) => ["perf", "journal", "results"].includes(t.k)).map((t) => ({ key: t.k, label: t.l, locked: !!t.pro && !pro })) },
+        { label: "Pro", items: TABS.filter((t) => ["coupons", "budgets", "stores", "recos"].includes(t.k)).map((t) => ({ key: t.k, label: t.l, locked: !!t.pro && !pro })) },
+        { label: "Réglages", items: TABS.filter((t) => t.k === "settings").map((t) => ({ key: t.k, label: t.l })) },
+      ]} />
       {lst.isLoading && <p className="text-muted text-sm">Chargement…</p>}{lst.error && <p className="text-bad text-sm" role="alert">{(lst.error as Error).message}</p>}
       {d && tab === "list" && <CampaignList d={d} pro={pro} onNew={() => setEdit({ p: null })} onOpen={(p) => setOpen(p.id)} products={prods.data ?? []} />}
       {d && tab === "calendar" && <CalendarTab data={d} onOpen={(p) => setOpen(p.id)} />}
@@ -57,26 +66,34 @@ export function PromotionsPage() {
 }
 
 function CampaignList({ d, pro, onNew, onOpen, products }: { d: ListData; pro: boolean; onNew: () => void; onOpen: (p: PromoView) => void; products: { $id: string; name: string; category?: string; archived?: boolean }[] }) {
-  const [filter, setFilter] = useState<"all" | PromoStatus>("all"); const [fam, setFam] = useState<"" | Family>(""); const [q, setQ] = useState(""); const [art, setArt] = useState(""); const [cat, setCat] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
+  const { session: sess } = useSession(); const wide = useMinWidth(1024); const [pf, setPf, resetPf] = usePersistedState(`dmp.pref.${sess!.tenantId}.promotions`, { filter: "all", fam: "", cat: "" }); const filter = pf.filter as "all" | PromoStatus; const fam = pf.fam as "" | Family; const cat = pf.cat; const setFilter = (v: "all" | PromoStatus) => setPf({ ...pf, filter: v }); const setFam = (v: "" | Family) => setPf({ ...pf, fam: v }); const setCat = (v: string) => setPf({ ...pf, cat: v }); const [q, setQ] = useState(""); const [art, setArt] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
   const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "fr")), [products]);
   const shown = d.promos.filter((p) => (filter === "all" || p.effective === filter) && (!fam || (p.family ?? "simple") === fam) && (!q.trim() || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.trim().toLowerCase())) && (!art || p.itemIds.includes(art) || (p.comboRefs ?? []).some((c) => c.productId === art))
     && (!cat || (p.scope === "category" && (p.category ?? "").toLowerCase() === cat.toLowerCase()) || p.itemIds.some((id) => products.find((x) => x.$id === id)?.category === cat)) && (!from || p.endAt.slice(0, 10) >= from) && (!to || p.startAt.slice(0, 10) <= to)).sort((a, b) => b.startAt.localeCompare(a.startAt));
   const frozen = d.promos.filter((p) => p.frozen && p.status !== "ended").length;
   return (
     <>
-      <button className="btn flex items-center justify-center gap-2" onClick={onNew}><Plus size={18} />Nouvelle campagne</button>
+      <button className="btn flex items-center justify-center gap-2 md:self-end" onClick={onNew}><Plus size={18} />Nouvelle campagne</button>
       {!pro && frozen > 0 && <div className="card border border-warn/40 text-sm flex gap-2" role="status"><AlertTriangle size={16} className="text-warn shrink-0 mt-0.5" /><span>{frozen} campagne(s) avancée(s) sont <b>gelées</b> : votre formule n'inclut plus Promotions Pro. Elles sont conservées avec leur historique mais ne s'appliquent plus ; elles reprendront avec la formule Pro. Vous pouvez les suspendre ou les terminer.</span></div>}
       <div className="scroll-x">{([["all", "Toutes"], ["active", "Actives"], ["scheduled", "Programmées"], ["draft", "Brouillons"], ["suspended", "Suspendues"], ["ended", "Terminées"]] as const).map(([k, l]) => <button key={k} className="chip" aria-current={filter === k} onClick={() => setFilter(k)}>{l}</button>)}</div>
       <input aria-label="Rechercher (nom ou code)" className="input" placeholder="Rechercher (nom ou code)" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <select className="input !px-2" aria-label="Filtrer par type" value={fam} onChange={(e) => setFam(e.target.value as Family | "")}><option value="">Tous les types</option>{FAMILIES.map((f) => <option key={f.id} value={f.id}>{FAMILY_LABEL[f.id]}</option>)}</select>
         <select className="input !px-2" aria-label="Filtrer par article" value={art} onChange={(e) => setArt(e.target.value)}><option value="">Tous les articles</option>{products.filter((p) => !p.archived).map((p) => <option key={p.$id} value={p.$id}>{p.name}</option>)}</select>
         <select className="input !px-2" aria-label="Filtrer par catégorie" value={cat} onChange={(e) => setCat(e.target.value)}><option value="">Toutes catégories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
-        <span />
+        {(filter !== "all" || fam !== "" || cat !== "") ? <button className="chip self-end" onClick={resetPf}>Réinitialiser</button> : <span />}
         <label className="text-xs text-muted">Période du<input className="input mt-1" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs text-muted">au<input className="input mt-1" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
       </div>
       {!shown.length && <p className="text-center text-muted text-sm py-6">{d.promos.length ? "Aucune campagne ne correspond aux filtres." : "Aucune campagne. Créez la première : aucune n'est ajoutée automatiquement."}</p>}
-      <ul className="flex flex-col gap-2">{shown.map((p) => (
+      {wide && shown.length > 0 && <DataGrid label="Campagnes" rows={shown} rowKey={(p) => p.id} onRow={onOpen} columns={[
+        { label: "Campagne", cell: (p) => <>{p.name}{p.code ? <span className="block text-xs font-normal text-muted">code {p.code}</span> : null}</> },
+        { label: "Remise", className: "text-accent-text font-semibold", cell: (p) => p.describe },
+        { label: "Type", cell: (p) => FAMILY_LABEL[p.family ?? "simple"] },
+        { label: "Période", cell: (p) => `${fmtDate(p.startAt, d.tz)} → ${fmtDate(p.endAt, d.tz)}` },
+        { label: "Utilisations", align: "right", cell: (p) => `${p.uses}${p.usageLimit ? ` / ${p.usageLimit}` : ""}` },
+        { label: "Statut", cell: (p) => <span className={`inline-block text-xs rounded-full px-2 py-0.5 ${p.frozen ? "bg-warn-bg text-warn" : TONE[p.effective]}`}>{p.frozen ? "Gelée" : STATUS_LABEL[p.effective]}</span> },
+      ]} />}
+      <ul className={wide ? "hidden" : "flex flex-col gap-2"}>{shown.map((p) => (
         <li key={p.id}><button className="card w-full text-left flex flex-col gap-1" onClick={() => onOpen(p)}>
           <div className="flex justify-between gap-2"><b className="truncate flex items-center gap-1"><Tag size={14} className="text-accent-text shrink-0" />{p.name}</b><span className={`text-xs rounded-full px-2 py-0.5 shrink-0 ${p.frozen ? "bg-warn-bg text-warn" : TONE[p.effective]}`}>{p.frozen && p.effective === "active" ? "Gelée" : STATUS_LABEL[p.effective]}</span></div>
           <div className="text-sm text-accent-text font-bold">{p.describe}{p.code ? <span className="ml-2 text-xs text-muted font-normal">code {p.code}</span> : null}</div>
@@ -125,7 +142,7 @@ function PromotionForm({ d, pro, initial, prefill, products, onClose, onSaved }:
   const needsItems = targeted && f.scope === "items"; const needVal = f.family === "simple" || f.family === "requires" || f.family === "cart";
   const valid = f.name.trim().length >= 2 && f.startAt && f.endAt && (!needVal || f.value.trim() !== "") && (!needsItems || ids.length > 0) && (!(targeted || f.family === "requires") || f.scope !== "category" || f.category) && (f.family !== "combo" || (combo.length > 0 && f.comboPrice.trim() !== "")) && (f.family !== "requires" || req.length > 0) && (f.family !== "cart" || f.minCart.trim() !== "") && (f.family !== "tiers" || tiers.every((t) => t.minQty && t.value)) && (f.storeScope !== "some" || shopIds.length > 0);
   return (
-    <Sheet title={initial ? "Modifier la campagne" : "Nouvelle campagne"} onClose={onClose}>
+    <Sheet title={initial ? "Modifier la campagne" : "Nouvelle campagne"} onClose={onClose} size="lg">
       <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); setErr(""); save.mutate(); }}>
         {initial?.frozen && <p className="text-xs text-warn">Cette campagne avancée est gelée (formule sans Promotions Pro) : elle ne peut pas être modifiée sans la formule Pro.</p>}
         {locked && <p className="text-xs text-warn">Cette campagne a déjà été utilisée : son type, sa valeur, sa portée, son code, ses articles, ses paliers et ses lots ne changent plus (l'historique reste fidèle). Vous pouvez ajuster le nom, la période, les limites, le budget et le ciblage.</p>}

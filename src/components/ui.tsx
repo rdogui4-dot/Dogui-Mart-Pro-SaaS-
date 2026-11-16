@@ -7,24 +7,33 @@ export function Thumb({ id, size = 64, className = "" }: { id?: string; size?: n
   return url ? <img src={url} alt="" className={`object-cover rounded-lg ${className}`} style={{ width: size, height: size }} /> : <div className={`rounded-lg bg-subtle flex items-center justify-center text-muted ${className}`} style={{ width: size, height: size }}><ImageIcon size={size / 3} /></div>;
 }
 
-/** size : « md » (28 rem, défaut), « lg » (44 rem, formulaires à deux colonnes sur grand écran), « panel » (volet latéral ancré à droite sur grand écran, plein écran sur téléphone). */
-export function Sheet({ title, onClose, children, back, size = "md" }: { title: string; onClose: () => void; children: ReactNode; back?: boolean; size?: "md" | "lg" | "panel" }) {
+/** size : « md » (28 rem, défaut), « lg » (44 rem, formulaires à deux colonnes sur grand écran), « panel » (volet latéral ancré à droite sur grand écran, plein écran sur téléphone),
+ *  « modal » (fenêtre centrée de 48 rem sur écran ≥ 768 px avec fond atténué, plein écran sur téléphone). panel et modal : Échap et clic à l'extérieur ferment, le focus est rendu à l'élément d'origine. */
+export function Sheet({ title, onClose, children, back, size = "md" }: { title: string; onClose: () => void; children: ReactNode; back?: boolean; size?: "md" | "lg" | "panel" | "modal" }) {
   const ref = useRef<HTMLDivElement>(null);
+  const floating = size === "panel" || size === "modal";
   useEffect(() => {
-    if (size !== "panel") return;
-    ref.current?.focus();
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
-  }, [size]); // eslint-disable-line react-hooks/exhaustive-deps
-  const panel = size === "panel";
+    if (!floating) return;
+    const prev = document.activeElement as HTMLElement | null; ref.current?.focus();
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const all = document.querySelectorAll('[role="dialog"], [role="alertdialog"]'); if (all[all.length - 1] !== ref.current) return; // une fenêtre plus haute (confirmation, fiche) garde la main
+      onClose();
+    };
+    window.addEventListener("keydown", h);
+    return () => { window.removeEventListener("keydown", h); try { prev?.focus?.(); } catch { /* élément disparu */ } };
+  }, [floating]); // eslint-disable-line react-hooks/exhaustive-deps
+  const where = size === "panel" ? "inset-0 md:inset-y-0 md:left-auto md:right-0 md:w-[34rem] md:max-w-full md:border-l md:border-line"
+    : size === "modal" ? "inset-0 md:m-auto md:w-[48rem] md:max-w-[calc(100vw-2rem)] md:h-[88vh] md:rounded-xl md:border md:border-line md:shadow-xl" : "inset-0";
+  const inner = size === "lg" ? "max-w-md md:max-w-3xl" : size === "panel" || size === "modal" ? "max-w-md md:max-w-none" : "max-w-md";
   return (
     <>
-      {panel && <div className="hidden md:block fixed inset-0 z-30 bg-[var(--overlay)]" aria-hidden="true" onClick={onClose} />}
-      <div ref={ref} tabIndex={-1} className={`sheet-in fixed z-40 bg-[var(--bg)] overflow-y-auto outline-none ${panel ? "inset-0 md:inset-y-0 md:left-auto md:right-0 md:w-[34rem] md:max-w-full md:border-l md:border-line" : "inset-0"}`} role="dialog" aria-modal="true" aria-label={title}>
+      {floating && <div className="hidden md:block fixed inset-0 z-30 bg-[var(--overlay)]" aria-hidden="true" onClick={onClose} />}
+      <div ref={ref} tabIndex={-1} className={`sheet-in fixed z-40 bg-[var(--bg)] overflow-y-auto outline-none ${where}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-3 bg-[var(--surface)] border-b border-[var(--line)]">
           <button className="p-2" aria-label="Fermer" onClick={onClose}>{back ? <ChevronLeft /> : <X />}</button><h2 className="font-bold truncate">{title}</h2>
         </div>
-        <div className={`p-4 pb-28 flex flex-col gap-3 mx-auto w-full ${size === "lg" ? "max-w-md md:max-w-3xl" : panel ? "max-w-md md:max-w-none" : "max-w-md"}`}>{children}</div>
+        <div className={`p-4 pb-28 flex flex-col gap-3 mx-auto w-full ${inner}`}>{children}</div>
       </div>
     </>
   );

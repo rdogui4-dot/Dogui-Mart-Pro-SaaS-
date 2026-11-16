@@ -3,7 +3,7 @@ import { BookOpen, Boxes, Settings, ShoppingCart, Receipt, TrendingUp, type Luci
 import { can, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
 
-export type NavItem = { to: string; label: string; hint: string; perm: Perm; /** autres adresses du même module (onglets) */ also?: string[] };
+export type NavItem = { to: string; label: string; hint: string; perm: Perm; /** autres adresses du même module (onglets) */ also?: string[]; /** s'ouvre en fenêtre sur place (pas de changement de page) */ modal?: boolean };
 export type Space = { id: string; label: string; icon: LucideIcon; hint: string; items: NavItem[] };
 
 export const SPACES: Space[] = [
@@ -26,7 +26,7 @@ export const SPACES: Space[] = [
   { id: "piloter", label: "Piloter", icon: TrendingUp, hint: "Tableaux de bord et MASTER DOGUI", items: [
     { to: "/activite", label: "Tableau de bord", hint: "Ventes, marge, stock et alertes", perm: "reports" },
     { to: "/pilotage", label: "Pilotage Pro", hint: "Rentabilité, stocks, prévisions, exports", perm: "reports" },
-    { to: "/master", label: "MASTER DOGUI", hint: "Rapports, recommandations, assistant, licence", perm: "settings" },
+    { to: "/master", label: "MASTER DOGUI", hint: "Rapports, recommandations, assistant, licence", perm: "settings", modal: true },
   ] },
   { id: "compta", label: "Comptabilité et finance", icon: BookOpen, hint: "Finance, ICompta, investissements", items: [
     { to: "/finance", label: "Finance", hint: "Comptes, flux, virements, rapprochement", perm: "accounting" },
