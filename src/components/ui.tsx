@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, Image as ImageIcon, X } from "lucide-react";
 import { useArticleImage } from "@/lib/articles";
 
@@ -7,14 +7,26 @@ export function Thumb({ id, size = 64, className = "" }: { id?: string; size?: n
   return url ? <img src={url} alt="" className={`object-cover rounded-lg ${className}`} style={{ width: size, height: size }} /> : <div className={`rounded-lg bg-subtle flex items-center justify-center text-muted ${className}`} style={{ width: size, height: size }}><ImageIcon size={size / 3} /></div>;
 }
 
-export function Sheet({ title, onClose, children, back }: { title: string; onClose: () => void; children: ReactNode; back?: boolean }) {
+/** size : « md » (28 rem, défaut), « lg » (44 rem, formulaires à deux colonnes sur grand écran), « panel » (volet latéral ancré à droite sur grand écran, plein écran sur téléphone). */
+export function Sheet({ title, onClose, children, back, size = "md" }: { title: string; onClose: () => void; children: ReactNode; back?: boolean; size?: "md" | "lg" | "panel" }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (size !== "panel") return;
+    ref.current?.focus();
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
+  }, [size]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panel = size === "panel";
   return (
-    <div className="sheet-in fixed inset-0 z-40 bg-[var(--bg)] overflow-y-auto" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-3 bg-[var(--surface)] border-b border-[var(--line)]">
-        <button className="p-2" aria-label="Fermer" onClick={onClose}>{back ? <ChevronLeft /> : <X />}</button><h2 className="font-bold truncate">{title}</h2>
+    <>
+      {panel && <div className="hidden md:block fixed inset-0 z-30 bg-[var(--overlay)]" aria-hidden="true" onClick={onClose} />}
+      <div ref={ref} tabIndex={-1} className={`sheet-in fixed z-40 bg-[var(--bg)] overflow-y-auto outline-none ${panel ? "inset-0 md:inset-y-0 md:left-auto md:right-0 md:w-[34rem] md:max-w-full md:border-l md:border-line" : "inset-0"}`} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-3 bg-[var(--surface)] border-b border-[var(--line)]">
+          <button className="p-2" aria-label="Fermer" onClick={onClose}>{back ? <ChevronLeft /> : <X />}</button><h2 className="font-bold truncate">{title}</h2>
+        </div>
+        <div className={`p-4 pb-28 flex flex-col gap-3 mx-auto w-full ${size === "lg" ? "max-w-md md:max-w-3xl" : panel ? "max-w-md md:max-w-none" : "max-w-md"}`}>{children}</div>
       </div>
-      <div className="p-4 pb-28 flex flex-col gap-3 max-w-md mx-auto">{children}</div>
-    </div>
+    </>
   );
 }
 

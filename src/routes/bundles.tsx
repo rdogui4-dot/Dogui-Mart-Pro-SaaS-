@@ -44,7 +44,7 @@ export function BundlesPage() {
       {(prods.data ?? []).some((p) => p.kind === "bundle") && <input aria-label="Rechercher un bundle" className="input" placeholder="Rechercher un bundle" value={q} onChange={(e) => setQ(e.target.value)} />}
       {prods.isLoading && <p className="text-muted text-sm">Chargement…</p>}
       {!prods.isLoading && bundles.length === 0 && <p className="text-center text-muted text-sm py-6">{q ? "Aucun résultat." : "Aucun bundle."}</p>}
-      <ul className="flex flex-col gap-2">
+      <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
         {bundles.map((b) => {
           const cs = compsOf(b.$id); const n = qtyOf(levels.data, b);
           return (
@@ -105,7 +105,7 @@ function BundleEditor({ initial, comps, products, variants, levels, canManage, o
     onSuccess: () => { setAsk(null); onSaved(); onClose(); }, onError: (e) => { setAsk(null); setErr((e as Error).message); },
   });
   return (
-    <Sheet title={initial ? initial.name : "Nouveau bundle"} onClose={onClose} back>
+    <Sheet title={initial ? initial.name : "Nouveau bundle"} onClose={onClose} back size="lg">
       <form onSubmit={save} className="flex flex-col gap-3">
         {canManage && (
           <div className="flex items-center gap-3">

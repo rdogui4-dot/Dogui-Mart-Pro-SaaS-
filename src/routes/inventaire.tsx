@@ -50,8 +50,10 @@ export function InventairePage() {
     {(!proOn || tab === "inv") && <>
     <select className="input !py-2 text-sm" aria-label="Statut" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Tous les inventaires</option>{Object.entries(INV_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
     {q.isLoading && <div className="card h-20 animate-pulse bg-subtle" aria-busy="true" />}<Err e={q.error} />
-    {q.data && !q.data.inventories.length && <p className="text-center text-muted text-sm py-6">{manager ? "Aucun inventaire. Créez-en un pour compter votre stock." : "Aucun inventaire ne vous est assigné."}</p>}
-    {q.data?.inventories.map((r) => <button key={r.id} className="card text-left flex flex-col gap-2" onClick={() => setSheet(<InventorySheet id={r.id} close={close} refresh={refresh} manager={manager} />)}><span className="flex justify-between gap-2"><b>{r.number}</b><span className={`text-sm ${TONE[r.status]}`}>{r.label}</span></span><span className="text-xs text-muted">{r.kind === "partial" ? "Partiel" : "Complet"} · responsable {r.responsible || "—"}{r.adjusted ? ` · ${r.adjusted} ajustement(s)` : ""}</span><Bar p={r.progress} /></button>)}
+    {q.data && !q.data.inventories.length && (manager
+      ? <div className="card flex flex-col items-center gap-2 text-center py-8"><b>Aucun inventaire</b><p className="text-sm text-muted max-w-md">Un inventaire compte votre stock physique sans afficher les quantités attendues, puis compare le résultat au stock théorique. Les écarts ne modifient rien tant que vous ne les validez pas.</p></div>
+      : <p className="text-center text-muted text-sm py-6">Aucun inventaire ne vous est assigné.</p>)}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">{q.data?.inventories.map((r) => <button key={r.id} className="card text-left flex flex-col gap-2 w-full" onClick={() => setSheet(<InventorySheet id={r.id} close={close} refresh={refresh} manager={manager} />)}><span className="flex justify-between gap-2"><b>{r.number}</b><span className={`text-sm ${TONE[r.status]}`}>{r.label}</span></span><span className="text-xs text-muted">{r.kind === "partial" ? "Partiel" : "Complet"} · responsable {r.responsible || "—"}{r.adjusted ? ` · ${r.adjusted} ajustement(s)` : ""}</span><Bar p={r.progress} /></button>)}</div>
     </>}
     {sheet}
   </div>;

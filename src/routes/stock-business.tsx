@@ -46,11 +46,19 @@ export function StockHub({ legacy }: { legacy: (onCard: Open) => ReactNode }) {
   const open: Open = (productId, variantId = "") => setCard({ productId, variantId });
   const alerts = useQuery({ queryKey: ["stk-alerts", s.shopId], retry: 1, queryFn: () => api<{ counts: { high: number; warn: number; info: number } }>(s, "stk.alerts"), staleTime: 30_000 });
   const n = (alerts.data?.counts.high ?? 0) + (alerts.data?.counts.warn ?? 0);
-  const tabs: [Tab, string][] = [["dash", "Tableau"], ["art", "Articles"], ["mov", "Mouvements"], ["xfer", "Transferts"], ["alert", n ? `Alertes (${n})` : "Alertes"], ...(pro ? ([["ana", "Analyse"], ["rep", "Réappro"], ["net", "Réseau"], ["ano", "Anomalies"], ["lot", "Lots"], ["rap", "Rapports"]] as [Tab, string][]) : [])];
+  const main: [Tab, string][] = [["dash", "Tableau"], ["art", "Comptage rapide"], ["mov", "Mouvements"], ["xfer", "Transferts"], ["alert", n ? `Alertes (${n})` : "Alertes"]];
+  const analyses: [Tab, string][] = [["ana", "Analyse"], ["rep", "Réappro"], ["net", "Réseau"], ["ano", "Anomalies"], ["rap", "Rapports"]];
+  const suivi: [Tab, string][] = [["lot", "Lots"]];
+  const row = (label: string, items: [Tab, string][]) => (
+    <div className="flex items-center gap-2 min-w-0">
+      {label && <span className="hidden md:block w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{label}</span>}
+      <div className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap pb-1" role="tablist" aria-label={label || "Sections du stock"}>{items.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+    </div>
+  );
   return (
     <div className="flex flex-col gap-4">
       <h1 className="sr-only">Stock</h1>
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections du stock">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <div className="flex flex-col gap-1.5">{row("", main)}{pro && row("Analyses", analyses)}{pro && row("Suivi", suivi)}</div>
       {tab === "dash" && <Dashboard onOpen={open} onTab={setTab} pro={pro} />}
       {tab === "art" && legacy(open)}
       {tab === "mov" && <Moves onOpen={open} />}
@@ -75,7 +83,7 @@ function Dashboard({ onOpen, onTab, pro }: { onOpen: Open; onTab: (t: Tab) => vo
   const d = q.data;
   return (
     <div className="flex flex-col gap-3">
-      <div className="card grid grid-cols-2 gap-2">
+      <div className="card grid grid-cols-2 md:grid-cols-4 gap-2">
         <Field label="Catégorie"><select className="input" aria-label="Catégorie" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}><option value="">Toutes</option>{(d?.categories ?? []).map((c) => <option key={c}>{c}</option>)}</select></Field>
         {owner ? <Field label="Boutiques"><select className="input" aria-label="Boutiques" value={f.all ? "all" : "one"} onChange={(e) => setF({ ...f, all: e.target.value === "all" })}><option value="one">Boutique actuelle</option><option value="all">Toutes (consolidé)</option></select></Field> : <span />}
         <Field label="Mouvements du"><input className="input" type="date" aria-label="Du" value={f.from} max={f.to} onChange={(e) => e.target.value && setF({ ...f, from: e.target.value })} /></Field>
@@ -84,7 +92,7 @@ function Dashboard({ onOpen, onTab, pro }: { onOpen: Open; onTab: (t: Tab) => vo
       {q.isLoading && <p className="text-muted text-sm" role="status">Chargement…</p>}
       <Err e={q.error} />
       {d && <>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <Kpi label="Articles suivis" value={d.totals.articles} />
           <Kpi label="Valeur estimée du stock" value={formatFcfa(d.totals.value)} hint="Quantité × coût configuré (pas un chiffre d'affaires)" />
           <Kpi label="Disponibles" value={d.totals.ok + d.totals.watch} tone="text-ok" />

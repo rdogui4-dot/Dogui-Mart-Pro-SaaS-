@@ -17,6 +17,7 @@ import { compressImage, fetchArticles, fetchPriceHistory, useArticleImage, type 
 import { can, useSession } from "@/lib/session";
 import { Scanner } from "@/components/Scanner";
 import { Confirm, Sheet, Thumb } from "@/components/ui";
+import { useMinWidth } from "@/lib/media";
 import { formatFcfa } from "@/domain/money";
 import { UNITS, marginOf, sellsAtLoss, unitLabel } from "@/domain/articles";
 import { FEATURES, PRO_LOCKED, planAllows } from "@/domain/features";
@@ -50,8 +51,13 @@ function Upsell() {
 function Catalogue() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
   const sub = useSubscription(); const pro = planAllows(sub.data?.entitlement.plan.id, "packaging");
-  const [f, setF] = useState<Filters>({ q: "", status: "active", category: "", sort: "name_asc" });
-  const [qInput, setQInput] = useState(""); const [grid, setGrid] = useState(false);
+  const PREF = `dmp.articles.prefs.${s.tenantId}`; const DEFAULT_F: Filters = { q: "", status: "active", category: "", sort: "name_asc" };
+  const saved = (() => { try { const v = JSON.parse(localStorage.getItem(PREF) ?? "null") as Partial<Filters & { grid: boolean }> | null; return v && typeof v === "object" ? v : {}; } catch { return {} as Partial<Filters & { grid: boolean }>; } })();
+  const [f, setF] = useState<Filters>({ ...DEFAULT_F, status: (["active", "archived", "all"] as const).includes(saved.status as never) ? saved.status! : "active", category: typeof saved.category === "string" ? saved.category : "", sort: SORTS.some(([k]) => k === saved.sort) ? saved.sort! : "name_asc" });
+  const [qInput, setQInput] = useState(""); const [grid, setGrid] = useState(saved.grid === true);
+  useEffect(() => { try { localStorage.setItem(PREF, JSON.stringify({ status: f.status, category: f.category, sort: f.sort, grid })); } catch { /* préférence non mémorisée */ } }, [f.status, f.category, f.sort, grid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filtered = f.q !== "" || f.status !== "active" || f.category !== "" || f.sort !== "name_asc";
+  const wide = useMinWidth(1024);
   const [profitOpen, setProfitOpen] = useState(false); const proProfit = planAllows(sub.data?.entitlement.plan.id, "profitability");
   const [form, setForm] = useState<ArticleRow | "new" | null>(null); const [detail, setDetail] = useState<ArticleRow | null>(null); const [scan, setScan] = useState(false); const [autoOpen, setAutoOpen] = useState(false);
   useEffect(() => { const t = setTimeout(() => setF((x) => ({ ...x, q: qInput })), 300); return () => clearTimeout(t); }, [qInput]);
@@ -99,6 +105,7 @@ function Catalogue() {
         {(["active", "archived", "all"] as const).map((st) => <button key={st} className="chip" aria-current={f.status === st} onClick={() => setF({ ...f, status: st })}>{{ active: "Actifs", archived: "Archivés", all: "Tous" }[st]}</button>)}
         <select aria-label="Catégorie" className="chip" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}><option value="">Toutes catégories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
         <select aria-label="Tri" className="chip" value={f.sort} onChange={(e) => setF({ ...f, sort: e.target.value as Filters["sort"] })}>{SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        {filtered && <button className="chip" onClick={() => { setF(DEFAULT_F); setQInput(""); }}>Réinitialiser</button>}
       </div>
 
       {page.isLoading && <div className="flex flex-col gap-2" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="card h-20 animate-pulse" />)}</div>}
@@ -108,7 +115,33 @@ function Catalogue() {
           {f.q || f.category || f.status !== "active" ? <p>Aucun article ne correspond à cette recherche.</p> : <><p>Votre catalogue est vide.</p><button className="btn" onClick={() => setForm("new")}>Ajouter mon premier article</button></>}
         </div>
       )}
-      <ul className={grid ? "grid grid-cols-2 gap-2" : "flex flex-col gap-2"}>
+      {wide && !grid && rows.length > 0 && (
+        <div className="card !p-0 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-muted border-b border-line">
+              <th scope="col" className="py-2.5 px-3 font-medium" aria-sort={f.sort === "name_asc" ? "ascending" : f.sort === "name_desc" ? "descending" : "none"}>
+                <button className="font-medium hover:text-main" onClick={() => setF({ ...f, sort: f.sort === "name_asc" ? "name_desc" : "name_asc" })}>Article {f.sort === "name_asc" ? "▲" : f.sort === "name_desc" ? "▼" : ""}</button></th>
+              <th scope="col" className="py-2.5 px-3 font-medium">Catégorie</th>
+              <th scope="col" className="py-2.5 px-3 font-medium text-right">Prix de vente</th>
+              <th scope="col" className="py-2.5 px-3 font-medium text-right">Stock</th>
+              <th scope="col" className="py-2.5 px-3 font-medium">Statut</th>
+            </tr></thead>
+            <tbody>{rows.map((a) => {
+              const qty = levels ? qtyOf(levels, a) : undefined; const low = qty !== undefined && !a.hasVariants && isLow(qty, a.minStock ?? 0); const nv = a.hasVariants ? liveVariants.filter((v) => v.productId === a.$id).length : 0;
+              return (
+                <tr key={a.$id} className={`border-b border-line last:border-0 cursor-pointer hover:bg-subtle ${a.archived ? "opacity-60" : ""} ${detail?.$id === a.$id ? "bg-accent-soft" : ""}`} onClick={() => setDetail(a)}>
+                  <td className="py-2 px-3"><button className="flex items-center gap-3 text-left" onClick={(e) => { e.stopPropagation(); setDetail(a); }}><Thumb id={a.imageFileId} size={40} className="shrink-0" /><span className="min-w-0"><span className="block font-semibold truncate">{a.name}</span><span className="block text-xs text-muted truncate">{[a.sku, nv ? `${nv} variante${nv > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</span></span></button></td>
+                  <td className="py-2 px-3 text-soft">{a.category || "—"}</td>
+                  <td className="py-2 px-3 text-right font-semibold tabular-nums text-accent-text">{formatFcfa(a.price)}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{a.hasVariants ? <span className="text-muted">Par variante</span> : qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</td>
+                  <td className="py-2 px-3">{a.archived ? <span className="text-xs rounded-full px-2 py-0.5 bg-warn-bg text-warn">Archivé</span> : low ? <span className="text-xs rounded-full px-2 py-0.5 bg-bad-bg text-bad">Stock bas</span> : <span className="text-xs rounded-full px-2 py-0.5 bg-ok-bg text-ok">En stock</span>}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </div>
+      )}
+      <ul className={`${wide && !grid ? "hidden" : ""} ${grid ? "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2" : "flex flex-col gap-2"}`}>
         {rows.map((a) => <ArticleCard key={a.$id} a={a} nVariants={a.hasVariants ? liveVariants.filter((v) => v.productId === a.$id).length : 0} qty={levels ? qtyOf(levels, a) : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
       </ul>
       {page.hasNextPage && <button className="btn-ghost" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>{page.isFetchingNextPage ? "Chargement…" : "Voir plus d'articles"}</button>}
@@ -186,7 +219,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
   const canDelete = s.role === "owner" || s.role === "manager";
   const row = (k: string, v: ReactNode) => <div className="flex justify-between gap-3 text-sm py-1.5 border-b border-[var(--line)]"><span className="text-muted">{k}</span><span className="text-right">{v || "—"}</span></div>;
   return (
-    <Sheet title={a.name} onClose={onClose} back>
+    <Sheet title={a.name} onClose={onClose} back size="panel">
       <Thumb id={a.imageFileId} size={160} className="self-center" />
       {a.archived && <p className="text-warn text-sm text-center">Article archivé : il n'apparaît plus dans les actifs.</p>}
       <div className="card">
@@ -332,8 +365,8 @@ function ArticleForm({ initial, qty, pro, onClose, onSaved, onCreated }: { onCre
   }
   const lbl = (t: string, c: ReactNode) => <label className="flex flex-col gap-1 text-sm"><span className="text-muted">{t}</span>{c}</label>;
   return (
-    <Sheet title={edit ? "Modifier l'article" : "Nouvel article"} onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
+    <Sheet title={edit ? "Modifier l'article" : "Nouvel article"} onClose={onClose} size="lg">
+      <form onSubmit={submit} className="flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-x-4 md:items-start md:[&>p]:col-span-2 md:[&>button]:col-span-2 md:[&>div:first-child]:col-span-2 md:[&>div.grid]:contents md:[&>label:last-of-type]:col-span-2">
         <div className="flex items-center gap-3">
           {preview ? <img src={preview} alt="Aperçu" className="w-24 h-24 rounded-lg object-cover" /> : removePhoto ? <Thumb size={96} /> : <Thumb id={initial?.imageFileId} size={96} />}
           <div className="flex flex-col gap-2 flex-1">

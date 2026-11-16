@@ -32,7 +32,7 @@ export function ProAnalysis({ onOpen }: { onOpen: Open }) {
   const rows = (d?.items ?? []).filter((i) => !flt || (flt === "risk" ? i.risk === "out" || i.risk === "high" || i.risk === "medium" : i.cls === flt));
   return (
     <div className="flex flex-col gap-3">
-      <div className="card grid grid-cols-2 gap-2">
+      <div className="card grid grid-cols-2 md:grid-cols-4 gap-2">
         <Field label="Période d'analyse"><select className="input" aria-label="Période d'analyse" value={f.days} onChange={(e) => setF({ ...f, days: Number(e.target.value) })}>{DAYS.map((x) => <option key={x} value={x}>{x} jours</option>)}</select></Field>
         <Field label="Classement ABC selon"><select className="input" aria-label="Classement ABC" value={f.abcBy} onChange={(e) => setF({ ...f, abcBy: e.target.value })}><option value="sales">Valeur des ventes</option><option value="stock">Valeur du stock</option><option value="moves">Jours de vente</option></select></Field>
         {s.shops.length > 1 && <Field label="Boutiques"><select className="input" aria-label="Boutiques analysées" value={f.all ? "all" : "one"} onChange={(e) => setF({ ...f, all: e.target.value === "all" })}><option value="one">Boutique actuelle</option><option value="all">Toutes mes boutiques</option></select></Field>}
@@ -41,7 +41,7 @@ export function ProAnalysis({ onOpen }: { onOpen: Open }) {
       {q.isLoading && <p className="text-sm text-muted" role="status">Calcul en cours…</p>}<Err e={q.error} />
       {d && <>
         <p className="text-xs text-muted">Période : {d.period.from} → {d.period.to} · {d.scope.join(", ")}</p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <Kpi label="Articles analysés" value={d.summary.articles} /><Kpi label="Valeur du stock (coût)" value={formatFcfa(d.summary.value)} />
           <Kpi label="Risque de rupture" value={d.summary.risks.out + d.summary.risks.high} tone={d.summary.risks.out + d.summary.risks.high ? "text-bad" : ""} hint={`dont ${d.summary.risks.out} déjà en rupture`} />
           <Kpi label="Surstock" value={d.summary.classes.overstock} tone="text-warn" hint={`Capital en excès : ${formatFcfa(d.summary.excessValue)}`} />
