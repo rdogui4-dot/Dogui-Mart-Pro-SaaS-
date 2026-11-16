@@ -1,3 +1,4 @@
+import { CaisseTabs } from "@/components/CaisseTabs";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, Printer, RotateCcw, WifiOff } from "lucide-react";
@@ -30,6 +31,7 @@ export function VentesPage() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Ventes</h1>
+      <CaisseTabs current="/ventes" />
       <div className="grid grid-cols-2 gap-2"><label className="text-xs text-muted">Du<input className="input mt-1" type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs text-muted">Au<input className="input mt-1" type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></label></div>
       <input className="input" aria-label="Rechercher une vente" placeholder="N° de vente, client ou vendeur" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="scroll-x">{([["", "Toutes"], ["paid", "Payées"], ["refunded", "Remboursées"], ["cancelled", "Annulées"]] as const).map(([k, l]) => <button key={k} className="chip" aria-current={status === k} onClick={() => setStatus(k)}>{l}</button>)}</div>

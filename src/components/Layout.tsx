@@ -2,7 +2,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { Home, LogOut, MoreHorizontal, WifiOff, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSession } from "@/lib/session";
-import { SPACES, itemsOf, spaceOfPath } from "@/lib/nav";
+import { SPACES, itemsOf, matchesItem, spaceOfPath } from "@/lib/nav";
 import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
 import { LogoMark } from "./Logo";
@@ -44,7 +44,7 @@ export function Layout() {
           {SPACES.map((sp) => { const its = itemsOf(sp, session, plan); if (!its.length) return null; return (
             <div key={sp.id} className="flex flex-col gap-0.5">
               <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">{sp.label}</p>
-              {its.map((it) => <SideLink key={it.to} to={it.to} label={it.label} active={path === it.to || path.startsWith(it.to + "/")} />)}
+              {its.map((it) => <SideLink key={it.to} to={it.to} label={it.label} active={matchesItem(it, path)} />)}
             </div>); })}
         </nav>
       </aside>}

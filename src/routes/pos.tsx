@@ -1,3 +1,4 @@
+import { CaisseTabs } from "@/components/CaisseTabs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -128,6 +129,9 @@ export function PosPage() {
   useEffect(() => onSyncResult((r) => { if (r.clientId === lastId) setLastSync(r); }), [lastId]);
   const preview = useQuery({ queryKey: ["promo-preview", s.shopId, JSON.stringify(apiLines), customerId, coupon], enabled: promoOn && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Preview>(s, "promotions.preview", { lines: apiLines, customerId: customerId || undefined, ...(coupon ? { couponCode: coupon } : {}) }) });
   const pv = promoOn && preview.data && !preview.isFetching ? preview.data : undefined; const waiting = promoOn && cart.length > 0 && navigator.onLine && preview.isFetching;
+  const panelRef = useRef<HTMLDivElement>(null); const [panelSeen, setPanelSeen] = useState(false);
+  useEffect(() => { const el = panelRef.current; if (!el || typeof IntersectionObserver === "undefined") return; const io = new IntersectionObserver(([e]) => setPanelSeen(!!e?.isIntersecting), { threshold: 0.15 }); io.observe(el); return () => io.disconnect(); }, [cart.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  const goPanel = () => panelRef.current?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   const total = pv ? pv.total : cartTotal(priced);
   const payState = evaluatePay(total, payLines, { hasCustomer: !!customer, credit: customer ? { balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 } : undefined });
   const resetPay = () => setPayLines([newPayLine("cash")]);
@@ -146,12 +150,15 @@ export function PosPage() {
       void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); void qc.invalidateQueries({ queryKey: ["cash-current"] }); } });
     } finally { setBusy(false); setConfirm(false); }
   }
-  useShortcuts(pro ? { F2: () => searchRef.current?.focus(), F4: () => { if (cart.length && payState.ok && !busy) checkout(); }, F8: () => { if (cart.length) { setCart([]); resetPay(); } } } : {});
+  useShortcuts({ F2: () => searchRef.current?.focus(), F4: () => { if (cart.length && payState.ok && !busy) checkout(); }, F8: () => { if (cart.length && window.confirm("Vider le panier ?")) { setCart([]); resetPay(); } } });
   const checkout = () => { setMsg(""); if (blockedSim) return setMsg(simD && !simD.ok ? simD.blocked : "Approbation d'un responsable requise avant de valider"); if (needSession) return setMsg("Ouvrez la caisse avant de vendre (session de caisse obligatoire)"); if (!payState.ok) return setMsg(payState.errors[0] ?? "Paiement incohérent"); setConfirm(true); };
 
   return (
     <div className="flex flex-col gap-3">
       <h1 className="sr-only">Caisse</h1>
+      <CaisseTabs current="/pos" />
+      <div className={`lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-4 lg:items-start ${cart.length > 0 ? "pb-16 lg:pb-0" : ""}`}>
+      <div className="flex flex-col gap-3 min-w-0">
       {smart && cashQ.data && (cashQ.data.session
         ? <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-ok/30"><span className="text-ok">● Caisse ouverte depuis {new Date(cashQ.data.session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span><span className="text-muted">Gérer ›</span></Link>
         : <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-warn/30"><span className="text-warn">○ Caisse fermée{cashQ.data.required ? " — ouverture obligatoire pour vendre" : ""}</span><span className="text-muted">Ouvrir ›</span></Link>)}
@@ -164,7 +171,7 @@ export function PosPage() {
       {categories.length > 0 && <div className="scroll-x"><button className="chip" aria-current={!cat} onClick={() => setCat("")}>Tout</button>{categories.map((c) => <button key={c} className="chip" aria-current={cat === c} onClick={() => setCat(cat === c ? "" : c)}>{c}</button>)}</div>}
       {products.isLoading && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-24 animate-pulse bg-subtle" />)}</div>}
       {products.error && <p className="text-bad text-sm" role="alert">Impossible de charger le catalogue : {(products.error as Error).message} <button className="underline" onClick={() => void products.refetch()}>Réessayer</button></p>}
-      <div className={`grid gap-2 ${dens.density === "compact" ? "grid-cols-3" : "grid-cols-2"}`}>
+      <div className={`grid gap-2 ${dens.density === "compact" ? "grid-cols-3 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"}`}>
         {shown.map((p) => {
           const n = qtyOf(stock.data, p); const tracked = !p.hasVariants && !isVirtualBundle(p); const out = tracked && n <= 0;
           return (
@@ -178,15 +185,19 @@ export function PosPage() {
         })}
         {!products.isLoading && shown.length === 0 && <p className="col-span-2 text-muted text-center py-6">{(products.data ?? []).length ? "Aucun article ne correspond à la recherche." : "Aucun produit. Ajoutez-en dans Stock."}</p>}
       </div>
+      </div>
+      <div ref={panelRef} id="panier" className="flex flex-col gap-3 min-w-0 scroll-mt-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto" aria-label="Panier">
+      {cart.length === 0 && <div className="hidden lg:block card text-center text-muted py-8">Panier vide : touchez un article pour l'ajouter.</div>}
       {cart.length > 0 && (
         <section className="card flex flex-col gap-2">
+          <div className="flex items-baseline justify-between"><span className="text-muted">Total</span><b className="text-2xl tabular-nums" aria-live="polite">{formatFcfa(total)}</b></div>
           {priced.map((l, i) => (
             <div key={l.key} className="flex items-center justify-between gap-2">
               <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-muted">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-muted">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-ok">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-ok">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-ok">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
-              {l.serials ? <><span className="text-xs text-muted max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost !p-2" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
-              <button className="btn-ghost !p-2" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
+              {l.serials ? <><span className="text-xs text-muted max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost icon-btn" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
+              <button className="btn-ghost icon-btn" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
-              <button className="btn-ghost !p-2" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{(manager || pro) && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</>}
+              <button className="btn-ghost icon-btn" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{(manager || pro) && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</>}
             </div>
           ))}
           {promoOn && <>
@@ -206,6 +217,13 @@ export function PosPage() {
       {msg && <p className="text-center text-warn">{msg}</p>}
       {lastId && cart.length === 0 && <p className={`text-center text-sm ${lastSync?.status === "synced" ? "text-ok" : lastSync?.status === "rejected" ? "text-bad" : "text-warn"}`} role="status" data-sync={lastSync?.status ?? "pending"}>{lastSync?.status === "synced" ? `✓ Vente confirmée par le serveur${lastSync.number ? ` (n° ${lastSync.number})` : ""}` : lastSync?.status === "rejected" ? `✗ Vente refusée par le serveur : ${lastSync.error} — voir les ventes en attente` : navigator.onLine ? "⏳ En attente de synchronisation : le serveur n'a pas encore confirmé cette vente" : "⏳ Hors ligne — vente conservée sur cet appareil, en attente de synchronisation"}</p>}
       {last && cart.length === 0 && <div className="grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, lastName, { verifyCode: lastSync?.status === "synced" ? lastSync.verifyCode : undefined, pending: lastSync?.status !== "synced" }), w).then((b) => deliverPdf(b, `${last.number}-${w}mm.pdf`))}>Ticket {w} mm</button>)}</div>}
+      </div>
+      </div>
+      {cart.length > 0 && !panelSeen && (
+        <div className="lg:hidden fixed inset-x-0 bottom-[calc(3.75rem+env(safe-area-inset-bottom))] z-30 px-3 pb-2 pointer-events-none">
+          <button type="button" className="btn w-full pointer-events-auto flex items-center justify-between shadow-md" onClick={goPanel}><span>{cart.length} article{cart.length > 1 ? "s" : ""} · <b className="tabular-nums">{formatFcfa(total)}</b></span><span>Voir le paiement ›</span></button>
+        </div>
+      )}
       {qrLine && (() => { const ln = payLines.find((x) => x.id === qrLine); return ln && (ln.method === "wave" || ln.method === "orange") ? <QrPay session={s} provider={ln.method} amount={Number(ln.amount.replace(/\s/g, ""))} onPaid={(id) => { setPayLines((ls) => ls.map((x) => (x.id === qrLine ? { ...x, linkId: id } : x))); setQrLine(null); }} onCancel={() => setQrLine(null)} /> : null; })()}
       {confirm && <Confirm text={`Valider la vente de ${formatFcfa(total)} ? ${payLines.map((l) => `${METHOD_LABEL[l.method]} ${formatFcfa(Number(l.amount.replace(/\s/g, "")) || 0)}`).join(" + ")}${payState.change ? ` · monnaie à rendre ${formatFcfa(payState.change)}` : ""}${customer ? ` · client ${customer.name}` : ""}. Le stock sera décrémenté à la confirmation.`} confirmLabel={busy ? "Validation…" : "Valider la vente"} onNo={() => setConfirm(false)} onYes={() => void submit()} />}
       {pickVar && <VariantDialog p={pickVar} variants={variantsOf(pickVar.$id)} levels={stock.data} onClose={() => setPickVar(null)} onPick={(v) => { const p = pickVar; setPickVar(null); add(p, v); }} />}

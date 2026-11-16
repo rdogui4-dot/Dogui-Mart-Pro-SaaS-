@@ -1,3 +1,4 @@
+import { CaisseTabs } from "@/components/CaisseTabs";
 import { AmountInput } from "@/components/AmountInput";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -26,7 +27,8 @@ export function CaissePage() {
   const cur = useQuery({ queryKey: ["cash-current", s.shopId], enabled: allowed, refetchInterval: 30_000, retry: 1, queryFn: () => api<Current>(s, "cash.current") });
   const [tab, setTab] = useState<"now" | "history" | "sellers">("now"); const [open, setOpen] = useState<Sess | null>(null);
   const refresh = () => void qc.invalidateQueries({ queryKey: ["cash-current"] }).then(() => qc.invalidateQueries({ queryKey: ["cash-sessions"] }));
-  if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Caisse</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Sessions de caisse, écarts, sorties autorisées, remboursements et historique.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>;
+  if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Caisse</h1>
+      <CaisseTabs current="/caisse" /><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Sessions de caisse, écarts, sorties autorisées, remboursements et historique.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>;
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Caisse</h1>

@@ -1,3 +1,4 @@
+import { CaisseTabs } from "@/components/CaisseTabs";
 import { AmountInput } from "@/components/AmountInput";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,7 +28,8 @@ export function CaisseProPage() {
   const r = rq.data?.rights ?? []; const approve = r.includes("approve"); const transfer = r.includes("transfer"); const owner = s.role === "owner";
   const tabs: [string, string][] = [["appr", "Approbations"], ...(approve ? ([["var", "Écarts"], ["perf", "Performance"], ["intel", "Intelligence"], ["ledger", "Journal"]] as [string, string][]) : []), ...(transfer ? ([["hand", "Transfert"]] as [string, string][]) : []), ...(owner ? ([["rights", "Droits"]] as [string, string][]) : []), ["verify", "Vérifier un ticket"]];
   const [tab, setTab] = useState("appr");
-  if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Caisse Pro</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">Suggestions, approbations hiérarchiques, multi-caisses, journal financier et tickets vérifiables.</span></div></div>;
+  if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Caisse Pro</h1>
+      <CaisseTabs current="/caisse-pro" /><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">Suggestions, approbations hiérarchiques, multi-caisses, journal financier et tickets vérifiables.</span></div></div>;
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Caisse Pro</h1>

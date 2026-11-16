@@ -3,15 +3,12 @@ import { BookOpen, Boxes, Settings, ShoppingCart, Receipt, TrendingUp, type Luci
 import { can, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
 
-export type NavItem = { to: string; label: string; hint: string; perm: Perm };
+export type NavItem = { to: string; label: string; hint: string; perm: Perm; /** autres adresses du même module (onglets) */ also?: string[] };
 export type Space = { id: string; label: string; icon: LucideIcon; hint: string; items: NavItem[] };
 
 export const SPACES: Space[] = [
   { id: "vendre", label: "Vendre", icon: ShoppingCart, hint: "Caisse, ventes, clients, promotions", items: [
-    { to: "/pos", label: "Caisse", hint: "Encaisser une vente", perm: "pos" },
-    { to: "/ventes", label: "Ventes", hint: "Historique, remboursements, tickets", perm: "pos" },
-    { to: "/caisse", label: "Session de caisse", hint: "Fond, écart, sorties", perm: "pos" },
-    { to: "/caisse-pro", label: "Caisse Pro", hint: "Approbations, écarts, performance, droits", perm: "pos" },
+    { to: "/pos", label: "Caisse", hint: "Encaisser, ventes, session de caisse, caisse Pro", perm: "pos", also: ["/ventes", "/caisse", "/caisse-pro"] },
     { to: "/clients", label: "Clients", hint: "Fidélité, crédit, prospects", perm: "customers" },
     { to: "/promotions", label: "Promotions", hint: "Remises, codes et résultats", perm: "stock" },
   ] },
@@ -49,4 +46,5 @@ export function planVisible(to: string, plan: string | undefined): boolean {
 
 type Who = Parameters<typeof can>[0];
 export const itemsOf = (space: Space, session: Who, plan: string | undefined) => space.items.filter((i) => can(session, i.perm) && planVisible(i.to, plan));
-export const spaceOfPath = (path: string) => SPACES.find((s) => s.items.some((i) => path === i.to || path.startsWith(i.to + "/")));
+export const matchesItem = (i: NavItem, path: string) => [i.to, ...(i.also ?? [])].some((t) => path === t || path.startsWith(t + "/"));
+export const spaceOfPath = (path: string) => SPACES.find((s) => s.items.some((i) => matchesItem(i, path)));
