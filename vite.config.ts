@@ -11,5 +11,5 @@ export default defineConfig({
   base,
   plugins: [react(), tailwind()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
-  test: { environment: "node", include: ["src/**/*.test.ts", "functions/**/*.test.ts"] },
+  test: { environment: "node", setupFiles: ["functions/dmp-api/src/test-setup.ts"], include: ["src/**/*.test.ts", "functions/**/*.test.ts"] },
 });

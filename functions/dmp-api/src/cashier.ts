@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { MAX_AMOUNT } from "../../../src/domain/articles";
 import { methodsOf } from "../../../src/domain/reports";
 import { needFeature } from "./articles";
+import { planAllows } from "../../../src/domain/features";
+import { entitlementOf } from "./subscriptions";
 import { hasRight, isProPos, ledgerWrite, needRight } from "./pos-pro";
 import { HttpError, need, needModule, roleOf, type Ctx, type Row, type Store } from "./store";
 
@@ -35,9 +37,16 @@ const view = (s: Row) => ({ id: s.$id, userId: String(s.userId), shopId: String(
 /** Abonnés à la clôture confirmée d'une session (rapports MASTER DOGUI…). Exécutés APRÈS la clôture ; une erreur ne doit jamais empêcher ni annuler la clôture. */
 export const closeHooks: ((store: Store, ctx: Ctx, sessionId: string) => Promise<void>)[] = [];
 export async function openSessionOf(store: Store, ctx: Ctx): Promise<Row | null> { return (await store.list("cash_sessions", { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, status: "open" }, 5))[0] ?? null; }
+/** Session de caisse obligatoire pour vendre : par défaut OUI dès que la formule inclut les sessions de caisse (Business, Pro), sauf si le gérant l'a explicitement désactivée (cashRequired === false).
+ *  Une formule sans sessions de caisse (Starter) ne peut pas en ouvrir : aucune obligation. */
+export async function sessionRequired(store: Store, ctx: Ctx, shop?: Row | null): Promise<boolean> {
+  const sh = shop === undefined ? await store.get("shops", ctx.shopId.slice(0, 36)) : shop;
+  if (!sh || sh.cashRequired === false) return false;
+  return planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "smartPos");
+}
 /** La boutique exige-t-elle une session pour vendre ? Si oui, une session du vendeur doit couvrir l'instant de la vente (les ventes hors ligne gardent leur date réelle). */
 export async function assertSessionForSale(store: Store, ctx: Ctx, soldAt: string): Promise<void> {
-  const shop = await store.get("shops", ctx.shopId.slice(0, 36)); if (!shop || shop.cashRequired !== true) return;
+  if (!(await sessionRequired(store, ctx))) return;
   const t = Date.parse(soldAt); const all = await store.list("cash_sessions", { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId }, 500);
   if (!all.some((s) => Date.parse(iso(s.openedAt)) <= t + 1000 && (s.status === "open" || (s.closedAt && t < Date.parse(iso(s.closedAt)))))) throw new HttpError(409, "Ouvrez la caisse avant de vendre (session de caisse obligatoire dans cette boutique)");
 }
@@ -59,7 +68,7 @@ export async function openSession(store: Store, ctx: Ctx, b: { openingFloat?: un
 }
 export async function currentSession(store: Store, ctx: Ctx) {
   needModule(ctx, "pos"); await needFeature(store, ctx, "smartPos");
-  const s = await openSessionOf(store, ctx); const shop = await store.get("shops", ctx.shopId.slice(0, 36)); const required = shop?.cashRequired === true;
+  const s = await openSessionOf(store, ctx); const shop = await store.get("shops", ctx.shopId.slice(0, 36)); const required = await sessionRequired(store, ctx, shop);
   if (!s) return { session: null, required };
   const mv = (await store.scan("cash_movements", { sessionId: s.$id }, { maxRows: 2_000 })).rows.map((m) => ({ id: m.$id, kind: String(m.kind), amount: Number(m.amount), reason: String(m.reason ?? ""), status: String(m.status), at: iso(m.at), userId: String(m.userId ?? ""), beneficiary: String(m.beneficiary ?? ""), expenseId: String(m.expenseId ?? "") })).sort((a, c) => c.at.localeCompare(a.at));
   return { session: view(s), totals: await sessionTotals(store, ctx, s), movements: mv, required };

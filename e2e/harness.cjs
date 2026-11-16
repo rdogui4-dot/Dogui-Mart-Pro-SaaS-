@@ -36,6 +36,8 @@ async function start(opts = {}) {
   await st.grant(T, "u1", ["owner"], []); st.ownerNames.set("u1", "Dogui");
   const call = (action, payload = {}, shopId = "") => handle(st, "u1", { action, tenantId: T, shopId, payload }, { admins: [] });
   const shop = (await call("shop.create", { name: "Dakar Plateau" })).body.data.shopId;
+  // Par défaut les scénarios historiques vendent sans session de caisse ; opts.defaultSession = true reproduit une boutique réelle (session obligatoire par défaut en Business/Pro).
+  if (!opts.defaultSession) for (const r of st.rows("shops")) r.cashRequired = false;
   const row = st.rows("subscriptions").find((r) => r.$id === T); const sub = { tenantId: T, plan: opts.plan ?? "pro", period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() };
   if (row) Object.assign(row, sub); else await st.create("subscriptions", T, T, sub);
   const server = http.createServer((req, res) => {

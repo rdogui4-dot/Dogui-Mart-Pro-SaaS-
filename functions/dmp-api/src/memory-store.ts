@@ -2,6 +2,8 @@ import { HttpError, type BatchOp, type Row, type Store } from "./store";
 import { readRoles } from "./permissions";
 /** Store en mémoire pour les tests. */
 export class MemoryStore implements Store {
+  /** Valeurs par défaut des nouvelles lignes, par table (tests uniquement : la production ne s'en sert pas). */
+  static defaults: Record<string, Record<string, unknown>> = {};
   tables = new Map<string, Map<string, Row>>();
   members = new Map<string, string[]>();
   private t(n: string) { if (!this.tables.has(n)) this.tables.set(n, new Map()); return this.tables.get(n)!; }
@@ -21,7 +23,7 @@ export class MemoryStore implements Store {
   async create(table: string, id: string, tenantId: string, data: Record<string, unknown>) {
     if (this.t(table).has(id)) return false;
     this.perms.set(`${table}/${id}`, readRoles(table, tenantId, data, id));
-    this.t(table).set(id, { ...data, $id: id }); return true;
+    this.t(table).set(id, { ...(MemoryStore.defaults[table] ?? {}), ...data, $id: id }); return true;
   }
   /** Émule la transaction Appwrite : contrôle préalable (doublons, lignes absentes) puis application ; l'échec d'un contrôle n'écrit RIEN. Un crochet de test permet de simuler une panne en cours de lot. */
   failBatchAfter: number | null = null;

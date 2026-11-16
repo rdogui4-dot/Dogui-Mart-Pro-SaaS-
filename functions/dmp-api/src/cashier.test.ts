@@ -121,3 +121,32 @@ describe("historique, détail, réimpression", () => {
     expect(st.rows("sales")).toHaveLength(salesBefore); expect(st.rows("stock_moves")).toHaveLength(movesBefore); expect(stockOfProduct(jus)).toBe(stockBefore); expect(st.rows("audit_log").filter((a) => a.action === "sale.reprint")).toHaveLength(2);
   });
 });
+
+describe("session de caisse obligatoire PAR DÉFAUT (Business et Pro)", () => {
+  /** Les boutiques de test partent avec « session non obligatoire » (test-setup.ts) : ici on repart d'une boutique sans réglage, comme une boutique réelle déjà existante. */
+  const unset = () => { const row = st.rows("shops").find((r) => r.$id === A.slice(0, 36)); if (row) delete (row as Record<string, unknown>).cashRequired; return row; };
+  it("sans réglage explicite : vente refusée (409) tant qu'aucune session n'est ouverte, acceptée une fois la caisse ouverte", async () => {
+    unset();
+    expect((await ok(call(U.cais!, "cash.current"))).required).toBe(true);
+    await err(sell(U.cais!, [{ productId: eau, qty: 1 }], cash(500)), 409, "Ouvrez la caisse");
+    await ok(call(U.cais!, "cash.open", { openingFloat: 1000 }));
+    await ok(sell(U.cais!, [{ productId: eau, qty: 1 }], cash(500)));
+  });
+  it("le gérant peut désactiver explicitement l'obligation ; la vente passe alors sans session", async () => {
+    unset(); await ok(call("own", "shop.save", { cashRequired: false }));
+    expect((await ok(call(U.cais!, "cash.current"))).required).toBe(false);
+    await ok(sell(U.cais!, [{ productId: eau, qty: 1 }], cash(500)));
+    await ok(call("own", "shop.save", { cashRequired: true })); await err(sell(U.cais!, [{ productId: eau, qty: 1 }], cash(500)), 409, "Ouvrez la caisse");
+  });
+  it("Starter (sans sessions de caisse) : aucune obligation, la vente reste possible", async () => {
+    unset(); setPlan("starter"); await ok(sell("own", [{ productId: eau, qty: 1 }], cash(500)));
+  });
+  it("une session ouverte par un AUTRE vendeur ne couvre pas la vente", async () => {
+    unset(); await ok(call(U.cais2!, "cash.open", { openingFloat: 0 })); await err(sell(U.cais!, [{ productId: eau, qty: 1 }], cash(500)), 409, "Ouvrez la caisse");
+  });
+  it("remboursement en espèces refusé sans session (par défaut)", async () => {
+    await ok(call(U.cais!, "cash.open", { openingFloat: 5000 })); await ok(sell(U.cais!, [{ productId: eau, qty: 2 }], cash(1000)));
+    const sale = (await ok(call("own", "sales.list", {}))).sales[0]; await ok(call(U.cais!, "cash.close", { counted: 6000 })); unset();
+    await err(call(U.ger!, "sale.refund", { returnId: "rt-0000009", saleId: sale.id, kind: "refund", lines: [{ index: 0, qty: 1 }], reason: "Article abîmé", refunds: [{ method: "cash", amount: 500 }] }), 409, "Ouvrez la caisse");
+  });
+});

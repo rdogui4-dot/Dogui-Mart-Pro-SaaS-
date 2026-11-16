@@ -7,7 +7,7 @@ import { scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { boundsOf, addDays, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { needFeature } from "./articles";
-import { openSessionOf } from "./cashier";
+import { openSessionOf, sessionRequired } from "./cashier";
 import { approvalNeeded, claimApproval, hasRight, ledgerOp, newVoucherOps, receiptCode, voucherCodeFor } from "./pos-pro";
 import { entitlementOf } from "./subscriptions";
 import { planAllows } from "../../../src/domain/features";
@@ -68,7 +68,7 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
     const sumR = refunds.reduce((a, r) => a + r.amount, 0); if (sumR !== amount) throw new HttpError(400, `La répartition du remboursement (${sumR.toLocaleString("fr-FR")}) ne correspond pas au montant à rembourser (${amount.toLocaleString("fr-FR")})`);
     const creditPart = refunds.filter((r) => r.method === "credit").reduce((a, r) => a + r.amount, 0); if (creditPart > Number(customer?.creditBalance ?? 0)) throw new HttpError(409, `Remboursement sur compte supérieur à la dette du client (${Number(customer?.creditBalance ?? 0).toLocaleString("fr-FR")} FCFA)`);
     const cashPart = refunds.filter((r) => r.method === "cash").reduce((a, r) => a + r.amount, 0); const sess = await openSessionOf(store, ctx);
-    if (cashPart > 0 && !sess && shop?.cashRequired === true) throw new HttpError(409, "Ouvrez la caisse avant de rembourser en espèces");
+    if (cashPart > 0 && !sess && (await sessionRequired(store, ctx, shop))) throw new HttpError(409, "Ouvrez la caisse avant de rembourser en espèces");
     if (needApproval) { const aid = String(b.approvalId ?? ""); if (!aid) throw approvalNeeded(kind, `${kind === "cancel" ? "annulation" : "remboursement"} : droit requis ou approbation d'un responsable`, sale.$id); for (const o of await claimApproval(store, ctx, aid, kind, rid, sale.$id)) { if (o.kind === "create") { if (!(await store.create(o.table, o.id, ctx.tenantId, o.data))) throw new HttpError(409, "Approbation déjà utilisée"); } else if (o.kind === "update") await store.update(o.table, o.id, o.data); } }
     const data = { tenantId: ctx.tenantId, shopId: ctx.shopId, saleId: sale.$id, saleNumber: String(sale.number), kind, amount, refunds: JSON.stringify(refunds), lines: JSON.stringify(chosen), reason, userId: ctx.userId, sessionId: cashPart > 0 && sess ? sess.$id : "", at: new Date().toISOString(), points: 0, status: "pending" };
     if (!(await store.create("sale_returns", rid, ctx.tenantId, data))) throw new HttpError(409, "Opération déjà en cours : réessayez");
