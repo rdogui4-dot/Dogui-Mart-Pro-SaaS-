@@ -10,6 +10,12 @@ import { DEFAULT_PLANS } from "@/domain/subscriptions";
 import { COST_METHODS, isCostMethod, methodLabel } from "@/domain/costing";
 import { planAllows } from "@/domain/features";
 import { EXPIRED_POLICIES, isExpiredPolicy } from "@/domain/tracking";
+import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
+import { ActivityLog } from "./activity-log";
+
+type STab = "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
+/** Message après enregistrement : succès en vert (statut), erreur en rouge (alerte). */
+const Msg = ({ text }: { text: string }) => (!text ? null : /^(Enregistr|Méthode enregistr|Politique enregistr|Marge minimale enregistr|Lien retiré)/.test(text) ? <p className="text-sm text-ok" role="status">{text}</p> : <p className="text-sm text-bad" role="alert">{text}</p>);
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
@@ -18,7 +24,7 @@ export function SettingsPage() {
   const pay = useQuery({ queryKey: ["pay-settings", s.shopId], enabled: can(s, "settings"), queryFn: () => api<{ wave: boolean; orange: boolean }>(s, "payments.settings.get", {}) });
   // Arrivée depuis Selar (URL de redirection) : on ouvre l'onglet Abonnement sur l'offre indiquée. Lu une seule fois.
   const [deep] = useState(() => parseDeepLink(window.location.search, DEFAULT_PLANS.map((p) => p.id)));
-  const [tab, setTab] = useState<"shop" | "shops" | "staff" | "payments" | "subscription" | "platform">(deep.tab === "subscription" ? "subscription" : "shop");
+  const [tab, setTab] = useState<STab>(deep.tab === "subscription" ? "subscription" : can(s, "settings") ? "shop" : "profile");
   const sub = useSubscription();
   const me = useQuery({ queryKey: ["platform-me"], queryFn: () => api<{ admin: boolean }>(s, "platform.me", {}), staleTime: 300_000 });
   const [opened, setOpened] = useState(false);
@@ -67,57 +73,56 @@ export function SettingsPage() {
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Réglages</h1>
       {can(s, "settings") && (
-        <nav aria-label="Sections des réglages" className="scroll-x">
-          {([["shop", "Commerce"], ["shops", "Boutiques"], ["staff", "Équipe & accès"], ["payments", "Paiements QR"], ["subscription", "Abonnement"], ...(me.data?.admin ? [["platform", "Plateforme"] as const] : [])] as const).map(([k, l]) => <button key={k} className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}
-        </nav>
+        <GroupedTabs label="Sections des réglages" value={tab} onChange={setTab} groups={groupTabs<STab>([["profile", "Mon profil"], ["shop", "Boutique"], ["rules", "Règles de gestion"], ["shops", "Boutiques"], ["staff", "Équipe & accès"], ["subscription", "Abonnement"], ["payments", "Paiements QR"], ["activity", "Journal d'activité"], ...(me.data?.admin ? [["platform", "Plateforme"] as [STab, string]] : [])], [["Compte", ["profile"]], ["Commerce", ["shop", "rules", "shops"]], ["Équipe", ["staff"]], ["Abonnement et paiements", ["subscription", "payments"]], ["Suivi", ["activity"]], ["Administration", ["platform"]]])} />
       )}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}
       {tab === "platform" && me.data?.admin && <PlatformSection />}
-      {(tab === "shop" || tab === "payments") && <>
+      {tab === "activity" && can(s, "settings") && <ActivityLog />}
+      {(tab === "shop" || tab === "payments" || tab === "rules" || tab === "profile") && <>
       {s.setupError && <div className="card text-sm text-warn">La première boutique n'a pas pu être créée ({s.setupError}). Les fonctions de gestion seront disponibles dès que le service sera prêt.</div>}
-      {tab === "shop" && <div className="card text-sm">Connecté : <b>{s.name}</b> · {s.role === "owner" ? "gérant principal" : s.role}<br />Boutique : {s.shops.find((x) => x.id === s.shopId)?.name ?? "—"}<br /><span className="text-xs text-muted">Mon identifiant : {s.userId}</span></div>}
+      {tab === "profile" && <div className="card text-sm">Connecté : <b>{s.name}</b> · {s.role === "owner" ? "gérant principal" : s.role}<br />Boutique : {s.shops.find((x) => x.id === s.shopId)?.name ?? "—"}<br /><span className="text-xs text-muted">Mon identifiant : {s.userId}</span></div>}
       {tab === "shop" && can(s, "settings") && (
-        <form className="card flex flex-col gap-2" onSubmit={saveShop}>
+        <form className="card flex flex-col gap-3 md:max-w-2xl" onSubmit={saveShop}>
           <h2 className="font-semibold">Ma boutique (en-tête des factures et tickets)</h2>
-          <input aria-label="Nom commercial" className="input" placeholder="Nom commercial" required value={sh.name} onChange={(e) => setSh({ ...sh, name: e.target.value })} />
-          <input aria-label="Adresse" className="input" placeholder="Adresse" value={sh.address} onChange={(e) => setSh({ ...sh, address: e.target.value })} />
+          <label className="text-xs text-muted flex flex-col gap-1">Nom commercial<input aria-label="Nom commercial" className="input" placeholder="Nom commercial" required value={sh.name} onChange={(e) => setSh({ ...sh, name: e.target.value })} /></label>
+          <label className="text-xs text-muted flex flex-col gap-1">Adresse<input aria-label="Adresse" className="input" placeholder="Adresse" value={sh.address} onChange={(e) => setSh({ ...sh, address: e.target.value })} /></label>
           <div className="grid grid-cols-2 gap-2">
-            <input aria-label="Ville" className="input" placeholder="Ville" value={sh.city} onChange={(e) => setSh({ ...sh, city: e.target.value })} />
-            <input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={sh.phone} onChange={(e) => setSh({ ...sh, phone: e.target.value })} />
+            <label className="text-xs text-muted flex flex-col gap-1">Ville<input aria-label="Ville" className="input" placeholder="Ville" value={sh.city} onChange={(e) => setSh({ ...sh, city: e.target.value })} /></label>
+            <label className="text-xs text-muted flex flex-col gap-1">Téléphone (sert aussi à l'essai MASTER DOGUI)<input aria-label="Téléphone" className="input" inputMode="tel" placeholder="Téléphone" value={sh.phone} onChange={(e) => setSh({ ...sh, phone: e.target.value })} /></label>
           </div>
-          <input aria-label="NINEA / RCCM (mentions légales)" className="input" placeholder="NINEA / RCCM (mentions légales)" value={sh.legal} onChange={(e) => setSh({ ...sh, legal: e.target.value })} />
-          <input aria-label="TVA (%)" className="input" inputMode="numeric" placeholder="TVA (%)" value={sh.vatRatePct} onChange={(e) => setSh({ ...sh, vatRatePct: e.target.value })} />
+          <label className="text-xs text-muted flex flex-col gap-1">NINEA / RCCM (mentions légales)<input aria-label="NINEA / RCCM (mentions légales)" className="input" placeholder="NINEA / RCCM (mentions légales)" value={sh.legal} onChange={(e) => setSh({ ...sh, legal: e.target.value })} /></label>
+          <label className="text-xs text-muted flex flex-col gap-1">Taux de TVA (%)<input aria-label="TVA (%)" className="input" inputMode="numeric" placeholder="TVA (%)" value={sh.vatRatePct} onChange={(e) => setSh({ ...sh, vatRatePct: e.target.value })} /></label>
           <button className="btn">Enregistrer</button>
-          {shMsg && <p className="text-sm text-warn">{shMsg}</p>}
+          <Msg text={shMsg} />
         </form>
       )}
-      {tab === "shop" && can(s, "settings") && (
+      {tab === "rules" && can(s, "settings") && (
         <div className="card flex flex-col gap-2">
           <h2 className="font-semibold">Valorisation du stock</h2>
           <p className="text-xs text-muted">Une seule méthode par boutique. Elle s'applique aux réceptions suivantes ; les ventes passées gardent le coût figé au moment de la vente.</p>
           <select className="input" aria-label="Méthode de valorisation" value={costMethod} disabled={costBusy} onChange={(e) => void saveMethod(e.target.value)}>{COST_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
           <p className="text-xs text-muted">{COST_METHODS.find((m) => m.id === costMethod)?.help}</p>
           {!planAllows(sub.data?.entitlement.plan.id, "costing") && <p className="text-xs text-warn">Le choix de la méthode est réservé à la formule Pro (méthode actuelle : {methodLabel(costMethod)}).</p>}
-          {costMsg && <p className="text-sm text-warn" role="status">{costMsg}</p>}
+          <Msg text={costMsg} />
         </div>
       )}
-      {tab === "shop" && can(s, "settings") && (
+      {tab === "rules" && can(s, "settings") && (
         <div className="card flex flex-col gap-2">
           <h2 className="font-semibold">Lots périmés</h2>
           <p className="text-xs text-muted">Pour les articles suivis par lot : que faire à la caisse d'un lot dont la date de péremption est dépassée ?</p>
           <select className="input" aria-label="Politique des lots périmés" value={expiredPolicy} disabled={!planAllows(sub.data?.entitlement.plan.id, "lots")} onChange={(e) => void savePolicy(e.target.value)}>{EXPIRED_POLICIES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
           {!planAllows(sub.data?.entitlement.plan.id, "lots") && <p className="text-xs text-warn">Les lots et dates d'expiration sont réservés à la formule Pro.</p>}
-          {polMsg && <p className="text-sm text-warn" role="status">{polMsg}</p>}
+          <Msg text={polMsg} />
         </div>
       )}
-      {tab === "shop" && can(s, "settings") && planAllows(sub.data?.entitlement.plan.id, "promotions") && (
+      {tab === "rules" && can(s, "settings") && planAllows(sub.data?.entitlement.plan.id, "promotions") && (
         <div className="card flex flex-col gap-2">
           <h2 className="font-semibold">Promotions : marge minimale</h2>
           <p className="text-xs text-muted">Une promotion est refusée à la création, et ignorée à la caisse, si le prix final passe sous « coût × (1 + marge) ». 0 = seulement interdire de vendre sous le coût.</p>
           <div className="flex gap-2"><input className="input" inputMode="numeric" aria-label="Marge minimale (%)" value={mm} onChange={(e) => setMm(e.target.value)} /><button className="btn" onClick={() => void saveMargin()}>Enregistrer</button></div>
-          {mmMsg && <p className="text-sm text-warn" role="status">{mmMsg}</p>}
+          <Msg text={mmMsg} />
         </div>
       )}
       {tab === "payments" && can(s, "settings") && (
@@ -129,10 +134,10 @@ export function SettingsPage() {
           <input aria-label="Modèle de lien Orange Business (https://…{amount}…)" className="input" placeholder="Modèle de lien Orange Business (https://…{amount}…)" value={f.orangeTemplate} onChange={(e) => setF({ ...f, orangeTemplate: e.target.value })} />
           <input aria-label="Validité du lien (minutes)" className="input" inputMode="numeric" placeholder="Validité du lien (minutes)" value={f.expiryMinutes} onChange={(e) => setF({ ...f, expiryMinutes: e.target.value })} />
           <button className="btn">Enregistrer</button>
-          {msg && <p className="text-sm text-warn" role="status">{msg}</p>}
+          <Msg text={msg} />
         </form>
       )}
-      {tab === "shop" && <button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button>}
+      {tab === "profile" && <button className="btn-ghost md:self-start" onClick={() => void logout()}>Se déconnecter</button>}
       </>}
     </div>
   );

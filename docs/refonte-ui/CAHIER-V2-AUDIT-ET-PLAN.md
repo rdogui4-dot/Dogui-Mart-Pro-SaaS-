@@ -81,3 +81,9 @@ Le lot précédent (Comptabilité, Finance, Investissements) est commité et att
 - Effet signature : réseau neuronal discret dans l'en-tête (≤ 60 points, chargé après le contenu, en pause hors écran et onglet caché, bouton pause, repli statique en mouvement réduit, sans JavaScript ou sur appareil modeste) ; décoratif (`aria-hidden`).
 - Effet secondaire : halo discret sur la carte MASTER au survol d'un pointeur précis ; symbole MASTER or.
 - Scénario `e2e/public.cjs` : contenu immédiat (390/820/1280), pause effective, suspension hors écran, replis, halo, mesures locales LCP 64 ms et CLS 0 (à confirmer sur appareil réel et réseau lent en N6).
+### N5 — Réglages et Administration par intention (17/11)
+- Onglets regroupés : Compte (Mon profil), Commerce (Boutique, Règles de gestion, Boutiques), Équipe (Équipe & accès), Abonnement et paiements (Abonnement, Paiements QR), Suivi (Journal d'activité), Administration (Plateforme, administrateurs seulement). Aucun onglet retiré ; un vendeur ne voit que son profil.
+- Fiche boutique avec libellés visibles ; messages : succès en vert (statut), erreur en rouge (alerte) — auparavant tout en orange.
+- Journal d'activité (nouveau, lecture seule) : action serveur `activity.list` (propriétaire et gérant, boutique active uniquement, jamais une autre boutique ni la plateforme), filtre par module ; tests serveur (3) et navigateur.
+- Non fait faute de service réel : export de données, notifications, intégrations (ne pas simuler).
+- Scénario `e2e/settings.cjs` (8 vérifications) ; j3 et j11 mis à jour (onglets).
