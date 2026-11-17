@@ -11,7 +11,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   });
   await step("vente hors ligne puis refus serveur au retour : visible et traitable", async () => {
     await page.getByText("Savon").first().click(); for (let i = 0; i < 4; i++) await page.getByLabel("Plus").click();
-    await page.getByRole("button", { name: /Encaisser/ }).click(); await page.waitForTimeout(1000);
+    await (async () => { const f = page.getByPlaceholder(/montant reçu/i).first(); if ((await f.count()) && !(await f.inputValue())) await f.fill("1000000"); await page.getByRole("button", { name: /Encaisser/ }).click(); const v = page.getByRole("button", { name: "Valider la vente" }); await v.waitFor({ timeout: 4000 }).catch(() => {}); if (await v.count()) await v.click(); })(); await page.waitForTimeout(1000);
     h.setOffline(false); await page.evaluate(() => window.dispatchEvent(new Event("online"))); await page.waitForTimeout(3500);
     const t = await txt(); if (!/vente.? à vérifier/.test(t)) throw new Error("pas de badge: " + t.slice(0, 250));
     await page.goto(h.url("plus")); await page.waitForTimeout(1500); const t2 = await txt(); if (!t2.includes("Stock insuffisant")) throw new Error("motif absent: " + t2.slice(0, 300));

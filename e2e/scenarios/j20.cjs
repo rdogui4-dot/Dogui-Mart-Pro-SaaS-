@@ -25,10 +25,11 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     const e = st.rows("expenses")[0]; if (e.status !== "cancelled" || st.rows("expenses").length !== 1) throw new Error("dépense supprimée ou non annulée"); if (!st.rows("cash_movements").some((m) => m.kind === "in" && m.expenseId)) throw new Error("régularisation absente"); if (st.rows("expense_events").length < 3) throw new Error("historique incomplet");
   });
   await step("liste filtrée, rapport réel, export CSV", async () => {
-    await page.goto(h.url("depenses")); await page.getByLabel("Statut").selectOption("cancelled"); await page.waitForSelector("button:has-text('Transport marchandises')", { timeout: 8000 }); await page.getByLabel("Statut").selectOption("approved"); await page.waitForSelector("text=Aucune dépense", { timeout: 8000 });
+    await page.goto(h.url("depenses")); await page.locator("summary", { hasText: "Filtres" }).first().click(); await page.getByLabel("Statut").selectOption("cancelled"); await page.waitForSelector("button:has-text('Transport marchandises')", { timeout: 8000 }); await page.getByLabel("Statut").selectOption("approved"); await page.waitForSelector("text=Aucune dépense", { timeout: 8000 });
     await call("expense.create", { requestId: crypto.randomUUID(), label: "Loyer", category: "loyer", amount: 80000, spentOn: new Date().toISOString().slice(0, 10), method: "transfer", source: "external", reference: "VIR-1" }, h.shop);
     await page.getByRole("button", { name: "Rapports" }).click(); await page.waitForSelector("text=Par catégorie", { timeout: 10000 }); const t = await txt(); if (!/80\s?000/.test(t) || !/Résultat non affiché/.test(t)) throw new Error(t.slice(0, 900));
     const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), page.getByRole("button", { name: "CSV", exact: true }).click()]); const csv = fs.readFileSync(await dl.path(), "utf8"); if (!/Loyer/.test(csv) || !/Transport marchandises/.test(csv)) throw new Error(csv.slice(0, 300));
+    await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.endsWith(".depenses")) localStorage.removeItem(k); }); // filtres mémorisés par appareil : on repart sans filtre
   });
   await step("tableau de bord : dépenses validées affichées séparément du CA", async () => {
     await page.goto(h.url("activite")); await page.waitForSelector("text=Dépenses validées", { timeout: 15000 }); const t = await txt(); if (!/80\s?000/.test(t)) throw new Error(t.slice(0, 600));

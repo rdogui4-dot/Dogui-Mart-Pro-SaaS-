@@ -48,7 +48,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (st.rows("expenses").length) throw new Error("paiement fournisseur compté comme dépense"); await page.getByLabel("Fermer").click();
   });
   await step("tableau de bord : commandé / reçu / facturé / payé séparés, solde à payer", async () => {
-    await tab("Tableau"); await wait("Sur la période"); await page.waitForFunction(() => /Commandé/.test(document.body.innerText) && /Facturé/.test(document.body.innerText), null, { timeout: 8000 }); const t = await txt();
+    await tab("Tableau"); await wait("Sur la période"); await page.waitForFunction(() => /Commandé/.test(document.body.innerText) && /Facturé/.test(document.body.innerText), null, { timeout: 8000 }); await page.locator("summary", { hasText: "Comment lire ces chiffres" }).click(); const t = await txt();
     if (!/ne les additionnez pas/.test(t) || !/4\s?300/.test(t) || !/3\s?000/.test(t)) throw new Error(t.slice(0, 1400));
   });
   await step("fournisseur avec historique : suppression refusée (archivage proposé), archivage conserve l'historique", async () => {

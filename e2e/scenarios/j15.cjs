@@ -22,7 +22,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("coupon : campagne à coupon + création + saisie à la caisse", async () => {
     await call("promotion.save", { data: { name: "VIP Jus", kind: "percent", scope: "items", value: 20, startAt: new Date(Date.now() - 864e5).toISOString(), endAt: new Date(Date.now() + 5 * 864e5).toISOString(), requiresCoupon: true }, productIds: [jus] }, h.shop);
     const id = st.rows("promotions").find((p) => p.name === "VIP Jus").$id; await call("promotion.status", { id, to: "enabled" }, h.shop);
-    await page.goto(h.url("promotions")); await page.waitForTimeout(1200); await page.getByRole("button", { name: "Coupons" }).click(); await page.waitForTimeout(800); await page.getByLabel("Campagne liée *").selectOption({ label: "VIP Jus (coupon exigé)" }); await page.getByLabel("Code (généré si vide)").fill("MERCI20"); await page.getByRole("button", { name: "Créer", exact: true }).click(); await page.waitForTimeout(1200);
+    await page.goto(h.url("promotions")); await page.waitForTimeout(1200); await page.getByRole("tab", { name: "Coupons" }).click(); await page.waitForTimeout(800); await page.getByLabel("Campagne liée *").selectOption({ label: "VIP Jus (coupon exigé)" }); await page.getByLabel("Code (généré si vide)").fill("MERCI20"); await page.getByRole("button", { name: "Créer", exact: true }).click(); await page.waitForTimeout(1200);
     if (!/MERCI20/.test(await txt())) throw new Error("coupon non listé"); 
     await page.goto(h.url("pos")); await page.waitForTimeout(1500); await page.getByText("Jus", { exact: true }).first().click(); await page.waitForTimeout(1200); if (/Remises/.test(await txt())) throw new Error("remise sans coupon");
     await page.getByLabel("Coupon").fill("faux1"); await page.getByRole("button", { name: "Appliquer" }).click(); await page.waitForTimeout(1500); if (!/inconnu/.test(await txt())) throw new Error("pas de message coupon inconnu: " + (await txt()).slice(0, 400));
@@ -31,17 +31,17 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   });
   await step("calendrier, budgets, performance, conseils, réglages, journal s'ouvrent avec données réelles", async () => {
     await page.goto(h.url("promotions")); await page.waitForTimeout(1200);
-    await page.getByRole("button", { name: "Calendrier" }).click(); await page.waitForTimeout(600); if (!/Dégressif Eau/.test(await txt())) throw new Error("calendrier");
-    await page.getByRole("button", { name: "Performance" }).click(); await page.waitForTimeout(1500); let t = await txt(); if (!/Remises accordées/.test(t) || !/Marge brute/.test(t) || !/causé/.test(t)) throw new Error(t.slice(0, 500));
-    await page.getByRole("button", { name: "Conseils" }).click(); await page.waitForTimeout(1500); t = await txt(); if (!/Rien n'est créé/.test(t)) throw new Error(t.slice(0, 300));
-    await page.getByRole("button", { name: "Réglages" }).click(); await page.waitForTimeout(800); await page.getByLabel("Par article (% du prix)").fill("40"); await page.getByRole("button", { name: "Enregistrer" }).click(); await page.waitForTimeout(1000); if (st.rows("shops")[0].promoMaxLinePct !== 40) throw new Error("plafond non enregistré " + JSON.stringify(st.rows("shops")[0]));
-    await page.getByRole("button", { name: "Journal" }).click(); await page.waitForTimeout(1000); t = await txt(); if (!/Création/.test(t) || !/Activation/.test(t)) throw new Error(t.slice(0, 300));
-    await page.getByRole("button", { name: "Budgets" }).click(); await page.waitForTimeout(1200); if (!/Aucune campagne n'a de budget/.test(await txt())) throw new Error("budgets");
+    await page.getByRole("tab", { name: "Calendrier" }).click(); await page.waitForTimeout(600); if (!/Dégressif Eau/.test(await txt())) throw new Error("calendrier");
+    await page.getByRole("tab", { name: "Performance" }).click(); await page.waitForTimeout(1500); let t = await txt(); if (!/Remises accordées/.test(t) || !/Marge brute/.test(t) || !/causé/.test(t)) throw new Error(t.slice(0, 500));
+    await page.getByRole("tab", { name: "Conseils" }).click(); await page.waitForTimeout(1500); t = await txt(); if (!/Rien n'est créé/.test(t)) throw new Error(t.slice(0, 300));
+    await page.getByRole("tab", { name: "Réglages" }).click(); await page.waitForTimeout(800); await page.getByLabel("Par article (% du prix)").fill("40"); await page.getByRole("button", { name: "Enregistrer" }).click(); await page.waitForTimeout(1000); if (st.rows("shops")[0].promoMaxLinePct !== 40) throw new Error("plafond non enregistré " + JSON.stringify(st.rows("shops")[0]));
+    await page.getByRole("tab", { name: "Journal" }).click(); await page.waitForTimeout(1000); t = await txt(); if (!/Création/.test(t) || !/Activation/.test(t)) throw new Error(t.slice(0, 300));
+    await page.getByRole("tab", { name: "Budgets" }).click(); await page.waitForTimeout(1200); if (!/Aucune campagne n'a de budget/.test(await txt())) throw new Error("budgets");
   });
   await step("rétrogradation Business : campagnes avancées gelées + onglets verrouillés", async () => {
     const row = st.rows("subscriptions")[0]; row.plan = "business"; await page.reload(); await page.waitForTimeout(2000); await page.goto(h.url("promotions")); await page.waitForTimeout(1800);
     const t = await txt(); if (!/gelée/i.test(t)) throw new Error(t.slice(0, 500));
-    await page.getByRole("button", { name: /Coupons/ }).click(); await page.waitForTimeout(500); if (!/Réservé à la formule Pro/.test(await txt())) throw new Error("coupons non verrouillés");
+    await page.getByRole("tab", { name: /Coupons/ }).click(); await page.waitForTimeout(500); if (!/Réservé à la formule Pro/.test(await txt())) throw new Error("coupons non verrouillés");
   });
   console.log("ERRORS", h.errors, "\nBAD", h.bad); await h.close();
 })();

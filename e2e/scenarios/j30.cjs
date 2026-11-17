@@ -4,7 +4,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const h = await start({ plan: "business", expect: [] }); const { page, st } = h; const T = "t1"; const A = h.shop; const txt = async () => (await page.locator("body").innerText()).replace(/\s+/g, " ");
   const tab = (n) => page.getByRole("button", { name: n, exact: true }).click(); const wait = (t) => page.waitForSelector(`text=${t}`, { timeout: 10000 });
   const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-  await st.create("products", "p3", T, { tenantId: T, shopId: A, name: "Orangina 1.5l", price: 700, cost: 400 }); await st.create("stock_moves", "m3", T, { tenantId: T, shopId: A, productId: "p3", qty: 1, kind: "purchase" });
+  await st.create("products", "p3", T, { tenantId: T, shopId: A, archived: false, name: "Orangina 1.5l", price: 700, cost: 400 }); await st.create("stock_moves", "m3", T, { tenantId: T, shopId: A, productId: "p3", qty: 1, kind: "purchase" });
   const stock = () => st.rows("stock_moves").filter((m) => m.productId === "p3").reduce((a, m) => a + Number(m.qty), 0);
   const sup = (await h.call("purch.supplier.save", { name: "Grossiste Sané" }, A)).body.data.id;
   const po = (await h.call("purch.po.save", { clientId: rid(), supplierId: sup, lines: [{ productId: "p3", qty: 17, unitPrice: 400 }] }, A)).body.data.id; await h.call("purch.po.validate", { id: po }, A);

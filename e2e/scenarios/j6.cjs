@@ -10,8 +10,8 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const tel = await mk("Tel", { tracking: "serial" }); await call("serial.add", { productId: tel, serials: "SN1 SN2 SN3" }, h.shop);
   const open = async (name) => { await goto("articles"); await page.getByText(name, { exact: false }).first().click(); await page.waitForTimeout(800); };
   await step("variantes: ajout d'une variante (UI)", async () => {
-    await open("Tee-shirt"); await page.getByRole("button", { name: /Gérer/ }).first().click(); await page.getByRole("button", { name: /Ajouter une variante/ }).click();
-    await page.getByPlaceholder(/Valeur/).first().fill("M").catch(async () => { throw new Error("champ valeur: " + (await txt()).slice(0, 200)); });
+    await open("Tee-shirt"); await page.locator(".card", { has: page.getByRole("heading", { name: "Variantes", exact: true }) }).getByRole("button", { name: /Gérer/ }).click(); await page.getByRole("button", { name: /Ajouter une variante/ }).click();
+    await page.getByLabel("Valeur", { exact: true }).first().fill("M").catch(async () => { throw new Error("champ valeur: " + (await txt()).slice(0, 200)); });
   });
   await step("conditionnements: éditeur", async () => { await open("Jus"); await page.getByText("Conditionnements").first().waitFor({ timeout: 3000 }); await page.getByRole("button", { name: "Modifier" }).nth(0).click().catch(() => {}); });
   await step("tarifs: fiche article ouvre l'éditeur de tarifs", async () => { await open("Jus"); await page.getByText("Tarifs spéciaux").waitFor({ timeout: 3000 }); });

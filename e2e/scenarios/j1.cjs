@@ -48,24 +48,20 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   });
   const sales = () => st.rows("sales");
   await step("caisse: vente d'un article simple (clic, encaissement espèces)", async () => {
-    await goto("pos"); await page.getByText("Savon Dove").first().click(); await page.getByRole("button", { name: /Encaisser/ }).click(); await page.waitForTimeout(2500);
+    await goto("pos"); await page.getByText("Savon Dove").first().click(); await page.getByPlaceholder(/montant reçu/i).first().fill("1000000"); await page.getByRole("button", { name: /Encaisser/ }).click(); await page.getByRole("button", { name: "Valider la vente" }).click(); await page.waitForTimeout(2500);
     if (sales().length !== 1) throw new Error("vente non enregistrée: " + (await txt()).slice(0, 250));
     const q = st.rows("stock_moves").filter((m) => m.productId === st.rows("products").find((p) => p.name === "Savon Dove").$id).reduce((a, m) => a + (m.kind === "sale" ? -m.qty : m.qty), 0); if (q !== 19) throw new Error("stock " + q);
   });
   await step("caisse: vente du bundle (lot + série + simple) sans saisie de numéro", async () => {
-    await goto("pos"); await page.getByText("Pack test").first().click(); await page.getByRole("button", { name: /Encaisser/ }).click(); await page.waitForTimeout(2500);
+    await goto("pos"); await page.getByText("Pack test").first().click(); await page.getByPlaceholder(/montant reçu/i).first().fill("1000000"); await page.getByRole("button", { name: /Encaisser/ }).click(); await page.getByRole("button", { name: "Valider la vente" }).click(); await page.waitForTimeout(2500);
     if (sales().length !== 2) throw new Error("vente bundle non enregistrée: " + (await txt()).slice(0, 250));
     const sold = st.rows("article_serials").filter((r) => r.status === "sold"); if (sold.length !== 1) throw new Error("série non vendue");
   });
   await step("caisse: vente d'un article par série (numéro automatique)", async () => {
-    await goto("pos"); await page.getByText("Téléphone X").first().click(); await page.getByRole("button", { name: /Encaisser/ }).click(); await page.waitForTimeout(2500);
+    await goto("pos"); await page.getByText("Téléphone X").first().click(); await page.getByPlaceholder(/montant reçu/i).first().fill("1000000"); await page.getByRole("button", { name: /Encaisser/ }).click(); await page.getByRole("button", { name: "Valider la vente" }).click(); await page.waitForTimeout(2500);
     if (sales().length !== 3) throw new Error("vente série non enregistrée: " + (await txt()).slice(0, 250));
   });
-  await step("stock: sélection d'un article et inventaire", async () => {
-    await goto("stock"); await page.getByText("Savon Dove").first().click(); await page.waitForTimeout(500);
-    await page.getByLabel("Quantité réellement comptée").fill("15"); await page.getByRole("button", { name: /Valider l'inventaire/ }).click(); await page.waitForTimeout(1500);
-    const p = st.rows("products").find((x) => x.name === "Savon Dove"); const q = st.rows("stock_moves").filter((m) => m.productId === p.$id).reduce((a, m) => a + (["sale", "loss", "transfer_out"].includes(m.kind) ? -m.qty : m.qty), 0); if (q !== 15) throw new Error("stock " + q);
-  });
+  // « stock: sélection d'un article et inventaire » retiré : l'écran d'inventaire rapide a été remplacé par la correction motivée (couverte par e2e/stock.cjs et j25).
   await step("tableau de bord", async () => { await goto("tableau"); const t = await txt(); if (!t.includes("Valeur du stock")) throw new Error(t.slice(0, 300)); });
   console.log("ERRORS", h.errors, "\nBAD", h.bad); await h.close();
 })();

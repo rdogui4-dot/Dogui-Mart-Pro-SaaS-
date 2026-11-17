@@ -12,7 +12,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     const t = await txt(); if (!/5\s?000/.test(t) || !/Stock bas\s*1/.test(t)) throw new Error(t.slice(0, 900));
   });
   await step("fiche de stock : quantités distinctes (stock, disponible, réservé, en commande, transit)", async () => {
-    await tab("Articles"); await page.getByLabel("Fiche de stock Riz 25kg").click(); await wait("En stock (théorique)"); const t = await txt();
+    await tab("Comptage rapide"); await page.getByLabel("Fiche de stock Riz 25kg").click(); await wait("En stock (théorique)"); const t = await txt();
     for (const k of ["Disponible", "Réservé", "En commande", "En transit (reçu bientôt)", "En transit (expédié)", "Seuils"]) if (!t.includes(k)) throw new Error("manque " + k);
   });
   await step("correction : motif obligatoire, puis −2 enregistré comme mouvement tracé", async () => {

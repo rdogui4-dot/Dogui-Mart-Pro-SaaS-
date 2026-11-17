@@ -5,7 +5,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const jus = (await call("article.save", { data: { name: "Jus", price: 1000, cost: 500 }, initialQty: 10 }, h.shop)).body.data.id;
   const txt = async () => (await page.locator("body").innerText()).replace(/\s+/g, " ");
   await step("ticket PDF après vente", async () => {
-    await page.goto(h.url("pos")); await page.waitForTimeout(1500); await page.getByText("Jus").first().click(); await page.getByRole("button", { name: /Encaisser/ }).click(); await page.waitForTimeout(2000);
+    await page.goto(h.url("pos")); await page.waitForTimeout(1500); await page.getByText("Jus").first().click(); await (async () => { const f = page.getByPlaceholder(/montant reçu/i).first(); if ((await f.count()) && !(await f.inputValue())) await f.fill("1000000"); await page.getByRole("button", { name: /Encaisser/ }).click(); const v = page.getByRole("button", { name: "Valider la vente" }); await v.waitFor({ timeout: 4000 }).catch(() => {}); if (await v.count()) await v.click(); })(); await page.waitForTimeout(2000);
     const dl = page.waitForEvent("download", { timeout: 8000 }).catch(() => null); await page.getByRole("button", { name: /Ticket PDF/ }).click(); const d = await dl; if (!d) throw new Error("pas de téléchargement (ni partage)"); const n = d.suggestedFilename(); if (!/\.pdf$/.test(n)) throw new Error(n);
   });
   await step("compta: facture libre + rapport", async () => {
