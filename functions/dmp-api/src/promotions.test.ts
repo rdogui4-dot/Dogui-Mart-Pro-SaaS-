@@ -158,6 +158,9 @@ describe("suivi", () => {
     await ok(sell([{ productId: eau, qty: 2 }])); await ok(sell([{ productId: eau, qty: 4 }, { productId: jus, qty: 1 }]));
     const s = await ok(call("own", "promotions.stats", {})); expect(s).toMatchObject({ created: 3, uses: 2, discountTotal: 100 + 200, promoRevenue: 900 + 1800 }); expect(s.byStatus).toMatchObject({ draft: 1, scheduled: 1, active: 1, ended: 0 });
     expect(s.items[0]).toMatchObject({ id: a, uses: 2, discount: 300, revenue: 2700 }); expect(s.note).toContain("pas un bénéfice");
+    expect(s.customers).toBe(0); expect(s.previous.revenue).toBe(0); expect(s.weeks).toHaveLength(5); expect(s.weeks.reduce((x: number, w: any) => x + w.revenue, 0)).toBe(2700); expect(s.weeks[4].uses).toBe(2);
+    const u = st.rows("promotion_usage")[0]!; u.usedAt = new Date(Date.now() - 40 * 864e5).toISOString(); u.customerId = "c1"; const s2 = await ok(call("own", "promotions.stats", {})); expect(s2.previous.revenue).toBe(Number(u.finalAmount)); expect(s2.promoRevenue).toBe(2700 - Number(u.finalAmount));
+    st.rows("promotion_usage")[1]!.customerId = "c2"; expect((await ok(call("own", "promotions.stats", {}))).customers).toBe(1);
     await err(call("own", "promotions.stats", { from: "2026-12-01", to: "2026-11-01" }), 400); await err(call(U.cais!, "promotions.stats", {}), 403);
     const other = await ok(call("own2", "promotions.stats", {}, A2, T2)); expect(other.created).toBe(0); expect(other.uses).toBe(0);
   });

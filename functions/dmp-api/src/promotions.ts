@@ -352,7 +352,15 @@ export async function promotionStats(store: Store, ctx: Ctx, b: { from?: string;
   for (const u of usage.rows) { const a = per.get(String(u.promotionId)) ?? { uses: 0, discount: 0, revenue: 0 }; a.uses++; a.discount += Number(u.discount ?? 0); a.revenue += Number(u.finalAmount ?? 0); per.set(String(u.promotionId), a); }
   const items = promos.map((p) => { const a = per.get(p.$id) ?? { uses: 0, discount: 0, revenue: 0 }; return { id: p.$id, name: String(p.name), status: promoStatus({ status: p.status, startAt: String(p.startAt), endAt: String(p.endAt) }, now), ...a }; }).filter((x) => x.uses > 0).sort((a, b) => b.discount - a.discount);
   const sum = (k: "uses" | "discount" | "revenue") => items.reduce((a, x) => a + x[k], 0);
-  return { period: { from, to }, created: promos.length, byStatus: counts, uses: sum("uses"), discountTotal: sum("discount"), promoRevenue: sum("revenue"), items, truncated: usage.truncated,
+  // clients distincts ayant bénéficié d'une promotion ; période précédente de même durée ; 5 dernières semaines (lundi → dimanche, UTC) jusqu'à la fin de période
+  const customers = new Set(usage.rows.map((u) => String(u.customerId ?? "")).filter(Boolean)).size;
+  const span = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 864e5) + 1; const pFrom = new Date(Date.parse(`${from}T00:00:00Z`) - span * 864e5).toISOString();
+  const prev = await store.scan("promotion_usage", where, { range: { field: "usedAt", from: pFrom, to: `${from}T00:00:00.000Z` }, maxRows: 50_000 }); const previousRevenue = prev.rows.filter((u) => String(u.usedAt) < `${from}T00:00:00.000Z`).reduce((a, u) => a + Number(u.finalAmount ?? 0), 0);
+  const end = new Date(`${to}T00:00:00Z`); const monday = new Date(end.getTime() - ((end.getUTCDay() + 6) % 7) * 864e5); const wStart = new Date(monday.getTime() - 28 * 864e5);
+  const wk = await store.scan("promotion_usage", where, { range: { field: "usedAt", from: wStart.toISOString(), to: new Date(end.getTime() + 864e5).toISOString() }, maxRows: 50_000 });
+  const weeks = [0, 1, 2, 3, 4].map((i) => { const a = new Date(wStart.getTime() + i * 7 * 864e5); return { start: a.toISOString().slice(0, 10), revenue: 0, discount: 0, uses: 0 }; });
+  for (const u of wk.rows) { const t = Date.parse(String(u.usedAt)); const i = Math.floor((t - wStart.getTime()) / (7 * 864e5)); const w = weeks[i]; if (w && t < end.getTime() + 864e5) { w.revenue += Number(u.finalAmount ?? 0); w.discount += Number(u.discount ?? 0); w.uses++; } }
+  return { period: { from, to }, created: promos.length, byStatus: counts, uses: sum("uses"), discountTotal: sum("discount"), promoRevenue: sum("revenue"), items, truncated: usage.truncated, customers, previous: { from: pFrom.slice(0, 10), revenue: previousRevenue }, weeks,
     note: "Le chiffre d'affaires promotionnel est le montant encaissé sur les lignes en promotion, net de remise : ce n'est pas un bénéfice." };
 }
 export { STATUS_LABEL, describeDiscount, normalizeCode };

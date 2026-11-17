@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
-import { GroupedTabs } from "@/components/GroupedTabs";
 import { DataGrid } from "@/components/DataGrid";
 import { useMinWidth } from "@/lib/media";
 import { usePersistedState } from "@/lib/prefs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Lock, Pencil, Plus, Tag, Trash2 } from "lucide-react";
+import { AlertTriangle, BarChart3, Coins, Gift, Layers, Lock, Pencil, Percent, Plus, ShoppingCart, Tag, TicketPercent, Trash2, TrendingUp, Users } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { InsightCard, KpiRow, KpiTile, ModuleHeader, Panel, PillTabs, type Insight } from "@/components/kit";
+import { Donut, LineChart } from "@/components/charts";
 import { Query } from "@/lib/appwrite";
 import { api } from "@/lib/api";
 import { list, listAll, type Row } from "@/lib/data";
@@ -20,10 +22,10 @@ import { FAMILY_LABEL, ItemPicker, ProLock, TONE, fmtDate, usePromoList, type Li
 import { AnalyticsTab, CalendarTab, CouponsTab, JournalTab, RecosTab, SettingsTab } from "./promo-pro";
 
 type UsageRow = Row<{ promotionId: string; saleNumber?: string; customerId?: string; discount: number; baseAmount?: number; finalAmount?: number; usedAt?: string; code?: string; family?: string }>;
-type Stats = { period: { from: string; to: string }; created: number; byStatus: Record<PromoStatus, number>; uses: number; discountTotal: number; promoRevenue: number; items: { id: string; name: string; status: PromoStatus; uses: number; discount: number; revenue: number }[]; note: string };
+type Stats = { customers?: number; previous?: { from: string; revenue: number }; weeks?: { start: string; revenue: number; discount: number; uses: number }[]; period: { from: string; to: string }; created: number; byStatus: Record<PromoStatus, number>; uses: number; discountTotal: number; promoRevenue: number; items: { id: string; name: string; status: PromoStatus; uses: number; discount: number; revenue: number }[]; note: string };
 type Prefill = { family?: string; name?: string; productIds?: string[]; comboProductIds?: string[] };
-type Tab = "list" | "calendar" | "coupons" | "budgets" | "perf" | "stores" | "recos" | "settings" | "journal" | "results";
-const TABS: { k: Tab; l: string; pro?: boolean }[] = [{ k: "list", l: "Campagnes" }, { k: "calendar", l: "Calendrier" }, { k: "coupons", l: "Coupons", pro: true }, { k: "budgets", l: "Budgets", pro: true }, { k: "perf", l: "Performance", pro: true }, { k: "stores", l: "Magasins", pro: true }, { k: "recos", l: "Conseils", pro: true }, { k: "settings", l: "Réglages" }, { k: "journal", l: "Journal" }, { k: "results", l: "Résultats" }];
+type Tab = "list" | "combo" | "loyalty" | "calendar" | "coupons" | "budgets" | "perf" | "stores" | "recos" | "settings" | "journal" | "results";
+const TABS: { k: Tab; l: string; pro?: boolean }[] = [{ k: "list", l: "Campagnes" }, { k: "calendar", l: "Calendrier" }, { k: "coupons", l: "Coupons", pro: true }, { k: "budgets", l: "Budgets", pro: true }, { k: "perf", l: "Performance", pro: true }, { k: "stores", l: "Magasins", pro: true }, { k: "recos", l: "Conseils", pro: true }, { k: "settings", l: "Réglages" }, { k: "journal", l: "Journal" }, { k: "results", l: "Analyses" }, { k: "combo", l: "Offres groupées", pro: true }, { k: "loyalty", l: "Programmes de fidélité" }];
 
 /** Module Promotions : UN moteur pour Business et Pro. Business : remises simples. Pro : prix dégressifs, achetez X obtenez Y, packs, conditions, coupons, ciblage clients,
  *  budgets, multi-magasins, analyses, conseils. Chaque calcul d'éligibilité et de remise est fait par le serveur ; ici on saisit, on affiche et on explique. */
@@ -40,16 +42,24 @@ export function PromotionsPage() {
   if (!manager) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Promotions</h1><p className="card text-sm text-soft">La gestion des promotions est réservée au gérant et au propriétaire. Les promotions actives s'appliquent automatiquement à la caisse.</p></div>;
   const d = lst.data; const openP = d?.promos.find((p) => p.id === open) ?? null;
   return (
-    <div className="flex flex-col gap-3">
-      <h1 className="text-2xl font-bold">Promotions</h1>
-      <GroupedTabs label="Sections des promotions" value={tab} onChange={setTab} groups={[
-        { label: "Campagnes", items: TABS.filter((t) => t.k === "list" || t.k === "calendar").map((t) => ({ key: t.k, label: t.l })) },
-        { label: "Suivi", items: TABS.filter((t) => ["perf", "journal", "results"].includes(t.k)).map((t) => ({ key: t.k, label: t.l, locked: !!t.pro && !pro })) },
-        { label: "Pro", items: TABS.filter((t) => ["coupons", "budgets", "stores", "recos"].includes(t.k)).map((t) => ({ key: t.k, label: t.l, locked: !!t.pro && !pro })) },
-        { label: "Réglages", items: TABS.filter((t) => t.k === "settings").map((t) => ({ key: t.k, label: t.l })) },
-      ]} />
+    <div className="flex flex-col gap-4">
+      <ModuleHeader icon={Tag} title="Promotions & Offres Commerciales" subtitle="Créez des promotions, boostez vos ventes et fidélisez vos clients." actions={<button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => setEdit({ p: null })}><Plus size={18} />Créer une promotion</button>} />
+      <PromoKpis d={d} products={prods.data ?? []} />
+      <PillTabs idBase="promos" label="Sections des promotions" value={(["list", "combo", "coupons", "loyalty", "results"] as Tab[]).includes(tab) ? tab : ("" as Tab)} onChange={setTab} items={[{ key: "list" as Tab, label: "Promotions actives", icon: Tag }, { key: "combo" as Tab, label: "Offres groupées", icon: Layers, locked: !pro }, { key: "coupons" as Tab, label: "Coupons", icon: TicketPercent, locked: !pro }, { key: "loyalty" as Tab, label: "Programmes de fidélité", icon: Gift }, { key: "results" as Tab, label: "Analyses", icon: BarChart3 }]} />
+      <div role="tablist" aria-label="Autres sections des promotions" className="scroll-x !gap-1.5 -mt-2">{TABS.filter((t) => ["calendar", "perf", "journal", "budgets", "stores", "recos", "settings"].includes(t.k)).sort((a, b) => ["calendar", "perf", "journal", "budgets", "stores", "recos", "settings"].indexOf(a.k) - ["calendar", "perf", "journal", "budgets", "stores", "recos", "settings"].indexOf(b.k)).map((t) => <button key={t.k} role="tab" type="button" aria-selected={tab === t.k} className="chip !min-h-8 !py-1 !px-3 text-sm inline-flex items-center gap-1" onClick={() => setTab(t.k)}>{t.l}{t.pro && !pro && <Lock size={12} aria-label="Réservé à une offre supérieure" />}</button>)}</div>
       {lst.isLoading && <p className="text-muted text-sm">Chargement…</p>}{lst.error && <p className="text-bad text-sm" role="alert">{(lst.error as Error).message}</p>}
-      {d && tab === "list" && <CampaignList d={d} pro={pro} onNew={() => setEdit({ p: null })} onOpen={(p) => setOpen(p.id)} products={prods.data ?? []} />}
+      {d && tab === "list" && <>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <Panel title={`Promotions en cours (${d.promos.filter((p) => p.effective === "active").length})`}><CampaignList d={d} pro={pro} onOpen={(p) => setOpen(p.id)} products={prods.data ?? []} /></Panel>
+          <PromoSide />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
+          <QuickCreate pro={pro} onPick={(family) => (family === "coupon" ? setTab("coupons") : setEdit({ p: null, prefill: { family } }))} />
+          <PromoMaster d={d} pro={pro} onPrepare={(pf) => setEdit({ p: null, prefill: pf })} />
+        </div>
+      </>}
+      {d && tab === "combo" && (pro ? <CampaignList d={d} pro={pro} onlyFamily="combo" onOpen={(p) => setOpen(p.id)} products={prods.data ?? []} /> : <ProLock what="Offres groupées (packs) : plusieurs articles achetés ensemble à prix réduit, appliqués automatiquement à la caisse." />)}
+      {tab === "loyalty" && <div className="card flex flex-col gap-2 text-sm"><b>Programmes de fidélité</b><span className="text-muted">Les points de fidélité, les niveaux (argent, or) et leurs avantages sont gérés dans le module Clients : chaque vente identifiée attribue les points selon les règles de la boutique, et les retours les retirent.</span><Link to="/clients" className="btn !py-2 self-start">Ouvrir Clients (CRM)</Link><span className="text-xs text-muted">Pour une remise réservée à un niveau de fidélité, créez une promotion ciblée « clients fidèles » (formule Pro).</span></div>}
       {d && tab === "calendar" && <CalendarTab data={d} onOpen={(p) => setOpen(p.id)} />}
       {d && tab === "coupons" && <CouponsTab data={d} pro={pro} />}
       {tab === "budgets" && <AnalyticsTab pro={pro} view="budgets" />}
@@ -65,15 +75,60 @@ export function PromotionsPage() {
   );
 }
 
-function CampaignList({ d, pro, onNew, onOpen, products }: { d: ListData; pro: boolean; onNew: () => void; onOpen: (p: PromoView) => void; products: { $id: string; name: string; category?: string; archived?: boolean }[] }) {
+const useStats30 = () => { const { session } = useSession(); const s = session!; const to = new Date().toISOString().slice(0, 10); const from = new Date(Date.now() - 29 * 864e5).toISOString().slice(0, 10); return useQuery({ queryKey: ["promotion-stats", s.shopId, from, to], retry: 1, queryFn: () => api<Stats>(s, "promotions.stats", { from, to }) }); };
+
+/** Indicateurs du kit, tous réels : ventes en promotion (30 j, net de remise) et écart, promotions actives, articles concernés, clients distincts, remises accordées. */
+function PromoKpis({ d, products }: { d?: ListData; products: { $id: string; category?: string; archived?: boolean }[] }) {
+  const st = useStats30(); const S = st.data; const active = (d?.promos ?? []).filter((p) => p.effective === "active" && !p.frozen);
+  const arts = new Set<string>(); for (const p of active) { if (p.scope === "category") for (const x of products) { if (!x.archived && (x.category ?? "").toLowerCase() === (p.category ?? "").toLowerCase()) arts.add(x.$id); } else { for (const id of p.itemIds) arts.add(id); for (const c of p.comboRefs ?? []) arts.add(c.productId); } }
+  const prev = S?.previous?.revenue ?? 0; const delta = S && prev > 0 ? Math.round(((S.promoRevenue - prev) / prev) * 1000) / 10 : null;
+  return <KpiRow cols={5}>
+    <KpiTile icon={TrendingUp} tint="blue" label="Ventes en promo" loading={st.isLoading} value={S ? formatFcfa(S.promoRevenue) : "—"} {...(delta !== null ? { delta: { text: `${delta > 0 ? "+" : ""}${delta.toLocaleString("fr-FR")} % vs 30 jours précédents`, dir: delta >= 0 ? "up" as const : "down" as const, good: delta >= 0 } } : { sub: "30 derniers jours, net de remise" })} />
+    <KpiTile icon={Tag} tint="amber" label="Promotions actives" loading={!d} value={d ? active.length : "—"} sub={d && d.expiringSoon.length ? `${d.expiringSoon.length} se termine(nt) bientôt` : undefined} />
+    <KpiTile icon={ShoppingCart} tint="cyan" label="Articles en promotion" loading={!d} value={d ? arts.size : "—"} />
+    <KpiTile icon={Users} tint="violet" label="Clients concernés" loading={st.isLoading} value={S?.customers ?? "—"} sub="clients identifiés, 30 jours" />
+    <KpiTile icon={Coins} tint="green" label="Remises accordées" loading={st.isLoading} value={S ? formatFcfa(S.discountTotal) : "—"} sub={S ? `${S.uses} utilisation(s)` : undefined} />
+  </KpiRow>;
+}
+
+/** Colonne du kit : part de chaque promotion dans les ventes en promotion, évolution hebdomadaire (une seule série : pas de « sans promotion » inventé). */
+function PromoSide() {
+  const st = useStats30(); const S = st.data; const items = (S?.items ?? []).filter((x) => x.revenue > 0).sort((a, b) => b.revenue - a.revenue); const top = items.slice(0, 4); const rest = items.slice(4).reduce((a, x) => a + x.revenue, 0);
+  return <div className="flex flex-col gap-4">
+    <Panel title="Performance des promotions">{top.length ? <Donut label="Part de chaque promotion dans les ventes en promotion (30 jours)" data={[...top.map((x) => ({ key: x.id, label: x.name, value: x.revenue })), ...(rest > 0 ? [{ key: "autres", label: "Autres", value: rest }] : [])]} /> : <p className="text-sm text-muted">{st.isLoading ? "Chargement…" : "Aucune vente en promotion sur 30 jours."}</p>}</Panel>
+    <Panel title="Ventes en promotion par semaine">{S?.weeks?.some((w) => w.revenue > 0) ? <LineChart label="Ventes en promotion par semaine (net de remise)" w={340} data={S.weeks.map((w) => ({ key: w.start, label: `${w.start.slice(8, 10)}/${w.start.slice(5, 7)}`, value: w.revenue, sub: `${w.uses} utilisation(s)` }))} /> : <p className="text-sm text-muted">{st.isLoading ? "Chargement…" : "Pas encore de vente en promotion sur 5 semaines."}</p>}</Panel>
+  </div>;
+}
+
+/** Cartes « Créer une nouvelle promotion » : ouvrent le formulaire pré-rempli (ou les coupons). */
+function QuickCreate({ pro, onPick }: { pro: boolean; onPick: (family: string) => void }) {
+  const cards: { f: string; l: string; ex: string; i: typeof Percent; pro?: boolean }[] = [{ f: "simple", l: "Remise sur articles", ex: "Ex. : −10 %", i: Percent }, { f: "combo", l: "Offre groupée (pack)", ex: "Ex. : 2 articles −20 %", i: Layers, pro: true }, { f: "cart", l: "Remise sur panier", ex: "Ex. : dès 20 000 F −5 %", i: ShoppingCart }, { f: "coupon", l: "Coupon / code promo", ex: "Ex. : CLIENT10", i: TicketPercent, pro: true }];
+  return <Panel title="Créer une nouvelle promotion"><div className="grid grid-cols-2 md:grid-cols-4 gap-2">{cards.map((c) => { const lock = !!c.pro && !pro; return <button key={c.f} className="rounded-2xl border border-[var(--line)] p-3 flex flex-col items-center gap-1 text-center hover:bg-subtle disabled:opacity-60" disabled={lock} onClick={() => onPick(c.f)} aria-label={`${c.l}${lock ? " (formule Pro)" : ""}`}><c.i size={24} className="text-accent-text" aria-hidden="true" /><b className="text-sm">{c.l}</b><span className="text-xs text-muted">{lock ? "Formule Pro" : c.ex}</span></button>; })}</div></Panel>;
+}
+
+type RecoLite = { id: string; title: string; why: string; prefill?: Prefill };
+/** Encart MASTER : recommandations calculées par le serveur (Pro) ou constats simples (Business) ; rien n'est créé ni activé automatiquement. */
+function PromoMaster({ d, pro, onPrepare }: { d: ListData; pro: boolean; onPrepare: (p: Prefill) => void }) {
+  const { session } = useSession(); const s = session!;
+  const q = useQuery({ queryKey: ["promo-recos", s.shopId], enabled: pro, retry: 1, queryFn: () => api<{ recommendations: RecoLite[] }>(s, "promotions.recommendations", {}) });
+  const items: Insight[] = [];
+  if (pro) for (const r of (q.data?.recommendations ?? []).slice(0, 3)) items.push({ id: r.id, tone: "info", text: `${r.title} — ${r.why}` });
+  if (d.expiringSoon.length) items.push({ id: "e", tone: "warn", text: `${d.expiringSoon.length} campagne(s) se terminent bientôt : ${d.expiringSoon.slice(0, 3).map((x) => x.name).join(", ")}.` });
+  if (d.overlaps.length) items.push({ id: "o", tone: "warn", text: `${d.overlaps.length} chevauchement(s) de campagnes sur les mêmes articles : vérifiez la règle de cumul.` });
+  if (!d.promos.some((p) => p.effective === "active")) items.push({ id: "n", tone: "info", text: "Aucune promotion active en ce moment." });
+  const first = (q.data?.recommendations ?? []).find((r) => r.prefill);
+  return <div className="flex flex-col gap-2"><InsightCard module="Promotions" loading={pro && q.isLoading} items={items} source={pro ? "ventes, stock et campagnes de la boutique (recommandations du serveur)" : "campagnes de la boutique"} emptyText="Rien à signaler sur vos campagnes." />
+    {first?.prefill && <button className="btn-ghost !py-2 text-sm" onClick={() => onPrepare(first.prefill!)}>Préparer « {first.title} » (brouillon à relire)</button>}</div>;
+}
+
+function CampaignList({ d, pro, onlyFamily, onOpen, products }: { d: ListData; pro: boolean; onlyFamily?: Family; onOpen: (p: PromoView) => void; products: { $id: string; name: string; category?: string; archived?: boolean }[] }) {
   const { session: sess } = useSession(); const wide = useMinWidth(1024); const [pf, setPf, resetPf] = usePersistedState(`dmp.pref.${sess!.tenantId}.promotions`, { filter: "all", fam: "", cat: "" }); const filter = pf.filter as "all" | PromoStatus; const fam = pf.fam as "" | Family; const cat = pf.cat; const setFilter = (v: "all" | PromoStatus) => setPf({ ...pf, filter: v }); const setFam = (v: "" | Family) => setPf({ ...pf, fam: v }); const setCat = (v: string) => setPf({ ...pf, cat: v }); const [q, setQ] = useState(""); const [art, setArt] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
   const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "fr")), [products]);
-  const shown = d.promos.filter((p) => (filter === "all" || p.effective === filter) && (!fam || (p.family ?? "simple") === fam) && (!q.trim() || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.trim().toLowerCase())) && (!art || p.itemIds.includes(art) || (p.comboRefs ?? []).some((c) => c.productId === art))
+  const shown = d.promos.filter((p) => (!onlyFamily || (p.family ?? "simple") === onlyFamily) && (filter === "all" || p.effective === filter) && (!fam || (p.family ?? "simple") === fam) && (!q.trim() || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.trim().toLowerCase())) && (!art || p.itemIds.includes(art) || (p.comboRefs ?? []).some((c) => c.productId === art))
     && (!cat || (p.scope === "category" && (p.category ?? "").toLowerCase() === cat.toLowerCase()) || p.itemIds.some((id) => products.find((x) => x.$id === id)?.category === cat)) && (!from || p.endAt.slice(0, 10) >= from) && (!to || p.startAt.slice(0, 10) <= to)).sort((a, b) => b.startAt.localeCompare(a.startAt));
   const frozen = d.promos.filter((p) => p.frozen && p.status !== "ended").length;
   return (
     <>
-      <button className="btn flex items-center justify-center gap-2 md:self-end" onClick={onNew}><Plus size={18} />Nouvelle campagne</button>
       {!pro && frozen > 0 && <div className="card border border-warn/40 text-sm flex gap-2" role="status"><AlertTriangle size={16} className="text-warn shrink-0 mt-0.5" /><span>{frozen} campagne(s) avancée(s) sont <b>gelées</b> : votre formule n'inclut plus Promotions Pro. Elles sont conservées avec leur historique mais ne s'appliquent plus ; elles reprendront avec la formule Pro. Vous pouvez les suspendre ou les terminer.</span></div>}
       <div className="scroll-x">{([["all", "Toutes"], ["active", "Actives"], ["scheduled", "Programmées"], ["draft", "Brouillons"], ["suspended", "Suspendues"], ["ended", "Terminées"]] as const).map(([k, l]) => <button key={k} className="chip" aria-current={filter === k} onClick={() => setFilter(k)}>{l}</button>)}</div>
       <input aria-label="Rechercher (nom ou code)" className="input" placeholder="Rechercher (nom ou code)" value={q} onChange={(e) => setQ(e.target.value)} />
