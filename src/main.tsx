@@ -8,7 +8,6 @@ import { routerBasepath } from "@/lib/basepath";
 import { SessionProvider, can, useSession, type Perm } from "@/lib/session";
 import { Layout } from "@/components/Layout";
 import { consumeVerifyReturn } from "@/lib/verify";
-import { ToastProvider } from "@/components/ui";
 import { ErrorPage, ForbiddenPage, NotFoundPage, SpacePage } from "@/routes/shell-pages";
 import { AuthPage } from "@/routes/auth";
 import { CreateTenantPage } from "@/routes/tenant-setup";
@@ -77,5 +76,5 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) void navigator.service
 // Préchargement discret des pages de comptoir (caisse, stock, ventes) : le service worker les met en cache pour le hors-ligne.
 if (import.meta.env.PROD) window.addEventListener("load", () => setTimeout(() => { if (navigator.onLine) for (const p of [import("@/routes/pos"), import("@/routes/stock"), import("@/routes/caisse"), import("@/routes/ventes")]) void p.catch(() => undefined); }, 4000), { once: true });
 void consumeVerifyReturn().finally(() => createRoot(document.getElementById("root")!).render(
-  <StrictMode><QueryClientProvider client={queryClient}><SessionProvider><ToastProvider><RouterProvider router={router} /></ToastProvider></SessionProvider></QueryClientProvider></StrictMode>,
+  <StrictMode><QueryClientProvider client={queryClient}><SessionProvider><RouterProvider router={router} /></SessionProvider></QueryClientProvider></StrictMode>,
 ));

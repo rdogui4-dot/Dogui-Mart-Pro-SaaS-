@@ -105,5 +105,3 @@ export const can = (session: Pick<Session, "role" | "modules"> | null | undefine
   if (perm === "finance") return session.modules.some((m) => m === "invoices" || m === "accounting" || m === "reports");
   return session.modules.includes(perm);
 };
-/** Page d'accueil après connexion ou accès refusé : le tableau de bord, commun à tous les profils. */
-export const homePath = (_session?: Pick<Session, "role" | "modules"> | null): string => "/accueil";

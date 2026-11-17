@@ -25,7 +25,6 @@ export async function discardRejected(clientId: string): Promise<void> { await (
 /** Issue d'une vente envoyée : la vente n'est « synchronisée » que lorsque le SERVEUR l'a confirmée (numéro et code de vérification renvoyés). */
 export type SyncResult = { clientId: string; status: "synced"; number: string; verifyCode?: string } | { clientId: string; status: "rejected"; error: string };
 const results = new Map<string, SyncResult>(); const listeners = new Set<(r: SyncResult) => void>();
-export const syncResultOf = (clientId: string): SyncResult | undefined => results.get(clientId);
 export function onSyncResult(cb: (r: SyncResult) => void): () => void { listeners.add(cb); return () => { listeners.delete(cb); }; }
 const emit = (r: SyncResult) => { results.set(r.clientId, r); for (const l of listeners) l(r); };
 /** État affiché pour une vente : « pending » tant que le serveur n'a pas répondu (hors ligne, coupure, file), « synced » seulement après confirmation, « rejected » après refus définitif. */
