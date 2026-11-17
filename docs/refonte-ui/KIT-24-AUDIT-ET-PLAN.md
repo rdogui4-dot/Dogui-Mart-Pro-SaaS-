@@ -114,3 +114,9 @@ Ordre proposé : coque et pages de gestion d'abord (le kit les illustre le mieux
 5. **Schéma** : accord pour ajouter les colonnes profil entreprise et boutique (§4), et une clé serveur avec `databases.read` pour relire le schéma réel avant.
 6. **OAuth Google/Microsoft/Apple** : à activer dans la console Appwrite (identifiants des fournisseurs) ou à retirer des écrans.
 7. **IA MASTER** : rester en assistant guidé (état réel actuel) ou activer Gemini (confirmation de l'offre payante du fournisseur : variable `MASTER_AI_BILLING_CONFIRMED`).
+
+## 7. Décisions validées (17/11/2026)
+- Logo : **le « M » + point or reste le logo principal** ; le cerveau reste le symbole de MASTER DOGUI.
+- Navigation : **liste plate du kit** (16 modules) ; sous-pages en onglets ; anciens liens conservés.
+- Écrans sans référence valide (11, 18, 22) : **conçus dans le style du kit**, captures montrées avant publication.
+- Ordre : **K0 design system puis K1 coque**, puis 08 à 24 ; parcours public et onboarding (01-07) en fin, après accord sur les colonnes.
