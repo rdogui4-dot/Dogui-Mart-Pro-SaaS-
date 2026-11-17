@@ -12,8 +12,8 @@
 <meta name="theme-color" content="#f4f6f9">
 <link rel="icon" href="../icon.svg" type="image/svg+xml">
 <style>
-:root{--bg:#f4f6f9;--surface:#fff;--line:#d3dae4;--line-strong:#7b8798;--main:#10243a;--soft:#34465c;--muted:#54657a;--accent:#2563eb;--accent-ink:#fff;--accent-text:#1d4fc4;--accent-soft:#e3edfd;--dur:.5s;--ease:cubic-bezier(.2,0,0,1)}
-@media (prefers-color-scheme:dark){:root{--bg:#0e1621;--surface:#152233;--line:#2a3b52;--line-strong:#6b7f99;--main:#e8eef6;--soft:#c3cfdd;--muted:#9db0c5;--accent:#6ea0ff;--accent-ink:#0b1a33;--accent-text:#8db4ff;--accent-soft:#1b2f52}}
+:root{--bg:#f4f6f9;--surface:#fff;--line:#d3dae4;--line-strong:#7b8798;--main:#10243a;--soft:#34465c;--muted:#54657a;--accent:#2563eb;--accent-ink:#fff;--accent-text:#1d4fc4;--accent-soft:#e3edfd;--tech:#14b8d4;--gold:#c9a227;--gold-text:#7a5c0c;--dur:.45s;--ease:cubic-bezier(.2,0,0,1)}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1621;--surface:#152233;--line:#2a3b52;--line-strong:#6b7f99;--main:#e8eef6;--soft:#c3cfdd;--muted:#9db0c5;--accent:#6ea0ff;--accent-ink:#0b1a33;--accent-text:#8db4ff;--accent-soft:#1b2f52;--tech:#22c7e0;--gold:#d6a84f;--gold-text:#e3bd6e}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--main);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
 a{color:var(--accent-text)}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -49,6 +49,21 @@ details{background:var(--surface);border:1px solid var(--line);border-radius:12p
 summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center}
 details p{margin:.25rem 0 .5rem;color:var(--soft)}
 footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--muted);font-size:.9rem}
+
+/* Effet signature (cahier §15.2-1) : réseau neuronal discret, décoratif (aria-hidden), chargé après le contenu, en pause hors écran / onglet caché, arrêtable ; repli statique (mouvement réduit, sans JavaScript, appareil modeste). */
+.hero{position:relative;overflow:hidden;isolation:isolate}
+.neural{position:absolute;inset:0;z-index:-1;pointer-events:none;-webkit-mask-image:linear-gradient(90deg,transparent 0%,rgba(0,0,0,.35) 45%,#000 75%);mask-image:linear-gradient(90deg,transparent 0%,rgba(0,0,0,.35) 45%,#000 75%)}
+.neural svg,.neural canvas{position:absolute;inset:0;width:100%;height:100%}
+.neural .nl line{stroke:var(--accent);stroke-opacity:.18;stroke-width:1}
+.neural .nn circle{fill:var(--tech)}
+.neural[data-state="running"] .neural-static,.neural[data-state="paused"] .neural-static{display:none}
+.neural-toggle{position:absolute;right:0;top:.75rem;z-index:1;font:inherit;font-size:.8rem;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:.35rem .8rem;min-height:32px;cursor:pointer}
+@media(max-width:759px){.neural{-webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.15) 55%,transparent 80%);mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.15) 55%,transparent 80%);opacity:.6}}
+/* Effet secondaire (§15.2-2) : halo discret sur la carte MASTER, seulement au survol d'un pointeur précis ; bordure fixe sur tactile ; rien en mouvement réduit. */
+.master{position:relative;overflow:hidden;border-color:color-mix(in srgb,var(--gold) 45%,var(--line))}
+.master-head{display:flex;align-items:center;gap:.75rem}
+.master-symbol{width:44px;height:44px;flex:none;background:var(--gold-text);-webkit-mask:url(../master-symbol.svg) center/contain no-repeat;mask:url(../master-symbol.svg) center/contain no-repeat}
+@media(hover:hover) and (pointer:fine) and (prefers-reduced-motion:no-preference){.master::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .22s var(--ease);background:radial-gradient(22rem circle at var(--mx,50%) var(--my,50%),color-mix(in srgb,var(--tech) 14%,transparent),transparent 70%)}.master:hover::before{opacity:1}.master>*{position:relative}}
 /* Mouvement : une seule animation d'apparition (opacité + 16 px), décalée de 60 ms ; contenu visible sans JavaScript et en mouvement réduit */
 .js [data-reveal]{opacity:0;transform:translateY(16px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);transition-delay:calc(var(--i,0)*60ms)}
 .js [data-reveal].in{opacity:1;transform:none}
@@ -69,6 +84,7 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
 <main>
 <div class="wrap">
   <div class="hero">
+    <div class="neural" data-state="static" aria-hidden="true"><svg class="neural-static" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false"><g class="nl"><line x1="341" y1="87" x2="438" y2="45"/><line x1="341" y1="87" x2="256" y2="56"/><line x1="341" y1="87" x2="416" y2="35"/><line x1="341" y1="87" x2="236" y2="33"/><line x1="341" y1="87" x2="316" y2="137"/><line x1="341" y1="87" x2="259" y2="51"/><line x1="414" y1="343" x2="384" y2="308"/><line x1="414" y1="343" x2="325" y2="296"/><line x1="414" y1="343" x2="317" y2="278"/><line x1="59" y1="47" x2="136" y2="124"/><line x1="558" y1="58" x2="580" y2="78"/><line x1="384" y1="308" x2="306" y2="224"/><line x1="384" y1="308" x2="325" y2="296"/><line x1="384" y1="308" x2="331" y2="248"/><line x1="384" y1="308" x2="317" y2="278"/><line x1="69" y1="269" x2="98" y2="232"/><line x1="69" y1="269" x2="70" y2="299"/><line x1="69" y1="269" x2="73" y2="305"/><line x1="69" y1="269" x2="157" y2="286"/><line x1="69" y1="269" x2="130" y2="302"/><line x1="69" y1="269" x2="109" y2="290"/><line x1="69" y1="269" x2="74" y2="298"/><line x1="69" y1="269" x2="71" y2="326"/><line x1="229" y1="29" x2="256" y2="56"/><line x1="229" y1="29" x2="236" y2="33"/><line x1="229" y1="29" x2="195" y2="62"/><line x1="229" y1="29" x2="259" y2="51"/><line x1="98" y1="232" x2="70" y2="299"/><line x1="98" y1="232" x2="136" y2="124"/><line x1="98" y1="232" x2="73" y2="305"/><line x1="98" y1="232" x2="157" y2="286"/><line x1="98" y1="232" x2="130" y2="302"/><line x1="98" y1="232" x2="202" y2="200"/><line x1="98" y1="232" x2="109" y2="290"/><line x1="98" y1="232" x2="74" y2="298"/><line x1="98" y1="232" x2="71" y2="326"/><line x1="438" y1="45" x2="416" y2="35"/><line x1="256" y1="56" x2="236" y2="33"/><line x1="256" y1="56" x2="195" y2="62"/><line x1="256" y1="56" x2="316" y2="137"/><line x1="256" y1="56" x2="259" y2="51"/><line x1="574" y1="227" x2="554" y2="228"/><line x1="574" y1="227" x2="474" y2="195"/><line x1="70" y1="299" x2="73" y2="305"/><line x1="70" y1="299" x2="157" y2="286"/><line x1="70" y1="299" x2="130" y2="302"/><line x1="70" y1="299" x2="109" y2="290"/><line x1="70" y1="299" x2="74" y2="298"/><line x1="70" y1="299" x2="71" y2="326"/><line x1="136" y1="124" x2="195" y2="62"/><line x1="136" y1="124" x2="202" y2="200"/><line x1="73" y1="305" x2="157" y2="286"/><line x1="73" y1="305" x2="130" y2="302"/><line x1="73" y1="305" x2="109" y2="290"/><line x1="73" y1="305" x2="74" y2="298"/><line x1="73" y1="305" x2="71" y2="326"/><line x1="236" y1="33" x2="195" y2="62"/><line x1="236" y1="33" x2="259" y2="51"/><line x1="306" y1="224" x2="325" y2="296"/><line x1="306" y1="224" x2="202" y2="200"/><line x1="306" y1="224" x2="220" y2="264"/><line x1="306" y1="224" x2="331" y2="248"/><line x1="306" y1="224" x2="316" y2="137"/><line x1="306" y1="224" x2="317" y2="278"/><line x1="157" y1="286" x2="130" y2="302"/><line x1="157" y1="286" x2="202" y2="200"/><line x1="157" y1="286" x2="109" y2="290"/><line x1="157" y1="286" x2="74" y2="298"/><line x1="157" y1="286" x2="71" y2="326"/><line x1="157" y1="286" x2="220" y2="264"/><line x1="157" y1="286" x2="194" y2="367"/><line x1="130" y1="302" x2="109" y2="290"/><line x1="130" y1="302" x2="74" y2="298"/><line x1="130" y1="302" x2="71" y2="326"/><line x1="130" y1="302" x2="220" y2="264"/><line x1="130" y1="302" x2="194" y2="367"/><line x1="325" y1="296" x2="220" y2="264"/><line x1="325" y1="296" x2="331" y2="248"/><line x1="325" y1="296" x2="317" y2="278"/><line x1="195" y1="62" x2="259" y2="51"/><line x1="202" y1="200" x2="220" y2="264"/><line x1="109" y1="290" x2="74" y2="298"/><line x1="109" y1="290" x2="71" y2="326"/><line x1="109" y1="290" x2="220" y2="264"/><line x1="109" y1="290" x2="194" y2="367"/><line x1="74" y1="298" x2="71" y2="326"/><line x1="220" y1="264" x2="331" y2="248"/><line x1="220" y1="264" x2="194" y2="367"/><line x1="220" y1="264" x2="317" y2="278"/><line x1="554" y1="228" x2="474" y2="195"/><line x1="331" y1="248" x2="316" y2="137"/><line x1="331" y1="248" x2="317" y2="278"/><line x1="316" y1="137" x2="259" y2="51"/></g><g class="nn"><circle cx="341" cy="87" r="3.2"/><circle cx="414" cy="343" r="2.2"/><circle cx="59" cy="47" r="2.2"/><circle cx="558" cy="58" r="2.2"/><circle cx="384" cy="308" r="2.2"/><circle cx="69" cy="269" r="3.2"/><circle cx="229" cy="29" r="2.2"/><circle cx="98" cy="232" r="2.2"/><circle cx="438" cy="45" r="2.2"/><circle cx="256" cy="56" r="2.2"/><circle cx="574" cy="227" r="3.2"/><circle cx="70" cy="299" r="2.2"/><circle cx="136" cy="124" r="2.2"/><circle cx="73" cy="305" r="2.2"/><circle cx="416" cy="35" r="2.2"/><circle cx="236" cy="33" r="3.2"/><circle cx="580" cy="78" r="2.2"/><circle cx="306" cy="224" r="2.2"/><circle cx="157" cy="286" r="2.2"/><circle cx="130" cy="302" r="2.2"/><circle cx="325" cy="296" r="3.2"/><circle cx="195" cy="62" r="2.2"/><circle cx="202" cy="200" r="2.2"/><circle cx="109" cy="290" r="2.2"/><circle cx="74" cy="298" r="2.2"/><circle cx="71" cy="326" r="3.2"/><circle cx="220" cy="264" r="2.2"/><circle cx="554" cy="228" r="2.2"/><circle cx="331" cy="248" r="2.2"/><circle cx="474" cy="195" r="2.2"/><circle cx="316" cy="137" r="3.2"/><circle cx="194" cy="367" r="2.2"/><circle cx="259" cy="51" r="2.2"/><circle cx="317" cy="278" r="2.2"/></g></svg></div>
     <h1>Votre commerce, de la caisse à la comptabilité.</h1>
     <p class="lead">Dogui Mart Pro réunit la caisse, le stock, les achats, les clients, les tableaux de bord et la comptabilité dans une application qui s'installe sur le téléphone et continue de vendre quand le réseau coupe. Tous les montants sont en FCFA.</p>
     <div class="cta"><a class="btn" href="../">Créer mon commerce</a><a class="btn ghost" href="#offres">Voir les offres</a></div>
@@ -109,7 +125,7 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
 
 <div class="wrap" id="master"><section>
   <div class="master" data-reveal>
-    <h2>MASTER DOGUI</h2>
+    <div class="master-head"><span class="master-symbol" aria-hidden="true"></span><h2>MASTER DOGUI</h2></div>
     <p class="sub">Un module séparé qui lit vos données et vous aide à piloter : rapports de clôture, recommandations expliquées et assistant de questions.</p>
     <ul>
       <li>Essai gratuit de 14 jours, sans paiement, une seule fois.</li>
@@ -144,6 +160,31 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
   var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target)}})},{threshold:.15});
   els.forEach(function(e){io.observe(e)});
 })();
+
+(function(){
+  var box=document.querySelector(".neural"); if(!box) return;
+  var mq=matchMedia("(prefers-reduced-motion: reduce)"), conn=navigator.connection||{};
+  var modest=conn.saveData||(navigator.hardwareConcurrency&&navigator.hardwareConcurrency<4)||(navigator.deviceMemory&&navigator.deviceMemory<4);
+  if(mq.matches||modest||!window.requestAnimationFrame) return; // repli statique
+  var start=function(){
+    var cv=document.createElement("canvas"); cv.setAttribute("aria-hidden","true"); box.appendChild(cv);
+    var ctx=cv.getContext("2d"); if(!ctx) return; var dpr=Math.min(2,window.devicePixelRatio||1), W=0,H=0,P=[],raf=0,visible=true,stopped=false,frames=0;
+    var css=getComputedStyle(document.documentElement), line=css.getPropertyValue("--accent").trim()||"#2563eb", node=css.getPropertyValue("--tech").trim()||"#14b8d4";
+    function size(){var r=box.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);var n=Math.min(60,Math.round(W*H/9000));while(P.length<n)P.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.18,vy:(Math.random()-.5)*.18,r:Math.random()<.2?2.6:1.7});P.length=n}
+    function draw(){frames++;box.dataset.frames=frames;ctx.clearRect(0,0,W,H);ctx.strokeStyle=line;for(var i=0;i<P.length;i++){var a=P[i];a.x+=a.vx;a.y+=a.vy;if(a.x<0||a.x>W)a.vx*=-1;if(a.y<0||a.y>H)a.vy*=-1;for(var j=i+1;j<P.length;j++){var b=P[j],dx=a.x-b.x,dy=a.y-b.y,d=dx*dx+dy*dy;if(d<16900){ctx.globalAlpha=.2*(1-d/16900);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}}}ctx.globalAlpha=.85;ctx.fillStyle=node;for(var k=0;k<P.length;k++){ctx.beginPath();ctx.arc(P[k].x,P[k].y,P[k].r,0,6.283);ctx.fill()}ctx.globalAlpha=1;raf=requestAnimationFrame(draw)}
+    function run(){var go=visible&&!stopped&&!document.hidden;box.dataset.state=stopped?"paused":"running";if(go&&!raf)raf=requestAnimationFrame(draw);if(!go&&raf){cancelAnimationFrame(raf);raf=0}}
+    size(); addEventListener("resize",function(){size()});
+    new IntersectionObserver(function(es){visible=es[0].isIntersecting;run()}).observe(box);
+    document.addEventListener("visibilitychange",run);
+    mq.addEventListener&&mq.addEventListener("change",function(){if(mq.matches){stopped=true;run();cv.remove();box.dataset.state="static";btn.remove()}});
+    var btn=document.createElement("button");btn.type="button";btn.className="neural-toggle";btn.setAttribute("aria-pressed","false");btn.textContent="Mettre en pause l'animation";
+    btn.addEventListener("click",function(){stopped=!stopped;btn.setAttribute("aria-pressed",String(stopped));btn.textContent=stopped?"Reprendre l'animation":"Mettre en pause l'animation";run()});
+    box.parentNode.appendChild(btn); run();
+  };
+  var later=function(){(window.requestIdleCallback||function(f){setTimeout(f,200)})(start)};
+  if(document.readyState==="complete") later(); else addEventListener("load",later);
+})();
+(function(){var m=document.querySelector(".master");if(!m||!matchMedia("(hover:hover) and (pointer:fine)").matches)return;m.addEventListener("pointermove",function(e){var r=m.getBoundingClientRect();m.style.setProperty("--mx",(e.clientX-r.left)+"px");m.style.setProperty("--my",(e.clientY-r.top)+"px")})})();
 </script>
 </body>
 </html>

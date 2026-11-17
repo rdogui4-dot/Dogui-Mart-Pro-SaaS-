@@ -69,3 +69,15 @@ Le lot précédent (Comptabilité, Finance, Investissements) est commité et att
 - Mot-symbole « DOGUI MART PRO » (barre latérale, connexion, page de présentation) ; symbole MASTER DOGUI : icône simplifiée sur le bouton, symbole monochrome (suit le thème) en tête de la fenêtre.
 - Cache hors ligne renouvelé (`dmp-shell-v4`) pour que les appareils récupèrent les nouvelles icônes.
 - Scénario `e2e/logo.cjs` : clair/sombre, 390 et 1280 px, aucune image cassée, fichiers d'icônes servis.
+### N2 — Jetons, typographie, navigation (17/11)
+- Jetons : navigation bleu nuit (`--nav-*`), cyan technologique et or réservés (`--tech`, `--gold`), contrastes AA vérifiés par `scripts/contrast.mjs` (34 paires par thème).
+- Police Inter auto-hébergée (OFL, `@fontsource-variable/inter`), texte courant 16 px, tableaux compacts (14 px), chiffres tabulaires ; jetons de mouvement du cahier (`press`, `panel`, `page`, `reveal`, `stagger`).
+- Barre latérale bleu nuit avec symbole blanc et point or ; anneau de focus blanc sur la barre.
+### N3 — Coque (17/11)
+- Fil d'Ariane, recherche des pages autorisées (Ctrl + K), aide (raccourcis, présentation, contact, version), barre latérale repliable mémorisée.
+- Toutes les fenêtres : focus à l'ouverture, Échap pour fermer, focus rendu (auparavant seulement les fenêtres flottantes).
+- Scénario `e2e/shell.cjs` (14 vérifications).
+### N4 — Page publique (17/11)
+- Effet signature : réseau neuronal discret dans l'en-tête (≤ 60 points, chargé après le contenu, en pause hors écran et onglet caché, bouton pause, repli statique en mouvement réduit, sans JavaScript ou sur appareil modeste) ; décoratif (`aria-hidden`).
+- Effet secondaire : halo discret sur la carte MASTER au survol d'un pointeur précis ; symbole MASTER or.
+- Scénario `e2e/public.cjs` : contenu immédiat (390/820/1280), pause effective, suspension hors écran, replis, halo, mesures locales LCP 64 ms et CLS 0 (à confirmer sur appareil réel et réseau lent en N6).
