@@ -118,6 +118,34 @@ export function newVoucherOps(ctx: Ctx, amount: number, ref: string, customerId?
 /** Identifiant = (bon, rang d'utilisation) : deux ventes simultanées visent le même rang, une seule réussit — le solde ne peut pas être dépensé deux fois. */
 export const voucherUseOp = (ctx: Ctx, code: string, amount: number, saleId: string, slot: number): BatchOp => ({ kind: "create", table: "customer_vouchers", id: `vu${sha(`${ctx.tenantId}|${code}|${slot}`).slice(0, 28)}`, tenantId: ctx.tenantId, data: { tenantId: ctx.tenantId, shopId: ctx.shopId, kind: "use", code, amount, status: "used", createdBy: ctx.userId, createdAt: new Date().toISOString(), ref: saleId } });
 
+// ------------------------------------------------------------------ gestion des avoirs (Pro) : liste, détail, désactivation tracée
+const vState = (v: Row, balance: number) => (v.status !== "active" ? "disabled" : v.expiresAt && Date.parse(String(v.expiresAt)) < Date.now() ? "expired" : balance <= 0 ? "spent" : "active");
+export async function listVouchers(store: Store, ctx: Ctx, b: { q?: string; state?: string } = {}) {
+  needModule(ctx, "pos"); await needFeature(store, ctx, "smartPosPro"); if (!["owner", "manager"].includes(roleOf(ctx.roles))) throw new HttpError(403, "Réservé au gérant");
+  const rows = (await store.scan("customer_vouchers", { tenantId: ctx.tenantId }, { maxRows: 20_000 })).rows; const used = new Map<string, number>(), uses = new Map<string, number>();
+  for (const u of rows.filter((r) => r.kind === "use")) { used.set(String(u.code), (used.get(String(u.code)) ?? 0) + Number(u.amount)); if (Number(u.amount) > 0) uses.set(String(u.code), (uses.get(String(u.code)) ?? 0) + 1); }
+  const names = new Map((await store.scan("customers", { tenantId: ctx.tenantId }, { maxRows: 20_000 })).rows.map((c) => [c.$id, String(c.name ?? "")]));
+  const q = String(b.q ?? "").trim().toUpperCase();
+  const list = rows.filter((v) => v.kind === "voucher" && v.shopId === ctx.shopId).map((v) => { const code = String(v.code); const balance = Number(v.amount) - (used.get(code) ?? 0); return { code, initial: Number(v.amount), balance, uses: uses.get(code) ?? 0, state: vState(v, balance), expiresAt: v.expiresAt ? String(v.expiresAt) : "", createdAt: String(v.createdAt ?? v.$createdAt ?? ""), customer: names.get(String(v.customerId)) ?? "", ref: String(v.ref ?? "") }; })
+    .filter((v) => (!b.state || v.state === b.state) && (!q || v.code.includes(q) || v.customer.toUpperCase().includes(q) || v.ref.toUpperCase().includes(q))).sort((a, c) => c.createdAt.localeCompare(a.createdAt));
+  const active = list.filter((v) => v.state === "active");
+  return { vouchers: list.slice(0, 500), totals: { count: list.length, active: active.length, outstanding: active.reduce((a, v) => a + v.balance, 0) } };
+}
+export async function getVoucher(store: Store, ctx: Ctx, b: { code?: string }) {
+  needModule(ctx, "pos"); await needFeature(store, ctx, "smartPosPro"); const code = String(b.code ?? "").trim().toUpperCase(); const v = (await store.list("customer_vouchers", { tenantId: ctx.tenantId, code, kind: "voucher" }, 2))[0]; if (!v || v.shopId !== ctx.shopId) throw new HttpError(404, "Avoir introuvable");
+  const hist = await store.list("customer_vouchers", { tenantId: ctx.tenantId, code, kind: "use" }, 5000); const sales = new Map<string, string>(); for (const h of hist) { const id = String(h.ref ?? ""); if (id && !sales.has(id)) { const s = await store.get("sales", id); sales.set(id, s ? String(s.number) : ""); } }
+  const balance = Number(v.amount) - hist.reduce((a, h) => a + Number(h.amount), 0); const cu = v.customerId ? await store.get("customers", String(v.customerId)) : null;
+  return { code, initial: Number(v.amount), balance, state: vState(v, balance), expiresAt: v.expiresAt ? String(v.expiresAt) : "", createdAt: String(v.createdAt ?? ""), origin: String(v.ref ?? ""), customer: cu ? String(cu.name ?? "") : "",
+    history: hist.map((h) => ({ at: String(h.createdAt ?? h.$createdAt ?? ""), amount: Number(h.amount), kind: Number(h.amount) < 0 ? "restored" : "used", sale: sales.get(String(h.ref ?? "")) ?? "" })).sort((a, c) => a.at.localeCompare(c.at)) };
+}
+export async function disableVoucher(store: Store, ctx: Ctx, b: { code?: string; reason?: string }) {
+  needModule(ctx, "pos"); await needFeature(store, ctx, "smartPosPro"); if (!["owner", "manager"].includes(roleOf(ctx.roles))) throw new HttpError(403, "Réservé au gérant");
+  const why = String(b.reason ?? "").trim().slice(0, 200); if (why.length < 3) throw new HttpError(400, "Motif obligatoire (3 caractères au moins)");
+  const code = String(b.code ?? "").trim().toUpperCase(); const v = (await store.list("customer_vouchers", { tenantId: ctx.tenantId, code, kind: "voucher" }, 2))[0]; if (!v || v.shopId !== ctx.shopId) throw new HttpError(404, "Avoir introuvable"); if (v.status !== "active") return { code, state: "disabled", unchanged: true };
+  await store.update("customer_vouchers", v.$id, { status: "disabled" }); await store.create("audit_log", `vd${sha(`${ctx.tenantId}|${code}|${Date.now()}`).slice(0, 28)}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "voucher.disable", detail: `${code} ${why}`.slice(0, 1000) });
+  return { code, state: "disabled", unchanged: false };
+}
+
 // ------------------------------------------------------------------ code de vérification du ticket (QR)
 export const secret = () => process.env.DMP_RECEIPT_KEY || process.env.APPWRITE_API_KEY || "dmp-dev-receipt-key";
 /** Signature HMAC du ticket : le QR imprimé permet de vérifier, dans l'application, que le ticket correspond à une vente réelle de ce commerce (un ticket falsifié ne se vérifie pas). */

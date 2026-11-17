@@ -132,6 +132,22 @@ describe("bons d'achat et avoirs", () => {
     const r = await Promise.all([sell(U.cais!, [{ productId: jus, qty: 1 }], [{ method: "voucher", amount: 1000, reference: code }], { customerId: cu }), sell(U.cais2!, [{ productId: jus, qty: 1 }], [{ method: "voucher", amount: 1000, reference: code }], { customerId: cu })]);
     expect(r.map((x) => x.status).sort()).toEqual([200, 409]); expect((await ok(call(U.cais!, "voucher.check", { code, customerId: cu }))).usable).toBe(false); await err(call(U.cais!, "voucher.check", { code: "AV-INCONNU" }), 404);
   });
+  it("vente payée par avoir puis annulée : la part avoir revient AU MÊME avoir (jamais en espèces) ; code et solde renvoyés ; liste, détail et désactivation tracée", async () => {
+    const cu = (await ok(call("own", "entity.save", { table: "customers", data: { name: "Awa" } }))).id as string; const s0 = await ok(sell(U.ger!, [{ productId: jus, qty: 3 }], cash(3000), { customerId: cu }));
+    const r0 = await ok(call(U.ger!, "sale.refund", { returnId: "rt-pp-av001", saleId: s0.saleId, kind: "cancel", reason: "Client mécontent", refunds: [{ method: "voucher", amount: 3000 }] }));
+    const code = r0.vouchers[0].code as string; expect(r0.vouchers[0]).toMatchObject({ amount: 3000, back: false, balance: 3000 }); expect(code).toMatch(/^AV-/); expect(r0.vouchers[0].expiresAt).not.toBe("");
+    const s1 = await ok(sell(U.cais!, [{ productId: jus, qty: 2 }], [{ method: "voucher", amount: 1500, reference: code }, { method: "cash", amount: 500 }], { customerId: cu })); expect((await ok(call(U.cais!, "voucher.check", { code, customerId: cu }))).balance).toBe(1500);
+    const base = { saleId: s1.saleId, kind: "cancel", reason: "Erreur de caisse" };
+    await err(call(U.ger!, "sale.refund", { ...base, returnId: "rt-pp-av002", refunds: [{ method: "cash", amount: 2000 }] }), 409, "rendez d'abord 1");
+    await err(call(U.ger!, "sale.refund", { ...base, returnId: "rt-pp-av003", refunds: [{ method: "voucher", amount: 2000, reference: code }] }), 409, "ne peut recevoir que 1");
+    const r1 = await ok(call(U.ger!, "sale.refund", { ...base, returnId: "rt-pp-av004", refunds: [{ method: "voucher", amount: 1500, reference: code.toLowerCase() }, { method: "cash", amount: 500 }] }));
+    expect(r1.vouchers).toEqual([expect.objectContaining({ code, amount: 1500, back: true, balance: 3000 })]); expect(st.rows("customer_vouchers").filter((v) => v.kind === "voucher")).toHaveLength(1); // aucun nouvel avoir
+    expect((await ok(call(U.ger!, "sale.refund", { ...base, returnId: "rt-pp-av004", refunds: [{ method: "voucher", amount: 1500, reference: code }, { method: "cash", amount: 500 }] }))).duplicate).toBe(true); expect((await ok(call(U.cais!, "voucher.check", { code, customerId: cu }))).balance).toBe(3000);
+    const l = await ok(call(U.ger!, "voucher.list")); expect(l.totals).toMatchObject({ count: 1, active: 1, outstanding: 3000 }); expect(l.vouchers[0]).toMatchObject({ code, customer: "Awa", uses: 1, state: "active" });
+    const g = await ok(call(U.ger!, "voucher.get", { code })); expect(g.history.map((h: any) => [h.kind, h.amount])).toEqual([["used", 1500], ["restored", -1500]]); expect(g.history[0].sale).toMatch(/^V-/);
+    await err(call(U.cais!, "voucher.list"), 403); await err(call(U.ger!, "voucher.disable", { code, reason: "x" }), 400);
+    await ok(call(U.ger!, "voucher.disable", { code, reason: "Avoir perdu par le client" })); expect((await ok(call(U.cais!, "voucher.check", { code, customerId: cu }))).reason).toBe("bon désactivé"); expect(st.rows("audit_log").some((a) => a.action === "voucher.disable")).toBe(true);
+  });
 });
 
 describe("journal financier immuable", () => {

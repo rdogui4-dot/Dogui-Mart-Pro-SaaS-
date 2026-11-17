@@ -9,7 +9,7 @@ export type Space = { id: string; label: string; icon: LucideIcon; hint: string;
 
 export const SPACES: Space[] = [
   { id: "vendre", label: "Vendre", icon: ShoppingCart, hint: "Caisse, ventes, clients, promotions", items: [
-    { to: "/pos", label: "Caisse", hint: "Encaisser, ventes, session de caisse, caisse Pro", perm: "pos", also: ["/ventes", "/caisse", "/caisse-pro"] },
+    { to: "/pos", label: "Caisse", hint: "Encaisser, ventes, session de caisse, caisse Pro", perm: "pos", also: ["/ventes", "/caisse", "/caisse-pro", "/avoirs"] },
     { to: "/clients", label: "Clients", hint: "Fidélité, crédit, prospects", perm: "customers" },
     { to: "/promotions", label: "Promotions", hint: "Remises, codes et résultats", perm: "stock" },
   ] },
@@ -54,7 +54,7 @@ export const spaceOfPath = (path: string) => SPACES.find((s) => s.items.some((i)
 export type KitModule = NavItem & { id: string; icon: LucideIcon; /** paramètre ?onglet= qui distingue deux modules de la même page */ onglet?: string };
 export const KIT_MODULES: KitModule[] = [
   { id: "dashboard", to: "/activite", label: "Tableau de bord", hint: "Indicateurs, ventes, alertes", perm: "reports", icon: LayoutDashboard },
-  { id: "pos", to: "/pos", label: "Caisse (Ventes)", hint: "Encaisser, ventes, session de caisse", perm: "pos", also: ["/ventes", "/caisse", "/caisse-pro"], icon: CartI },
+  { id: "pos", to: "/pos", label: "Caisse (Ventes)", hint: "Encaisser, ventes, session de caisse", perm: "pos", also: ["/ventes", "/caisse", "/caisse-pro", "/avoirs"], icon: CartI },
   { id: "articles", to: "/articles", label: "Articles & Catalogue", hint: "Catalogue, photos, prix, bundles", perm: "stock", also: ["/bundles", "/tableau"], icon: Package },
   { id: "stock", to: "/stock", label: "Stocks & Inventaires", hint: "Quantités, mouvements, transferts, alertes", perm: "stock", icon: BoxesI },
   { id: "count", to: "/inventaire", label: "Inventaires (Silent Count)", hint: "Comptage aveugle, écarts, validation", perm: "stock", icon: ClipboardCheck },

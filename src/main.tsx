@@ -47,6 +47,7 @@ const InvestPage = lazyPage(() => import("@/routes/investissements"), "InvestPag
 const IComptaPage = lazyPage(() => import("@/routes/icompta"), "IComptaPage");
 const DepensesProPage = lazyPage(() => import("@/routes/depenses-pro"), "DepensesProPage");
 const VentesPage = lazyPage(() => import("@/routes/ventes"), "VentesPage");
+const AvoirsPage = lazyPage(() => import("@/routes/avoirs"), "AvoirsPage");
 const PilotagePage = lazyPage(() => import("@/routes/pilotage"), "PilotagePage");
 const DashboardPage = lazyPage(() => import("@/routes/dashboard"), "DashboardPage");
 const PromotionsPage = lazyPage(() => import("@/routes/promotions"), "PromotionsPage");
@@ -70,7 +71,7 @@ const tree = root.addChildren([
   // Redirection du routeur (et non d'un composant) : un composant d'accueil se monterait brièvement pendant un changement de page et renverrait à la caisse.
   createRoute({ getParentRoute: () => root, path: "/", beforeLoad: () => { throw redirect({ to: "/accueil" }); } }),
   r("/accueil", null, HomePage), r("/plus", null, PlusPage), r("/espace/$id", null, SpacePage),
-  r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/inventaire", "stock", InventairePage), r("/caisse", "pos", CaissePage), r("/caisse-pro", "pos", CaisseProPage), r("/depenses", "pos", DepensesPage), r("/depenses-pro", "pos", DepensesProPage), r("/ventes", "pos", VentesPage), r("/activite", "reports", ActivitePage), r("/pilotage", "reports", PilotagePage), r("/tableau", "stock", DashboardPage), r("/promotions", "stock", PromotionsPage), r("/clients", "customers", ClientsPage),
+  r("/pos", "pos", PosPage), r("/stock", "stock", StockPage), r("/articles", "stock", ArticlesPage), r("/bundles", "stock", BundlesPage), r("/inventaire", "stock", InventairePage), r("/caisse", "pos", CaissePage), r("/avoirs", "pos", AvoirsPage), r("/caisse-pro", "pos", CaisseProPage), r("/depenses", "pos", DepensesPage), r("/depenses-pro", "pos", DepensesProPage), r("/ventes", "pos", VentesPage), r("/activite", "reports", ActivitePage), r("/pilotage", "reports", PilotagePage), r("/tableau", "stock", DashboardPage), r("/promotions", "stock", PromotionsPage), r("/clients", "customers", ClientsPage),
   r("/finance", "accounting", FinancePage), r("/icompta", "finance", IComptaPage), r("/investissements", "accounting", InvestPage), r("/master", "settings", MasterPage), r("/merci", "settings", MerciPage), createRoute({ getParentRoute: () => root, path: "/compta", beforeLoad: () => { throw redirect({ to: "/icompta" }); } }), r("/achats", "purchases", AchatsPage), r("/reglages", "settings", SettingsPage), r("/ui-kit", null, UiKitPage),
 ]);
 const router = createRouter({ routeTree: tree, basepath: routerBasepath(import.meta.env.BASE_URL) });

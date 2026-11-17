@@ -10,7 +10,7 @@ import { needFeature } from "./articles";
 import { releaseUsage } from "./promotions";
 import { serialRowId } from "./tracking";
 import { openSessionOf, sessionRequired } from "./cashier";
-import { approvalNeeded, claimApproval, hasRight, ledgerOp, newVoucherOps, receiptCode, voucherCodeFor } from "./pos-pro";
+import { approvalNeeded, claimApproval, hasRight, ledgerOp, newVoucherOps, receiptCode, voucherByCode, voucherCodeFor } from "./pos-pro";
 import { entitlementOf } from "./subscriptions";
 import { planAllows } from "../../../src/domain/features";
 import { HttpError, need, needModule, roleOf, type Ctx, type Row, type Store } from "./store";
@@ -61,6 +61,14 @@ export function refundable(sale: Row, returns: Row[]): { lines: { index: number;
 type Input = { preview?: boolean; returnId?: string; saleId?: string; kind?: string; lines?: { index: number; qty: unknown; condition?: unknown; serials?: unknown }[]; condition?: unknown; reason?: string; refunds?: { method: string; amount: unknown; reference?: string }[]; approvalId?: string };
 /** Annulation (vente entière) ou remboursement (lignes et quantités) : opération TRACÉE (ligne `sale_returns`, mouvements de stock « retour », écriture comptable inverse, trace d'audit) — la vente d'origine n'est jamais supprimée ni modifiée dans ses montants.
  *  Gérant ou propriétaire. Idempotent (returnId) et rejouable : une coupure reprend sans doubler stock, comptabilité ni fidélité. Retour non géré pour bundles, séries et lots (refus explicite). */
+
+/** Avoirs touchés par un remboursement : code, montant crédité, nouveau solde et expiration (pour l'écran et le ticket de retour). */
+async function voucherInfo(store: Store, ctx: Ctx, refunds: { method: string; amount: number; reference?: string; back?: boolean }[]) {
+  const out: { code: string; amount: number; back: boolean; balance: number; expiresAt: string }[] = [];
+  for (const r of refunds.filter((x) => x.method === "voucher" && x.reference)) { const v = await voucherByCode(store, ctx, r.reference!); out.push({ code: r.reference!, amount: r.amount, back: !!r.back, balance: v?.balance ?? r.amount, expiresAt: v?.expiresAt ?? "" }); }
+  return out;
+}
+
 export async function refundSale(store: Store, ctx: Ctx, b: Input) {
   needModule(ctx, "pos"); await needFeature(store, ctx, "smartPos");
   const proPos = planAllows((await entitlementOf(store, ctx.tenantId)).plan.id, "smartPosPro"); const kindWanted = b.kind === "cancel" ? "cancel" : "refund";
@@ -72,7 +80,7 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
   const prior = await store.get("sale_returns", rid); const existing = (await store.list("sale_returns", { saleId: sale.$id }, 200)); let row = prior;
   if (prior && prior.saleId !== sale.$id) throw new HttpError(409, "Identifiant d'opération déjà utilisé");
   const lines = parse<SaleLine[]>(sale.lines, []); const customer = sale.customerId ? await store.get("customers", String(sale.customerId)) : null; const shop = await store.get("shops", ctx.shopId.slice(0, 36)); const vatRatePct = Number(shop?.vatRatePct ?? 18);
-  let chosen: RetLine[] = []; let refunds: { method: string; amount: number; reference?: string }[] = []; let amount = 0;
+  let chosen: RetLine[] = []; let refunds: { method: string; amount: number; reference?: string; back?: boolean }[] = []; let amount = 0;
   if (!row) {
     if (sale.status !== "paid") throw new HttpError(409, sale.status === "cancelled" ? "Vente déjà annulée" : sale.status === "refunded" ? "Vente déjà entièrement remboursée" : "Seule une vente terminée peut être remboursée");
     const rf = refundable(sale, existing); const cond = (v: unknown): Condition => (v === "damaged" ? "damaged" : "resellable");
@@ -99,7 +107,15 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
       return { preview: true as const, amount, kind, lines: chosen, effects, points: pts, couponReleased: kind === "cancel" && (await store.list("promotion_coupon_usage", { saleId: sale.$id }, 5)).some((u) => u.outcome === "used") };
     }
     refunds = (b.refunds ?? []).map((r) => ({ method: String(r.method), amount: toFcfa(Number(r.amount)), ...(r.reference ? { reference: String(r.reference).trim().slice(0, 64) } : {}) }));
-    if (refunds.some((r) => r.method === "voucher")) { if (!proPos) throw new HttpError(402, "Les avoirs (bons d'achat) sont réservés à la formule Pro."); refunds = refunds.map((r) => (r.method === "voucher" ? { ...r, reference: voucherCodeFor(`${ctx.tenantId}|${rawId}`) } : r)); if (refunds.filter((r) => r.method === "voucher").length > 1) throw new HttpError(400, "Un seul avoir par remboursement"); }
+    { // avoirs : la part de la vente payée par avoir revient AU MÊME avoir (jamais en espèces) ; un nouvel avoir n'est possible qu'en formule Pro
+      const back = new Map<string, number>(); for (const p of parse<{ method: string; amount: number; reference?: string }[]>(sale.payments, [])) if (p.method === "voucher" && p.reference) { const c = String(p.reference).toUpperCase(); back.set(c, (back.get(c) ?? 0) + Number(p.amount)); }
+      for (const r of existing.filter((x) => x.status !== "failed")) for (const f of parse<{ method: string; amount: number; reference?: string; back?: boolean }[]>(r.refunds, [])) if (f.method === "voucher" && f.back && f.reference && back.has(f.reference)) back.set(f.reference, back.get(f.reference)! - Number(f.amount));
+      refunds = refunds.map((r) => { if (r.method !== "voucher") return r; const c = String(r.reference ?? "").trim().toUpperCase(); return c && back.has(c) ? { ...r, reference: c, back: true } : { ...r, reference: voucherCodeFor(`${ctx.tenantId}|${rawId}`), back: false }; });
+      const fresh = refunds.filter((r) => r.method === "voucher" && !r.back); if (fresh.length && !proPos) throw new HttpError(402, "Les avoirs (bons d'achat) sont réservés à la formule Pro."); if (fresh.length > 1) throw new HttpError(400, "Un seul avoir par remboursement");
+      for (const r of refunds.filter((x) => x.back)) if (r.amount > Math.max(0, back.get(r.reference!) ?? 0)) throw new HttpError(409, `L'avoir ${r.reference} ne peut recevoir que ${Math.max(0, back.get(r.reference!) ?? 0).toLocaleString("fr-FR")} FCFA (montant payé avec lui sur cette vente)`);
+      const backable = [...back.values()].reduce((a, v) => a + Math.max(0, v), 0); const mustBack = Math.min(amount, backable); const given = refunds.filter((x) => x.back).reduce((a, r) => a + r.amount, 0);
+      if (given < mustBack) throw new HttpError(409, `Vente payée par avoir : rendez d'abord ${mustBack.toLocaleString("fr-FR")} FCFA à l'avoir ${[...back.entries()].filter(([, v]) => v > 0).map(([c]) => c).join(", ")}`);
+    }
     if (!refunds.length) throw new HttpError(400, "Indiquez comment le client est remboursé");
     for (const r of refunds) { if (!(METHODS as readonly string[]).includes(r.method)) throw new HttpError(400, "Moyen de remboursement inconnu"); if (!(r.amount > 0)) throw new HttpError(400, "Montant de remboursement invalide"); if (["wave", "orange", "card"].includes(r.method) && (r.reference ?? "").length < 4) throw new HttpError(400, "Référence obligatoire pour un remboursement numérique (elle n'est pas vérifiée par l'application)"); if (r.method === "credit" && !customer) throw new HttpError(400, "Remboursement sur compte : la vente n'a pas de client"); }
     const sumR = refunds.reduce((a, r) => a + r.amount, 0); if (sumR !== amount) throw new HttpError(400, `La répartition du remboursement (${sumR.toLocaleString("fr-FR")}) ne correspond pas au montant à rembourser (${amount.toLocaleString("fr-FR")})`);
@@ -110,7 +126,7 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
     const data = { tenantId: ctx.tenantId, shopId: ctx.shopId, saleId: sale.$id, saleNumber: String(sale.number), kind, amount, refunds: JSON.stringify(refunds), lines: JSON.stringify(chosen), reason, userId: ctx.userId, sessionId: cashPart > 0 && sess ? sess.$id : "", at: new Date().toISOString(), points: 0, status: "pending" };
     if (!(await store.create("sale_returns", rid, ctx.tenantId, data))) throw new HttpError(409, "Opération déjà en cours : réessayez");
     row = await store.get("sale_returns", rid);
-  } else { chosen = parse(row.lines, []); refunds = parse(row.refunds, []); amount = Number(row.amount); if (row.status === "done") return { id: rid, amount, kind: String(row.kind), duplicate: true }; }
+  } else { chosen = parse(row.lines, []); refunds = parse(row.refunds, []); amount = Number(row.amount); if (row.status === "done") return { id: rid, amount, kind: String(row.kind), duplicate: true, vouchers: await voucherInfo(store, ctx, refunds) }; }
   // reprise ou première exécution : toutes les écritures ont des identifiants fixes
   const base = rid.slice(0, 26); const number = String(sale.number); const at = String(row!.at);
   for (const c of chosen) { // retour en stock (traçable) ; produit abîmé : sortie en perte immédiate, du même lot / numéro
@@ -132,7 +148,9 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
     await mv(`${base}_s${c.index}`, { productId: l.productId, variantId: l.variantId, qty: c.qty }, sc);
   }
   const j = refundJournal({ ref: number, date: at, totalTtc: amount, vatRatePct, refunds: refunds as never }); for (const [i, e] of j.entries.entries()) await store.create("journal_entries", `${base}_j${i}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, ref: `${number}-RETOUR`, account: e.account, debit: e.debit, credit: e.credit, label: e.label, date: at });
-  const vr = refunds.find((r) => r.method === "voucher"); if (vr) { const o = newVoucherOps({ ...ctx }, vr.amount, number, sale.customerId ? String(sale.customerId) : undefined, vr.reference); for (const x of o.ops) if (x.kind === "create") await store.create(x.table, x.id, ctx.tenantId, x.data); }
+  for (const vr of refunds.filter((r) => r.method === "voucher")) {
+    if (vr.back) { await store.create("customer_vouchers", `vr${sha(`${ctx.tenantId}|${vr.reference}|${rid}`).slice(0, 28)}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, kind: "use", code: vr.reference, amount: -vr.amount, status: "restored", createdBy: ctx.userId, createdAt: new Date().toISOString(), ref: sale.$id }); continue; }
+    const o = newVoucherOps({ ...ctx }, vr.amount, number, sale.customerId ? String(sale.customerId) : undefined, vr.reference); for (const x of o.ops) if (x.kind === "create") await store.create(x.table, x.id, ctx.tenantId, x.data); }
   if (proPos) { const o = ledgerOp(ctx, { kind, ref: number, key: rid, amount: -amount, at, userId: String(row!.userId ?? ctx.userId), sessionId: String(row!.sessionId ?? ""), payload: { refunds, reason } }); await store.create(o.table, o.id, ctx.tenantId, (o as { data: Record<string, unknown> }).data); }
   const fresh = await store.get("sale_returns", rid);
   if (fresh?.status === "pending") {
@@ -147,7 +165,7 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
     }
   }
   await store.create("audit_log", `${base}_a`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: `sale.${kind}`, detail: `${number} ${amount} ${reason}`.slice(0, 1000) });
-  return { id: rid, amount, kind, duplicate: false };
+  return { id: rid, amount, kind, duplicate: false, vouchers: await voucherInfo(store, ctx, refunds) };
 }
 
 // ------------------------------------------------------------------ historique des ventes et réimpression

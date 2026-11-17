@@ -86,16 +86,17 @@ export function receiptModel(sale: ReceiptSale, shop: Shop | null, customer?: st
   };
 }
 
-export type ReturnTicket = { saleNumber: string; at: string; kind: "refund" | "cancel"; amount: number; reason: string; lines: { name: string; qty: number; amount: number; condition: "resellable" | "damaged"; serials: string[] }[]; refunds: { method: string; amount: number; reference?: string }[]; points?: number; couponReleased?: boolean };
+export type ReturnTicket = { saleNumber: string; at: string; kind: "refund" | "cancel"; amount: number; reason: string; lines: { name: string; qty: number; amount: number; condition: "resellable" | "damaged"; serials: string[] }[]; refunds: { method: string; amount: number; reference?: string }[]; points?: number; couponReleased?: boolean; vouchers?: { code: string; amount: number; back: boolean; balance: number; expiresAt: string }[] };
 /** Ticket de retour / d'annulation (58 ou 80 mm) : articles repris avec leur état, montant remboursé et moyens, rappel de la vente d'origine. Uniquement des valeurs confirmées par le serveur. */
 export function returnReceiptModel(r: ReturnTicket, shop: Shop | null, customer?: string): DocModel {
-  const refs = r.refunds.filter((p) => p.reference).map((p) => `${METHOD[p.method] ?? p.method} réf. ${p.reference} (non vérifiée)`);
+  const refs = r.refunds.filter((p) => p.reference && p.method !== "voucher").map((p) => `${METHOD[p.method] ?? p.method} réf. ${p.reference} (non vérifiée)`);
+  const avoirs = (r.vouchers ?? []).map((v) => `${v.back ? "Rendu à l'avoir" : "Nouvel avoir"} ${v.code} : ${v.amount.toLocaleString("fr-FR")} FCFA · solde ${v.balance.toLocaleString("fr-FR")} FCFA${v.expiresAt ? ` · valable jusqu'au ${new Date(v.expiresAt).toLocaleDateString("fr-FR")}` : ""}`);
   return {
     kind: "receipt", title: r.kind === "cancel" ? "TICKET D'ANNULATION" : "TICKET DE RETOUR", number: r.saleNumber, date: new Date(r.at).toLocaleString("fr-FR"),
     issuer: issuerOf(shop), partyLabel: "Client", party: { name: customer || "Client comptoir" },
     rows: r.lines.map((l) => ({ label: `${l.name}${l.serials.length ? ` (N° ${l.serials.join(", ")})` : ""}${l.condition === "damaged" ? " - abîmé" : ""}`, qty: l.qty, unit: Math.round(l.amount / (l.qty || 1)), total: l.amount })),
-    totals: [{ label: "TOTAL REMBOURSÉ", value: r.amount, strong: true }, ...r.refunds.map((p) => ({ label: METHOD[p.method] ?? p.method, value: p.amount }))],
-    footer: [`Vente d'origine : ${r.saleNumber}`, `Motif : ${r.reason}`, ...refs, ...(r.points ? [`Points de fidélité retirés : ${r.points}`] : []), ...(r.couponReleased ? ["Coupon de la vente de nouveau utilisable"] : []), ...(r.lines.some((l) => l.condition === "damaged") ? ["Articles abîmés : sortis du stock en perte"] : []), ...(r.lines.some((l) => l.condition !== "damaged") ? ["Articles revendables : remis en stock"] : [])],
+    totals: [{ label: "TOTAL REMBOURSÉ", value: r.amount, strong: true }, ...r.refunds.map((p) => ({ label: p.method === "voucher" && p.reference ? `Avoir ${p.reference}` : METHOD[p.method] ?? p.method, value: p.amount }))],
+    footer: [`Vente d'origine : ${r.saleNumber}`, `Motif : ${r.reason}`, ...avoirs, ...refs, ...(r.points ? [`Points de fidélité retirés : ${r.points}`] : []), ...(r.couponReleased ? ["Coupon de la vente de nouveau utilisable"] : []), ...(r.lines.some((l) => l.condition === "damaged") ? ["Articles abîmés : sortis du stock en perte"] : []), ...(r.lines.some((l) => l.condition !== "damaged") ? ["Articles revendables : remis en stock"] : [])],
   };
 }
 

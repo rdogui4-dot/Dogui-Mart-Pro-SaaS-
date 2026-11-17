@@ -1,3 +1,4 @@
+import { autoPreorder, preorderTargets } from "./preorder";
 import { ACTIONS, LOCK_EXEMPT, TENANT_LEVEL } from "./handlers";
 import { assertWritable } from "./subscriptions";
 import { appwriteStore } from "./appwrite-store";
@@ -41,7 +42,10 @@ export async function handle(store: Store, userId: string | undefined, body: any
       else { if (!ids.includes(shopId)) throw new HttpError(403, "Vous n'êtes pas affecté à cette boutique"); ctx.shopIds = ids; }
     }
     if (!LOCK_EXEMPT.has(action)) await assertWritable(store, tenantId); // abonnement expiré (hors délai de grâce) : plus aucune écriture ; l'interface suspend l'accès
-    return { status: 200, body: { ok: true, data: await fn(store, ctx, payload ?? {}) } };
+    const data = await fn(store, ctx, payload ?? {});
+    // précommande automatique après une sortie de stock : ne fait jamais échouer l'opération d'origine
+    try { const t = await preorderTargets(store, ctx, action, (payload ?? {}) as Record<string, unknown>, data); if (t) await autoPreorder(store, ctx, t); } catch (e) { console.error("précommande automatique", e); }
+    return { status: 200, body: { ok: true, data } };
   } catch (e) {
     if (e instanceof HttpError) return { status: e.status, body: { ok: false, error: e.message } };
     console.error(e);

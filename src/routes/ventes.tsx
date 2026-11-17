@@ -24,7 +24,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 /** Historique des ventes : recherche, détail (lignes, paiements et références), réimpression du ticket 58/80 mm sans aucune écriture de vente ou de stock, annulation et remboursement tracés (gérant). */
 export function VentesPage() {
-  const { session } = useSession(); const s = session!; const allowed = planAllows(useSubscription().data?.entitlement.plan.id, "smartPos"); const manager = s.role === "owner" || s.role === "manager";
+  const { session } = useSession(); const s = session!; const plan = useSubscription().data?.entitlement.plan.id; const allowed = planAllows(plan, "smartPos"); const pro = planAllows(plan, "smartPosPro"); const manager = s.role === "owner" || s.role === "manager";
   const [from, setFrom] = useState(today()); const [to, setTo] = useState(today()); const [q, setQ] = useState(""); const [status, setStatus] = useState(""); const [open, setOpen] = useState<string | null>(null);
   const list = useQuery({ queryKey: ["sales-list", s.shopId, from, to, status], enabled: allowed && !!from && !!to && from <= to, retry: 1, queryFn: () => api<{ sales: SaleRow[]; totals: { count: number; paid: number; refunded: number }; truncated: boolean; period: { tz: string } }>(s, "sales.list", { from, to, status: status || undefined }) });
   const retour = typeof location !== "undefined" && new URLSearchParams(location.search).has("retour");
@@ -56,12 +56,12 @@ export function VentesPage() {
       {list.data && <p className="text-xs text-muted">{list.data.totals.count} vente(s) · {formatFcfa(list.data.totals.paid)} encaissés{list.data.totals.refunded ? ` · ${formatFcfa(list.data.totals.refunded)} remboursés` : ""}{list.data.truncated ? " · liste tronquée (affinez la période)" : ""}</p>}
       {list.data && !shown.length && <p className="text-center text-muted text-sm py-6">Aucune vente sur cette période.</p>}
       {shown.map((x) => <button key={x.id} className="card text-left flex justify-between gap-2" onClick={() => setOpen(x.id)}><span className="min-w-0"><b>{x.number}</b><span className="text-xs text-muted block truncate">{dt(x.soldAt)} · {x.seller || "—"}{x.customer ? ` · ${x.customer}` : ""}</span><span className="text-xs text-muted">{x.payments.map((p) => METHOD_LABEL[p.method as keyof typeof METHOD_LABEL] ?? p.method).join(" + ")}</span></span><span className="text-right shrink-0"><b>{formatFcfa(x.total)}</b><span className={`block text-xs rounded-full px-2 mt-0.5 ${STATUS[x.status]?.c ?? ""}`}>{STATUS[x.status]?.l ?? x.status}{x.refunded && x.status === "paid" ? ` · −${formatFcfa(x.refunded)}` : ""}</span></span></button>)}
-      {open && <SaleSheet id={open} manager={manager} onClose={() => setOpen(null)} />}
+      {open && <SaleSheet id={open} manager={manager} pro={pro} onClose={() => setOpen(null)} />}
     </div>
   );
 }
 
-function SaleSheet({ id, manager, onClose }: { id: string; manager: boolean; onClose: () => void }) {
+function SaleSheet({ id, manager, pro, onClose }: { id: string; manager: boolean; pro: boolean; onClose: () => void }) {
   const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [refund, setRefund] = useState<null | "refund" | "cancel">(null); const [busy, setBusy] = useState(""); const [err, setErr] = useState("");
   const d = useQuery({ queryKey: ["sale", id], retry: 1, queryFn: () => api<Detail>(s, "sale.get", { saleId: id }) }); const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s), staleTime: 300_000 });
   async function reprint(w: 58 | 80) {
@@ -82,7 +82,7 @@ function SaleSheet({ id, manager, onClose }: { id: string; manager: boolean; onC
         <div className="grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm flex items-center justify-center gap-1" disabled={!!busy} onClick={() => void reprint(w)}><Printer size={14} />{busy === String(w) ? "…" : `Duplicata ${w} mm`}</button>)}</div>
         <p className="text-xs text-muted">La réimpression est tracée ; elle ne crée aucune nouvelle vente ni aucun mouvement de stock.</p>
         {manager && x.status === "paid" && x.refundable.remainingTotal > 0 && <div className="grid grid-cols-2 gap-2"><button className="btn-ghost text-sm flex items-center justify-center gap-1" onClick={() => setRefund("refund")}><RotateCcw size={14} />Retourner des articles</button>{!x.returnsDetail.length && <button className="btn-ghost !text-bad text-sm" onClick={() => setRefund("cancel")}>Annuler la vente</button>}</div>}
-        {refund && <RefundSheet d={x} mode={refund} onClose={() => setRefund(null)} onSaved={() => { void qc.invalidateQueries({ queryKey: ["sale", id] }); void qc.invalidateQueries({ queryKey: ["sales-list"] }); void qc.invalidateQueries({ queryKey: ["cash-current"] }); void qc.invalidateQueries({ queryKey: ["stock"] }); }} />}
+        {refund && <RefundSheet d={x} mode={refund} pro={pro} onClose={() => setRefund(null)} onSaved={() => { void qc.invalidateQueries({ queryKey: ["sale", id] }); void qc.invalidateQueries({ queryKey: ["sales-list"] }); void qc.invalidateQueries({ queryKey: ["cash-current"] }); void qc.invalidateQueries({ queryKey: ["stock"] }); }} />}
       </>}
     </Sheet>
   );
@@ -98,7 +98,7 @@ function CondPick({ name, value, onChange }: { name: string; value: Cond; onChan
 }
 
 /** Retour après vente en 4 étapes : articles (quantités, numéros de série, état revendable/abîmé), remboursement, vérification des effets calculés par le serveur, ticket de retour. Aucun délai de retour ; un article abîmé sort du stock en perte. */
-function RefundSheet({ d, mode, onClose, onSaved }: { d: Detail; mode: "refund" | "cancel"; onClose: () => void; onSaved: () => void }) {
+function RefundSheet({ d, mode, pro, onClose, onSaved }: { d: Detail; mode: "refund" | "cancel"; pro: boolean; onClose: () => void; onSaved: () => void }) {
   const { session } = useSession(); const s = session!; const returnId = useState(() => crypto.randomUUID())[0]; const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s), staleTime: 300_000 });
   const [step, setStep] = useState(0); const [qty, setQty] = useState<Record<number, string>>({}); const [sns, setSns] = useState<Record<number, string[]>>({}); const [cond, setCond] = useState<Record<number, Cond>>({}); const [all, setAll] = useState<Cond>("resellable");
   const [reason, setReason] = useState(""); const [ask, setAsk] = useState(false); const [done, setDone] = useState<{ at: string } | null>(null); const [busy, setBusy] = useState(""); const [perr, setPerr] = useState("");
@@ -109,16 +109,24 @@ function RefundSheet({ d, mode, onClose, onSaved }: { d: Detail; mode: "refund" 
   const pv = useQuery({ queryKey: ["refund-preview", d.id, JSON.stringify(chosen), mode, all], enabled: any && !done, retry: 0, queryFn: () => api<Preview>(s, "sale.refund", { preview: true, saleId: d.id, kind: mode, ...(mode === "cancel" ? { condition: all } : { lines: chosen }) }) });
   const amount = pv.data?.amount ?? 0; const firstMethod = d.payments.find((p) => p.method !== "credit")?.method ?? "cash";
   const [rl, setRl] = useState<RLine[]>([{ id: "r1", method: firstMethod, amount: "", reference: "" }]);
-  const num = (v: string) => Number(v.replace(/\s/g, "")) || 0; const sum = rl.reduce((a, r) => a + num(r.amount), 0); const refsOk = rl.every((r) => !["wave", "orange", "card"].includes(r.method) || r.reference.trim().length >= 4);
+  /** Avoirs utilisés pour payer la vente : leur part revient au même avoir (le serveur l'exige). */
+  const backs = useMemo(() => { const m = new Map<string, number>(); for (const p of d.payments) if (p.method === "voucher" && p.reference) { const c = p.reference.toUpperCase(); m.set(c, (m.get(c) ?? 0) + p.amount); }
+    for (const r of d.returnsDetail) if (r.status !== "failed") for (const f of r.refunds) if (f.method === "voucher" && f.reference && m.has(f.reference) && (f as Pay & { back?: boolean }).back) m.set(f.reference, m.get(f.reference)! - f.amount);
+    return [...m.entries()].filter(([, v]) => v > 0).map(([code, rem]) => ({ code, rem })); }, [d]);
+  const methods = [...backs.map((b) => `back:${b.code}`), "cash", "wave", "orange", "card", ...(d.customer ? ["credit"] : []), ...(pro ? ["voucher"] : [])];
+  const mLabel = (m: string) => (m.startsWith("back:") ? `Rendu à l'avoir ${m.slice(5)}` : m === "voucher" ? "Nouvel avoir (bon d'achat)" : m === "credit" ? "Sur le compte client" : METHOD_LABEL[m as keyof typeof METHOD_LABEL] ?? m);
+  /** Répartition proposée : d'abord vers les avoirs utilisés, le reste sur le premier moyen de la vente. */
+  const suggest = () => { let left = amount; const out: RLine[] = []; for (const b of backs) { const v = Math.min(left, b.rem); if (v > 0) { out.push({ id: `r${out.length + 1}`, method: `back:${b.code}`, amount: String(v), reference: "" }); left -= v; } } if (left > 0) out.push({ id: `r${out.length + 1}`, method: firstMethod === "voucher" ? "cash" : firstMethod, amount: String(left), reference: "" }); return out; };
+  const num = (v: string) => Number(v.replace(/\s/g, "")) || 0; const sum = rl.reduce((a, r) => a + num(r.amount), 0); const refsOk = rl.every((r) => !["wave", "orange", "card"].includes(r.method) || r.reference.trim().length >= 4) && rl.filter((r) => r.method === "voucher").length <= 1;
   const payOk = amount > 0 && sum === amount && refsOk && reason.trim().length >= 3 && rl.every((r) => num(r.amount) > 0);
-  const refunds = rl.map((r) => ({ method: r.method, amount: num(r.amount), ...(r.reference.trim() ? { reference: r.reference.trim() } : {}) }));
-  const run = useMutation({ mutationFn: () => api(s, "sale.refund", { returnId, saleId: d.id, kind: mode, reason, refunds, ...(mode === "cancel" ? { condition: all } : { lines: chosen }) }), onSuccess: () => { setAsk(false); setDone({ at: new Date().toISOString() }); setStep(3); onSaved(); }, onError: () => setAsk(false) });
+  const refunds = rl.map((r) => (r.method.startsWith("back:") ? { method: "voucher", amount: num(r.amount), reference: r.method.slice(5) } : { method: r.method, amount: num(r.amount), ...(r.reference.trim() && r.method !== "voucher" ? { reference: r.reference.trim() } : {}) }));
+  const run = useMutation({ mutationFn: () => api<{ vouchers?: { code: string; amount: number; back: boolean; balance: number; expiresAt: string }[] }>(s, "sale.refund", { returnId, saleId: d.id, kind: mode, reason, refunds, ...(mode === "cancel" ? { condition: all } : { lines: chosen }) }), onSuccess: () => { setAsk(false); setDone({ at: new Date().toISOString() }); setStep(3); onSaved(); }, onError: () => setAsk(false) });
   const setR = (id: string, p: Partial<RLine>) => setRl(rl.map((r) => (r.id === id ? { ...r, ...p } : r)));
   const creditPart = refunds.filter((r) => r.method === "credit").reduce((a, r) => a + r.amount, 0);
   async function ticket(w: 58 | 80) {
     if (!pv.data || !done) return; setBusy(String(w)); setPerr("");
     try { const lines = pv.data.lines.map((l, i) => ({ name: pv.data!.effects[i]?.name ?? "", qty: l.qty, amount: l.amount, condition: l.condition ?? "resellable", serials: l.serials ?? [] }));
-      const m = returnReceiptModel({ saleNumber: d.number, at: done.at, kind: mode, amount, reason: reason.trim(), lines, refunds, points: pv.data.points, couponReleased: pv.data.couponReleased }, shop.data ?? null, d.customer || undefined);
+      const m = returnReceiptModel({ saleNumber: d.number, at: done.at, kind: mode, amount, reason: reason.trim(), lines, refunds: (run.data?.vouchers ?? []).reduce((acc, v) => acc.map((r) => (r.method === "voucher" && (v.back ? r.reference === v.code : !r.reference) ? { ...r, reference: v.code } : r)), refunds as { method: string; amount: number; reference?: string }[]), points: pv.data.points, couponReleased: pv.data.couponReleased, vouchers: run.data?.vouchers }, shop.data ?? null, d.customer || undefined);
       await deliverPdf(await pdfBlob(m, w), `${d.number}-retour-${w}mm.pdf`); } catch (e) { setPerr((e as Error).message); } finally { setBusy(""); }
   }
   const title = mode === "cancel" ? "Annuler la vente" : "Retour d'articles";
@@ -138,12 +146,13 @@ function RefundSheet({ d, mode, onClose, onSaved }: { d: Detail; mode: "refund" 
             {picked && <CondPick name={l.name} value={c} onChange={(v) => setCond({ ...cond, [l.index]: v })} />}
           </div>); })}
         <div className="card flex justify-between"><span>Montant à rembourser</span><b className="text-accent-text" aria-live="polite">{pv.isFetching ? "…" : formatFcfa(amount)}</b></div><Err e={pv.error} />
-        <button className="btn" disabled={!any || !pv.data || pv.isFetching || amount <= 0} onClick={() => setStep(1)}>Continuer</button>
+        <button className="btn" disabled={!any || !pv.data || pv.isFetching || amount <= 0} onClick={() => { if (backs.length) setRl(suggest()); setStep(1); }}>Continuer</button>
       </>}
       {step === 1 && <>
         <label className="text-sm flex flex-col gap-1"><span className="text-muted">Motif *</span><input className="input" maxLength={200} value={reason} placeholder="Ex. : article défectueux, erreur de caisse…" onChange={(e) => setReason(e.target.value)} /></label>
+        {!!backs.length && <p className="text-xs rounded-lg bg-[var(--gold-soft)] p-2" role="note">Vente payée par avoir : {backs.map((b) => `${formatFcfa(b.rem)} reviennent à l'avoir ${b.code}`).join(" ; ")} (jamais en espèces).</p>}
         <div className="flex justify-between text-sm"><b>Remboursé en</b><span className="text-muted">à rembourser : <b className="text-brand">{formatFcfa(amount)}</b></span></div>
-        {rl.map((r, i) => <div key={r.id} className="card !p-2 flex flex-col gap-1.5"><div className="flex gap-1.5"><select className="input !py-2 w-32" aria-label={`Moyen de remboursement ${i + 1}`} value={r.method} onChange={(e) => setR(r.id, { method: e.target.value })}>{["cash", "wave", "orange", "card", ...(d.customer ? ["credit"] : [])].map((m) => <option key={m} value={m}>{m === "credit" ? "Sur le compte client" : METHOD_LABEL[m as keyof typeof METHOD_LABEL]}</option>)}</select><input className="input !py-2 flex-1 min-w-0" inputMode="numeric" aria-label={`Montant remboursé ${i + 1}`} placeholder="Montant" value={r.amount} onChange={(e) => setR(r.id, { amount: e.target.value })} />{rl.length > 1 && <button className="btn-ghost !px-2" aria-label="Retirer" onClick={() => setRl(rl.filter((x) => x.id !== r.id))}>✕</button>}</div>
+        {rl.map((r, i) => <div key={r.id} className="card !p-2 flex flex-col gap-1.5"><div className="flex gap-1.5"><select className="input !py-2 w-40 min-w-0" aria-label={`Moyen de remboursement ${i + 1}`} value={r.method} onChange={(e) => setR(r.id, { method: e.target.value })}>{methods.map((m) => <option key={m} value={m}>{mLabel(m)}</option>)}</select><input className="input !py-2 flex-1 min-w-0" inputMode="numeric" aria-label={`Montant remboursé ${i + 1}`} placeholder="Montant" value={r.amount} onChange={(e) => setR(r.id, { amount: e.target.value })} />{rl.length > 1 && <button className="btn-ghost !px-2" aria-label="Retirer" onClick={() => setRl(rl.filter((x) => x.id !== r.id))}>✕</button>}</div>
           {["wave", "orange", "card"].includes(r.method) && <input className="input !py-2" aria-label={`Référence du remboursement ${i + 1}`} placeholder="Référence (obligatoire, non vérifiée)" value={r.reference} onChange={(e) => setR(r.id, { reference: e.target.value })} />}</div>)}
         <div className="flex gap-2"><button className="btn-ghost !py-1 text-sm" onClick={() => setRl([...rl, { id: `r${rl.length + 1}`, method: "cash", amount: "", reference: "" }])}>+ Autre moyen</button>{rl.length === 1 && sum !== amount && <button className="btn-ghost !py-1 text-sm" onClick={() => setRl([{ ...rl[0]!, amount: String(amount) }])}>Tout rembourser ici</button>}</div>
         <p className={`text-xs ${sum === amount && amount > 0 ? "text-ok" : "text-warn"}`}>Réparti : {formatFcfa(sum)} / {formatFcfa(amount)}</p>
@@ -159,13 +168,13 @@ function RefundSheet({ d, mode, onClose, onSaved }: { d: Detail; mode: "refund" 
           {pv.data.couponReleased && <p className="text-xs">Le coupon utilisé redevient disponible ; les limites de promotion sont libérées.</p>}
           <p className="text-xs text-muted">Écriture comptable de retour, journal d'audit et historique client mis à jour. La vente d'origine reste consultable.</p>
         </section>
-        <div className="card text-sm flex flex-col gap-1"><b>Remboursement</b>{refunds.map((r, i) => <div key={i} className="flex justify-between"><span>{r.method === "credit" ? "Sur le compte client" : METHOD_LABEL[r.method as keyof typeof METHOD_LABEL]}{r.reference ? ` (réf. ${r.reference})` : ""}</span><b>{formatFcfa(r.amount)}</b></div>)}<span className="text-xs text-muted">Motif : {reason}</span></div>
+        <div className="card text-sm flex flex-col gap-1"><b>Remboursement</b>{rl.map((r, i) => <div key={i} className="flex justify-between"><span>{mLabel(r.method)}{r.reference.trim() && ["wave", "orange", "card"].includes(r.method) ? ` (réf. ${r.reference.trim()})` : ""}</span><b>{formatFcfa(num(r.amount))}</b></div>)}<span className="text-xs text-muted">Motif : {reason}</span></div>
         <Err e={run.error} />
         <div className="grid grid-cols-2 gap-2"><button className="btn-ghost" disabled={run.isPending} onClick={() => setStep(1)}>Retour</button><button className="btn" disabled={run.isPending} onClick={() => setAsk(true)}>{run.isPending ? "Enregistrement…" : mode === "cancel" ? "Annuler la vente" : "Valider le retour"}</button></div>
         {ask && <Confirm danger text={`${mode === "cancel" ? "Annuler la vente" : "Valider le retour"} : ${formatFcfa(amount)} remboursés sur la vente ${d.number} ? L'opération est tracée et irréversible.`} confirmLabel="Confirmer" onNo={() => setAsk(false)} onYes={() => run.mutate()} />}
       </>}
       {step === 3 && done && <>
-        <div className="card flex flex-col gap-1 text-sm" role="status"><b className="text-ok">{mode === "cancel" ? "Vente annulée" : "Retour enregistré"}</b><span>{formatFcfa(amount)} remboursés · stock, caisse, comptabilité et fidélité mis à jour.</span></div>
+        <div className="card flex flex-col gap-1 text-sm" role="status"><b className="text-ok">{mode === "cancel" ? "Vente annulée" : "Retour enregistré"}</b><span>{formatFcfa(amount)} remboursés · stock, caisse, comptabilité et fidélité mis à jour.</span>{(run.data?.vouchers ?? []).map((v) => <span key={v.code} className="block font-semibold text-brand">{v.back ? "Rendu à l'avoir" : "Nouvel avoir"} {v.code} : {formatFcfa(v.amount)} · solde {formatFcfa(v.balance)}{v.expiresAt ? ` · valable jusqu'au ${new Date(v.expiresAt).toLocaleDateString("fr-FR")}` : ""}</span>)}</div>
         <div className="grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm flex items-center justify-center gap-1" disabled={!!busy} onClick={() => void ticket(w)}><Printer size={14} />{busy === String(w) ? "…" : `Ticket de retour ${w} mm`}</button>)}</div>
         <Err e={perr ? new Error(perr) : null} />
         <button className="btn" onClick={onClose}>Terminer</button>

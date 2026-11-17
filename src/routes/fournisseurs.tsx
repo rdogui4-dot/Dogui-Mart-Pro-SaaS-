@@ -73,6 +73,7 @@ export function FournisseursPage() {
     <div className="flex flex-col gap-1.5">{([["Suivi", ["dash"]], ["Achats", ["po", "rec", "inv"]], ["Tiers", ["sup", "claims"]]] as [string, string[]][]).map(([g, keys]) => { const items = tabs.filter(([k]) => keys.includes(k)); if (!items.length) return null; return (
       <div key={g} className="flex items-center gap-2 min-w-0"><span className="hidden md:block w-14 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{g}</span>
         <nav aria-label={g === "Suivi" ? "Sections" : `Sections ${g}`} className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap pb-1">{items.map(([k, l]) => <button key={k} className="chip" aria-current={cur === k} onClick={() => setTab(k)}>{l}</button>)}</nav></div>); })}</div>
+    {(cur === "dash" || cur === "po") && <PreorderPanel onOpen={open} close={close} refresh={refresh} cfg={cfg.data} manager={manager} />}
     {cur === "dash" && <Dashboard onOpen={open} close={close} refresh={refresh} cfg={cfg.data} />}
     {cur === "sup" && <Suppliers onOpen={open} close={close} refresh={refresh} />}
     {cur === "po" && <Orders onOpen={open} close={close} refresh={refresh} cfg={cfg.data} manager={manager} />}
@@ -83,6 +84,36 @@ export function FournisseursPage() {
   </div>;
 }
 type Ctl = { onOpen: (n: ReactNode) => void; close: () => void; refresh: () => void };
+
+// ------------------------------------------------------------------ précommande automatique
+type Pre = { enabled: boolean; drafts: { id: string; number: string; supplier: string; lines: { name: string; qty: number; unitPrice: number }[]; total: number; notes: string }[]; noSupplier: { productId: string; name: string; stock: number; threshold: number }[]; rule: string };
+/** Brouillons préparés automatiquement quand un article passe sous son seuil : à relire, ajuster puis soumettre (jamais envoyés seuls). */
+function PreorderPanel({ onOpen, close, refresh, cfg, manager }: Ctl & { cfg?: Cfg; manager: boolean }) {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["purch-preorder", s.shopId], retry: 1, queryFn: () => api<Pre>(s, "purch.preorder.status") });
+  const again = () => { void qc.invalidateQueries({ queryKey: ["purch-preorder"] }); refresh(); };
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  const set = useMutation({ mutationFn: (enabled: boolean) => { setOptimistic(enabled); return api(s, "purch.preorder.set", { enabled }); }, onSuccess: () => { again(); }, onSettled: () => setOptimistic(null) });
+  const run = useMutation({ mutationFn: () => api<{ drafts: string[] }>(s, "purch.preorder.run"), onSuccess: again });
+  const d = q.data ? { ...q.data, enabled: optimistic ?? q.data.enabled } : undefined;
+  return <section aria-label="Précommande automatique" className="card flex flex-col gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold text-sm">Précommande automatique</span>
+      {d && (manager ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-[var(--brand)]" aria-label="Précommande automatique active" checked={d.enabled} disabled={set.isPending} onChange={(e) => set.mutate(e.target.checked)} />{d.enabled ? "Active" : "Désactivée"}</label> : <span className="text-xs text-muted">{d.enabled ? "Active" : "Désactivée"}</span>)}</div>
+    {q.isLoading && <div className="h-10 animate-pulse bg-subtle rounded-lg" aria-busy="true" />}<Err e={q.error ?? set.error ?? run.error} />
+    {d && <>
+      <p className="text-xs text-muted">{d.enabled ? "Dès qu'un article passe sous son seuil d'alerte (vente, perte, transfert, inventaire), il est ajouté au brouillon de son fournisseur. Rien n'est envoyé : relisez, ajustez puis soumettez." : "Aucun brouillon n'est préparé tant que la précommande est désactivée."}</p>
+      {!d.drafts.length && d.enabled && <p className="text-sm text-muted">Aucune précommande en attente.</p>}
+      {d.drafts.map((x) => <button key={x.id} className="rounded-xl border border-[var(--line)] p-2 text-left flex flex-col gap-1 hover:bg-subtle" onClick={() => onOpen(<OrderSheet id={x.id} close={close} refresh={() => { again(); }} cfg={cfg} manager={manager} onOpen={onOpen} />)}>
+        <span className="flex justify-between gap-2 text-sm"><b className="min-w-0 truncate">{x.number} · {x.supplier}</b><span className="shrink-0">{formatFcfa(x.total)} HT</span></span>
+        <span className="text-xs text-muted">{x.lines.map((l) => `${l.name} × ${l.qty}`).join(" · ")}</span>
+        <span className="text-xs text-accent-text">Brouillon à relire et soumettre</span></button>)}
+      {!!d.noSupplier.length && <div className="text-xs rounded-lg bg-warn-bg text-warn p-2" role="note"><b>Sous le seuil, sans fournisseur :</b> {d.noSupplier.map((n) => `${n.name} (${n.stock} / seuil ${n.threshold})`).join(" · ")}. Indiquez un fournisseur sur la fiche article pour qu'il soit précommandé.</div>}
+      <details className="text-xs text-muted"><summary className="cursor-pointer font-medium text-soft">Comment la quantité est calculée</summary><p className="pt-1">{d.rule}</p>{d.drafts.map((x) => <p key={x.id} className="pt-1 whitespace-pre-line">{x.notes}</p>)}</details>
+      {manager && d.enabled && <button className="btn-ghost !py-1.5 text-sm self-start" disabled={run.isPending} onClick={() => run.mutate()}>{run.isPending ? "Analyse…" : "Analyser maintenant"}</button>}
+      {run.data && <p className="text-xs text-ok" role="status">{run.data.drafts.length ? `Précommande mise à jour : ${run.data.drafts.join(", ")}` : "Aucun nouvel article sous son seuil."}</p>}
+    </>}
+  </section>;
+}
 
 // ------------------------------------------------------------------ tableau de bord
 function Dashboard({ onOpen, close, refresh, cfg }: Ctl & { cfg?: Cfg }) {
