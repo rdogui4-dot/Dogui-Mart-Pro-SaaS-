@@ -67,9 +67,9 @@ export function AuthPage() {
         </>}
         {mode !== "reset" && <label className="flex flex-col gap-1 text-sm"><span className="text-soft">{mode === "login" ? "E-mail ou identifiant" : "Adresse e-mail"}</span><input className="input" autoComplete={mode === "login" ? "username" : "email"} type={mode === "login" ? "text" : "email"} autoCapitalize="none" placeholder={mode === "login" ? "E-mail ou identifiant d'employé" : "vous@exemple.com"} value={f.email} onChange={set("email")} required /></label>}
         {mode !== "forgot" && <label className="flex flex-col gap-1 text-sm"><span className="text-soft">{mode === "reset" ? "Nouveau mot de passe" : "Mot de passe"}</span>
-          <span className="relative block"><input className="input pr-12" autoComplete={mode === "login" ? "current-password" : "new-password"} type={show ? "text" : "password"} minLength={8} required value={f.password} onChange={set("password")} />
+          <span className="relative block"><input className="input pr-12" aria-label={mode === "reset" ? "Nouveau mot de passe" : "Mot de passe"} aria-describedby={mode !== "login" ? "pw-rule" : undefined} autoComplete={mode === "login" ? "current-password" : "new-password"} type={show ? "text" : "password"} minLength={8} required value={f.password} onChange={set("password")} />
             <button type="button" className="absolute right-1 top-1/2 -translate-y-1/2 p-2 text-muted" aria-label={show ? "Masquer le mot de passe" : "Afficher le mot de passe"} onClick={() => setShow(!show)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></span>
-          {mode !== "login" && <span className="text-xs text-muted">8 caractères minimum.</span>}</label>}
+          {mode !== "login" && <span id="pw-rule" className="text-xs text-muted">8 caractères minimum.</span>}</label>}
         {info && <p className="text-ok text-sm" role="status">{info}</p>}
         {err && <p className="text-bad text-sm" role="alert">{err}</p>}
         <button className="btn" disabled={busy}>{mode === "login" ? "Se connecter" : mode === "signup" ? "Créer mon commerce" : mode === "forgot" ? "Envoyer le lien" : "Enregistrer le mot de passe"}</button>

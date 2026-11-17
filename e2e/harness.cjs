@@ -48,7 +48,7 @@ async function start(opts = {}) {
   await new Promise((r) => server.listen(0, r));
   const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, deviceScaleFactor: 1, permissions: ["camera"] }); const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message)); page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text().slice(0, 200)); });
-  const origin = `http://localhost:${server.address().port}`; let offline = false;
+  const origin = `http://localhost:${server.address().port}`; let offline = false; let anon = !!opts.anonymous;
   await page.route("https://fra.cloud.appwrite.io/**", async (route) => {
     if (offline) return route.abort("internetdisconnected");
     const req = route.request(); const url = new URL(req.url()); const p = url.pathname;
@@ -56,6 +56,10 @@ async function start(opts = {}) {
     if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
     const json = (b, s = 200) => route.fulfill({ status: s, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(b) });
     if (p.includes("/storage/buckets/articles/files/")) { const id = p.split("/files/")[1].split("/")[0]; const f = st.files.get(id); return route.fulfill({ status: f ? 200 : 404, headers: { ...cors, "content-type": f?.mime ?? "text/plain" }, body: f ? Buffer.from(f.data) : "nf" }); }
+    // opts.anonymous : visiteur non connecté jusqu'à une connexion réussie (mot de passe « motdepasse1 »), pour tester le parcours d'authentification.
+    if (p.includes("/account/sessions")) { const b = JSON.parse(req.postData() ?? "{}"); if (b.password === "motdepasse1") { anon = false; return json({ $id: "sess", userId: "u1" }, 201); } return json({ message: "Invalid credentials. Please check the email and password.", code: 401, type: "user_invalid_credentials" }, 401); }
+    if (p.endsWith("/account/recovery")) return json({ $id: "rec" }, 201);
+    if (p.endsWith("/account") && anon) return json({ message: "User (role: guests) missing scope (account)", code: 401, type: "general_unauthorized_scope" }, 401);
     if (p.endsWith("/account")) return json({ $id: "u1", name: "Dogui", email: "x@y.sn", emailVerification: true });
     if (p.endsWith("/teams")) return json({ total: 1, teams: [{ $id: T, name: "DOGUI MART" }] });
     if (p.includes("/memberships")) return json({ total: 1, memberships: [{ userId: "u1", roles: ["owner"] }] });

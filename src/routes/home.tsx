@@ -127,9 +127,13 @@ function StartGuide() {
       return { shopDetails: !!(shop?.address || shop?.phone), articles: products.length, cashSessions: sessions.length, sales: sales.length, collaborators: staff.filter((x) => x.role !== "owner").length };
     },
   });
-  if (!owner || hidden || !q.data) return null;
+  // Stabilité de la mise en page (CLS) : pendant le chargement, la place de la carte est réservée, sauf si l'on sait déjà sur cet appareil que le guide est terminé.
+  const doneKey = `dmp.guide.done.${s.tenantId}`; let knownDone = false; try { knownDone = localStorage.getItem(doneKey) === "1"; } catch { /* stockage indisponible */ }
+  if (!owner || hidden) return null;
+  if (!q.data) return knownDone ? null : <section className="card h-[27.5rem] bg-subtle animate-pulse" aria-busy="true" aria-label="Guide de démarrage (chargement)" />;
   const steps = startSteps({ ...q.data, cashSessionAvailable: planAllows(sub.data?.entitlement.plan.id, "smartPos") });
   const p = startProgress(steps);
+  try { if (p.complete) localStorage.setItem(doneKey, "1"); else localStorage.removeItem(doneKey); } catch { /* préférence non mémorisée */ }
   if (p.complete) return null;
   return (
     <section className="card flex flex-col gap-3" aria-label="Guide de démarrage">
