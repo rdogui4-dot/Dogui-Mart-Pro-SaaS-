@@ -2,7 +2,10 @@ import { CaisseTabs } from "@/components/CaisseTabs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ScanLine, Minus, Plus, Search, X } from "lucide-react";
+import { ScanLine, Minus, Plus, Search, X, Monitor, Trash2, UserRound, Percent, TicketPercent, Undo2, PauseCircle, PlayCircle, CalendarCheck, ShoppingBag } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { holdCart, loadHeld, removeHeld, MAX_HELD, type HeldCart } from "@/lib/held-carts";
+import { Sheet } from "@/components/ui";
 import { cartTotal, formatFcfa, type CartLine } from "@/domain/money";
 import { evaluatePay, METHOD_LABEL, type PayLine } from "@/domain/pay";
 import { PayPanel, newPayLine } from "@/components/PayPanel";
@@ -135,6 +138,20 @@ export function PosPage() {
   const total = pv ? pv.total : cartTotal(priced);
   const payState = evaluatePay(total, payLines, { hasCustomer: !!customer, credit: customer ? { balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 } : undefined });
   const resetPay = () => setPayLines([newPayLine("cash")]);
+  const nav = useNavigate(); const [askClear, setAskClear] = useState(false); const [resume, setResume] = useState(false);
+  const catCount = useMemo(() => { const m = new Map<string, number>(); for (const p of products.data ?? []) { if (p.archived) continue; m.set("", (m.get("") ?? 0) + 1); if (p.category) m.set(p.category, (m.get(p.category) ?? 0) + 1); } return m; }, [products.data]);
+  const [held, setHeld] = useState<HeldCart<PosLine>[]>(() => loadHeld<PosLine>(s.shopId));
+  const clearCart = () => { setCart([]); resetPay(); setCustomerId(""); setCoupon(""); setCouponIn(""); };
+  const focusSoon = (sel: string) => setTimeout(() => { const el = document.querySelector<HTMLElement>(sel); el?.scrollIntoView({ block: "center" }); el?.focus(); }, 60);
+  /** Barre d'actions du kit : chaque action mène à une fonction réelle ; indisponible = bouton désactivé avec la raison. */
+  const act = {
+    client: () => { if (!cart.length) return setMsg("Ajoutez d'abord un article : le client se choisit dans le panier."); focusSoon("#pos-client"); },
+    discount: () => { if (!(manager || pro)) return setMsg("Remise manuelle réservée au gérant (ou à la caisse Pro)."); if (!cart.length) return setMsg("Panier vide."); focusSoon('[aria-label^="Remise "]'); },
+    voucher: () => { if (!pro) return setMsg("Bons d'achat : caisse Pro."); if (!cart.length) return setMsg("Panier vide."); setPayLines((l) => (l.some((x) => x.method === "voucher") ? l : [...l, newPayLine("voucher")])); focusSoon('[aria-label^="Montant "]:last-of-type'); },
+    returns: () => { if (!smart) return setMsg("Retours et remboursements : formule Business ou supérieure."); void nav({ to: "/ventes" }); },
+    hold: () => { const label = `${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · ${cart.length} article${cart.length > 1 ? "s" : ""}${customer ? ` · ${customer.name}` : ""}`; const r = holdCart<PosLine>(s.shopId, { label, lines: cart, customerId, coupon }); if (!r.ok) return setMsg(r.reason); setHeld(r.list); clearCart(); setMsg(`Panier mis en attente (${label}).`); },
+    resume: (h: HeldCart<PosLine>) => { if (cart.length) return setMsg("Mettez d'abord le panier en cours en attente (ou videz-le) avant d'en reprendre un autre."); const known = new Set((products.data ?? []).filter((x) => !x.archived).map((x) => x.$id)); const lines = h.lines.filter((l) => known.has(l.productId)); setCart(lines); setCustomerId(h.customerId); setCoupon(h.coupon); setCouponIn(h.coupon); setHeld(removeHeld<PosLine>(s.shopId, h.id)); setResume(false); setMsg(lines.length < h.lines.length ? `Panier repris : ${h.lines.length - lines.length} article(s) retiré(s) du catalogue entre-temps. Prix et promotions recalculés.` : "Panier repris : prix et promotions recalculés à l'instant."); },
+  };
 
   /** Validation définitive (après confirmation explicite). Le serveur revérifie prix, remises, stock, plafond de crédit, références et idempotence (clientId) ; la vente est mise en file locale puis envoyée. */
   async function submit() {
@@ -150,12 +167,12 @@ export function PosPage() {
       void syncPending().then((n) => { if (n) { void stock.refetch(); void customers.refetch(); void qc.invalidateQueries({ queryKey: ["cash-current"] }); } });
     } finally { setBusy(false); setConfirm(false); }
   }
-  useShortcuts({ F2: () => searchRef.current?.focus(), F4: () => { if (cart.length && payState.ok && !busy) checkout(); }, F8: () => { if (cart.length && window.confirm("Vider le panier ?")) { setCart([]); resetPay(); } } });
+  useShortcuts({ F2: () => searchRef.current?.focus(), F3: () => act.client(), F4: () => { if (cart.length && payState.ok && !busy) checkout(); }, F6: () => act.discount(), F7: () => act.voucher(), F8: () => { if (cart.length) setAskClear(true); }, F9: () => act.returns() });
   const checkout = () => { setMsg(""); if (blockedSim) return setMsg(simD && !simD.ok ? simD.blocked : "Approbation d'un responsable requise avant de valider"); if (needSession) return setMsg("Ouvrez la caisse avant de vendre (session de caisse obligatoire)"); if (!payState.ok) return setMsg(payState.errors[0] ?? "Paiement incohérent"); setConfirm(true); };
 
   return (
     <div className="flex flex-col gap-3">
-      <h1 className="sr-only">Caisse</h1>
+      <header className="flex items-center gap-3"><Monitor size={30} strokeWidth={1.75} className="text-accent shrink-0 hidden sm:block" aria-hidden="true" /><h1 className="text-xl md:text-2xl font-bold text-brand">Caisse · Point de vente</h1></header>
       <CaisseTabs current="/pos" />
       <div className={`lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-4 lg:items-start ${cart.length > 0 ? "pb-16 lg:pb-0" : ""}`}>
       <div className="flex flex-col gap-3 min-w-0">
@@ -169,36 +186,49 @@ export function PosPage() {
       </div>
       {pro && <div className="flex items-center gap-2 text-xs text-muted"><button className="chip" aria-pressed={favOnly} onClick={() => setFavOnly(!favOnly)}>★ Favoris ({favs.ids.length})</button><button className="chip" onClick={dens.toggle}>{dens.density === "compact" ? "Cartes larges" : "Cartes compactes"}</button><span className="hidden sm:inline">F2 recherche · F4 encaisser · F8 vider</span></div>}
       {pro && <SuggestStrip data={sugg.data} hasCart={cart.length > 0} onAdd={(id) => { const p = (products.data ?? []).find((x) => x.$id === id); if (p) add(p as Product & { $id: string }); }} />}
-      {categories.length > 0 && <div className="scroll-x"><button className="chip" aria-current={!cat} onClick={() => setCat("")}>Tout</button>{categories.map((c) => <button key={c} className="chip" aria-current={cat === c} onClick={() => setCat(cat === c ? "" : c)}>{c}</button>)}</div>}
+      {categories.length > 0 && <nav aria-label="Catégories" className="scroll-x !gap-2">{[["", "Tous"], ...categories.map((c) => [c, c])].map(([k, l]) => { const on = cat === k; const n = k ? catCount.get(k) ?? 0 : catCount.get("") ?? 0; return <button key={k || "_all"} type="button" aria-current={on} onClick={() => setCat(on && k ? "" : k!)} className={`shrink-0 rounded-xl border px-4 min-h-12 flex flex-col items-center justify-center leading-tight text-sm font-semibold transition ${on ? "bg-accent text-accent-ink border-accent shadow-[var(--shadow-card)]" : "bg-surface border-line text-main hover:bg-subtle"}`}><span>{l}</span><span className={`text-xs font-normal ${on ? "opacity-90" : "text-soft"}`}>({n})</span></button>; })}</nav>}
       {products.isLoading && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-24 animate-pulse bg-subtle" />)}</div>}
       {products.error && <p className="text-bad text-sm" role="alert">Impossible de charger le catalogue : {(products.error as Error).message} <button className="underline" onClick={() => void products.refetch()}>Réessayer</button></p>}
       <div className={`grid gap-2 ${dens.density === "compact" ? "grid-cols-3 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"}`}>
         {shown.map((p) => {
           const n = qtyOf(stock.data, p); const tracked = !p.hasVariants && !isVirtualBundle(p); const out = tracked && n <= 0;
           return (
-            <button key={p.$id} disabled={out} onClick={() => add(p as Product & { $id: string })} className="card d3-tile text-left flex gap-2 items-start disabled:opacity-40">
-              <Thumb id={p.imageFileId} size={48} className="shrink-0" />
-              <span className="min-w-0 flex-1"><span className="flex items-start justify-between gap-1 font-medium leading-tight"><span>{p.name}</span>{pro && <FavStar on={favs.ids.includes(p.$id)} name={p.name} onClick={() => favs.toggle(p.$id)} />}</span>
-              <span className="block text-accent-text">{p.hasVariants ? `dès ${formatFcfa(Math.min(...(variantsOf(p.$id).length ? variantsOf(p.$id).map((v) => v.price) : [p.price])))}` : formatFcfa(p.price)}</span>{p.hasVariants && <span className="block text-xs text-muted">Choisir une variante</span>}
-              <span className={`block text-xs ${out ? "text-bad" : n <= (p.minStock ?? 0) ? "text-warn" : "text-muted"}`}>{out ? "Rupture" : `Stock ${formatQty(n)}${(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}`}</span></span>
+            <button key={p.$id} disabled={out} onClick={() => add(p as Product & { $id: string })} className={`card d3-tile text-left flex disabled:opacity-40 ${dens.density === "compact" ? "gap-2 items-start" : "flex-col gap-2 !p-3"}`}>
+              {dens.density === "compact" ? <Thumb id={p.imageFileId} size={48} className="shrink-0" /> : <span className="flex justify-center rounded-lg bg-subtle py-2"><Thumb id={p.imageFileId} size={88} /></span>}
+              <span className="min-w-0 flex-1 w-full"><span className="flex items-start justify-between gap-1 font-semibold leading-tight"><span>{p.name}</span>{pro && <FavStar on={favs.ids.includes(p.$id)} name={p.name} onClick={() => favs.toggle(p.$id)} />}</span>
+              <span className="block font-bold text-brand mt-1">{p.hasVariants ? `dès ${formatFcfa(Math.min(...(variantsOf(p.$id).length ? variantsOf(p.$id).map((v) => v.price) : [p.price])))}` : formatFcfa(p.price)}</span>{p.hasVariants && <span className="block text-xs text-muted">Choisir une variante</span>}
+              <span className={`inline-block mt-1 rounded-full px-2 py-0.5 text-xs font-semibold ${!tracked ? "bg-subtle text-soft" : out ? "bg-bad-bg text-bad" : n <= (p.minStock ?? 0) ? "bg-warn-bg text-warn" : "bg-ok-bg text-ok"}`}>{!tracked ? (p.hasVariants ? "Variantes" : "Pack") : out ? "Rupture" : `Stock : ${formatQty(n)}${(p.unit ?? "piece") !== "piece" ? ` ${unitLabel(p.unit).toLowerCase()}` : ""}`}</span></span>
+              {dens.density !== "compact" && !out && <span aria-hidden="true" className="self-end -mt-8 size-8 rounded-lg bg-accent text-accent-ink flex items-center justify-center"><Plus size={18} /></span>}
             </button>
           );
         })}
         {!products.isLoading && shown.length === 0 && <p className="col-span-2 text-muted text-center py-6">{(products.data ?? []).length ? "Aucun article ne correspond à la recherche." : "Aucun produit. Ajoutez-en dans Stock."}</p>}
       </div>
+      <nav aria-label="Actions de caisse" className="card !p-2 flex gap-2 overflow-x-auto lg:overflow-visible lg:flex-wrap lg:sticky lg:bottom-0 z-10">
+        {([
+          { k: "client", l: "Client", key: "F3", i: UserRound, on: () => act.client(), dis: !cart.length, why: "Ajoutez d'abord un article" },
+          ...(manager || pro ? [{ k: "disc", l: "Remise", key: "F6", i: Percent, on: () => act.discount(), dis: !cart.length, why: "Panier vide" }] : []),
+          ...(pro ? [{ k: "voucher", l: "Avoir", key: "F7", i: TicketPercent, on: () => act.voucher(), dis: !cart.length, why: "Panier vide" }] : []),
+          ...(smart ? [{ k: "ret", l: "Retour", key: "F9", i: Undo2, on: () => act.returns(), dis: false, why: "" }] : []),
+          { k: "hold", l: "Mettre en attente", key: "", i: PauseCircle, on: () => act.hold(), dis: !cart.length, why: "Panier vide" },
+          { k: "resume", l: `Reprendre${held.length ? ` (${held.length})` : ""}`, key: "", i: PlayCircle, on: () => setResume(true), dis: !held.length, why: "Aucun panier en attente" },
+        ] as const).map((b) => { const I = b.i; return <button key={b.k} type="button" className="btn-ghost shrink-0 !min-h-12 !px-3 inline-flex items-center gap-2 text-sm disabled:opacity-40" disabled={b.dis} title={b.dis ? b.why : undefined} onClick={b.on}><I size={18} aria-hidden="true" /><span>{b.l}</span>{b.key && <kbd className="text-[0.6875rem] text-soft font-sans">{b.key}</kbd>}</button>; })}
+        {smart && <Link to="/caisse" className="btn-ghost shrink-0 !min-h-12 !px-3 inline-flex items-center gap-2 text-sm ml-auto bg-[var(--tint-violet-bg)] !border-transparent text-[var(--tint-violet)] font-semibold"><CalendarCheck size={18} aria-hidden="true" />Fin de journée</Link>}
+      </nav>
       </div>
       <div ref={panelRef} id="panier" className="flex flex-col gap-3 min-w-0 scroll-mt-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto" aria-label="Panier">
       {cart.length === 0 && <div className="hidden lg:block card text-center text-muted py-8">Panier vide : touchez un article pour l'ajouter.</div>}
       {cart.length > 0 && (
-        <section className="card d3-flip-in flex flex-col gap-2">
-          <div className="flex items-baseline justify-between"><span className="text-muted">Total</span><b className="text-2xl tabular-nums" aria-live="polite">{formatFcfa(total)}</b></div>
+        <section className="card d3-flip-in flex flex-col gap-2 !p-0 overflow-hidden" aria-label="Panier de vente">
+          <div className="flex items-center gap-2 px-4 py-3 bg-[var(--nav-bg)] text-[var(--nav-text)]"><h2 className="font-bold flex-1">Panier de vente <span className="font-normal text-[var(--nav-muted)]">({cart.length} article{cart.length > 1 ? "s" : ""})</span></h2><button type="button" className="icon-btn !min-h-9 !min-w-9 rounded-lg hover:bg-[var(--nav-hover)]" aria-label="Vider le panier (F8)" title="Vider le panier (F8)" onClick={() => setAskClear(true)}><Trash2 size={18} /></button></div>
+          <div className="px-4 pb-4 flex flex-col gap-2">
           {priced.map((l, i) => (
-            <div key={l.key} className="d3-line-in flex items-center justify-between gap-2">
-              <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-muted">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-muted">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-ok">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-ok">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-ok">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
+            <div key={l.key} className="d3-line-in flex flex-wrap items-center justify-end gap-2 border-b border-line pb-2 last:border-0"><Thumb id={products.data?.find((x) => x.$id === l.productId)?.imageFileId} size={40} className="shrink-0" />
+              <span className="flex-1 min-w-[11rem]"><span className="block font-semibold leading-tight">{l.name}</span><span className="text-xs text-muted">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-muted">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-ok">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-ok">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-ok">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
               {l.serials ? <><span className="text-xs text-muted max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost icon-btn" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
-              <button className="btn-ghost icon-btn" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
+              <span className="flex items-center gap-1 shrink-0"><button className="btn-ghost icon-btn" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
-              <button className="btn-ghost icon-btn" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{(manager || pro) && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</>}
+              <button className="btn-ghost icon-btn" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{(manager || pro) && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</span></>}
             </div>
           ))}
           {promoOn && <>
@@ -211,8 +241,10 @@ export function PosPage() {
           {pro && <SimPanel sim={simD} manager={manager} approvals={approvals} pending={asked} onRequest={(k) => void requestApproval(k)} busy={askBusy} />}
           <CustomerPick customers={customers.data ?? []} value={customerId} onChange={(id) => { setCustomerId(id); setMsg(""); }} q={custQ} setQ={setCustQ} loading={customers.isLoading} />
           <PayPanel total={total} lines={payLines} onChange={(l) => { setPayLines(l); setMsg(""); }} voucherOk={pro} onCheckVoucher={(code) => api<{ balance: number; usable: boolean; reason: string }>(s, "voucher.check", { code, customerId: customerId || undefined }).then((v) => (v.usable ? `Bon valable : solde ${formatFcfa(v.balance)}` : `Bon inutilisable : ${v.reason}`)).catch((e: Error) => e.message)} hasCustomer={!!customer} credit={customer ? { balance: customer.creditBalance ?? 0, limit: customer.creditLimit ?? 0 } : undefined} qrConfigured={qrConfigured} onQr={(id) => (navigator.onLine ? setQrLine(id) : setMsg("Le QR nécessite une connexion"))} disabled={busy} />
-          <button className="btn text-lg disabled:opacity-40" disabled={waiting || busy || !payState.ok || needSession || blockedSim} onClick={checkout}>{waiting ? "Calcul des remises…" : `Encaisser ${formatFcfa(total)}`}</button>
+          <div className="rounded-xl bg-[var(--gold-soft)] border border-[color-mix(in_srgb,var(--gold)_45%,transparent)] px-3 py-2.5 flex flex-col gap-0.5">{pv && pv.discountTotal > 0 && <span className="flex justify-between text-sm text-soft"><span>Sous-total</span><span className="tabular-nums">{formatFcfa(total + pv.discountTotal)}</span></span>}{pv && pv.discountTotal > 0 && <span className="flex justify-between text-sm text-ok"><span>Remises</span><span className="tabular-nums">−{formatFcfa(pv.discountTotal)}</span></span>}<span className="flex items-baseline justify-between"><b className="text-brand">Total à payer</b><b className="text-2xl tabular-nums text-brand" aria-live="polite">{formatFcfa(total)}</b></span></div>
+          <button className="btn-gold text-lg min-h-14 disabled:opacity-40" disabled={waiting || busy || !payState.ok || needSession || blockedSim} onClick={checkout}>{waiting ? "Calcul des remises…" : `Encaisser ${formatFcfa(total)}`}<span className="text-xs font-semibold opacity-75">F4</span></button>
           {needSession && <p className="text-xs text-warn text-center">Caisse fermée : <Link to="/caisse" className="underline">ouvrir la caisse</Link> pour vendre.</p>}
+          </div>
         </section>
       )}
       {msg && <p className="text-center text-warn">{msg}</p>}
@@ -230,6 +262,13 @@ export function PosPage() {
       {pickVar && <VariantDialog p={pickVar} variants={variantsOf(pickVar.$id)} levels={stock.data} onClose={() => setPickVar(null)} onPick={(v) => { const p = pickVar; setPickVar(null); add(p, v); }} />}
       {pick && <QtyDialog p={pick.p} v={pick.v} units={unitsOf(pick.p.$id)} onClose={() => setPick(null)} onAdd={(q, unit) => { addLine(pick.p, q, unit, pick.v); setPick(null); }} />}
       {scan && <Scanner onCode={byCode} onClose={() => setScan(false)} />}
+      {askClear && <Confirm text="Vider le panier ? Les articles, le client et les paiements saisis seront retirés." confirmLabel="Vider" danger onYes={() => { clearCart(); setAskClear(false); }} onNo={() => setAskClear(false)} />}
+      {resume && <Sheet title="Paniers en attente" size="panel" onClose={() => setResume(false)}>
+        <p className="text-xs text-soft">Conservés sur cet appareil uniquement ({held.length}/{MAX_HELD}). Le stock n'est pas réservé ; prix et promotions sont recalculés à la reprise.</p>
+        {!held.length && <p className="text-sm text-muted">Aucun panier en attente.</p>}
+        {held.map((h) => <div key={h.id} className="card flex items-center gap-3"><ShoppingBag size={20} className="text-accent shrink-0" aria-hidden="true" /><div className="min-w-0 flex-1"><b className="block truncate">{h.label}</b><span className="text-xs text-muted">{h.lines.length} ligne(s) · mis en attente le {new Date(h.at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span></div>
+          <button type="button" className="btn !min-h-10 !py-1.5 text-sm" onClick={() => act.resume(h)}>Reprendre</button><button type="button" className="btn-ghost icon-btn !min-h-10 text-bad" aria-label={`Supprimer le panier ${h.label}`} onClick={() => setHeld(removeHeld<PosLine>(s.shopId, h.id))}><Trash2 size={16} /></button></div>)}
+      </Sheet>}
     </div>
   );
 }
@@ -277,7 +316,7 @@ function CustomerPick({ customers, value, onChange, q, setQ, loading }: { custom
   return (
     <div className="flex flex-col gap-1">
       {cur ? <div className="card !py-2 flex items-center justify-between text-sm"><span>Client : <b>{cur.name}</b>{cur.phone ? <span className="text-muted"> · {cur.phone}</span> : null}{(cur.creditBalance ?? 0) > 0 ? <span className="text-warn block text-xs">Dette actuelle {formatFcfa(cur.creditBalance ?? 0)}</span> : null}</span><button className="btn-ghost !py-1 !px-2 text-xs" onClick={() => { onChange(""); setQ(""); }}>Retirer</button></div>
-        : <input className="input" aria-label="Rechercher un client" placeholder={loading ? "Chargement des clients…" : "Client comptoir — rechercher un client (nom, téléphone)"} value={q} onChange={(e) => setQ(e.target.value)} />}
+        : <input id="pos-client" className="input" aria-label="Rechercher un client" placeholder={loading ? "Chargement des clients…" : "Client comptoir — rechercher un client (nom, téléphone)"} value={q} onChange={(e) => setQ(e.target.value)} />}
       {!cur && hits.map((c) => <button key={c.$id} className="btn-ghost !py-2 text-left text-sm flex justify-between" onClick={() => { onChange(c.$id); setQ(""); }}><span>{c.name}</span><span className="text-muted text-xs">{c.phone ?? ""}</span></button>)}
       {!cur && q.trim() && !hits.length && <p className="text-xs text-muted">Aucun client trouvé.</p>}
     </div>

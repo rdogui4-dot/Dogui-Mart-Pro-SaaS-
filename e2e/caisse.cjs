@@ -73,9 +73,11 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   }
 
   await step("raccourci F8 : demande une confirmation avant de vider le panier", async () => {
-    await open(1280, 800); await add("Riz parfumé"); let asked = false; page.once("dialog", async (d) => { asked = true; await d.dismiss(); });
-    await page.keyboard.press("F8"); await page.waitForTimeout(400); if (!asked) throw new Error("aucune confirmation");
-    if (!(await txt()).includes("Riz parfumé")) throw new Error("panier vidé malgré le refus");
+    await open(1280, 800); await add("Riz parfumé");
+    await page.keyboard.press("F8"); const dlg = page.getByRole("alertdialog"); await dlg.waitFor({ timeout: 3000 }).catch(() => { throw new Error("aucune confirmation"); });
+    await dlg.getByRole("button", { name: "Annuler" }).click(); if (!(await page.getByRole("region", { name: "Panier de vente" }).count())) throw new Error("panier vidé malgré le refus");
+    await page.keyboard.press("F8"); await page.getByRole("alertdialog").getByRole("button", { name: "Vider" }).click(); await page.waitForTimeout(300);
+    if (await page.getByRole("region", { name: "Panier de vente" }).count()) throw new Error("panier non vidé après confirmation");
   });
 
   await step("hors ligne : vente mise en file puis synchronisée au retour du réseau", async () => {
