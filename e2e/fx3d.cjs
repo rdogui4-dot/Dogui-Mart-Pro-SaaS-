@@ -55,6 +55,25 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if ((await stock.getAttribute("aria-expanded")) !== "true" || !(await page.getByRole("link", { name: /Articles/ }).count())) throw new Error("non déplié");
     await page.screenshot({ path: path.join(OUT, "fx-plus-390.png") }); await vendre.click(); await page.waitForTimeout(300); if ((await vendre.getAttribute("aria-expanded")) !== "false") throw new Error("non replié");
   });
+  await step("caisse HD : tuiles en relief, ligne de panier qui arrive en profondeur, confirmation retournée après la vente ; aucune transformation résiduelle", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("pos")); await page.waitForSelector("text=Riz", { timeout: 15000 }); await page.waitForTimeout(800);
+    const tile = page.locator("button.d3-tile", { hasText: "Riz" }).first(); if (!(await tile.count())) throw new Error("tuile sans relief");
+    await tile.click(); await page.waitForTimeout(30); const line = await page.evaluate(() => document.querySelector("#panier .d3-line-in")?.getAnimations().map((a) => a.animationName).join(",")); if (!/d3-line-in/.test(line || "")) throw new Error("ligne sans animation : " + line);
+    await page.waitForTimeout(400); const tr = await page.evaluate(() => getComputedStyle(document.querySelector("#panier section")).transform); if (tr !== "none") throw new Error("transform résiduel sur le panier : " + tr);
+    await page.getByPlaceholder(/montant reçu/i).first().fill("5000"); await page.getByRole("button", { name: /Encaisser/ }).click();
+    const dlg = await page.getByRole("alertdialog").boundingBox(); if (!dlg || dlg.y < 0 || dlg.y + dlg.height > 900) throw new Error("boîte de confirmation mal placée : " + JSON.stringify(dlg));
+    await page.getByRole("button", { name: "Valider la vente" }).click(); await page.waitForTimeout(60);
+    const conf = await page.evaluate(() => [...document.querySelectorAll(".d3-flip-in")].flatMap((e) => e.getAnimations().map((a) => a.animationName)).join(",")); if (!/d3-flip-in/.test(conf)) throw new Error("confirmation sans retournement : " + conf);
+    await page.waitForTimeout(700); if (!/Vente/.test(await page.locator("[data-sync]").innerText())) throw new Error("message de vente absent");
+    await page.screenshot({ path: path.join(OUT, "fx-caisse-1280.png") });
+  });
+  await step("caisse HD (processeur ×4) : ajout au panier — INP ≤ 200 ms, CLS ≤ 0,1", async () => {
+    const cdp = await page.context().newCDPSession(page); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 }); await page.setViewportSize({ width: 390, height: 800 });
+    await page.addInitScript(() => { window.__cls2 = 0; window.__inp2 = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls2 += e.value; }).observe({ type: "layout-shift", buffered: true }); new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__inp2 = Math.max(window.__inp2, e.duration); }).observe({ type: "event", buffered: true, durationThreshold: 16 }); });
+    await page.goto(h.url("pos")); await page.waitForSelector("text=Riz", { timeout: 20000 }); await page.waitForTimeout(2500); await page.locator("button.d3-tile", { hasText: "Riz" }).first().click(); await page.waitForTimeout(800);
+    const m = await page.evaluate(() => ({ cls: Number(window.__cls2.toFixed(3)), inp: Math.round(window.__inp2) })); console.log("     mesures caisse", JSON.stringify(m)); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }); if (m.cls > 0.1 || m.inp > 200) throw new Error(JSON.stringify(m));
+    await page.screenshot({ path: path.join(OUT, "fx-caisse-390.png") });
+  });
   await step("mesures (processeur ×4) : tableau de bord 3D — CLS ≤ 0,1, INP ≤ 200 ms (retournement d'une carte)", async () => {
     const cdp = await page.context().newCDPSession(page); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 }); await page.setViewportSize({ width: 1280, height: 900 });
     await page.addInitScript(() => { window.__cls = 0; window.__inp = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__inp = Math.max(window.__inp, e.duration); }).observe({ type: "event", buffered: true, durationThreshold: 16 }); });

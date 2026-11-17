@@ -113,3 +113,15 @@ aside[aria-label="Espaces"] :focus-visible { outline-color: #ffffff; } /* anneau
 [data-fx3d="full"] .d3-unfold-x, [data-fx3d="lite"] .d3-unfold-x { animation: d3-unfold-x var(--d3-dur) var(--ease-out) backwards; }
 [data-fx3d="full"] .d3-unfold-y, [data-fx3d="lite"] .d3-unfold-y { animation: d3-unfold-y var(--d3-dur) var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 30ms); }
 [data-fx3d="full"] .d3-rail-w, [data-fx3d="lite"] .d3-rail-w { transition: width var(--d3-dur) var(--ease-in-out); }
+/* Caisse HD (3D-3) : retour tactile immédiat (≤ 160 ms), sans transform permanent sur les tuiles (catalogues longs). */
+.d3-tile { box-shadow: var(--d3-shadow); transition: transform 100ms var(--ease-out), box-shadow 160ms var(--ease-out); }
+.d3-tile:active:not(:disabled) { transform: translateY(1px) scale(.97); box-shadow: 0 1px 2px rgba(16,36,58,.08); }
+[data-fx3d="full"] .d3-tile:hover:not(:disabled) { transform: translateY(-3px); box-shadow: var(--d3-shadow-hi); }
+[data-fx3d="full"] .d3-tile:active:not(:disabled) { transform: translateY(1px) scale(.97); }
+[data-fx3d="flat"] .d3-tile, [data-fx3d="flat"] .d3-tile:hover, [data-fx3d="flat"] .d3-tile:active { transform: none; }
+@keyframes d3-line-in { from { opacity: 0; transform: perspective(600px) translateZ(-60px) rotateX(-25deg); } to { opacity: 1; transform: none; } }
+@keyframes d3-flip-in { from { opacity: 0; transform: perspective(800px) rotateY(-80deg); } to { opacity: 1; transform: none; } }
+[data-fx3d="full"] .d3-line-in, [data-fx3d="lite"] .d3-line-in { animation: d3-line-in 160ms var(--ease-out) backwards; transform-origin: top center; }
+[data-fx3d="full"] .d3-flip-in, [data-fx3d="lite"] .d3-flip-in { animation: d3-flip-in 280ms var(--ease-out) backwards; transform-origin: left center; }
+[data-fx3d="full"] .d3-lift { transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out); }
+[data-fx3d="full"] .d3-lift:hover { transform: translateY(-2px); box-shadow: var(--d3-shadow); }

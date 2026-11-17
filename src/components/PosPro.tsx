@@ -28,9 +28,9 @@ export function SuggestStrip({ data, onAdd, hasCart }: { data?: Suggest; onAdd: 
   if (!data) return null;
   if (!data.items.length) return hasCart ? <p className="text-xs text-muted" role="status">{data.note}</p> : null;
   return (
-    <section aria-label="Suggestions" className="flex flex-col gap-1">
+    <section aria-label="Suggestions" className="flex flex-col gap-1 rounded-xl border border-accent/25 bg-accent-soft/40 px-3 py-2">
       <p className="text-xs text-muted flex items-center gap-1"><Sparkles size={12} />{hasCart ? "Souvent acheté avec ce panier" : "Plus vendus ces 30 jours"} <span className="text-muted">· d'après {data.basedOn.sales} ventes ({data.basedOn.days} j)</span></p>
-      <div className="scroll-x">{data.items.map((i) => <button key={i.productId} className="chip" title={i.reason} onClick={() => onAdd(i.productId)}>＋ {i.name} · {formatFcfa(i.price)}</button>)}</div>
+      <div className="scroll-x">{data.items.map((i) => <button key={i.productId} className="chip d3-lift" title={i.reason} onClick={() => onAdd(i.productId)}>＋ {i.name} · {formatFcfa(i.price)}</button>)}</div>
       {data.items[0] && <p className="text-xs text-muted">{data.items[0].reason} — indicatif, pas une certitude.</p>}
     </section>
   );

@@ -4,7 +4,7 @@ import { useArticleImage } from "@/lib/articles";
 
 export function Thumb({ id, size = 64, className = "" }: { id?: string; size?: number; className?: string }) {
   const url = useArticleImage(id, size >= 120 ? 400 : 160);
-  return url ? <img src={url} alt="" className={`object-cover rounded-lg ${className}`} style={{ width: size, height: size }} /> : <div className={`rounded-lg bg-subtle flex items-center justify-center text-muted ${className}`} style={{ width: size, height: size }}><ImageIcon size={size / 3} /></div>;
+  return url ? <img src={url} alt="" width={size} height={size} loading="lazy" decoding="async" className={`object-cover rounded-lg ${className}`} style={{ width: size, height: size }} /> : <div className={`rounded-lg bg-subtle flex items-center justify-center text-muted ${className}`} style={{ width: size, height: size }}><ImageIcon size={size / 3} /></div>;
 }
 
 /** size : « md » (28 rem, défaut), « lg » (44 rem, formulaires à deux colonnes sur grand écran), « panel » (volet latéral ancré à droite sur grand écran, plein écran sur téléphone),

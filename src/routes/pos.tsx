@@ -1,7 +1,7 @@
 import { CaisseTabs } from "@/components/CaisseTabs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScanLine, Minus, Plus, Search, X } from "lucide-react";
 import { cartTotal, formatFcfa, type CartLine } from "@/domain/money";
 import { evaluatePay, METHOD_LABEL, type PayLine } from "@/domain/pay";
@@ -119,7 +119,7 @@ export function PosPage() {
   const proOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotionsPro"); const pro = planAllows(useSubscription().data?.entitlement.plan.id, "smartPosPro");
   const [approvals, setApprovals] = useState<Partial<Record<ApprovalKind, string>>>({}); const [asked, setAsked] = useState<Partial<Record<ApprovalKind, string>>>({}); const [askBusy, setAskBusy] = useState(false);
   const cartSig = JSON.stringify(apiLines) + customerId + coupon; useEffect(() => { setApprovals({}); setAsked({}); }, [cartSig]); // une approbation ne vaut que pour CE panier
-  const sugg = useQuery({ queryKey: ["pos-suggest", s.shopId, [...new Set(cart.map((l) => l.productId))].sort().join(","), customerId], enabled: pro && navigator.onLine, staleTime: 60_000, retry: 0, queryFn: () => api<Suggest>(s, "pos.suggest", { productIds: [...new Set(cart.map((l) => l.productId))], customerId: customerId || undefined }) });
+  const sugg = useQuery({ queryKey: ["pos-suggest", s.shopId, [...new Set(cart.map((l) => l.productId))].sort().join(","), customerId], enabled: pro && navigator.onLine, staleTime: 60_000, retry: 0, placeholderData: keepPreviousData, queryFn: () => api<Suggest>(s, "pos.suggest", { productIds: [...new Set(cart.map((l) => l.productId))], customerId: customerId || undefined }) });
   const sim = useQuery({ queryKey: ["pos-sim", s.shopId, cartSig], enabled: pro && cart.length > 0 && navigator.onLine, retry: 0, staleTime: 0, queryFn: () => api<Sim>(s, "pos.simulate", { lines: apiLines, customerId: customerId || undefined, ...(coupon ? { couponCode: coupon } : {}) }) });
   const simD = sim.data && !sim.isFetching ? sim.data : undefined; const blockedSim = pro && !!simD && (!simD.ok || ((simD.needsApproval.margin && !approvals.margin) || (simD.needsApproval.discount && !approvals.discount)));
   const pendingIds = Object.values(asked).filter(Boolean); const apprQ = useQuery({ queryKey: ["pos-approvals", s.shopId, pendingIds.join(",")], enabled: pendingIds.length > 0, refetchInterval: 4000, queryFn: () => api<{ approvals: { id: string; status: string }[] }>(s, "approval.list", {}) });
@@ -175,7 +175,7 @@ export function PosPage() {
         {shown.map((p) => {
           const n = qtyOf(stock.data, p); const tracked = !p.hasVariants && !isVirtualBundle(p); const out = tracked && n <= 0;
           return (
-            <button key={p.$id} disabled={out} onClick={() => add(p as Product & { $id: string })} className="card text-left flex gap-2 items-start disabled:opacity-40">
+            <button key={p.$id} disabled={out} onClick={() => add(p as Product & { $id: string })} className="card d3-tile text-left flex gap-2 items-start disabled:opacity-40">
               <Thumb id={p.imageFileId} size={48} className="shrink-0" />
               <span className="min-w-0 flex-1"><span className="flex items-start justify-between gap-1 font-medium leading-tight"><span>{p.name}</span>{pro && <FavStar on={favs.ids.includes(p.$id)} name={p.name} onClick={() => favs.toggle(p.$id)} />}</span>
               <span className="block text-accent-text">{p.hasVariants ? `dès ${formatFcfa(Math.min(...(variantsOf(p.$id).length ? variantsOf(p.$id).map((v) => v.price) : [p.price])))}` : formatFcfa(p.price)}</span>{p.hasVariants && <span className="block text-xs text-muted">Choisir une variante</span>}
@@ -189,10 +189,10 @@ export function PosPage() {
       <div ref={panelRef} id="panier" className="flex flex-col gap-3 min-w-0 scroll-mt-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto" aria-label="Panier">
       {cart.length === 0 && <div className="hidden lg:block card text-center text-muted py-8">Panier vide : touchez un article pour l'ajouter.</div>}
       {cart.length > 0 && (
-        <section className="card flex flex-col gap-2">
+        <section className="card d3-flip-in flex flex-col gap-2">
           <div className="flex items-baseline justify-between"><span className="text-muted">Total</span><b className="text-2xl tabular-nums" aria-live="polite">{formatFcfa(total)}</b></div>
           {priced.map((l, i) => (
-            <div key={l.key} className="flex items-center justify-between gap-2">
+            <div key={l.key} className="d3-line-in flex items-center justify-between gap-2">
               <span className="flex-1 min-w-0"><span className="block truncate">{l.name}</span><span className="text-xs text-muted">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-muted">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-ok">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-ok">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-ok">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
               {l.serials ? <><span className="text-xs text-muted max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost icon-btn" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
               <button className="btn-ghost icon-btn" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
@@ -215,8 +215,8 @@ export function PosPage() {
         </section>
       )}
       {msg && <p className="text-center text-warn">{msg}</p>}
-      {lastId && cart.length === 0 && <p className={`text-center text-sm ${lastSync?.status === "synced" ? "text-ok" : lastSync?.status === "rejected" ? "text-bad" : "text-warn"}`} role="status" data-sync={lastSync?.status ?? "pending"}>{lastSync?.status === "synced" ? `✓ Vente confirmée par le serveur${lastSync.number ? ` (n° ${lastSync.number})` : ""}` : lastSync?.status === "rejected" ? `✗ Vente refusée par le serveur : ${lastSync.error} — voir les ventes en attente` : navigator.onLine ? "⏳ En attente de synchronisation : le serveur n'a pas encore confirmé cette vente" : "⏳ Hors ligne — vente conservée sur cet appareil, en attente de synchronisation"}</p>}
-      {last && cart.length === 0 && <div className="grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, lastName, { verifyCode: lastSync?.status === "synced" ? lastSync.verifyCode : undefined, pending: lastSync?.status !== "synced" }), w).then((b) => deliverPdf(b, `${last.number}-${w}mm.pdf`))}>Ticket {w} mm</button>)}</div>}
+      {lastId && cart.length === 0 && <p key={lastId} className={`d3-flip-in card !py-3 text-center text-sm ${lastSync?.status === "synced" ? "text-ok" : lastSync?.status === "rejected" ? "text-bad" : "text-warn"}`} role="status" data-sync={lastSync?.status ?? "pending"}>{lastSync?.status === "synced" ? `✓ Vente confirmée par le serveur${lastSync.number ? ` (n° ${lastSync.number})` : ""}` : lastSync?.status === "rejected" ? `✗ Vente refusée par le serveur : ${lastSync.error} — voir les ventes en attente` : navigator.onLine ? "⏳ En attente de synchronisation : le serveur n'a pas encore confirmé cette vente" : "⏳ Hors ligne — vente conservée sur cet appareil, en attente de synchronisation"}</p>}
+      {last && cart.length === 0 && <div key={last.number} className="d3-flip-in grid grid-cols-2 gap-2">{([80, 58] as const).map((w) => <button key={w} className="btn-ghost text-sm" onClick={() => void pdfBlob(receiptModel(last, shop.data ?? null, lastName, { verifyCode: lastSync?.status === "synced" ? lastSync.verifyCode : undefined, pending: lastSync?.status !== "synced" }), w).then((b) => deliverPdf(b, `${last.number}-${w}mm.pdf`))}>Ticket {w} mm</button>)}</div>}
       </div>
       </div>
       {cart.length > 0 && !panelSeen && (

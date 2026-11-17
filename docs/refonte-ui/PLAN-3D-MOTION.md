@@ -54,3 +54,11 @@ Donner à toute l'application une **profondeur 3D cohérente et fonctionnelle** 
 - Téléphone : page « Plus » en accordéon par espace (icône, libellé, résumé, flèche), contenu qui se déplie depuis le haut ; `aria-expanded` et `aria-controls`, utilisable au clavier ; « Vendre » ouvert par défaut.
 - Mouvement réduit ou 3D désactivée : pliage et dépliage sans animation.
 - Scénario `fx3d.cjs` : 10 vérifications (dont 2 nouvelles pour le menu) ; j5 et shell inchangés et verts.
+
+## 9. Réalisé — lot 3D-3 (caisse HD), 17/11/2026
+- Tuiles d'articles en relief : enfoncement à l'appui (100 ms), soulèvement au survol sur ordinateur ; aucun transform permanent (catalogues longs).
+- Panier : chaque nouvelle ligne arrive en profondeur (160 ms) ; le panneau de paiement entre en se retournant ; confirmation de vente et boutons de ticket qui se retournent à l'enregistrement.
+- Suggestions intelligentes existantes (historique réel de la boutique) mises en avant dans un bandeau en relief ; elles restent affichées pendant leur rechargement.
+- Vignettes nettes : chargement différé, décodage asynchrone, dimensions fixes.
+- **Défaut corrigé** : le bandeau de suggestions disparaissait et réapparaissait à chaque ajout au panier, décalant la grille (CLS 0,077 sur téléphone) → 0,009.
+- Scénarios : `fx3d.cjs` 12 vérifications (dont caisse HD, boîte de confirmation bien placée, aucun transform résiduel, INP 72–120 ms au processeur ×4) ; `caisse.cjs` 10/10 inchangé.
