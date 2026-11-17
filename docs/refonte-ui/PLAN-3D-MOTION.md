@@ -75,3 +75,29 @@ Donner à toute l'application une **profondeur 3D cohérente et fonctionnelle** 
 - Confirmation « ✓ Enregistré » en relief (fond vert, ombre), affichée seulement après la réponse du serveur ; aucun transform résiduel.
 - Bouton « Enregistrer » de la fiche boutique à largeur naturelle sur ordinateur.
 - Scénarios : `fx3d.cjs` 14 vérifications ; `settings.cjs` inchangé et vert.
+
+## 12. Recette 3D (lot 3D-6), 17/11/2026
+Scénario `e2e/recette3d.cjs` (10 vérifications, toutes réussies) et `e2e/fx3d.cjs` (14 vérifications).
+
+| Contrôle | Résultat |
+| --- | --- |
+| Appareil modeste (2 cœurs) | affichage plat automatique, graphique 2D, three.js jamais téléchargé |
+| Sans WebGL | graphique 2D de repli, cartes en relief conservées |
+| Libération du graphique WebGL en quittant le tableau de bord | aucun canvas restant |
+| Mouvement réduit sur tout le parcours (tableau de bord, caisse, réglages, articles, page Plus) | aucune animation en cours |
+| Clavier sur les cartes retournables | retournement et retour à Entrée, contour de focus visible |
+| three.js hors du tableau de bord | jamais chargé (130 Ko compressés, à la demande) |
+
+### Mesures sous contrainte (processeur ×4, réseau lent 150 ms / 1,6 Mbit/s)
+| Écran | LCP | CLS | INP (interaction) |
+| --- | --- | --- | --- |
+| Tableau de bord 3D (ordinateur) | 576 ms | 0 | 48 ms (retournement d'une carte) |
+| Tableau de bord (téléphone, 3D allégée) | 596 ms | 0,007 | 40 ms (retournement) |
+| Caisse (téléphone) | 764 ms | 0,022 | 88 ms (ajout au panier) |
+| Articles (ordinateur) | 596 ms | 0,049 | 168 ms (ouverture d'une fiche en perspective) |
+| Réglages (téléphone) | 1 008 ms | 0 | 40 ms (changement d'onglet) |
+Cibles : LCP ≤ 2,5 s, CLS ≤ 0,1, INP ≤ 200 ms — atteintes partout. Point le plus proche de la limite : ouverture d'une fiche article (168 ms sous processeur ×4). Limite : site servi en local ; à confirmer sur un téléphone d'entrée de gamme réel.
+
+### Défauts trouvés et corrigés pendant le plan 3D
+- Rechargement des suggestions de caisse qui décalait la grille (CLS 0,077 → 0,009).
+- Bouton « Enregistrer » de la fiche boutique en pleine largeur.
