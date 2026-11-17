@@ -48,3 +48,9 @@ Donner à toute l'application une **profondeur 3D cohérente et fonctionnelle** 
 - Préférence « Effets 3D » dans Réglages › Mon profil (Automatique / Activés / Désactivés), mémorisée sur l'appareil, avec l'état réel affiché.
 - Tableau de bord : cartes KPI en relief, apparition en cascade, inclinaison au pointeur (ordinateur), retournement vers la **définition officielle** fournie par le serveur (`notes`) ; graphique « 7 derniers jours » en **vraie 3D WebGL** (three.js, chargé seulement sur le tableau de bord quand la 3D est active ; rendu à la demande, croissance ≤ 700 ms, parallaxe au pointeur, pause hors écran ; valeurs lisibles en texte sous le graphique ; repli automatique sur le graphique plat).
 - Scénario `e2e/fx3d.cjs` (7 vérifications) : three.js non chargé hors du tableau de bord, 3D complète sur ordinateur, retournement accessible, mouvement réduit plat, préférence, téléphone allégé, mesures (processeur ×4) CLS 0, INP 32–72 ms.
+
+## 8. Réalisé — lot 3D-2 (menu pliable et dépliable), 17/11/2026
+- Ordinateur : la barre latérale se replie (icônes) et se déplie avec une largeur animée et un contenu qui pivote sur une charnière gauche ; animation d'entrée seulement, aucun transform résiduel (vérifié).
+- Téléphone : page « Plus » en accordéon par espace (icône, libellé, résumé, flèche), contenu qui se déplie depuis le haut ; `aria-expanded` et `aria-controls`, utilisable au clavier ; « Vendre » ouvert par défaut.
+- Mouvement réduit ou 3D désactivée : pliage et dépliage sans animation.
+- Scénario `fx3d.cjs` : 10 vérifications (dont 2 nouvelles pour le menu) ; j5 et shell inchangés et verts.
