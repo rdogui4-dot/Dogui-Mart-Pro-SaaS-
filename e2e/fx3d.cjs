@@ -80,7 +80,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.locator("tbody tr").first().click(); await page.waitForTimeout(40); const an = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].flatMap((d) => d.getAnimations().map((a) => a.animationName)).join(","));
     if (!/d3-sheet-(panel|lg|md)/.test(an)) throw new Error("fiche sans entrée 3D : " + an); await page.waitForTimeout(500);
     const tr = await page.evaluate(() => getComputedStyle(document.querySelector('[role="dialog"]')).transform); if (tr !== "none") throw new Error("transform résiduel : " + tr); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
-    await page.locator("header").getByRole("button", { name: "MASTER DOGUI" }).click(); await page.waitForTimeout(40); const am = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].flatMap((d) => d.getAnimations().map((a) => a.animationName)).join(","));
+    await page.getByRole("button", { name: "MASTER DOGUI", exact: true }).first().click(); await page.waitForTimeout(40); const am = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].flatMap((d) => d.getAnimations().map((a) => a.animationName)).join(","));
     if (!/d3-sheet-modal/.test(am)) throw new Error("fenêtre MASTER sans entrée 3D : " + am); await page.waitForTimeout(400); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
     await page.goto(h.url("finance")); await page.waitForTimeout(1000); const tab = await page.locator('[role="tab"][aria-selected="true"]').first().evaluate((e) => getComputedStyle(e).transform); if (tab === "none") throw new Error("onglet actif sans relief");
   });

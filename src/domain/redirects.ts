@@ -23,11 +23,11 @@ export function redirectUrl(plan: PlanId, base?: string, period?: Period): strin
   return `${origin}${REDIRECT_PATH}?onglet=abonnement&formule=${plan}${period ? `&periode=${period}` : ""}`;
 }
 
-export type DeepLink = { tab?: "subscription"; plan?: PlanId; period?: Period };
+export type DeepLink = { tab?: "subscription" | "staff" | "profile"; plan?: PlanId; period?: Period };
 /** Lit les paramètres d'arrivée. Toute valeur inconnue est ignorée (jamais d'erreur, jamais d'action déclenchée). */
 export function parseDeepLink(search: string, planIds: string[]): DeepLink {
   const q = new URLSearchParams(search); const out: DeepLink = {};
-  if (q.get("onglet") === "abonnement") out.tab = "subscription";
+  const o = q.get("onglet"); if (o === "abonnement") out.tab = "subscription"; else if (o === "equipe") out.tab = "staff"; else if (o === "profil") out.tab = "profile";
   const plan = q.get("formule"), period = q.get("periode");
   if (plan && planIds.includes(plan)) out.plan = plan as PlanId;
   if (period && (PERIODS as string[]).includes(period)) out.period = period as Period;

@@ -35,12 +35,12 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     for (const x of ["Ctrl K", "F2", "F4", "F8", "Échap", "WhatsApp", "Version du"]) if (!t.includes(x)) throw new Error("manquant : " + x);
     if (!(await dlg.locator('a[href="https://wa.me/2250544165418"]').count())) throw new Error("lien WhatsApp"); await page.screenshot({ path: path.join(OUT, "sh-aide-1280.png") }); await page.keyboard.press("Escape");
   });
-  await step("barre latérale repliable : icônes seules, mémorisée après rechargement, lien d'espace, puis dépliée", async () => {
+  await step("barre latérale repliable : icônes seules, mémorisée après rechargement, lien de module, puis dépliée", async () => {
     await open("accueil"); await page.getByRole("button", { name: "Replier le menu" }).click(); await page.waitForTimeout(300);
     let wdt = (await page.getByRole("complementary", { name: "Espaces" }).boundingBox()).width; if (wdt > 80) throw new Error("largeur repliée " + wdt);
     await page.reload(); await page.waitForTimeout(1200); wdt = (await page.getByRole("complementary", { name: "Espaces" }).boundingBox()).width; if (wdt > 80) throw new Error("préférence non mémorisée " + wdt);
     await page.screenshot({ path: path.join(OUT, "sh-replie-1280.png") });
-    await page.getByRole("complementary", { name: "Espaces" }).getByRole("link", { name: "Stock" }).click(); await page.waitForURL(/espace\/stock/, { timeout: 5000 });
+    await page.getByRole("complementary", { name: "Espaces" }).getByRole("link", { name: "Stocks & Inventaires" }).click(); await page.waitForURL(/\/stock/, { timeout: 5000 });
     await page.getByRole("button", { name: "Déplier le menu" }).click(); await page.waitForTimeout(300); wdt = (await page.getByRole("complementary", { name: "Espaces" }).boundingBox()).width; if (wdt < 200) throw new Error("non dépliée " + wdt);
   });
   console.log("ERRORS", h.errors.filter((e) => !/WebSocket|Realtime|Failed to load resource/.test(e)), "\nBAD", h.bad); await h.close(); process.exit(0);

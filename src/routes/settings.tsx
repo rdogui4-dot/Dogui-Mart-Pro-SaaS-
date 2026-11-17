@@ -32,7 +32,7 @@ export function SettingsPage() {
   const pay = useQuery({ queryKey: ["pay-settings", s.shopId], enabled: can(s, "settings"), queryFn: () => api<{ wave: boolean; orange: boolean }>(s, "payments.settings.get", {}) });
   // Arrivée depuis Selar (URL de redirection) : on ouvre l'onglet Abonnement sur l'offre indiquée. Lu une seule fois.
   const [deep] = useState(() => parseDeepLink(window.location.search, DEFAULT_PLANS.map((p) => p.id)));
-  const [tab, setTab] = useState<STab>(deep.tab === "subscription" ? "subscription" : can(s, "settings") ? "shop" : "profile");
+  const [tab, setTab] = useState<STab>(deep.tab === "profile" || !can(s, "settings") ? "profile" : deep.tab ?? "shop");
   const sub = useSubscription();
   const me = useQuery({ queryKey: ["platform-me"], queryFn: () => api<{ admin: boolean }>(s, "platform.me", {}), staleTime: 300_000 });
   const [opened, setOpened] = useState(false);

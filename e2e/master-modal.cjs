@@ -9,9 +9,9 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const url = () => new URL(page.url()).pathname;
   const goPos = async (w, hh) => { await page.setViewportSize({ width: w, height: hh }); await page.goto(h.url("pos")); await page.waitForSelector("text=Eau minérale", { timeout: 15000 }); await page.waitForTimeout(600); };
 
-  await step("ordinateur : bouton « MASTER DOGUI » dans la barre supérieure ; fenêtre centrée au-dessus de la caisse, l'adresse ne change pas", async () => {
+  await step("ordinateur : entrée « MASTER DOGUI » de la barre latérale ; fenêtre centrée au-dessus de la caisse, l'adresse ne change pas", async () => {
     await goPos(1280, 800); await page.locator("button", { hasText: "Eau minérale" }).first().click(); await page.waitForTimeout(300);
-    await page.locator("header").getByRole("button", { name: "MASTER DOGUI", exact: true }).click(); await page.waitForSelector('[role="dialog"][aria-label="MASTER DOGUI"]', { timeout: 8000 });
+    await page.getByRole("button", { name: "MASTER DOGUI", exact: true }).first().click(); await page.waitForSelector('[role="dialog"][aria-label="MASTER DOGUI"]', { timeout: 8000 });
     await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)))); // mesure après l'animation d'ouverture (perspective et échelle)
     const d = await page.getByRole("dialog", { name: "MASTER DOGUI" }).boundingBox(); if (!d || Math.abs(d.x + d.width / 2 - 640) > 6 || d.width > 780 || d.width < 700) throw new Error("fenêtre non centrée : " + JSON.stringify(d));
     if (url() !== "/Dogui-Mart-Pro-SaaS-/pos") throw new Error("adresse changée : " + url());
@@ -24,7 +24,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     const f = await page.evaluate(() => document.activeElement?.getAttribute("aria-label")); if (f !== "MASTER DOGUI") throw new Error("focus non restauré : " + f);
   });
   await step("clic sur le fond atténué ferme la fenêtre", async () => {
-    await page.locator("header").getByRole("button", { name: "MASTER DOGUI", exact: true }).click(); await page.waitForSelector('[role="dialog"][aria-label="MASTER DOGUI"]'); await page.mouse.click(30, 400); await page.waitForTimeout(400);
+    await page.getByRole("button", { name: "MASTER DOGUI", exact: true }).first().click(); await page.waitForSelector('[role="dialog"][aria-label="MASTER DOGUI"]'); await page.mouse.click(30, 400); await page.waitForTimeout(400);
     if (await page.getByRole("dialog", { name: "MASTER DOGUI" }).count()) throw new Error("clic extérieur sans effet");
   });
   await step("l'entrée du menu « MASTER DOGUI » ouvre la fenêtre (pas de changement de page)", async () => {
