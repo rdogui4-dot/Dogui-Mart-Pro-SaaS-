@@ -12,6 +12,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("ordinateur : bouton « MASTER DOGUI » dans la barre supérieure ; fenêtre centrée au-dessus de la caisse, l'adresse ne change pas", async () => {
     await goPos(1280, 800); await page.locator("button", { hasText: "Eau minérale" }).first().click(); await page.waitForTimeout(300);
     await page.locator("header").getByRole("button", { name: "MASTER DOGUI", exact: true }).click(); await page.waitForSelector('[role="dialog"][aria-label="MASTER DOGUI"]', { timeout: 8000 });
+    await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)))); // mesure après l'animation d'ouverture (perspective et échelle)
     const d = await page.getByRole("dialog", { name: "MASTER DOGUI" }).boundingBox(); if (!d || Math.abs(d.x + d.width / 2 - 640) > 6 || d.width > 780 || d.width < 700) throw new Error("fenêtre non centrée : " + JSON.stringify(d));
     if (url() !== "/Dogui-Mart-Pro-SaaS-/pos") throw new Error("adresse changée : " + url());
     for (const t of ["Licence", "Rapports", "Profil", "Recommandations", "Assistant"]) if (!(await page.getByRole("tab", { name: t, exact: true }).count())) throw new Error("onglet manquant : " + t);

@@ -159,6 +159,7 @@ export function PosPage() {
       <CaisseTabs current="/pos" />
       <div className={`lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-4 lg:items-start ${cart.length > 0 ? "pb-16 lg:pb-0" : ""}`}>
       <div className="flex flex-col gap-3 min-w-0">
+      {smart && !cashQ.data && cashQ.isLoading && <div className="card !py-2 text-xs invisible" aria-hidden="true">&nbsp;</div> /* place réservée : le bandeau de session arrivait après le catalogue et décalait la page */}
       {smart && cashQ.data && (cashQ.data.session
         ? <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-ok/30"><span className="text-ok">● Caisse ouverte depuis {new Date(cashQ.data.session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span><span className="text-muted">Gérer ›</span></Link>
         : <Link to="/caisse" className="card !py-2 flex items-center justify-between text-xs border border-warn/30"><span className="text-warn">○ Caisse fermée{cashQ.data.required ? " — ouverture obligatoire pour vendre" : ""}</span><span className="text-muted">Ouvrir ›</span></Link>)}
