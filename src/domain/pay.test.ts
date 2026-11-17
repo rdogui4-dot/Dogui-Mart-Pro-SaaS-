@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluatePay, type PayLine } from "./pay";
+import { applyVoucher, evaluatePay, type PayLine } from "./pay";
 
 const L = (method: PayLine["method"], amount: string, reference = "", id = Math.random().toString()): PayLine => ({ id, method, amount, reference });
 describe("encaissement", () => {
@@ -16,5 +16,24 @@ describe("encaissement", () => {
   it("crédit : client obligatoire, plafond respecté, jamais au-delà du total", () => {
     expect(evaluatePay(1000, [L("credit", "1000")], { hasCustomer: false }).errors.join()).toContain("client"); const c = { balance: 9000, limit: 10000 }; expect(evaluatePay(1000, [L("credit", "1000")], { hasCustomer: true, credit: c }).ok).toBe(true); expect(evaluatePay(2000, [L("credit", "2000")], { hasCustomer: true, credit: c }).ok).toBe(false);
     expect(evaluatePay(500, [L("credit", "1000")], { hasCustomer: true, credit: { balance: 0, limit: 5000 } }).ok).toBe(false);
+  });
+});
+
+describe("bon d'achat / avoir à la caisse", () => {
+  const ids = () => "n1";
+  it("cas 1 : bon égal ou supérieur au prix → le bon couvre tout, aucune autre saisie, jamais de monnaie", () => {
+    const l = [{ id: "c", method: "cash" as const, amount: "", reference: "" }, { id: "v", method: "voucher" as const, amount: "", reference: "AV-1" }];
+    expect(applyVoucher(l, "v", 5000, 5000, ids)).toEqual([{ id: "v", method: "voucher", amount: "5000", reference: "AV-1" }]);
+    expect(applyVoucher(l, "v", 8000, 5000, ids)).toEqual([{ id: "v", method: "voucher", amount: "5000", reference: "AV-1" }]);
+    expect(evaluatePay(5000, applyVoucher(l, "v", 8000, 5000, ids), { hasCustomer: false })).toMatchObject({ remaining: 0, change: 0 });
+  });
+  it("cas 2 : bon inférieur au prix → reliquat placé dans le champ montant (ligne existante ou nouvelle ligne espèces)", () => {
+    const l = [{ id: "c", method: "wave" as const, amount: "9999", reference: "" }, { id: "v", method: "voucher" as const, amount: "", reference: "AV-1" }];
+    expect(applyVoucher(l, "v", 3000, 5000, ids)).toEqual([{ id: "v", method: "voucher", amount: "3000", reference: "AV-1" }, { id: "c", method: "wave", amount: "2000", reference: "" }]);
+    expect(applyVoucher([{ id: "v", method: "voucher", amount: "", reference: "AV-1" }], "v", 1500, 5000, ids)).toEqual([{ id: "v", method: "voucher", amount: "1500", reference: "AV-1" }, { id: "n1", method: "cash", amount: "3500", reference: "" }]);
+  });
+  it("deux bons : le second ne couvre que le reste dû après le premier", () => {
+    const l = [{ id: "v1", method: "voucher" as const, amount: "2000", reference: "AV-1" }, { id: "v2", method: "voucher" as const, amount: "", reference: "AV-2" }];
+    expect(applyVoucher(l, "v2", 9000, 5000, ids).map((x) => x.amount)).toEqual(["2000", "3000"]);
   });
 });

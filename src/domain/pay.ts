@@ -29,3 +29,16 @@ export function evaluatePay(total: number, lines: PayLine[], o: { hasCustomer: b
   if (credit > total) errors.push("Le crédit ne peut pas dépasser le total de la vente");
   return { ok: errors.length === 0, errors, paid, remaining, change, creditAmount: credit, payments };
 }
+
+/** Bon d'achat / avoir vérifié : son montant vaut paiement. Montant appliqué = min(solde, reste dû hors autres bons).
+ *  Cas 1 — le bon couvre le prix : aucun autre montant n'est demandé (les autres lignes sont retirées).
+ *  Cas 2 — le bon est inférieur au prix : le reliquat est placé dans le champ montant d'une autre ligne (espèces par défaut). Un bon ne rend jamais de monnaie. */
+export function applyVoucher(lines: PayLine[], lineId: string, balance: number, total: number, newId: () => string): PayLine[] {
+  const v = lines.find((l) => l.id === lineId); if (!v || v.method !== "voucher") return lines;
+  const otherVouchers = lines.filter((l) => l.method === "voucher" && l.id !== lineId).reduce((a, l) => a + (Number(l.amount.replace(/\s/g, "")) || 0), 0);
+  const due = Math.max(0, Math.round(total - otherVouchers)); const applied = Math.max(0, Math.min(Math.floor(balance), due)); const rest = due - applied;
+  const vouchers = lines.filter((l) => l.method === "voucher").map((l) => (l.id === lineId ? { ...l, amount: String(applied) } : l));
+  if (rest <= 0) return vouchers;
+  const other = lines.find((l) => l.method !== "voucher");
+  return [...vouchers, other ? { ...other, amount: String(rest) } : { id: newId(), method: "cash", amount: String(rest), reference: "" }];
+}

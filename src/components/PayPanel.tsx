@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Plus, QrCode, Trash2 } from "lucide-react";
 import { formatFcfa, isQrMethod, type PaymentMethod } from "@/domain/money";
-import { evaluatePay, METHOD_LABEL, type PayLine, type PayState } from "@/domain/pay";
+import { applyVoucher, evaluatePay, METHOD_LABEL, type PayLine, type PayState } from "@/domain/pay";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 export const newPayLine = (method: PaymentMethod = "cash", amount = ""): PayLine => ({ id: uid(), method, amount, reference: "" });
-type Props = { total: number; lines: PayLine[]; onChange: (l: PayLine[]) => void; hasCustomer: boolean; credit?: { balance: number; limit: number }; qrConfigured: Record<string, boolean>; onQr: (lineId: string) => void; disabled?: boolean; voucherOk?: boolean; onCheckVoucher?: (code: string) => Promise<string> };
+type Props = { total: number; lines: PayLine[]; onChange: (l: PayLine[]) => void; hasCustomer: boolean; credit?: { balance: number; limit: number }; qrConfigured: Record<string, boolean>; onQr: (lineId: string) => void; disabled?: boolean; voucherOk?: boolean; onCheckVoucher?: (code: string) => Promise<{ usable: boolean; balance: number; message: string }> };
 
 /** Encaissement : une ou plusieurs lignes (espèces, Wave, Orange Money, carte, crédit), reste à payer et monnaie en direct. Les références saisies sont conservées avec le paiement ; l'application ne confirme AUCUN paiement externe. */
 export function PayPanel({ total, lines, onChange, hasCustomer, credit, qrConfigured, onQr, disabled, voucherOk, onCheckVoucher }: Props) {
@@ -13,6 +13,11 @@ export function PayPanel({ total, lines, onChange, hasCustomer, credit, qrConfig
   const st: PayState = evaluatePay(total, lines, { hasCustomer, credit });
   const set = (id: string, patch: Partial<PayLine>) => onChange(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const add = (m: PaymentMethod) => onChange([...lines, newPayLine(m, st.remaining > 0 ? String(st.remaining) : "")]);
+  /** Vérifie le bon puis l'applique : il couvre le prix (aucune autre saisie) ou le reliquat va dans le champ montant. */
+  const check = async (l: PayLine) => { if (!onCheckVoucher) return; setVmsg((x) => ({ ...x, [l.id]: "Vérification du bon…" })); const r = await onCheckVoucher(l.reference);
+    if (!r.usable) { setVmsg((x) => ({ ...x, [l.id]: r.message })); return; }
+    const next = applyVoucher(lines.map((x) => (x.id === l.id ? { ...x, reference: l.reference } : x)), l.id, r.balance, total, uid); const applied = Number(next.find((x) => x.id === l.id)?.amount ?? 0); const rest = next.filter((x) => x.method !== "voucher").reduce((a, x) => a + Number(x.amount || 0), 0);
+    onChange(next); setVmsg((x) => ({ ...x, [l.id]: `${r.message} · ${formatFcfa(applied)} appliqués${rest > 0 ? ` · reliquat de ${formatFcfa(rest)} à régler dans le champ montant` : " · le bon couvre le total : aucun autre montant à saisir"}` })); };
   const methods: PaymentMethod[] = ["cash", "wave", "orange", "card", ...(hasCustomer ? ["credit" as const] : []), ...(voucherOk ? ["voucher" as const] : [])];
   return (
     <section className="flex flex-col gap-2" aria-label="Encaissement">
@@ -24,13 +29,13 @@ export function PayPanel({ total, lines, onChange, hasCustomer, credit, qrConfig
             {lines.length > 1 && <button className="btn-ghost icon-btn" aria-label={`Retirer le paiement ${i + 1}`} disabled={disabled} onClick={() => onChange(lines.filter((x) => x.id !== l.id))}><Trash2 size={16} /></button>}
           </div>
           <label className="flex flex-col gap-1 text-xs text-soft">{l.method === "cash" ? "Montant reçu (FCFA)" : "Montant (FCFA)"}
-            <input className="input !py-4 min-h-14 w-full text-2xl font-bold tracking-wide text-main !border-2 !border-accent/60 placeholder:text-muted" inputMode="numeric" aria-label={`Montant ${i + 1}`} placeholder={l.method === "cash" ? "Saisir le montant reçu" : "Saisir le montant"} disabled={disabled} value={l.amount} onChange={(e) => set(l.id, { amount: e.target.value })} />
+            <input className="input !py-4 min-h-14 w-full text-2xl font-bold tracking-wide text-main !border-2 !border-accent/60 placeholder:text-muted" inputMode="numeric" aria-label={`Montant ${i + 1}`} placeholder={l.method === "cash" ? "Saisir le montant reçu" : l.method === "voucher" ? "Rempli à l'application du bon" : "Saisir le montant"} disabled={disabled} value={l.amount} onChange={(e) => set(l.id, { amount: e.target.value })} />
           </label>
           {(isQrMethod(l.method) || l.method === "card") && <div className="flex gap-1.5 items-center">
             <input className="input !py-2 flex-1 min-w-0" aria-label={`Référence ${i + 1}`} placeholder={l.method === "card" ? "Référence TPE (facultatif)" : "Référence de la transaction (obligatoire)"} maxLength={64} disabled={disabled || !!l.linkId} value={l.linkId ? "Lien confirmé" : l.reference} onChange={(e) => set(l.id, { reference: e.target.value })} />
             {isQrMethod(l.method) && qrConfigured[l.method] && <button className="btn-ghost icon-btn text-xs flex items-center gap-1" disabled={disabled || !(Number(l.amount) > 0)} onClick={() => onQr(l.id)}><QrCode size={16} />QR</button>}
           </div>}
-          {l.method === "voucher" && <div className="flex gap-1.5 items-center"><input className="input !py-2 flex-1 min-w-0" aria-label={`Code du bon ${i + 1}`} autoCapitalize="characters" placeholder="Code du bon d'achat (AV-…)" maxLength={24} disabled={disabled} value={l.reference} onChange={(e) => set(l.id, { reference: e.target.value.toUpperCase() })} />{onCheckVoucher && <button className="btn-ghost !py-2 !px-2 text-xs" disabled={disabled || l.reference.length < 4} onClick={() => void onCheckVoucher(l.reference).then((m) => setVmsg((x) => ({ ...x, [l.id]: m })))}>Vérifier</button>}</div>}
+          {l.method === "voucher" && <div className="flex gap-1.5 items-center"><input className="input !py-2 flex-1 min-w-0" aria-label={`Code du bon ${i + 1}`} autoCapitalize="characters" placeholder="Code du bon d'achat (AV-…)" maxLength={24} disabled={disabled} value={l.reference} onKeyDown={(e) => { if (e.key === "Enter" && l.reference.length >= 4) { e.preventDefault(); void check(l); } }} onChange={(e) => { const code = e.target.value.toUpperCase(); set(l.id, { reference: code }); if (/^AV-[A-Z0-9]{8}$/.test(code)) void check({ ...l, reference: code }); }} />{onCheckVoucher && <button className="btn-ghost !py-2 !px-2 text-xs" disabled={disabled || l.reference.length < 4} onClick={() => void check(l)}>Appliquer</button>}</div>}
           {l.method === "voucher" && vmsg[l.id] && <p className="text-xs text-muted" role="status">{vmsg[l.id]}</p>}
           {isQrMethod(l.method) && <p className="text-xs text-muted">Référence saisie par le vendeur : elle n'est pas vérifiée auprès de l'opérateur.</p>}
         </div>
