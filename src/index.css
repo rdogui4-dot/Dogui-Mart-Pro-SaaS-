@@ -106,3 +106,10 @@ aside[aria-label="Espaces"] :focus-visible { outline-color: #ffffff; } /* anneau
 @keyframes d3-in { from { opacity: 0; transform: perspective(var(--d3-persp)) translateY(10px) rotateX(8deg); } to { opacity: 1; transform: perspective(var(--d3-persp)); } }
 [data-fx3d="full"] .d3-in, [data-fx3d="lite"] .d3-in { animation: d3-in var(--d3-dur) var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 40ms); }
 @media (prefers-reduced-motion: reduce) { .d3-card, .d3-flip-inner { transition: none !important; transform: none !important; } }
+/* Menu pliable / dépliable (3D-2) : le contenu se déplie sur une charnière (gauche pour la barre latérale, haut pour les accordéons). Animation d'entrée seulement : aucun transform résiduel. */
+@keyframes d3-unfold-x { from { opacity: 0; transform: perspective(800px) rotateY(-55deg); } to { opacity: 1; transform: none; } }
+@keyframes d3-unfold-y { from { opacity: 0; transform: perspective(800px) rotateX(-70deg); } to { opacity: 1; transform: none; } }
+.d3-unfold-x { transform-origin: left center; } .d3-unfold-y { transform-origin: top center; }
+[data-fx3d="full"] .d3-unfold-x, [data-fx3d="lite"] .d3-unfold-x { animation: d3-unfold-x var(--d3-dur) var(--ease-out) backwards; }
+[data-fx3d="full"] .d3-unfold-y, [data-fx3d="lite"] .d3-unfold-y { animation: d3-unfold-y var(--d3-dur) var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 30ms); }
+[data-fx3d="full"] .d3-rail-w, [data-fx3d="lite"] .d3-rail-w { transition: width var(--d3-dur) var(--ease-in-out); }

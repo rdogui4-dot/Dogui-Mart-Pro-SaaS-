@@ -50,14 +50,14 @@ function LayoutInner() {
   const [navPref, setNavPref] = usePersistedState(`dmp.pref.${session?.tenantId ?? "x"}.nav`, { collapsed: false }); const collapsed = navPref.collapsed;
   return (
     <div className="h-full flex flex-col md:flex-row pt-[env(safe-area-inset-top)]">
-      {wide && <aside aria-label="Espaces" className={`flex flex-col shrink-0 bg-nav text-nav-text overflow-y-auto ${collapsed ? "w-16" : "w-60"}`}>
+      {wide && <aside aria-label="Espaces" className={`d3-rail-w flex flex-col shrink-0 bg-nav text-nav-text overflow-y-auto overflow-x-hidden ${collapsed ? "w-16" : "w-60"}`}>
         <Link to="/accueil" className={`flex items-center gap-2.5 py-3.5 border-b border-nav-line text-white ${collapsed ? "justify-center px-2" : "px-4"}`}><MarkInline size={26} />{!collapsed && <Wordmark size={15} />}<span className="sr-only">Accueil</span></Link>
         {collapsed
-          ? <nav aria-label="Navigation principale" className="flex flex-col items-center gap-1 p-2">
+          ? <nav key="rail" aria-label="Navigation principale" className="d3-unfold-x flex flex-col items-center gap-1 p-2">
               <RailLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
               {SPACES.map((sp) => itemsOf(sp, session, plan).length ? <RailLink key={sp.id} to={`/espace/${sp.id}`} label={sp.label} icon={sp.icon} active={current?.id === sp.id || path === `/espace/${sp.id}`} /> : null)}
             </nav>
-          : <nav aria-label="Navigation principale" className="flex flex-col gap-3 p-3">
+          : <nav key="full" aria-label="Navigation principale" className="d3-unfold-x flex flex-col gap-3 p-3 min-w-[15rem]">
               <SideLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
               {SPACES.map((sp) => { const its = itemsOf(sp, session, plan); if (!its.length) return null; return (
                 <div key={sp.id} className="flex flex-col gap-0.5">

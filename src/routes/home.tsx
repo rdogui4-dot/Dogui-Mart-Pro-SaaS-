@@ -15,7 +15,7 @@ import { ItemLink } from "@/components/ItemLink";
 import { startProgress, startSteps } from "@/domain/onboarding";
 import { getShop } from "@/lib/data";
 import { planAllows } from "@/domain/features";
-import { Check, Circle } from "lucide-react";
+import { Check, ChevronDown, Circle } from "lucide-react";
 import { useState } from "react";
 import { RejectedSales } from "@/components/RejectedSales";
 import { MasterBriefing, MasterReminder } from "./master";
@@ -79,17 +79,18 @@ export function HomePage() {
 
 /** « Plus » : tous les modules accessibles, le compte et la déconnexion. */
 export function PlusPage() {
-  const { session, logout } = useSession(); const s = session!;
+  const { session, logout } = useSession(); const s = session!; const [open, setOpen] = useState<string[]>(["vendre"]);
   const plan = useSubscription().data?.entitlement.plan.id;
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-2xl font-bold">Plus</h1>
       <RejectedSales />
       <div className="card text-sm"><b>{s.name}</b><br /><span className="text-muted">{s.role === "owner" ? "Gérant principal (propriétaire)" : s.role}</span></div>
-      {SPACES.map((sp) => { const its = itemsOf(sp, s, plan); if (!its.length) return null; return (
-        <section key={sp.id} aria-label={sp.label} className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wide pt-2">{sp.label}</h2>
-          {its.map((it) => <ItemLink key={it.to} item={it} className="card flex items-center gap-3 w-full"><span><b>{it.label}</b><br /><span className="text-xs text-muted">{it.hint}</span></span></ItemLink>)}
+      {SPACES.map((sp) => { const its = itemsOf(sp, s, plan); if (!its.length) return null; const isOpen = open.includes(sp.id); const I = sp.icon; return (
+        <section key={sp.id} aria-label={sp.label} className="card !p-0 overflow-hidden">
+          <h2><button type="button" className="w-full flex items-center gap-3 px-4 py-3 min-h-12 text-left" aria-expanded={isOpen} aria-controls={`plus-${sp.id}`} onClick={() => setOpen(isOpen ? open.filter((x) => x !== sp.id) : [...open, sp.id])}>
+            <I size={20} className="text-accent-text shrink-0" /><span className="flex-1"><b>{sp.label}</b><span className="block text-xs text-muted font-normal">{sp.hint}</span></span><ChevronDown size={18} className={`text-muted transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} /></button></h2>
+          {isOpen && <div id={`plus-${sp.id}`} className="flex flex-col border-t border-line">{its.map((it) => <ItemLink key={it.to} item={it} className="d3-unfold-y flex items-center gap-3 w-full px-4 py-3 border-b border-line last:border-b-0 hover:bg-subtle" ><span><b>{it.label}</b><br /><span className="text-xs text-muted">{it.hint}</span></span></ItemLink>)}</div>}
         </section>); })}
       <ThemeSwitch />
       <button className="btn-ghost flex items-center justify-center gap-2" onClick={() => void logout()}><LogOut size={18} />Se déconnecter</button>

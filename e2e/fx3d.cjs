@@ -37,6 +37,24 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.goto(h.url("reglages")); await page.getByRole("tab", { name: "Mon profil" }).click(); await page.getByLabel("Effets 3D").selectOption("auto"); await dash(); if (!(await page.locator("[data-chart3d] canvas").count())) throw new Error("3D non rétablie");
   });
   await step("téléphone : niveau allégé, sans débordement", async () => { await dash(390, 800); if ((await page.evaluate(() => document.documentElement.dataset.fx3d)) !== "lite") throw new Error("niveau"); const x = await page.evaluate(() => ({ s: document.documentElement.scrollWidth, i: innerWidth })); if (x.s > x.i + 1) throw new Error("débordement"); await page.screenshot({ path: path.join(OUT, "fx-dashboard-390.png") }); });
+  await step("menu 3D (ordinateur) : la barre latérale se replie et se déplie sur charnière, sans transform résiduel", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("accueil")); await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: "Replier le menu" }).click(); await page.waitForTimeout(60);
+    const anim = await page.evaluate(() => document.querySelector('aside[aria-label="Espaces"] nav')?.getAnimations().map((a) => a.animationName).join(",")); if (!/d3-unfold-x/.test(anim || "")) throw new Error("pas d'animation de charnière : " + anim);
+    await page.waitForTimeout(600); const st = await page.evaluate(() => getComputedStyle(document.querySelector('aside[aria-label="Espaces"] nav')).transform); if (st !== "none") throw new Error("transform résiduel : " + st);
+    const w = (await page.getByRole("complementary", { name: "Espaces" }).boundingBox()).width; if (w > 80) throw new Error("largeur " + w);
+    await page.getByRole("button", { name: "Déplier le menu" }).click(); await page.waitForTimeout(600); if ((await page.getByRole("complementary", { name: "Espaces" }).boundingBox()).width < 200) throw new Error("non déplié");
+  });
+  await step("menu 3D (téléphone, page Plus) : accordéon par espace (aria-expanded), dépliage animé, clavier", async () => {
+    await page.setViewportSize({ width: 390, height: 800 }); await page.goto(h.url("plus")); await page.waitForTimeout(1200);
+    const vendre = page.getByRole("button", { name: /^Vendre/ }), stock = page.getByRole("button", { name: /^Stock/ });
+    if ((await vendre.getAttribute("aria-expanded")) !== "true" || (await stock.getAttribute("aria-expanded")) !== "false") throw new Error("état initial");
+    if (await page.getByRole("link", { name: /Articles/ }).count()) throw new Error("contenu replié visible");
+    await stock.focus(); await page.keyboard.press("Enter"); await page.waitForTimeout(80); const anim = await page.evaluate(() => document.querySelector("#plus-stock a, #plus-stock button")?.getAnimations().map((a) => a.animationName).join(","));
+    if (!/d3-unfold-y/.test(anim || "")) throw new Error("pas de dépliage animé : " + anim); await page.waitForTimeout(500);
+    if ((await stock.getAttribute("aria-expanded")) !== "true" || !(await page.getByRole("link", { name: /Articles/ }).count())) throw new Error("non déplié");
+    await page.screenshot({ path: path.join(OUT, "fx-plus-390.png") }); await vendre.click(); await page.waitForTimeout(300); if ((await vendre.getAttribute("aria-expanded")) !== "false") throw new Error("non replié");
+  });
   await step("mesures (processeur ×4) : tableau de bord 3D — CLS ≤ 0,1, INP ≤ 200 ms (retournement d'une carte)", async () => {
     const cdp = await page.context().newCDPSession(page); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 }); await page.setViewportSize({ width: 1280, height: 900 });
     await page.addInitScript(() => { window.__cls = 0; window.__inp = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__inp = Math.max(window.__inp, e.duration); }).observe({ type: "event", buffered: true, durationThreshold: 16 }); });
