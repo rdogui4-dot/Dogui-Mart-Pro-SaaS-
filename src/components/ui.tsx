@@ -12,8 +12,7 @@ export function Thumb({ id, size = 64, className = "" }: { id?: string; size?: n
 export function Sheet({ title, onClose, children, back, size = "md" }: { title: string; onClose: () => void; children: ReactNode; back?: boolean; size?: "md" | "lg" | "panel" | "modal" }) {
   const ref = useRef<HTMLDivElement>(null);
   const floating = size === "panel" || size === "modal";
-  useEffect(() => {
-    if (!floating) return;
+  useEffect(() => { // toutes les fenêtres : focus à l'ouverture, Échap pour fermer, focus rendu à la fermeture (cahier §17)
     const prev = document.activeElement as HTMLElement | null; ref.current?.focus();
     const h = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -22,7 +21,7 @@ export function Sheet({ title, onClose, children, back, size = "md" }: { title: 
     };
     window.addEventListener("keydown", h);
     return () => { window.removeEventListener("keydown", h); try { prev?.focus?.(); } catch { /* élément disparu */ } };
-  }, [floating]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const where = size === "panel" ? "inset-0 md:inset-y-0 md:left-auto md:right-0 md:w-[34rem] md:max-w-full md:border-l md:border-line"
     : size === "modal" ? "inset-0 md:m-auto md:w-[48rem] md:max-w-[calc(100vw-2rem)] md:h-[88vh] md:rounded-xl md:border md:border-line md:shadow-xl" : "inset-0";
   const inner = size === "lg" ? "max-w-md md:max-w-3xl" : size === "panel" || size === "modal" ? "max-w-md md:max-w-none" : "max-w-md";
