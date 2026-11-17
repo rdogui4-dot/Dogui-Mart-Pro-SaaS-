@@ -1,14 +1,5 @@
 {
- "_note": "Échecs connus au 17/11/2026 après le nettoyage N0 : seules restent les sondes exploratoires en attente de retrait (j4, j12, j14 plantent ; j10 couvert ailleurs). Toute étape en échec absente de cette liste est une NOUVELLE régression.",
- "crash": [
-  "j4",
-  "j12",
-  "j14"
- ],
- "known": {
-  "j10": [
-   "ticket PDF après vente",
-   "compta: facture libre + rapport"
-  ]
- }
+ "_note": "Aucun échec connu au 17/11/2026 (nettoyage N0 terminé). Toute étape en échec est une NOUVELLE régression.",
+ "crash": [],
+ "known": {}
 }
