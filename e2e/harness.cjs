@@ -34,7 +34,7 @@ function applyQueries(rows, qs) {
 async function start(opts = {}) {
   const st = new Store(); const errors = [], calls = [], bad = [];
   await st.grant(T, "u1", ["owner"], []); st.ownerNames.set("u1", "Dogui");
-  const call = (action, payload = {}, shopId = "") => handle(st, "u1", { action, tenantId: T, shopId, payload }, { admins: [] });
+  const call = (action, payload = {}, shopId = "") => handle(st, "u1", { action, tenantId: T, shopId, payload }, { admins: opts.admin ? ["u1"] : [] });
   const shop = (await call("shop.create", { name: "Dakar Plateau" })).body.data.shopId;
   // Par défaut les scénarios historiques vendent sans session de caisse ; opts.defaultSession = true reproduit une boutique réelle (session obligatoire par défaut en Business/Pro).
   if (!opts.defaultSession) for (const r of st.rows("shops")) r.cashRequired = false;
@@ -64,7 +64,7 @@ async function start(opts = {}) {
     if (p.endsWith("/teams")) return json({ total: 1, teams: [{ $id: T, name: "DOGUI MART" }] });
     if (p.includes("/memberships")) return json({ total: 1, memberships: [{ userId: "u1", roles: ["owner"] }] });
     if (p.includes("/executions")) {
-      const sent = JSON.parse(JSON.parse(req.postData() ?? "{}").body ?? "{}"); const r = await handle(st, "u1", sent, { admins: [] }); calls.push([sent.action, r.status, r.status >= 400 ? r.body.error : ""]);
+      const sent = JSON.parse(JSON.parse(req.postData() ?? "{}").body ?? "{}"); const r = await handle(st, "u1", sent, { admins: opts.admin ? ["u1"] : [] }); calls.push([sent.action, r.status, r.status >= 400 ? r.body.error : ""]);
       if (r.status >= 400 && !(opts.expect ?? []).includes(sent.action)) bad.push(`${sent.action} → ${r.status} ${r.body.error}`);
       return json({ $id: "ex", responseStatusCode: r.status, responseBody: JSON.stringify(r.body), status: "completed" }, 201);
     }

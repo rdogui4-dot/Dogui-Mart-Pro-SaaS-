@@ -120,3 +120,15 @@ Ordre proposé : coque et pages de gestion d'abord (le kit les illustre le mieux
 - Navigation : **liste plate du kit** (16 modules) ; sous-pages en onglets ; anciens liens conservés.
 - Écrans sans référence valide (11, 18, 22) : **conçus dans le style du kit**, captures montrées avant publication.
 - Ordre : **K0 design system puis K1 coque**, puis 08 à 24 ; parcours public et onboarding (01-07) en fin, après accord sur les colonnes.
+
+## 8. Références complémentaires (17/11)
+Reçues : `kit-refs/11-18-22-complements.webp`. **18 ICompta** et **22 Équipe et Permissions** sont valides. L'image marquée « Interface 11 » montre encore Inventaires (Silent Count) : **Stocks et mouvements reste sans référence**, conçu dans le style du kit.
+Contenus à ne pas reprendre : « Comptes sécurisés 100 % », « Connexions aujourd'hui », « Taux de fiabilité 98,7 % », « Appliquer les recommandations » (aucune donnée réelle derrière, ou action automatique). Les rôles montrés (Magasinier, Comptable, Consultant) seront comparés aux rôles réels au lot K9.
+
+## 9. K0 — Système de design (réalisé, 17/11)
+**Jetons** (`src/index.css`) : fond `#F5F7FA`, texte `#172334`, bleu nuit de marque et de navigation `#10243A`, cyan `#14B8D4`, or `#D6A84F` ; nouveaux jetons `--gold-ink`, `--gold-soft`, six teintes de pastilles (`--tint-*`, clair et sombre), ombre de carte. Cartes arrondies 16 px avec ombre douce ; bouton d'action principale or (`.btn-gold`).
+**Écart assumé** : le gris secondaire du kit `#64748B` n'atteint pas le contraste AA sur le fond du kit (4,43 pour 4,5 exigé) ; le texte secondaire utilise `#5F6E82` (teinte quasi identique, 4,6 à 4,9). Contrôle : `scripts/contrast.mjs`, 43 paires par thème, toutes conformes.
+**Composants** (`src/components/kit.tsx`) : `ModuleHeader`, `KpiTile` / `KpiRow` (variation affichée seulement si fournie par le serveur), `StatusBadge` (texte + pictogramme), `PillTabs` / `TabPanel` (flèches, Début, Fin), `FilterBar` / `FilterSelect`, `Pagination`, `KitTable` (sélection, actions de ligne, cartes sur téléphone), `RowAction`, `BulkBar`, `DetailLayout` (panneau côte à côte selon la largeur réellement disponible, sinon fiche), `InsightCard` (constats serveur avec source, aucune action automatique), `Panel`, `Stepper`, états `LoadingState`, `ErrorState`, `PartialNotice`, `DeniedState`, `LockedState`, `SuccessNotice`.
+**Page de référence interne** `/ui-kit` : administrateurs de la plateforme seulement (un commerçant reçoit « Accès non autorisé ») ; valeurs signalées comme exemples.
+**Tests** : scénario `e2e/kit0.cjs` (13 vérifications : refus non-administrateur, clair/sombre × 390/820/1280 sans débordement, clavier des onglets, sélection, actions groupées, détail, pagination, recherche, cartes et fiche sur téléphone, Échap, sept états, noms accessibles, mouvement réduit) ; vitest 104 fichiers / 1 457 tests.
+**Constat pour K1** : la zone de contenu est plafonnée à 1024 px ; les maquettes utilisent toute la largeur. K1 l'élargira (le panneau de détail passera alors côte à côte sur grand écran).

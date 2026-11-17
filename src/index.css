@@ -1,14 +1,16 @@
 @import "tailwindcss";
 /* Dogui Mart Pro — système de design. Toutes les couleurs passent par ces jetons ; deux thèmes (clair par défaut, sombre). Contrastes vérifiés par scripts/contrast.mjs. */
 :root, [data-theme="light"] {
-  --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eef2f7; --subtle: #eef2f7;
+  --bg: #f5f7fa; --surface: #ffffff; --surface-2: #eef2f7; --subtle: #eef2f7;
   --line: #d3dae4; --line-strong: #7b8798;
-  --main: #10243a; --soft: #34465c; --muted: #54657a;
+  --main: #172334; --soft: #34465c; --muted: #5f6e82; --brand: #10243a;
   --accent: #2563eb; --accent-ink: #ffffff; --accent-soft: #e3edfd; --accent-text: #1d4fc4;
   --ok: #0f7b4f; --warn: #8a5a00; --bad: #b42318; --info: #1d5fb8;
   --ok-bg: #e3f5ec; --warn-bg: #fff3d6; --bad-bg: #fde8e6; --info-bg: #e3eefd;
-  --nav-bg: #0b1f3a; --nav-text: #e8eef6; --nav-muted: #a9b8cc; --nav-active-bg: #1d3a63; --nav-active-text: #ffffff; --nav-line: #1c3352; --nav-hover: #142b4b;
-  --tech: #14b8d4; --tech-text: #0e7490; --gold: #c9a227; --gold-text: #7a5c0c;
+  --nav-bg: #10243a; --nav-text: #e8eef6; --nav-muted: #a9b8cc; --nav-active-bg: #1f3d66; --nav-active-text: #ffffff; --nav-line: #22395a; --nav-hover: #183150;
+  --tech: #14b8d4; --tech-text: #0e7490; --gold: #d6a84f; --gold-text: #7a5c0c; --gold-ink: #172334; --gold-hover: #c99a3e; --gold-soft: #fff6e0;
+  --tint-blue: #2563eb; --tint-blue-bg: #e6efff; --tint-green: #0f7b4f; --tint-green-bg: #e3f6ec; --tint-amber: #b45309; --tint-amber-bg: #fff1d6; --tint-violet: #7c3aed; --tint-violet-bg: #efe9ff; --tint-cyan: #0e7490; --tint-cyan-bg: #def5f9; --tint-rose: #be185d; --tint-rose-bg: #fde8ef;
+  --shadow-card: 0 1px 2px rgba(16,36,58,.05), 0 4px 14px -6px rgba(16,36,58,.12);
   --overlay: rgba(16, 36, 58, .55); --chart-1: #2563eb; --chart-2: #0f7b4f; --chart-3: #b45309; --chart-4: #7c3aed; --chart-5: #0e7490;
   color-scheme: light;
 }
@@ -20,7 +22,9 @@
   --ok: #4ade9a; --warn: #f5b73b; --bad: #ff8a80; --info: #7db7ff;
   --ok-bg: #12301f; --warn-bg: #3a2c0c; --bad-bg: #3d1a18; --info-bg: #142c4d;
   --nav-bg: #08121f; --nav-text: #e8eef6; --nav-muted: #9db0c5; --nav-active-bg: #1b2f52; --nav-active-text: #ffffff; --nav-line: #1a2738; --nav-hover: #111d2d;
-  --tech: #22c7e0; --tech-text: #5fd0e6; --gold: #d6a84f; --gold-text: #e3bd6e;
+  --brand: #e8eef6; --tech: #22c7e0; --tech-text: #5fd0e6; --gold: #d6a84f; --gold-text: #e3bd6e; --gold-ink: #10243a; --gold-hover: #e3b95f; --gold-soft: #33290f;
+  --tint-blue: #8db4ff; --tint-blue-bg: #1b2f52; --tint-green: #4ade9a; --tint-green-bg: #12301f; --tint-amber: #f5b73b; --tint-amber-bg: #3a2c0c; --tint-violet: #c4b0ff; --tint-violet-bg: #2a2150; --tint-cyan: #5fd0e6; --tint-cyan-bg: #0f3440; --tint-rose: #ff9cc0; --tint-rose-bg: #3d1a2a;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.35), 0 4px 14px -6px rgba(0,0,0,.55);
   --overlay: rgba(4, 9, 16, .72); --chart-1: #6ea0ff; --chart-2: #4ade9a; --chart-3: #f5b73b; --chart-4: #b79bff; --chart-5: #5fd0e6;
   color-scheme: dark;
 }
@@ -30,7 +34,7 @@
   --color-accent: var(--accent); --color-accent-ink: var(--accent-ink); --color-accent-soft: var(--accent-soft); --color-accent-text: var(--accent-text);
   --color-ok: var(--ok); --color-warn: var(--warn); --color-bad: var(--bad); --color-info: var(--info);
   --color-nav: var(--nav-bg); --color-nav-text: var(--nav-text); --color-nav-muted: var(--nav-muted); --color-nav-active: var(--nav-active-bg); --color-nav-line: var(--nav-line); --color-nav-hover: var(--nav-hover);
-  --color-tech: var(--tech); --color-tech-text: var(--tech-text); --color-gold: var(--gold); --color-gold-text: var(--gold-text);
+  --color-tech: var(--tech); --color-tech-text: var(--tech-text); --color-gold: var(--gold); --color-gold-text: var(--gold-text); --color-gold-ink: var(--gold-ink); --color-gold-soft: var(--gold-soft); --color-brand: var(--brand);
   --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --text-sm: 1rem; --text-sm--line-height: 1.5rem;
   --color-ok-bg: var(--ok-bg); --color-warn-bg: var(--warn-bg); --color-bad-bg: var(--bad-bg); --color-info-bg: var(--info-bg);
@@ -57,13 +61,16 @@ aside[aria-label="Espaces"] :focus-visible { outline-color: #ffffff; } /* anneau
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; animation-delay: 0s !important; scroll-behavior: auto !important; } }
 .btn { @apply rounded-lg px-4 py-2.5 text-base font-semibold transition disabled:opacity-40 min-h-11; background: var(--accent); color: var(--accent-ink); }
 .btn:hover:not(:disabled) { filter: brightness(.94); }
+/* Bouton d'action principale du module (kit : « Nouvelle commande », « Enregistrer une dépense ») : or, texte bleu nuit. Un seul par écran. */
+.btn-gold { @apply rounded-lg px-4 py-2.5 text-base font-semibold transition disabled:opacity-40 min-h-11 inline-flex items-center justify-center gap-2; background: var(--gold); color: var(--gold-ink); }
+.btn-gold:hover:not(:disabled) { background: var(--gold-hover); }
 .btn-ghost { @apply rounded-lg px-4 py-2.5 text-base font-medium border transition disabled:opacity-40 min-h-11; border-color: var(--line-strong); background: var(--surface); color: var(--main); }
 .btn-ghost:hover:not(:disabled) { background: var(--subtle); }
 .icon-btn { padding: 0; min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; }
 .input { @apply w-full rounded-lg px-3 py-2.5 text-base border min-h-11; background: var(--surface); border-color: var(--line-strong); color: var(--main); }
 .input::placeholder { color: var(--muted); }
 .input:focus { border-color: var(--accent); }
-.card { @apply rounded-xl p-4 border; background: var(--surface); border-color: var(--line); }
+.card { @apply rounded-2xl p-4 border; background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-card); }
 .kpi { @apply rounded-xl p-4 border flex flex-col gap-1; background: var(--surface); border-color: var(--line); }
 .kpi b { @apply text-xl font-bold tracking-tight; }
 .kpi span { @apply text-xs uppercase tracking-wide; color: var(--muted); }
