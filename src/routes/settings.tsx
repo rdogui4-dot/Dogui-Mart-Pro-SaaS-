@@ -23,7 +23,7 @@ function FxPrefCard() {
 
 type STab = "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
 /** Message après enregistrement : succès en vert (statut), erreur en rouge (alerte). */
-const Msg = ({ text }: { text: string }) => (!text ? null : /^(Enregistr|Méthode enregistr|Politique enregistr|Marge minimale enregistr|Lien retiré)/.test(text) ? <p className="text-sm text-ok" role="status">{text}</p> : <p className="text-sm text-bad" role="alert">{text}</p>);
+const Msg = ({ text }: { text: string }) => (!text ? null : /^(Enregistr|Méthode enregistr|Politique enregistr|Marge minimale enregistr|Lien retiré)/.test(text) ? <p className="d3-saved text-sm text-ok font-medium self-start rounded-lg bg-ok-bg px-3 py-1.5" role="status">✓ {text}</p> : <p className="text-sm text-bad" role="alert">{text}</p>);
 
 export function SettingsPage() {
   const { session, logout } = useSession(); const s = session!;
@@ -83,6 +83,7 @@ export function SettingsPage() {
       {can(s, "settings") && (
         <GroupedTabs label="Sections des réglages" value={tab} onChange={setTab} groups={groupTabs<STab>([["profile", "Mon profil"], ["shop", "Boutique"], ["rules", "Règles de gestion"], ["shops", "Boutiques"], ["staff", "Équipe & accès"], ["subscription", "Abonnement"], ["payments", "Paiements QR"], ["activity", "Journal d'activité"], ...(me.data?.admin ? [["platform", "Plateforme"] as [STab, string]] : [])], [["Compte", ["profile"]], ["Commerce", ["shop", "rules", "shops"]], ["Équipe", ["staff"]], ["Abonnement et paiements", ["subscription", "payments"]], ["Suivi", ["activity"]], ["Administration", ["platform"]]])} />
       )}
+      <div key={tab} className="d3-settings flex flex-col gap-3">
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}
@@ -148,6 +149,7 @@ export function SettingsPage() {
       {tab === "profile" && <FxPrefCard />}
       {tab === "profile" && <button className="btn-ghost md:self-start" onClick={() => void logout()}>Se déconnecter</button>}
       </>}
+      </div>
     </div>
   );
 }

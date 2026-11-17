@@ -139,3 +139,9 @@ aside[aria-label="Espaces"] :focus-visible { outline-color: #ffffff; } /* anneau
 [data-fx3d="full"] [role="tab"].chip[aria-selected="true"], [data-fx3d="lite"] [role="tab"].chip[aria-selected="true"] { transform: translateY(-1px); box-shadow: var(--d3-shadow); }
 [data-fx3d="full"] tr.d3-row { transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out); }
 [data-fx3d="full"] tr.d3-row:hover { transform: translateY(-1px); box-shadow: 0 6px 14px -8px rgba(16,36,58,.35); position: relative; z-index: 1; }
+/* Réglages (3D-5) : les cartes de la section ouverte se déplient depuis le haut, en cascade ; confirmation « Enregistré » en relief (après réponse du serveur). */
+[data-fx3d="full"] .d3-settings > *, [data-fx3d="lite"] .d3-settings > * { animation: d3-unfold-y var(--d3-dur) var(--ease-out) backwards; transform-origin: top center; }
+.d3-settings > :nth-child(2) { animation-delay: 40ms; } .d3-settings > :nth-child(3) { animation-delay: 80ms; } .d3-settings > :nth-child(4) { animation-delay: 120ms; } .d3-settings > :nth-child(n+5) { animation-delay: 160ms; }
+@keyframes d3-saved { 0% { opacity: 0; transform: perspective(500px) translateZ(-40px) rotateX(-30deg); } 60% { opacity: 1; transform: perspective(500px) translateZ(6px); } 100% { opacity: 1; transform: none; } }
+.d3-saved { box-shadow: var(--d3-shadow); }
+[data-fx3d="full"] .d3-saved, [data-fx3d="lite"] .d3-saved { animation: d3-saved 280ms var(--ease-out) backwards; transform-origin: center bottom; }

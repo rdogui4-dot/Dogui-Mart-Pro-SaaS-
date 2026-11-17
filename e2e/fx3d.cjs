@@ -84,6 +84,14 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!/d3-sheet-modal/.test(am)) throw new Error("fenêtre MASTER sans entrée 3D : " + am); await page.waitForTimeout(400); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
     await page.goto(h.url("finance")); await page.waitForTimeout(1000); const tab = await page.locator('[role="tab"][aria-selected="true"]').first().evaluate((e) => getComputedStyle(e).transform); if (tab === "none") throw new Error("onglet actif sans relief");
   });
+  await step("réglages : cartes de la section qui se déplient en cascade au changement d'onglet ; « Enregistré » en relief après réponse du serveur", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("reglages")); await page.waitForTimeout(1000);
+    await page.getByRole("tab", { name: "Règles de gestion" }).click(); await page.waitForTimeout(30);
+    const an = await page.evaluate(() => [...document.querySelectorAll(".d3-settings > *")].flatMap((e) => e.getAnimations().map((a) => a.animationName)).join(",")); if (!/d3-unfold-y/.test(an)) throw new Error("cartes sans dépliage : " + an);
+    await page.getByRole("tab", { name: "Boutique" }).click(); await page.waitForTimeout(500); await page.getByLabel("Ville").fill("Dakar"); await page.locator("form").getByRole("button", { name: "Enregistrer" }).click();
+    const saved = page.locator(".d3-saved"); await saved.waitFor({ timeout: 6000 }); if (!/Enregistré/.test(await saved.innerText())) throw new Error("confirmation"); await page.waitForTimeout(400);
+    if ((await saved.evaluate((e) => getComputedStyle(e).transform)) !== "none") throw new Error("transform résiduel"); await page.screenshot({ path: path.join(OUT, "fx-reglages-1280.png") });
+  });
   await step("mesures (processeur ×4) : tableau de bord 3D — CLS ≤ 0,1, INP ≤ 200 ms (retournement d'une carte)", async () => {
     const cdp = await page.context().newCDPSession(page); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 }); await page.setViewportSize({ width: 1280, height: 900 });
     await page.addInitScript(() => { window.__cls = 0; window.__inp = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__inp = Math.max(window.__inp, e.duration); }).observe({ type: "event", buffered: true, durationThreshold: 16 }); });
