@@ -10,6 +10,7 @@ import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
 import { LogoMark, MarkInline, Wordmark } from "./Logo";
 import { useMasterModal } from "@/lib/master-modal";
+import { ShopArt } from "./ShopArt";
 import { MasterModalCtx, type MasterTab } from "@/lib/master-modal";
 import { MasterWindow } from "@/routes/master";
 import { Breadcrumb, HelpButton, SearchButton } from "./Shell";
@@ -121,7 +122,7 @@ function ModuleLink({ m, active, collapsed }: { m: KitModule; active: boolean; c
 function ShopCard({ name, online, pending }: { name: string; online: boolean; pending: number }) {
   return (
     <div className="mx-3 mb-2 rounded-xl border border-nav-line bg-nav-hover px-3 py-2.5 flex items-center gap-3">
-      <span aria-hidden="true" className="size-10 shrink-0 rounded-lg bg-[var(--nav-active-bg)] text-white font-bold flex items-center justify-center">{name.trim().charAt(0).toUpperCase() || "B"}</span>
+      <ShopArt size={48} className="shrink-0 rounded-xl" />
       <div className="min-w-0"><p className="font-semibold text-white truncate">{name}</p>
         <p className="text-xs text-nav-muted flex items-center gap-1.5"><span aria-hidden="true" className={`size-2 rounded-full ${online ? "bg-[var(--tint-green)]" : "bg-[var(--warn)]"}`} />{online ? (pending ? `Synchronisation · ${pending}` : "En ligne") : `Hors ligne${pending ? ` · ${pending} en attente` : ""}`}</p></div>
     </div>

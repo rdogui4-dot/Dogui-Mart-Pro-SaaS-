@@ -51,6 +51,12 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!/Total à payer\s*4\s?000 FCFA/.test(await cart().innerText())) throw new Error("panier en cours écrasé");
   });
   await step("F9 : retour → page Ventes (remboursements tracés)", async () => { await page.keyboard.press("F9"); await page.waitForURL(/\/ventes/, { timeout: 5000 }); });
+  for (const [w, hh] of [[1280, 800], [1024, 768]]) await step(`${w}×${hh} : panier long défilable jusqu'au bouton Encaisser (molette sur le panier)`, async () => {
+    await open(w, hh); for (const n of ["Riz local", "Huile", "Eau minérale"]) await tile(n).click(); await page.getByRole("button", { name: /Wave/ }).first().click().catch(() => {}); await page.waitForTimeout(400);
+    const box = await page.locator("#panier").boundingBox(); await page.mouse.move(box.x + box.width / 2, box.y + 200); await page.mouse.wheel(0, 4000); await page.waitForTimeout(400);
+    const b = await page.getByRole("button", { name: /Encaisser/ }).boundingBox(); if (!b || b.y + b.height > hh) throw new Error("bouton Encaisser hors d'atteinte : " + JSON.stringify(b));
+    await page.keyboard.press("F8"); await page.getByRole("alertdialog").getByRole("button", { name: "Vider" }).click();
+  });
   for (const [w, cols] of [[360, 2], [412, 3]]) await step(`Android ${w} px : ${cols} articles par rangée, premiers articles visibles sans défiler, barre de total sur une ligne`, async () => {
     await open(w, 800); const boxes = await page.locator("button.d3-tile").evaluateAll((els) => els.slice(0, 4).map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.left), Math.round(r.height)]; }));
     const row1 = boxes.filter((b) => b[0] === boxes[0][0]).length; if (row1 !== cols) throw new Error(`${row1} par rangée : ${JSON.stringify(boxes)}`);

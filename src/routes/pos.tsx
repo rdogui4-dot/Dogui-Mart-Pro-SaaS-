@@ -219,10 +219,10 @@ export function PosPage() {
         {smart && <Link to="/caisse" className="btn-ghost shrink-0 !min-h-11 sm:!min-h-12 !px-2.5 sm:!px-3 inline-flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm ml-auto bg-[var(--tint-violet-bg)] !border-transparent text-[var(--tint-violet)] font-semibold"><CalendarCheck size={18} aria-hidden="true" />Fin de journée</Link>}
       </nav>
       </div>
-      <div ref={panelRef} id="panier" className="flex flex-col gap-3 min-w-0 scroll-mt-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto" aria-label="Panier">
+      <div ref={panelRef} id="panier" className="flex flex-col gap-3 min-w-0 scroll-mt-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-2" aria-label="Panier">
       {cart.length === 0 && <div className="hidden lg:block card text-center text-muted py-8">Panier vide : touchez un article pour l'ajouter.</div>}
       {cart.length > 0 && (
-        <section className="card d3-flip-in flex flex-col gap-2 !p-0 overflow-hidden" aria-label="Panier de vente">
+        <section className="card d3-flip-in flex flex-col gap-2 !p-0 overflow-hidden shrink-0" aria-label="Panier de vente">
           <div className="flex items-center gap-2 px-4 py-3 bg-[var(--nav-bg)] text-[var(--nav-text)]"><h2 className="font-bold flex-1">Panier de vente <span className="font-normal text-[var(--nav-muted)]">({cart.length} article{cart.length > 1 ? "s" : ""})</span></h2><button type="button" className="icon-btn !min-h-9 !min-w-9 rounded-lg hover:bg-[var(--nav-hover)]" aria-label="Vider le panier (F8)" title="Vider le panier (F8)" onClick={() => setAskClear(true)}><Trash2 size={18} /></button></div>
           <div className="px-4 pb-4 flex flex-col gap-2">
           {priced.map((l, i) => (

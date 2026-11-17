@@ -24,8 +24,19 @@ import { FEATURES, PRO_LOCKED, planAllows } from "@/domain/features";
 import { isLow } from "@/domain/stock";
 import { SCALES, formatQty, scaleLabel, scaleOf } from "@/domain/quantity";
 import { useSubscription } from "./subscription";
+import { KpiRow, KpiTile, ModuleHeader } from "@/components/kit";
+import { Package, Coins, Tags, Bell } from "lucide-react";
 
 const SORTS: [Filters["sort"], string][] = [["name_asc", "Nom A → Z"], ["name_desc", "Nom Z → A"], ["new", "Plus récents"], ["old", "Plus anciens"]];
+/** État de stock d'un article (réel, calculé sur les niveaux connus) : rupture si ≤ 0, faible sous le seuil, sinon en stock. Article décliné : état de ses variantes. */
+type StockState = "ok" | "low" | "out";
+const STATE_LABEL: Record<StockState, string> = { ok: "En stock", low: "Stock faible", out: "Rupture" };
+const STATE_CLS: Record<StockState, string> = { ok: "bg-ok-bg text-ok", low: "bg-warn-bg text-warn", out: "bg-bad-bg text-bad" };
+function stockStateOf(p: ArticleRow, levels: Map<string, number> | undefined, variants: VariantRow[]): StockState | undefined {
+  if (!levels) return undefined;
+  if (p.hasVariants) { const vs = variants.filter((v) => v.productId === p.$id && !v.archived); if (!vs.length) return "out"; const qs = vs.map((v) => ({ q: variantQty(levels, v, scaleOf(p)), min: v.minStock ?? 0 })); if (qs.every((x) => x.q <= 0)) return "out"; return qs.some((x) => isLow(x.q, x.min)) ? "low" : "ok"; }
+  const q = qtyOf(levels, p); return q <= 0 ? "out" : isLow(q, p.minStock ?? 0) ? "low" : "ok";
+}
 const goUpgrade = () => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`);
 
 export function ArticlesPage() {
@@ -81,20 +92,24 @@ function Catalogue() {
   const activeVariants = liveVariants.filter((v) => active.some((p) => p.$id === v.productId && p.hasVariants));
   const value = simple.filter((p) => p.kind !== "bundle").reduce((a, p) => a + Math.max(qtyOf(levels, p), 0) * (p.cost ?? 0), 0) + activeVariants.reduce((a, v) => a + Math.max(variantQty(levels, v, scaleById.get(v.productId)), 0) * (v.cost ?? 0), 0);
   const alerts = simple.filter((p) => p.kind !== "bundle" && isLow(qtyOf(levels, p), p.minStock ?? 0)).length + activeVariants.filter((v) => isLow(variantQty(levels, v, scaleById.get(v.productId)), v.minStock ?? 0)).length;
-  const rows = page.data?.pages.flatMap((p) => p.rows) ?? [];
+  const [stockF, setStockF] = useState<"all" | StockState>("all");
+  const stateOf = (p: ArticleRow) => stockStateOf(p, levels, variants);
+  const stateCounts = { all: active.length, ok: 0, low: 0, out: 0 } as Record<"all" | StockState, number>; for (const p of active) { const st = stateOf(p as ArticleRow); if (st) stateCounts[st]++; }
+  const serverRows = page.data?.pages.flatMap((p) => p.rows) ?? [];
+  // Filtre d'état de stock : appliqué sur le catalogue complet déjà chargé (mêmes recherche, statut, catégorie et tri), pour ne rien manquer au-delà de la première page.
+  const rows = stockF === "all" ? serverRows : (all as ArticleRow[]).filter((p) => (f.status === "all" || (f.status === "archived") === !!p.archived) && (!f.category || p.category === f.category) && (!f.q || [p.name, p.sku, p.barcode].some((x) => String(x ?? "").toLowerCase().includes(f.q.toLowerCase()))) && stateOf(p) === stockF).sort((x, y) => f.sort === "name_desc" ? y.name.localeCompare(x.name, "fr") : f.sort === "new" ? String(y.$createdAt ?? "").localeCompare(String(x.$createdAt ?? "")) : f.sort === "old" ? String(x.$createdAt ?? "").localeCompare(String(y.$createdAt ?? "")) : x.name.localeCompare(y.name, "fr"));
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["articles"] }); void qc.invalidateQueries({ queryKey: ["articles-stats"] }); void qc.invalidateQueries({ queryKey: ["products"] }); void qc.invalidateQueries({ queryKey: ["stock"] }); };
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold">Articles</h1>
-        <button className="btn flex items-center gap-1 !px-4 !py-2" onClick={() => setForm("new")}><Plus size={18} />Ajouter un article</button>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <div className="kpi"><b>{stats.data ? active.length : "…"}</b><span>Actifs</span></div>
-        <div className="kpi"><b className={alerts ? "text-bad" : ""}>{stats.data ? alerts : "…"}</b><span>Alertes</span></div>
-        <div className="kpi"><b className="!text-base">{stats.data ? formatFcfa(value) : "…"}</b><span>Valeur stock</span></div>
-      </div>
+      <ModuleHeader icon={Package} title="Articles & Catalogue" subtitle="Gérez votre catalogue : prix, photos, stock et fiches articles." actions={<button className="btn-gold" onClick={() => setForm("new")}><Plus size={18} aria-hidden="true" />Ajouter un article</button>} />
+      <KpiRow cols={4}>
+        <KpiTile icon={Package} tint="blue" label="Articles actifs" value={stats.data ? String(active.length) : "…"} sub="Hors bundles et archivés" loading={!stats.data} />
+        <KpiTile icon={Coins} tint="amber" label="Valeur du stock" value={stats.data ? formatFcfa(value) : "…"} sub="Au prix d'achat renseigné" loading={!stats.data} />
+        <KpiTile icon={Tags} tint="green" label="Catégories" value={stats.data ? String(categories.length) : "…"} sub="Utilisées dans le catalogue" loading={!stats.data} />
+        <KpiTile icon={Bell} tint="rose" label="Alertes de stock" value={stats.data ? String(alerts) : "…"} sub="Sous le seuil ou en rupture" loading={!stats.data} />
+      </KpiRow>
+      <nav aria-label="État du stock" className="scroll-x !gap-2">{(["all", "ok", "low", "out"] as const).map((k) => { const on = stockF === k; const n = k === "all" ? stateCounts.all : stateCounts[k]; return <button key={k} type="button" aria-current={on} onClick={() => setStockF(k)} className={`shrink-0 inline-flex items-center gap-2 rounded-xl border px-4 min-h-11 text-sm font-semibold transition ${on ? "bg-accent text-accent-ink border-accent shadow-[var(--shadow-card)]" : "bg-surface border-line hover:bg-subtle"}`}>{k !== "all" && <span aria-hidden="true" className={`size-2.5 rounded-full ${k === "ok" ? "bg-[var(--ok)]" : k === "low" ? "bg-[var(--warn)]" : "bg-[var(--bad)]"}`} />}{k === "all" ? "Tous" : STATE_LABEL[k]} <span className={on ? "opacity-90" : "text-soft font-normal"}>({stats.data ? n : "…"})</span></button>; })}</nav>
       <div className="flex gap-2">
         <label className="relative flex-1"><Search size={18} className="absolute left-3 top-3.5 text-muted" />
           <input className="input !pl-10" type="search" aria-label="Rechercher" placeholder="Rechercher un article" value={qInput} onChange={(e) => setQInput(e.target.value)} /></label>
@@ -134,7 +149,7 @@ function Catalogue() {
                   <td className="py-2 px-3 text-soft">{a.category || "—"}</td>
                   <td className="py-2 px-3 text-right font-semibold tabular-nums text-accent-text">{formatFcfa(a.price)}</td>
                   <td className="py-2 px-3 text-right tabular-nums">{a.hasVariants ? <span className="text-muted">Par variante</span> : qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</td>
-                  <td className="py-2 px-3">{a.archived ? <span className="text-xs rounded-full px-2 py-0.5 bg-warn-bg text-warn">Archivé</span> : low ? <span className="text-xs rounded-full px-2 py-0.5 bg-bad-bg text-bad">Stock bas</span> : <span className="text-xs rounded-full px-2 py-0.5 bg-ok-bg text-ok">En stock</span>}</td>
+                  <td className="py-2 px-3">{a.archived ? <span className="text-xs rounded-full px-2 py-0.5 bg-warn-bg text-warn">Archivé</span> : stateOf(a) === "out" ? <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-bad-bg text-bad">Rupture</span> : low ? <span className="text-xs rounded-full px-2 py-0.5 bg-bad-bg text-bad">Stock bas</span> : <span className="text-xs rounded-full px-2 py-0.5 bg-ok-bg text-ok">En stock</span>}</td>
                 </tr>
               );
             })}</tbody>
@@ -142,9 +157,9 @@ function Catalogue() {
         </div>
       )}
       <ul className={`${wide && !grid ? "hidden" : ""} ${grid ? "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2" : "flex flex-col gap-2"}`}>
-        {rows.map((a) => <ArticleCard key={a.$id} a={a} nVariants={a.hasVariants ? liveVariants.filter((v) => v.productId === a.$id).length : 0} qty={levels ? qtyOf(levels, a) : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
+        {rows.map((a) => <ArticleCard key={a.$id} state={stateOf(a)} a={a} nVariants={a.hasVariants ? liveVariants.filter((v) => v.productId === a.$id).length : 0} qty={levels ? qtyOf(levels, a) : undefined} grid={grid} onOpen={() => setDetail(a)} />)}
       </ul>
-      {page.hasNextPage && <button className="btn-ghost" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>{page.isFetchingNextPage ? "Chargement…" : "Voir plus d'articles"}</button>}
+      {stockF === "all" && page.hasNextPage && <button className="btn-ghost" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>{page.isFetchingNextPage ? "Chargement…" : "Voir plus d'articles"}</button>}
       {proProfit && <button className="btn-ghost" onClick={() => setProfitOpen(true)}>Rentabilité par article et catégorie</button>}
       {!pro && <ProLocks />}
       {profitOpen && <ProfitSheet onClose={() => setProfitOpen(false)} />}
@@ -156,16 +171,16 @@ function Catalogue() {
   );
 }
 
-function ArticleCard({ a, qty, grid, nVariants, onOpen }: { a: ArticleRow; qty?: number; grid: boolean; nVariants: number; onOpen: () => void }) {
+function ArticleCard({ a, qty, grid, nVariants, onOpen, state }: { a: ArticleRow; qty?: number; grid: boolean; nVariants: number; onOpen: () => void; state?: StockState }) {
   const low = qty !== undefined && isLow(qty, a.minStock ?? 0);
   return (
     <li>
       <button onClick={onOpen} className={`tile w-full text-left ${grid ? "" : "!flex-row items-center gap-3"} ${a.archived ? "opacity-60" : ""}`}>
-        <Thumb id={a.imageFileId} size={grid ? 96 : 56} className={grid ? "self-center" : ""} />
+        {grid ? <span className="relative flex justify-center rounded-lg bg-subtle py-2">{state && !a.archived && <span className={`absolute top-1.5 left-1.5 text-[0.6875rem] font-semibold rounded-md px-1.5 py-0.5 ${STATE_CLS[state]}`}>{STATE_LABEL[state]}</span>}<Thumb id={a.imageFileId} size={96} /></span> : <Thumb id={a.imageFileId} size={56} />}
         <div className="min-w-0 flex-1">
           <div className="font-semibold truncate">{a.name}</div>
           <div className="text-xs text-muted truncate">{[a.sku, a.category, nVariants ? `${nVariants} variante${nVariants > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</div>
-          <div className="flex items-center justify-between mt-1"><span className="text-accent-text font-bold">{formatFcfa(a.price)}</span>
+          <div className="flex items-center justify-between mt-1"><span className="text-brand font-bold">{formatFcfa(a.price)}</span>
             <span className={`text-xs rounded-full px-2 py-0.5 ${low ? "bg-bad-bg text-bad" : "bg-subtle text-soft"}`}>{qty === undefined ? "…" : `${formatQty(qty)} ${unitLabel(a.unit).toLowerCase()}`}</span></div>
           {a.archived && <span className="text-xs text-warn">Archivé</span>}
         </div>
@@ -217,6 +232,8 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
     onError: (e) => { setAsk(null); setErr((e as Error).message); },
   });
   const canDelete = s.role === "owner" || s.role === "manager";
+  // Ouverture réactive : l'identité de l'article s'affiche tout de suite, les blocs lourds (mouvements, historique, tarifs, variantes…) juste après.
+  const [ready, setReady] = useState(false); useEffect(() => { const id = requestAnimationFrame(() => setTimeout(() => setReady(true), 0)); return () => cancelAnimationFrame(id); }, []);
   const row = (k: string, v: ReactNode) => <div className="flex justify-between gap-3 text-sm py-1.5 border-b border-[var(--line)]"><span className="text-muted">{k}</span><span className="text-right">{v || "—"}</span></div>;
   return (
     <Sheet title={a.name} onClose={onClose} back size="panel">
@@ -231,6 +248,8 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
       </div>
       {loss && !a.hasVariants && <p className="flex gap-2 text-sm text-warn"><AlertTriangle size={18} />Le prix de vente est inférieur au prix d'achat : chaque vente se fait à perte.</p>}
       {a.description && <div className="card text-sm whitespace-pre-line">{a.description}</div>}
+      {!ready && <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" aria-label="Chargement des détails" />}
+      {ready && <>
       {can(s, "stock") && <MovementsBlock productId={a.$id} />}
       {can(s, "purchases") && <ClaimsBlock productId={a.$id} />}
       <div className="card"><h3 className="font-semibold mb-1">Historique des prix</h3>
@@ -264,6 +283,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
           {!pro && <p className="text-xs text-warn mt-2">Conditionnements désactivés (formule Business) : vos données sont conservées, la vente se fait en {unitLabel(a.unit).toLowerCase()}.</p>}
         </div>
       )}
+      </>}
       {err && <p className="text-bad text-sm">{err}</p>}
       <div className="grid grid-cols-2 gap-2">
         <button className="btn flex items-center justify-center gap-2" onClick={onEdit}><Pencil size={18} />Modifier</button>

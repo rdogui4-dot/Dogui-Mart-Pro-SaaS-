@@ -26,7 +26,7 @@ export type Delta = { text: string; dir: "up" | "down"; good: boolean };
 export function KpiTile({ icon: I, tint = "blue", label, value, sub, delta, loading }: { icon: LucideIcon; tint?: Tint; label: string; value: ReactNode; sub?: ReactNode; delta?: Delta; loading?: boolean }) {
   return (
     <div className="card !p-3 sm:!p-3.5 flex items-center gap-2.5 sm:gap-3 min-w-0" role="group" aria-label={label}>
-      <span className={`shrink-0 size-9 sm:size-11 rounded-full flex items-center justify-center ${TINT[tint]}`} aria-hidden="true"><I size={20} /></span>
+      <span className={`shrink-0 size-9 sm:size-11 rounded-full max-[399px]:hidden flex items-center justify-center ${TINT[tint]}`} aria-hidden="true"><I size={20} /></span>
       <div className="min-w-0">
         <p className="text-[0.8125rem] leading-4 text-soft line-clamp-2">{label}</p>
         {loading ? <span className="block h-6 w-24 mt-1 rounded bg-subtle animate-pulse" aria-busy="true" /> : <p className="text-base sm:text-lg 2xl:text-xl font-bold leading-6 sm:leading-7 text-brand whitespace-nowrap">{value}</p>}
