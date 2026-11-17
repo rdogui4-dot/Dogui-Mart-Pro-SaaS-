@@ -1,5 +1,5 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Home, LogOut, MoreHorizontal, WifiOff, type LucideIcon } from "lucide-react";
+import { Home, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, WifiOff, type LucideIcon } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
 import { useSession } from "@/lib/session";
 import { SPACES, itemsOf, matchesItem, spaceOfPath, type NavItem } from "@/lib/nav";
@@ -9,6 +9,8 @@ import { LogoMark, MarkInline, Wordmark } from "./Logo";
 import { MasterModalCtx, type MasterTab } from "@/lib/master-modal";
 import { MasterWindow } from "@/routes/master";
 import { ItemLink } from "./ItemLink";
+import { Breadcrumb, HelpButton, SearchButton } from "./Shell";
+import { usePersistedState } from "@/lib/prefs";
 import { can } from "@/lib/session";
 import { Notice } from "./ui";
 import { clearVerifyResult, sendVerification, shouldAskVerification, takeVerifyResult } from "@/lib/verify";
@@ -45,18 +47,25 @@ function LayoutInner() {
   const plan = sub.data?.entitlement.plan.id;
   const shopName = session?.shops.find((x) => x.id === session.shopId)?.name ?? "Dogui Mart Pro";
   const current = spaceOfPath(path);
+  const [navPref, setNavPref] = usePersistedState(`dmp.pref.${session?.tenantId ?? "x"}.nav`, { collapsed: false }); const collapsed = navPref.collapsed;
   return (
     <div className="h-full flex flex-col md:flex-row pt-[env(safe-area-inset-top)]">
-      {wide && <aside aria-label="Espaces" className="flex flex-col w-60 shrink-0 bg-nav text-nav-text overflow-y-auto">
-        <Link to="/accueil" className="flex items-center gap-2.5 px-4 py-3.5 border-b border-nav-line text-white"><MarkInline size={26} /><Wordmark size={15} /><span className="sr-only">Accueil</span></Link>
-        <nav aria-label="Navigation principale" className="flex flex-col gap-3 p-3">
-          <SideLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
-          {SPACES.map((sp) => { const its = itemsOf(sp, session, plan); if (!its.length) return null; return (
-            <div key={sp.id} className="flex flex-col gap-0.5">
-              <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-nav-muted">{sp.label}</p>
-              {its.map((it) => <SideLink key={it.to} item={it} label={it.label} active={matchesItem(it, path)} />)}
-            </div>); })}
-        </nav>
+      {wide && <aside aria-label="Espaces" className={`flex flex-col shrink-0 bg-nav text-nav-text overflow-y-auto ${collapsed ? "w-16" : "w-60"}`}>
+        <Link to="/accueil" className={`flex items-center gap-2.5 py-3.5 border-b border-nav-line text-white ${collapsed ? "justify-center px-2" : "px-4"}`}><MarkInline size={26} />{!collapsed && <Wordmark size={15} />}<span className="sr-only">Accueil</span></Link>
+        {collapsed
+          ? <nav aria-label="Navigation principale" className="flex flex-col items-center gap-1 p-2">
+              <RailLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
+              {SPACES.map((sp) => itemsOf(sp, session, plan).length ? <RailLink key={sp.id} to={`/espace/${sp.id}`} label={sp.label} icon={sp.icon} active={current?.id === sp.id || path === `/espace/${sp.id}`} /> : null)}
+            </nav>
+          : <nav aria-label="Navigation principale" className="flex flex-col gap-3 p-3">
+              <SideLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
+              {SPACES.map((sp) => { const its = itemsOf(sp, session, plan); if (!its.length) return null; return (
+                <div key={sp.id} className="flex flex-col gap-0.5">
+                  <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-nav-muted">{sp.label}</p>
+                  {its.map((it) => <SideLink key={it.to} item={it} label={it.label} active={matchesItem(it, path)} />)}
+                </div>); })}
+            </nav>}
+        <button type="button" className={`mt-auto flex items-center gap-2 border-t border-nav-line text-nav-muted hover:text-white hover:bg-nav-hover text-sm min-h-11 ${collapsed ? "justify-center" : "px-4"}`} aria-expanded={!collapsed} aria-label={collapsed ? "Déplier le menu" : "Replier le menu"} onClick={() => setNavPref({ collapsed: !collapsed })}>{collapsed ? <PanelLeftOpen size={18} /> : <><PanelLeftClose size={18} />Replier le menu</>}</button>
       </aside>}
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="flex items-center gap-3 px-4 py-2 border-b border-line bg-surface">
@@ -65,8 +74,10 @@ function LayoutInner() {
             {session && session.shops.length > 1
               ? <select aria-label="Boutique" className="bg-transparent font-semibold w-full max-w-xs outline-none truncate" value={session.shopId} onChange={(e) => switchShop(e.target.value)}>{session.shops.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
               : <span className="font-semibold truncate block">{shopName}</span>}
-            {wide && current && <span className="block text-xs text-muted">{current.label}</span>}
+            {wide && <Breadcrumb path={path} session={session} plan={plan} />}
           </div>
+          {session && <SearchButton session={session} plan={plan} />}
+          <HelpButton />
           {can(session, "settings") && <MasterButton />}
           {rejected > 0 && <Link to="/plus" className="text-xs rounded-full bg-bad-bg text-bad border border-bad/40 px-3 py-1">{rejected} vente{rejected > 1 ? "s" : ""} à vérifier</Link>}
           {(!online || pending > 0) && <span className="flex items-center gap-1 text-xs rounded-full bg-warn-bg text-warn border border-warn/40 px-3 py-1">{!online && <WifiOff size={14} />}{online ? "Synchronisation" : "Hors ligne"} · {pending}</span>}
@@ -105,6 +116,10 @@ const PHONE_SPACES = ["vendre", "stock", "piloter"];
 function NavLink({ to, label, icon: I, active, disabled }: { to: string; label: string; icon: LucideIcon; active: boolean; disabled?: boolean }) {
   if (disabled) return <span role="link" aria-disabled="true" title="Aucun accès à cet espace avec votre profil" className="flex flex-col items-center gap-0.5 py-2 text-xs text-muted opacity-50"><I size={22} />{label}</span>;
   return <Link to={to} aria-current={active ? "page" : undefined} className={`flex flex-col items-center gap-0.5 py-2 text-xs ${active ? "text-accent-text font-semibold" : "text-muted"}`}><I size={22} />{label}</Link>;
+}
+
+function RailLink({ to, label, icon: I, active }: { to: string; label: string; icon: LucideIcon; active: boolean }) {
+  return <Link to={to} aria-label={label} title={label} aria-current={active ? "page" : undefined} className={`flex items-center justify-center rounded-lg w-11 h-11 ${active ? "bg-nav-active text-white" : "text-nav-text hover:bg-nav-hover"}`}><I size={20} /></Link>;
 }
 
 function SideLink({ to, item, label, icon: I, active }: { to?: string; item?: NavItem; label: string; icon?: LucideIcon; active: boolean }) {

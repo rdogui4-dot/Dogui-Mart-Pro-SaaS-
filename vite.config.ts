@@ -9,6 +9,7 @@ if (!/^\/([A-Za-z0-9._~-]+\/)*$/.test(base)) throw new Error(`VITE_BASE_PATH inv
 
 export default defineConfig({
   base,
+  define: { __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)) },
   plugins: [react(), tailwind()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   test: { environment: "node", setupFiles: ["functions/dmp-api/src/test-setup.ts"], include: ["src/**/*.test.ts", "functions/**/*.test.ts"] },
