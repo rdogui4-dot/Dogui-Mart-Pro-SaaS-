@@ -1,5 +1,7 @@
 import "@fontsource-variable/inter";
 import "./index.css";
+import { apply as applyFx3d } from "@/lib/fx3d";
+applyFx3d();
 import { StrictMode, Suspense, lazy, type ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

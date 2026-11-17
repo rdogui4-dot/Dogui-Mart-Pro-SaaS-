@@ -85,3 +85,24 @@ aside[aria-label="Espaces"] :focus-visible { outline-color: #ffffff; } /* anneau
   tr { break-inside: avoid; }
   .page-in, .fade-in, .pop-in, .sheet-in { animation: none !important; }
 }
+
+/* ---- 3D motion (sobre) : profondeur fonctionnelle. Jamais de transform sur un parent d'élément fixe : la 3D s'applique aux cartes elles-mêmes. Niveaux pilotés par <html data-fx3d="full|lite|flat">. */
+:root { --d3-persp: 900px; --d3-lift: 6px; --d3-dur: 260ms; --d3-shadow: 0 1px 2px rgba(16,36,58,.06), 0 6px 16px -6px rgba(16,36,58,.18); --d3-shadow-hi: 0 2px 4px rgba(16,36,58,.08), 0 14px 28px -10px rgba(16,36,58,.28); }
+[data-theme="dark"] { --d3-shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 16px -6px rgba(0,0,0,.6); --d3-shadow-hi: 0 2px 4px rgba(0,0,0,.45), 0 14px 28px -10px rgba(0,0,0,.75); }
+.d3-card { box-shadow: var(--d3-shadow); transform: perspective(var(--d3-persp)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform var(--d3-dur) var(--ease-out), box-shadow var(--d3-dur) var(--ease-out); }
+[data-fx3d="full"] .d3-card:hover, [data-fx3d="full"] .d3-card:focus-within { box-shadow: var(--d3-shadow-hi); transform: perspective(var(--d3-persp)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(calc(var(--d3-lift) * -1)); }
+[data-fx3d="lite"] .d3-card:active { transform: perspective(var(--d3-persp)) translateY(1px) scale(.99); }
+[data-fx3d="flat"] .d3-card { transform: none !important; transition: box-shadow var(--d3-dur); }
+/* Carte retournable : recto (valeur) / verso (définition, période, source). Plat : bascule sans rotation. */
+.d3-flip { perspective: var(--d3-persp); }
+.d3-flip-inner { position: relative; display: grid; transform-style: preserve-3d; transition: transform 420ms var(--ease-in-out); }
+.d3-flip-inner > * { grid-area: 1 / 1; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.d3-flip-back { transform: rotateY(180deg); }
+.d3-flip[data-flipped="true"] .d3-flip-inner { transform: rotateY(180deg); }
+[data-fx3d="flat"] .d3-flip-inner { transform: none !important; transition: none; }
+[data-fx3d="flat"] .d3-flip-inner > * { backface-visibility: visible; transform: none; }
+[data-fx3d="flat"] .d3-flip[data-flipped="true"] .d3-flip-front, [data-fx3d="flat"] .d3-flip:not([data-flipped="true"]) .d3-flip-back { visibility: hidden; }
+/* Apparition en profondeur (cascade 40 ms), seulement à l'entrée ; aucun transform résiduel. */
+@keyframes d3-in { from { opacity: 0; transform: perspective(var(--d3-persp)) translateY(10px) rotateX(8deg); } to { opacity: 1; transform: perspective(var(--d3-persp)); } }
+[data-fx3d="full"] .d3-in, [data-fx3d="lite"] .d3-in { animation: d3-in var(--d3-dur) var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 40ms); }
+@media (prefers-reduced-motion: reduce) { .d3-card, .d3-flip-inner { transition: none !important; transform: none !important; } }

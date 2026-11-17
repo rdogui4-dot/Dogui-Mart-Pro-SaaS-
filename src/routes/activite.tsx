@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Boxes, ClipboardList, Lock, Plus, Receipt, RefreshCw, ScanLine, Tags, WifiOff, FileBarChart } from "lucide-react";
+import { Info, RotateCcw, AlertTriangle, Boxes, ClipboardList, Lock, Plus, Receipt, RefreshCw, ScanLine, Tags, WifiOff, FileBarChart } from "lucide-react";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Sheet } from "@/components/ui";
 import { BarChart, Donut, HBars, LineChart } from "@/components/charts";
+import { hasWebGL, tiltHandlers, useFxLevel } from "@/lib/fx3d";
+import { lazy, Suspense, useMemo } from "react";
+const Chart3D = lazy(() => import("@/components/Chart3D"));
 import { planAllows } from "@/domain/features";
 import { formatFcfa } from "@/domain/money";
 import { PRESETS, type PresetId } from "@/domain/overview";
@@ -29,9 +32,18 @@ const dd = (day: string) => `${day.slice(8)}/${day.slice(5, 7)}`;
 const TONE = { critical: "border-bad/40 text-bad", warning: "border-warn/40 text-warn", info: "border-info/30 text-info" } as const;
 
 function Skeleton() { return <div className="grid grid-cols-2 gap-2" aria-busy="true" aria-label="Chargement">{Array.from({ length: 8 }, (_, i) => <div key={i} className="card h-20 animate-pulse bg-subtle" />)}</div>; }
-function Kpi({ label, value, sub, to, tone }: { label: string; value: string; sub: string; to?: string; tone?: string }) {
-  const inner = <><div className="text-muted text-xs">{label}</div><div className={`font-semibold text-lg leading-tight ${tone ?? ""}`}>{value}</div><div className="text-xs text-muted leading-snug">{sub}</div></>;
-  return to ? <Link to={to} className="card block">{inner}</Link> : <div className="card">{inner}</div>;
+function Kpi({ label, value, sub, to, tone, def, i = 0 }: { label: string; value: string; sub: string; to?: string; tone?: string; def?: string; i?: number }) {
+  const [flip, setFlip] = useState(false);
+  const front = <><div className="text-muted text-xs pr-8">{label}</div><div className={`font-semibold text-lg leading-tight ${tone ?? ""}`}>{value}</div><div className="text-xs text-muted leading-snug">{sub}</div></>;
+  return (
+    <div className="d3-flip d3-in relative" style={{ ["--i" as string]: i }} data-flipped={flip} {...tiltHandlers(3)}>
+      <div className="d3-flip-inner">
+        <div className="d3-flip-front" aria-hidden={flip}>{to ? <Link to={to} className="card d3-card block h-full" tabIndex={flip ? -1 : undefined}>{front}</Link> : <div className="card d3-card h-full">{front}</div>}</div>
+        {def && <div className="d3-flip-back card d3-card h-full flex flex-col gap-1" aria-hidden={!flip}><div className="text-xs font-semibold pr-8">{label} : définition</div><p className="text-xs text-soft leading-snug">{def}</p><p className="text-[0.7rem] text-muted mt-auto">Source : opérations enregistrées dans l'application.</p></div>}
+      </div>
+      {def && <button type="button" className="absolute top-1.5 right-1.5 z-10 rounded-full p-1.5 text-muted hover:text-main hover:bg-subtle" aria-label={flip ? `Revenir à la valeur : ${label}` : `Définition : ${label}`} aria-pressed={flip} onClick={() => setFlip(!flip)}>{flip ? <RotateCcw size={15} /> : <Info size={15} />}</button>}
+    </div>
+  );
 }
 /** Dépenses validées de la période (module Dépenses) : affiché seulement si l'abonnement et les droits le permettent ; jamais mélangé au chiffre d'affaires ni à la marge. */
 function ExpenseKpi({ from, to, label }: { from: string; to: string; label: string }) {
@@ -47,6 +59,8 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
   const [preset, setPreset] = useState<PresetId>("last30"); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [shop, setShop] = useState(s.shopId); const [tab, setTab] = useState<"sales" | "purchases" | "moves" | "created" | "important">("sales"); const [open, setOpen] = useState<string | null>(null);
   const custom = preset === "custom"; const ready = !custom || (!!from && !!to && from <= to);
   const q = useQuery({ queryKey: ["overview", s.shopId, preset, custom ? from : "", custom ? to : "", shop], enabled: allowed && ready, placeholderData: keepPreviousData, retry: 1, queryFn: () => api<Overview>(s, "dashboard.business", { preset, ...(custom ? { from, to } : {}), shopId: shop }) });
+  const fx = useFxLevel(); const use3d = fx !== "flat" && hasWebGL();
+  const last7 = useMemo(() => (q.data?.charts.last7 ?? []).map((x) => ({ key: x.date, label: dd(x.date), value: x.revenue, sub: `${x.count} vente(s)` })), [q.data]);
   if (!allowed) return (
     <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Tableau de bord</h1>
       <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Chiffre d'affaires, marge, stock, graphiques et alertes sur vos données réelles.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>
@@ -69,16 +83,16 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
       {d && k && per && <>
         {d.truncated.sales && <div className="card text-sm text-warn flex gap-2"><AlertTriangle size={16} />Volume de ventes très élevé : certaines ventes de la période n'ont pas été lues, les totaux peuvent être partiels.</div>}
         <section aria-label="Indicateurs" className={`grid grid-cols-2 gap-2 ${q.isFetching ? "opacity-70" : ""}`}>
-          <Kpi label="CA du jour" value={formatFcfa(k.today.revenue)} sub={`${dd(d.today)} · ventes terminées TTC`} />
-          <Kpi label="CA du mois" value={formatFcfa(k.month.revenue)} sub={`${dd(k.month.from)} → ${dd(k.month.to)} · ventes terminées TTC`} />
-          <Kpi label="Ventes réalisées" value={String(per.count)} sub={`${periodTxt} · tickets terminés`} />
-          <Kpi label="Panier moyen" value={formatFcfa(per.avgBasket)} sub={`${periodTxt} · CA ÷ ventes`} />
-          <Kpi label="Encaissé" value={formatFcfa(per.encaisse)} sub={`${periodTxt} · hors crédit, monnaie exclue`} />
-          <Kpi label="Remboursements" value={formatFcfa(per.refunds.amount)} sub={`${periodTxt} · ${per.refunds.count} opération(s) · CA net ${formatFcfa(per.revenue - per.refunds.amount)}`} tone={per.refunds.amount ? "text-warn" : ""} />
-          <Kpi label="Vendu à crédit" value={formatFcfa(per.credit)} sub={`${periodTxt} · non encaissé`} tone={per.credit ? "text-warn" : ""} />
+          <Kpi i={0} def={d.notes[0]} label="CA du jour" value={formatFcfa(k.today.revenue)} sub={`${dd(d.today)} · ventes terminées TTC`} />
+          <Kpi i={1} def={d.notes[0]} label="CA du mois" value={formatFcfa(k.month.revenue)} sub={`${dd(k.month.from)} → ${dd(k.month.to)} · ventes terminées TTC`} />
+          <Kpi i={2} label="Ventes réalisées" value={String(per.count)} sub={`${periodTxt} · tickets terminés`} />
+          <Kpi i={3} label="Panier moyen" value={formatFcfa(per.avgBasket)} sub={`${periodTxt} · CA ÷ ventes`} />
+          <Kpi i={4} def={d.notes[1]} label="Encaissé" value={formatFcfa(per.encaisse)} sub={`${periodTxt} · hors crédit, monnaie exclue`} />
+          <Kpi i={5} def={d.notes[2]} label="Remboursements" value={formatFcfa(per.refunds.amount)} sub={`${periodTxt} · ${per.refunds.count} opération(s) · CA net ${formatFcfa(per.revenue - per.refunds.amount)}`} tone={per.refunds.amount ? "text-warn" : ""} />
+          <Kpi i={6} def={d.notes[1]} label="Vendu à crédit" value={formatFcfa(per.credit)} sub={`${periodTxt} · non encaissé`} tone={per.credit ? "text-warn" : ""} />
           <ExpenseKpi from={d.period.from} to={d.period.to} label={periodTxt} />
-          <Kpi label="Achats enregistrés" value={formatFcfa(per.purchases)} sub={`${periodTxt} · HT, factures fournisseurs`} to="/achats" />
-          <Kpi label="Marge brute" value={per.margin.known ? formatFcfa(per.margin.amount!) : "Non calculable"} sub={per.margin.known ? `${periodTxt} · ${per.margin.pct} % du CA HT − coût de revient` : per.count ? `Coût manquant sur ${per.margin.linesWithoutCost} ligne(s) (${per.margin.coveragePct} % du CA couvert)` : `${periodTxt} · aucune vente`} />
+          <Kpi i={8} label="Achats enregistrés" value={formatFcfa(per.purchases)} sub={`${periodTxt} · HT, factures fournisseurs`} to="/achats" />
+          <Kpi i={9} def={d.notes[4]} label="Marge brute" value={per.margin.known ? formatFcfa(per.margin.amount!) : "Non calculable"} sub={per.margin.known ? `${periodTxt} · ${per.margin.pct} % du CA HT − coût de revient` : per.count ? `Coût manquant sur ${per.margin.linesWithoutCost} ligne(s) (${per.margin.coveragePct} % du CA couvert)` : `${periodTxt} · aucune vente`} />
           <Kpi label="Articles actifs" value={String(k.stock.articles)} sub="À l'instant · non archivés" to="/articles" />
           <Kpi label="Valeur du stock" value={k.stock.value === null ? "Non calculée" : formatFcfa(k.stock.value)} sub={k.stock.partial ? "Historique trop volumineux" : `À l'instant · ${k.stock.methodLabel}`} to="/stock" />
           <Kpi label="Stock faible" value={k.stock.low === null ? "—" : String(k.stock.low)} sub="Sous le seuil d'alerte" to="/stock" tone={k.stock.low ? "text-warn" : ""} />
@@ -87,7 +101,7 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
         <section aria-label="Alertes" className="flex flex-col gap-2"><h2 className="font-semibold text-sm">Alertes</h2>
           {!d.alerts.length && <p className="card text-sm text-ok">Aucune alerte : aucun événement à signaler.</p>}
           {d.alerts.map((a) => <Link key={a.id} to={a.link} className={`card border ${TONE[a.severity]} flex gap-2 items-start`}><AlertTriangle size={16} className="shrink-0 mt-0.5" /><span className="text-sm min-w-0"><b>{a.label}</b><span className="block text-xs text-muted break-words">{a.detail}</span></span></Link>)}</section>
-        <Section title={`Évolution du CA — 7 derniers jours`}><BarChart label="Chiffre d'affaires des 7 derniers jours" data={d.charts.last7.map((x) => ({ key: x.date, label: dd(x.date), value: x.revenue, sub: `${x.count} vente(s)` }))} /></Section>
+        <Section title={`Évolution du CA — 7 derniers jours`}>{use3d ? <Suspense fallback={<BarChart label="Chiffre d'affaires des 7 derniers jours" data={last7} />}><Chart3D label="Chiffre d'affaires des 7 derniers jours (vue 3D)" data={last7} format={formatFcfa} /></Suspense> : <BarChart label="Chiffre d'affaires des 7 derniers jours" data={last7} />}</Section>
         <Section title={`Évolution du CA — ${d.period.label} (${periodTxt})`} empty={per.count ? undefined : "Aucune vente sur la période."}><LineChart label="Chiffre d'affaires de la période" data={d.charts.series.map((x) => ({ key: x.date, label: dd(x.date), value: x.revenue, sub: `${x.count} vente(s)` }))} /></Section>
         <Section title={`Modes de paiement — ${periodTxt}`} empty={d.charts.byMethod.length ? undefined : "Aucun paiement sur la période."}><Donut label="Répartition par mode de paiement" data={d.charts.byMethod.map((x) => ({ key: x.method, label: METHOD[x.method] ?? x.method, value: x.amount }))} /></Section>
         <Section title={`Top 5 articles — ${periodTxt}`} empty={d.charts.top.length ? undefined : "Aucun article vendu sur la période."}><HBars data={d.charts.top.map((x) => ({ key: x.key, label: x.name, value: x.revenue, sub: `${x.qty} vendu(s)` }))} /></Section>

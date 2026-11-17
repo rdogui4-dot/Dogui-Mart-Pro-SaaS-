@@ -1,0 +1,47 @@
+/** 3D motion (lots 3D-0 et 3D-1) : graphique 3D WebGL chargé à la demande sur le tableau de bord, cartes KPI retournables (définition officielle), replis plats (mouvement réduit, préférence), aucun chargement de three.js ailleurs, mesures. Lancement : bash e2e/run.sh fx3d */
+const path = require("path"), fs = require("fs");
+const { start } = require("./harness.cjs");
+const OUT = path.join(__dirname, "out"); fs.mkdirSync(OUT, { recursive: true });
+const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { try { await globalThis.__page.screenshot({ path: path.join(OUT, "fx-echec-" + name.slice(0, 12).replace(/[^a-z]/gi, "_") + ".png") }); } catch {} console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 3).join(" | ").slice(0, 500)); } };
+(async () => {
+  const h = await start({ plan: "pro", expect: [] }); const { page } = h; globalThis.__page = page; const A = h.shop;
+  const p1 = (await h.call("article.save", { data: { name: "Riz", price: 1000, cost: 600 }, initialQty: 500 }, A)).body.data.id;
+  const ago = (d) => new Date(Date.now() - d * 864e5).toISOString(); let n = 0;
+  for (const [d, q] of [[0, 3], [1, 5], [2, 2], [3, 7], [5, 4], [6, 6]]) await h.call("checkout", { clientId: "fx" + (++n) + Math.random().toString(36).slice(2, 8), lines: [{ productId: p1, qty: q }], payments: [{ method: "cash", amount: q * 1000 }], soldAt: ago(d) }, A);
+  const three = []; page.on("request", (r) => { if (/Chart3D|three/i.test(r.url())) three.push(r.url()); });
+  const dash = async (w = 1280, hh = 900) => { await page.setViewportSize({ width: w, height: hh }); await page.goto(h.url("activite")); await page.waitForSelector("text=CA du jour", { timeout: 15000 }); await page.waitForTimeout(1800); };
+
+  await step("accueil : three.js n'est pas chargé hors du tableau de bord", async () => { await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("accueil")); await page.waitForTimeout(2000); if (three.length) throw new Error("chargé : " + three[0]); });
+  await step("ordinateur : niveau 3D complet, graphique WebGL des 7 derniers jours avec valeurs lisibles en texte", async () => {
+    await dash(); const lvl = await page.evaluate(() => document.documentElement.dataset.fx3d); if (lvl !== "full") throw new Error("niveau " + lvl);
+    await page.waitForSelector("[data-chart3d] canvas", { timeout: 8000 }); const fig = await page.getByRole("figure", { name: /vue 3D/ }).innerText(); if (!/7\s?000/.test(fig)) throw new Error("valeurs absentes : " + fig.slice(0, 200));
+    await page.locator("[data-chart3d]").scrollIntoViewIfNeeded(); await page.waitForTimeout(900); await page.screenshot({ path: path.join(OUT, "fx-dashboard-1280.png") });
+    await page.locator("[data-chart3d]").screenshot({ path: path.join(OUT, "fx-chart3d.png") });
+  });
+  await step("carte KPI : retournement vers la définition officielle, puis retour ; accessible (aria-pressed, face cachée masquée)", async () => {
+    await dash(); const b = page.getByRole("button", { name: "Définition : CA du jour" }); await b.click(); await page.waitForTimeout(600);
+    const card = page.locator(".d3-flip").first(); // CA du jour : première carte if ((await card.getAttribute("data-flipped")) !== "true") throw new Error("non retourné");
+    const back = await card.locator(".d3-flip-back").innerText(); if (!/ventes terminées \(TTC\)/.test(back)) throw new Error("définition : " + back);
+    if ((await card.locator(".d3-flip-front").getAttribute("aria-hidden")) !== "true") throw new Error("recto non masqué");
+    await page.screenshot({ path: path.join(OUT, "fx-kpi-flip.png"), clip: { x: 0, y: 0, width: 1280, height: 600 } });
+    await page.getByRole("button", { name: "Revenir à la valeur : CA du jour" }).click(); await page.waitForTimeout(500); if ((await card.getAttribute("data-flipped")) !== "false") throw new Error("pas revenu");
+  });
+  await step("mouvement réduit : affichage plat, graphique 2D, aucun canvas 3D, retournement sans rotation", async () => {
+    await page.emulateMedia({ reducedMotion: "reduce" }); await dash(); if ((await page.evaluate(() => document.documentElement.dataset.fx3d)) !== "flat") throw new Error("pas plat");
+    if (await page.locator("[data-chart3d]").count()) throw new Error("canvas 3D présent"); const tr = await page.locator(".d3-flip-inner").first().evaluate((e) => getComputedStyle(e).transform); await page.getByRole("button", { name: "Définition : CA du jour" }).click(); await page.waitForTimeout(300);
+    const tr2 = await page.locator(".d3-flip-inner").first().evaluate((e) => getComputedStyle(e).transform); if (tr2 !== "none" && tr2 !== tr) throw new Error("rotation en mouvement réduit : " + tr2); await page.emulateMedia({ reducedMotion: "no-preference" });
+  });
+  await step("préférence « Effets 3D : Désactivés » (Mon profil) : affichage plat mémorisé ; « Automatique » rétablit la 3D", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("reglages")); await page.waitForTimeout(900); await page.getByRole("tab", { name: "Mon profil" }).click(); await page.getByLabel("Effets 3D").selectOption("off"); await page.waitForTimeout(300);
+    if (!/affichage plat/.test(await page.locator("body").innerText())) throw new Error("état non affiché"); await dash(); if (await page.locator("[data-chart3d]").count()) throw new Error("3D malgré la préférence");
+    await page.goto(h.url("reglages")); await page.getByRole("tab", { name: "Mon profil" }).click(); await page.getByLabel("Effets 3D").selectOption("auto"); await dash(); if (!(await page.locator("[data-chart3d] canvas").count())) throw new Error("3D non rétablie");
+  });
+  await step("téléphone : niveau allégé, sans débordement", async () => { await dash(390, 800); if ((await page.evaluate(() => document.documentElement.dataset.fx3d)) !== "lite") throw new Error("niveau"); const x = await page.evaluate(() => ({ s: document.documentElement.scrollWidth, i: innerWidth })); if (x.s > x.i + 1) throw new Error("débordement"); await page.screenshot({ path: path.join(OUT, "fx-dashboard-390.png") }); });
+  await step("mesures (processeur ×4) : tableau de bord 3D — CLS ≤ 0,1, INP ≤ 200 ms (retournement d'une carte)", async () => {
+    const cdp = await page.context().newCDPSession(page); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 }); await page.setViewportSize({ width: 1280, height: 900 });
+    await page.addInitScript(() => { window.__cls = 0; window.__inp = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__inp = Math.max(window.__inp, e.duration); }).observe({ type: "event", buffered: true, durationThreshold: 16 }); });
+    await page.goto(h.url("activite")); await page.waitForSelector("text=CA du jour", { timeout: 20000 }); await page.waitForTimeout(3000); await page.getByRole("button", { name: "Définition : Encaissé" }).click(); await page.waitForTimeout(800);
+    const m = await page.evaluate(() => ({ cls: Number(window.__cls.toFixed(3)), inp: Math.round(window.__inp) })); console.log("     mesures", JSON.stringify(m)); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }); if (m.cls > 0.1 || m.inp > 200) throw new Error(JSON.stringify(m));
+  });
+  console.log("ERRORS", h.errors.filter((e) => !/WebSocket|Realtime|Failed to load resource/.test(e)), "\nBAD", h.bad); await h.close(); process.exit(0);
+})();

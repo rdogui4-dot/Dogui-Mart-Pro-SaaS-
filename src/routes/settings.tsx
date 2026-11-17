@@ -12,6 +12,14 @@ import { planAllows } from "@/domain/features";
 import { EXPIRED_POLICIES, isExpiredPolicy } from "@/domain/tracking";
 import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
 import { ActivityLog } from "./activity-log";
+import { readFxPref, writeFxPref, useFxLevel, type FxPref } from "@/lib/fx3d";
+
+const FX_TXT = { full: "3D complète (relief, inclinaison, graphiques 3D)", lite: "3D allégée (relief sans inclinaison au pointeur)", flat: "affichage plat (aucun effet 3D)" } as const;
+/** Préférence « Effets 3D » de cet appareil : automatique (selon l'appareil et le réglage « réduire les animations »), activée ou désactivée. */
+function FxPrefCard() {
+  const [pref, setPref] = useState<FxPref>(readFxPref()); const level = useFxLevel();
+  return <div className="card flex flex-col gap-2 md:max-w-2xl"><h2 className="font-semibold">Effets 3D</h2><label className="text-xs text-muted flex flex-col gap-1">Sur cet appareil<select className="input" aria-label="Effets 3D" value={pref} onChange={(e) => { const v = e.target.value as FxPref; setPref(v); writeFxPref(v); }}><option value="auto">Automatique (recommandé)</option><option value="on">Activés</option><option value="off">Désactivés</option></select></label><p className="text-xs text-muted" role="status">Actuellement : {FX_TXT[level]}. Si votre appareil demande de réduire les animations, l'affichage reste plat.</p></div>;
+}
 
 type STab = "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
 /** Message après enregistrement : succès en vert (statut), erreur en rouge (alerte). */
@@ -137,6 +145,7 @@ export function SettingsPage() {
           <Msg text={msg} />
         </form>
       )}
+      {tab === "profile" && <FxPrefCard />}
       {tab === "profile" && <button className="btn-ghost md:self-start" onClick={() => void logout()}>Se déconnecter</button>}
       </>}
     </div>
