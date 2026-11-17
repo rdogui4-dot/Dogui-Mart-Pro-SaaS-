@@ -69,3 +69,9 @@ Donner à toute l'application une **profondeur 3D cohérente et fonctionnelle** 
 - Tableaux (composant commun et tableau des articles) : la ligne survolée se soulève (ordinateur).
 - Mouvement réduit ou 3D désactivée : comportement plat inchangé.
 - Scénarios : `fx3d.cjs` 13 vérifications ; master-modal, clients-promotions, compta-finance et stock inchangés et verts.
+
+## 11. Réalisé — lot 3D-5 (réglages), 17/11/2026
+- Au changement d'onglet, les cartes de la section ouverte se déplient depuis le haut, en cascade (40 ms).
+- Confirmation « ✓ Enregistré » en relief (fond vert, ombre), affichée seulement après la réponse du serveur ; aucun transform résiduel.
+- Bouton « Enregistrer » de la fiche boutique à largeur naturelle sur ordinateur.
+- Scénarios : `fx3d.cjs` 14 vérifications ; `settings.cjs` inchangé et vert.
