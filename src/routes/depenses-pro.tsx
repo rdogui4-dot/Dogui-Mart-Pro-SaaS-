@@ -35,7 +35,7 @@ export function DepensesProPage() {
 }
 
 type Use = { budget: { id: string; kind: PeriodKind; key: string; category: string; service: string; amount: number; mode: string; shopId: string; active: boolean }; shop: string; realized: number; pending: number; planned: number; committed: number; remaining: number; usedPct: number | null; over: boolean };
-function Budgets({ approve }: { approve: boolean }) {
+export function Budgets({ approve }: { approve: boolean }) {
   const { session } = useSession(); const s = session!; const qc = useQueryClient(); const owner = s.role === "owner"; const shops = useShops().data ?? []; const [kind, setKind] = useState<PeriodKind>("month"); const [key, setKey] = useState(periodKey("month", today()));
   const q = useQuery({ queryKey: ["xp-budgets", s.shopId, kind, key], retry: 1, queryFn: () => api<{ budgets: Use[]; note: string }>(s, "exppro.budgets", { kind, key }) }); const [f, setF] = useState({ shopId: owner ? "" : s.shopId, category: "", service: "", amount: "", mode: "approval" });
   const save = useMutation({ mutationFn: () => api(s, "exppro.budget.save", { ...f, kind, key, amount: num(f.amount) }), onSuccess: () => { setF({ ...f, amount: "", service: "" }); void qc.invalidateQueries({ queryKey: ["xp-budgets"] }); } }); const tg = useMutation({ mutationFn: (v: { id: string; active: boolean }) => api(s, "exppro.toggle", v), onSuccess: () => void qc.invalidateQueries({ queryKey: ["xp-budgets"] }) });
@@ -51,7 +51,7 @@ function Budgets({ approve }: { approve: boolean }) {
 }
 
 type Plan = { id: string; label: string; category: string; amount: number; dueOn: string; status: string; shop: string; skipReason?: string }; type ToPay = { id: string; number: string; label: string; amount: number; paid: number; remaining: number; dueOn: string; overdue: boolean; shop: string };
-function Payables({ approve }: { approve: boolean }) {
+export function Payables({ approve }: { approve: boolean }) {
   const { session } = useSession(); const s = session!; const qc = useQueryClient(); const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("xp-") || String(q.queryKey[0]).startsWith("exp") || String(q.queryKey[0]).startsWith("cash") });
   const rep = useQuery({ queryKey: ["xp-pay", s.shopId], retry: 1, queryFn: () => api<{ toPay: ToPay[]; toValidate: { id: string }[] }>(s, "exppro.report", { from: new Date(Date.now() - 360 * 864e5).toISOString().slice(0, 10), to: today() }) }); const plans = useQuery({ queryKey: ["xp-plans", s.shopId], retry: 1, queryFn: () => api<{ plans: Plan[] }>(s, "exppro.plans.list", { status: "planned" }) });
   const [payFor, setPayFor] = useState<ToPay | null>(null); const [pf, setPf] = useState({ amount: "", source: "external", method: "transfer", reference: "" }); const [key, setKey] = useState(() => crypto.randomUUID()); const [ask, setAsk] = useState(false);

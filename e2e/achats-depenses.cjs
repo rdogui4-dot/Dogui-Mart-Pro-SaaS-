@@ -39,10 +39,10 @@ const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 24);
     if ((await page.getByLabel("Statut").inputValue()) !== "received") throw new Error("filtre de statut non retrouvé");
     await page.getByRole("button", { name: "Réinitialiser les filtres" }).click(); await page.waitForTimeout(600); if ((await page.getByLabel("Statut").inputValue()) !== "") throw new Error("Réinitialiser inefficace");
   });
-  await step("dépenses · ordinateur : tableau, onglet « Budgets et prévisions », filtres sur une ligne", async () => {
+  await step("dépenses · ordinateur : tableau, onglets du kit (dont Budgets et Charges récurrentes), filtres sur une ligne", async () => {
     await open("depenses", 1280, 800, "Dépense 1"); if (!(await page.locator("table").count())) throw new Error("pas de tableau");
-    const tabs = await page.getByRole("navigation", { name: "Écrans des dépenses" }).innerText(); if (!tabs.includes("Budgets et prévisions")) throw new Error("onglet Pro absent");
-    const f1 = await page.getByLabel("Catégorie").boundingBox(); const f2 = await page.getByLabel("Statut").boundingBox(); const f3 = await page.getByLabel("Du").boundingBox(); if (!f1 || !f2 || !f3 || Math.abs(f1.y - f2.y) > 40 || Math.abs(f1.y - f3.y) > 40) throw new Error("filtres non alignés sur ordinateur");
+    const tabs = await page.getByRole("tablist", { name: "Sections des dépenses" }).innerText(); if (!tabs.includes("Budgets") || !tabs.includes("Charges récurrentes")) throw new Error("onglets Pro absents");
+    const f1 = await page.getByLabel("Catégorie", { exact: true }).boundingBox(); const f2 = await page.getByLabel("Statut", { exact: true }).boundingBox(); const f3 = await page.getByLabel("Du", { exact: true }).boundingBox(); if (!f1 || !f2 || !f3 || Math.abs(f1.y - f2.y) > 40 || Math.abs(f1.y - f3.y) > 40) throw new Error("filtres non alignés sur ordinateur");
     await page.locator("tbody tr").first().click(); await page.waitForTimeout(800); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.x < 1280 - 560) throw new Error("fiche non affichée en volet");
     await page.keyboard.press("Escape");
   });
@@ -52,7 +52,7 @@ const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 24);
     await page.getByText("Filtres", { exact: false }).first().click(); await page.waitForTimeout(400); if (!(await page.getByLabel("Moyen de paiement").isVisible())) throw new Error("le dépliage ne montre pas les filtres");
   });
   await step("dépenses · création par l'interface (fiche large)", async () => {
-    await open("depenses", 1280, 800, "Dépense 1"); await page.getByRole("button", { name: /Nouvelle/ }).first().click(); await page.waitForSelector("text=Nouvelle dépense", { timeout: 8000 });
+    await open("depenses", 1280, 800, "Dépense 1"); await page.getByRole("button", { name: "Enregistrer une dépense" }).click(); await page.waitForSelector("text=Nouvelle dépense", { timeout: 8000 });
     const dlg = await page.getByRole("dialog").first().boundingBox(); if (!dlg || dlg.width < 700) throw new Error("fiche étroite : " + JSON.stringify(dlg));
   });
   await step("menu : une seule entrée « Dépenses » (Dépenses Pro est un onglet)", async () => {

@@ -9,7 +9,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.goto(h.url("accueil")); await page.waitForSelector("text=Dépenses", { timeout: 10000 });
   });
   await step("dépense payée en caisse : confirmation, justificatif PDF, sortie déduite du solde", async () => {
-    await page.goto(h.url("depenses")); await page.getByRole("button", { name: /Nouvelle/ }).click(); await page.getByLabel("Libellé").fill("Transport marchandises"); await page.getByLabel("Montant").fill("3000"); await page.getByLabel("Bénéficiaire").fill("Moussa Fall");
+    await page.goto(h.url("depenses")); await page.getByRole("button", { name: "Enregistrer une dépense" }).click(); await page.getByLabel("Libellé").fill("Transport marchandises"); await page.getByLabel("Montant").fill("3000"); await page.getByLabel("Bénéficiaire").fill("Moussa Fall");
     const b = page.getByRole("button", { name: "Enregistrer la dépense" }); await b.click(); await page.getByText(/Confirmer la dépense/).waitFor({ timeout: 5000 });
     if (st.rows("expenses").length) throw new Error("écrit avant confirmation"); await page.getByRole("button", { name: "Confirmer", exact: true }).click(); await page.waitForSelector("text=Transport marchandises", { timeout: 10000 });
     const e = st.rows("expenses")[0]; if (!e || e.status !== "approved" || e.source !== "till") throw new Error(JSON.stringify(e)); if (st.rows("cash_movements").length !== 1) throw new Error("sortie absente");
@@ -27,7 +27,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("liste filtrée, rapport réel, export CSV", async () => {
     await page.goto(h.url("depenses")); await page.locator("summary", { hasText: "Filtres" }).first().click(); await page.getByLabel("Statut").selectOption("cancelled"); await page.waitForSelector("button:has-text('Transport marchandises')", { timeout: 8000 }); await page.getByLabel("Statut").selectOption("approved"); await page.waitForSelector("text=Aucune dépense", { timeout: 8000 });
     await call("expense.create", { requestId: crypto.randomUUID(), label: "Loyer", category: "loyer", amount: 80000, spentOn: new Date().toISOString().slice(0, 10), method: "transfer", source: "external", reference: "VIR-1" }, h.shop);
-    await page.getByRole("button", { name: "Rapports" }).click(); await page.waitForSelector("text=Par catégorie", { timeout: 10000 }); const t = await txt(); if (!/80\s?000/.test(t) || !/Résultat non affiché/.test(t)) throw new Error(t.slice(0, 900));
+    await page.getByRole("tab", { name: "Analyses" }).click(); await page.waitForSelector("text=Par catégorie", { timeout: 10000 }); const t = await txt(); if (!/80\s?000/.test(t) || !/Résultat non affiché/.test(t)) throw new Error(t.slice(0, 900));
     const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), page.getByRole("button", { name: "CSV", exact: true }).click()]); const csv = fs.readFileSync(await dl.path(), "utf8"); if (!/Loyer/.test(csv) || !/Transport marchandises/.test(csv)) throw new Error(csv.slice(0, 300));
     await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.endsWith(".depenses")) localStorage.removeItem(k); }); // filtres mémorisés par appareil : on repart sans filtre
   });
@@ -35,7 +35,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.goto(h.url("activite")); await page.waitForSelector("text=Dépenses validées", { timeout: 15000 }); const t = await txt(); if (!/80\s?000/.test(t)) throw new Error(t.slice(0, 600));
   });
   await step("réglages : seuil + catégorie personnalisée", async () => {
-    await page.goto(h.url("depenses")); await page.getByRole("button", { name: "Réglages" }).click(); await page.getByLabel("Seuil de validation").fill("50000"); await page.getByRole("button", { name: "Enregistrer", exact: true }).first().click(); await page.waitForSelector("text=Réglages enregistrés", { timeout: 8000 });
+    await page.goto(h.url("depenses")); await page.getByRole("tab", { name: "Catégories" }).click(); await page.getByLabel("Seuil de validation").fill("50000"); await page.getByRole("button", { name: "Enregistrer", exact: true }).first().click(); await page.waitForSelector("text=Réglages enregistrés", { timeout: 8000 });
     await page.getByLabel("Nouvelle catégorie").fill("Cadeaux clients"); await page.getByRole("button", { name: "Ajouter" }).click(); await page.waitForSelector("text=Cadeaux clients", { timeout: 8000 }); if (st.rows("shops").find((x) => x.expenseThreshold === 50000) === undefined) throw new Error("seuil non enregistré");
   });
   await step("code du responsable : le vendeur crée (en attente), le responsable lit le code dans l'interface, le vendeur le saisit → validée", async () => {

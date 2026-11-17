@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { DataGrid, StatusPill } from "@/components/DataGrid";
-import { ExpensesTabs } from "@/components/ExpensesTabs";
 import { useMinWidth } from "@/lib/media";
 import { usePersistedState } from "@/lib/prefs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Paperclip, Plus, WifiOff } from "lucide-react";
+import { BarChart3, CalendarClock, CalendarDays, Coins, Layers, ListChecks, Lock, Paperclip, PiggyBank, PieChart, Plus, ReceiptText, Target, Wallet, WifiOff } from "lucide-react";
+import { InsightCard, KpiRow, KpiTile, LockedState, ModuleHeader, Panel, PillTabs, TabPanel, type Insight, type PillTab } from "@/components/kit";
+import { Donut, LineChart } from "@/components/charts";
+import { Budgets, Payables } from "./depenses-pro";
 import { Link } from "@tanstack/react-router";
 import { api, ApiError } from "@/lib/api";
 import { list } from "@/lib/data";
@@ -37,27 +39,88 @@ async function openReceipt(r: Receipt) { // le fichier est privé : on le charge
 
 /** Dépenses (Business) : enregistrement avec justificatif, sorties de caisse rattachées à la session, validation, annulation tracée, rapports et exports. Les chiffres viennent uniquement du serveur. */
 export function DepensesPage() {
-  const { session } = useSession(); const s = session!; const allowed = planAllows(useSubscription().data?.entitlement.plan.id, "expenses"); const qc = useQueryClient();
-  const rights = useQuery({ queryKey: ["exp-rights", s.shopId], enabled: allowed, retry: 1, queryFn: () => api<{ rights: string[] }>(s, "expense.myRights") }); const R = rights.data?.rights ?? []; const owner = s.role === "owner";
+  const { session } = useSession(); const s = session!; const plan = useSubscription().data?.entitlement.plan.id; const allowed = planAllows(plan, "expenses"); const pro = planAllows(plan, "expensesPro"); const qc = useQueryClient();
+  const rights = useQuery({ queryKey: ["exp-rights", s.shopId], enabled: allowed, retry: 1, queryFn: () => api<{ rights: string[] }>(s, "expense.myRights") }); const R = rights.data?.rights ?? []; const owner = s.role === "owner"; const view = R.includes("view");
   const cats = useQuery({ queryKey: ["exp-cats", s.shopId], enabled: allowed, retry: 1, queryFn: () => api<Cats>(s, "expense.categories") });
-  const [tab, setTab] = useState<"list" | "report" | "settings">("list"); const [form, setForm] = useState(false); const [open, setOpen] = useState<string | null>(null);
-  const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("exp") || String(q.queryKey[0]).startsWith("cash") || String(q.queryKey[0]) === "overview" });
+  type T = "list" | "cats" | "recurring" | "budgets" | "report";
+  const [tab, setTab] = useState<T>("list"); const [form, setForm] = useState(false); const [open, setOpen] = useState<string | null>(null);
+  const monthQ = useQuery({ queryKey: ["exp-kpi-month", s.shopId], enabled: allowed && view, retry: 1, queryFn: () => api<Rep>(s, "expense.report", { from: `${today().slice(0, 8)}01`, to: today() }) });
+  const sixQ = useQuery({ queryKey: ["exp-kpi-6m", s.shopId], enabled: allowed && view, retry: 1, queryFn: () => { const d = new Date(); const from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 5, 1)).toISOString().slice(0, 10); return api<Rep>(s, "expense.report", { from, to: today() }); } });
+  const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("exp") || String(q.queryKey[0]).startsWith("xp-") || String(q.queryKey[0]).startsWith("cash") || String(q.queryKey[0]) === "overview" });
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Dépenses</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Dépenses avec justificatif, sorties de caisse, validation et rapports.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>;
-  const tabs: [string, string][] = [["list", "Liste"], ...(R.includes("view") ? ([["report", "Rapports"]] as [string, string][]) : []), ...(owner || R.includes("approve") ? ([["settings", "Réglages"]] as [string, string][]) : [])];
+  const tabs: PillTab<T>[] = [{ key: "list", label: "Liste des dépenses", icon: ListChecks }, ...(owner || R.includes("approve") ? [{ key: "cats" as const, label: "Catégories", icon: Layers }] : []), ...(view || !pro ? [{ key: "recurring" as const, label: "Charges récurrentes", icon: CalendarClock, locked: !pro }, { key: "budgets" as const, label: "Budgets", icon: Target, locked: !pro }] : []), ...(view ? [{ key: "report" as const, label: "Analyses", icon: BarChart3 }] : [])];
+  const cur = tabs.some((t) => t.key === tab) ? tab : "list"; const M = monthQ.data; const S6 = sixQ.data;
+  const catTotal = (M?.byCategory ?? []).reduce((a, c) => a + c.total, 0); const topCat = [...(M?.byCategory ?? [])].sort((a, c) => c.total - a.total)[0];
+  const diff = M ? M.totals.period - M.totals.previousPeriod : 0;
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2"><h1 className="text-2xl font-bold">Dépenses</h1>{R.includes("create") && <button className="btn !py-2 flex items-center gap-1" onClick={() => setForm(true)}><Plus size={16} />Nouvelle</button>}</div>
+    <div className="flex flex-col gap-4">
+      <ModuleHeader icon={Wallet} title="Dépenses & Charges" subtitle="Suivez, catégorisez et contrôlez toutes les dépenses de votre activité."
+        actions={R.includes("create") ? <button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => setForm(true)}><Plus size={18} />Enregistrer une dépense</button> : undefined} />
       {!navigator.onLine && <div className="card border border-warn/40 text-sm flex gap-2" role="alert"><WifiOff size={16} className="text-warn shrink-0 mt-0.5" /><span>Hors ligne : les dépenses nécessitent une connexion (validation et caisse côté serveur).</span></div>}
-      <ExpensesTabs current="/depenses" />
-      <nav aria-label="Sections" className="scroll-x">{tabs.map(([k, l]) => <button key={k} className="chip" aria-current={tab === k} onClick={() => setTab(k as never)}>{l}</button>)}</nav>
+      {view && <KpiRow cols={5}>
+        <KpiTile icon={Coins} tint="amber" label="Total des dépenses" loading={sixQ.isLoading} value={S6 ? formatFcfa(S6.totals.period) : "—"} sub="6 derniers mois, dépenses validées" />
+        <KpiTile icon={CalendarDays} tint="blue" label="Dépenses ce mois" loading={monthQ.isLoading} value={M ? formatFcfa(M.totals.period) : "—"} {...(M && M.totals.deltaPct !== null ? { delta: { text: `${M.totals.deltaPct > 0 ? "+" : ""}${M.totals.deltaPct.toLocaleString("fr-FR")} % vs période précédente`, dir: M.totals.deltaPct >= 0 ? "up" as const : "down" as const, good: M.totals.deltaPct <= 0 } } : { sub: "pas de période précédente comparable" })} />
+        <KpiTile icon={ReceiptText} tint="cyan" label="Nombre de dépenses" loading={monthQ.isLoading} value={M?.totals.count ?? "—"} sub={M && M.pending.count ? `ce mois · ${M.pending.count} en attente` : "ce mois"} />
+        <KpiTile icon={PieChart} tint="violet" label="Principale charge" loading={monthQ.isLoading} value={topCat && catTotal > 0 ? `${catName(topCat.key, cats.data)} (${Math.round((topCat.total / catTotal) * 100)} %)` : "—"} sub={topCat ? formatFcfa(topCat.total) : "aucune dépense ce mois"} />
+        <KpiTile icon={PiggyBank} tint="green" label="Écart vs période précédente" loading={monthQ.isLoading} value={M ? `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${formatFcfa(Math.abs(diff))}` : "—"} sub={M ? (diff < 0 ? "dépenses en baisse" : diff > 0 ? "dépenses en hausse" : "stable") : undefined} />
+      </KpiRow>}
       {rights.error && <Err e={rights.error} />}
-      {tab === "list" && <List cats={cats.data} canViewAll={R.includes("view")} onOpen={setOpen} />}
-      {tab === "report" && R.includes("view") && <Report cats={cats.data} />}
-      {tab === "settings" && <Settings cats={cats.data} owner={owner} onDone={refresh} />}
+      <PillTabs idBase="depenses" label="Sections des dépenses" value={cur} onChange={setTab} items={tabs} />
+      <TabPanel idBase="depenses" active={cur}>
+        {cur === "list" && <div className={view ? "grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" : ""}>
+          <Panel title="Dépenses enregistrées"><List cats={cats.data} canViewAll={view} onOpen={setOpen} /></Panel>
+          {view && <div className="flex flex-col gap-4">
+            <Panel title="Répartition des dépenses (ce mois)">{M?.byCategory.length ? <Donut label="Répartition des dépenses du mois par catégorie" data={[...M.byCategory].sort((a, c) => c.total - a.total).map((c) => ({ key: c.key, label: catName(c.key, cats.data), value: c.total }))} /> : <p className="text-sm text-muted">{monthQ.isLoading ? "Chargement…" : "Aucune dépense validée ce mois-ci."}</p>}</Panel>
+            <Panel title="Tendance des dépenses" action={<span className="text-xs text-muted">6 derniers mois</span>}><Trend rep={S6} loading={sixQ.isLoading} /></Panel>
+          </div>}
+        </div>}
+        {cur === "list" && view && <div className="grid gap-4 lg:grid-cols-3">
+          <Panel title="Top catégories (ce mois)">{M?.byCategory.length ? <ul className="flex flex-col gap-2">{[...M.byCategory].sort((a, c) => c.total - a.total).slice(0, 5).map((c) => <li key={c.key} className="text-sm"><span className="flex justify-between gap-2"><span className="truncate">{catName(c.key, cats.data)}</span><span className="shrink-0 tabular-nums"><b>{formatFcfa(c.total)}</b> · {Math.round((c.total / catTotal) * 100)} %</span></span><span className="block h-2 rounded bg-subtle mt-1"><span className="block h-2 rounded bg-accent" style={{ width: `${Math.round((c.total / catTotal) * 100)}%` }} /></span></li>)}</ul> : <p className="text-sm text-muted">Aucune dépense validée ce mois-ci.</p>}</Panel>
+          <RecurringShort pro={pro} onAll={() => setTab("recurring")} />
+          <ExpMaster month={M} loading={monthQ.isLoading} cats={cats.data} pro={pro} />
+        </div>}
+        {cur === "cats" && <Settings cats={cats.data} owner={owner} onDone={refresh} />}
+        {cur === "recurring" && (pro ? <Payables approve={R.includes("approve")} /> : <LockedState feature="Charges récurrentes et échéances" plan="Pro" />)}
+        {cur === "budgets" && (pro ? <><Budgets approve={R.includes("approve")} /><p className="text-sm"><Link to="/depenses-pro" className="underline text-accent-text">Contrôle, trésorerie et circuit d'approbation (Pro)</Link></p></> : <LockedState feature="Budgets par catégorie et par période" plan="Pro" />)}
+        {cur === "report" && view && <Report cats={cats.data} />}
+      </TabPanel>
       {form && <Sheet title="Nouvelle dépense" onClose={() => setForm(false)} back size="lg"><Form cats={cats.data} canApprove={R.includes("approve")} onDone={() => { setForm(false); refresh(); }} /></Sheet>}
       {open && <Sheet title="Dépense" onClose={() => setOpen(null)} back size="panel"><DetailView id={open} cats={cats.data} rights={R} onChanged={refresh} /></Sheet>}
     </div>
   );
+}
+
+/** Tendance sur 6 mois : cumul mensuel des montants journaliers renvoyés par le serveur (dépenses validées). */
+function Trend({ rep, loading }: { rep?: Rep; loading: boolean }) {
+  if (loading) return <p className="text-sm text-muted">Chargement…</p>;
+  if (!rep) return null; const months = new Map<string, number>(); { const [y, m] = rep.to.split("-").map(Number) as [number, number]; for (let k = 5; k >= 0; k--) months.set(new Date(Date.UTC(y, m - 1 - k, 1)).toISOString().slice(0, 7), 0); }
+  for (const d of rep.byDay) { const k = d.day.slice(0, 7); if (months.has(k)) months.set(k, months.get(k)! + d.total); }
+  const data = [...months.entries()].map(([k, v]) => ({ key: k, label: new Date(`${k}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "short" }), value: v }));
+  return data.some((x) => x.value > 0) ? <LineChart label="Dépenses validées par mois" w={340} data={data} /> : <p className="text-sm text-muted">Pas encore de dépense validée sur 6 mois.</p>;
+}
+
+/** Prochaines charges récurrentes planifiées (Pro). */
+function RecurringShort({ pro, onAll }: { pro: boolean; onAll: () => void }) {
+  const { session } = useSession(); const s = session!;
+  const q = useQuery({ queryKey: ["xp-plans", s.shopId, "short"], enabled: pro, retry: 1, queryFn: () => api<{ plans: { id: string; label: string; amount: number; dueOn: string; status: string }[] }>(s, "exppro.plans.list", { status: "planned" }) });
+  const next = (q.data?.plans ?? []).filter((p) => p.status === "planned").sort((a, c) => a.dueOn.localeCompare(c.dueOn)).slice(0, 3);
+  return <Panel title="Charges récurrentes" action={pro ? <button className="text-sm font-semibold text-accent-text underline" onClick={onAll}>Voir tout</button> : undefined}>
+    {!pro ? <p className="text-sm text-muted inline-flex items-center gap-2"><Lock size={14} />Charges planifiées et échéances : formule Pro.</p> : q.isLoading ? <div className="h-12 animate-pulse bg-subtle rounded-lg" aria-busy="true" /> : q.error ? <Err e={q.error} /> : !next.length ? <p className="text-sm text-muted">Aucune charge planifiée à venir.</p>
+      : <ul className="flex flex-col gap-2">{next.map((p) => <li key={p.id} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2 min-w-0"><CalendarClock size={18} className="shrink-0 text-accent-text" aria-hidden="true" /><span className="min-w-0"><span className="block truncate font-medium">{p.label}</span><span className="text-xs text-muted">Prochaine : {dd(p.dueOn)}</span></span></span><b className="shrink-0 tabular-nums">{formatFcfa(p.amount)}</b></li>)}</ul>}
+  </Panel>;
+}
+
+/** Encart MASTER des dépenses : constats tirés du rapport du mois (et des budgets en Pro), aucune action automatique. */
+function ExpMaster({ month, loading, cats, pro }: { month?: Rep; loading: boolean; cats?: Cats; pro: boolean }) {
+  const { session } = useSession(); const s = session!; const key = today().slice(0, 7);
+  const bq = useQuery({ queryKey: ["xp-budgets", s.shopId, "month", key, "master"], enabled: pro, retry: 0, queryFn: () => api<{ budgets: { over: boolean; usedPct: number | null; budget: { category: string } }[] }>(s, "exppro.budgets", { kind: "month", key }) });
+  const items: Insight[] = []; const total = (month?.byCategory ?? []).reduce((a, c) => a + c.total, 0); const top = [...(month?.byCategory ?? [])].sort((a, c) => c.total - a.total)[0];
+  if (month && month.totals.deltaPct !== null) items.push({ id: "d", tone: month.totals.deltaPct > 0 ? "warn" : "ok", text: `Vos dépenses ${month.totals.deltaPct > 0 ? "ont augmenté" : month.totals.deltaPct < 0 ? "ont baissé" : "sont stables"} de ${Math.abs(month.totals.deltaPct).toLocaleString("fr-FR")} % par rapport à la période précédente.` });
+  if (top && total > 0) items.push({ id: "t", tone: "info", text: `${catName(top.key, cats)} représente ${Math.round((top.total / total) * 100)} % des dépenses du mois (${formatFcfa(top.total)}).` });
+  if (month?.pending.count) items.push({ id: "p", tone: "warn", text: `${month.pending.count} dépense(s) en attente de validation (${formatFcfa(month.pending.amount)}), non comptées dans les totaux.` });
+  const over = (bq.data?.budgets ?? []).filter((b) => b.over); if (over.length) items.push({ id: "b", tone: "warn", text: `${over.length} budget(s) du mois dépassé(s) : ${over.map((b) => (b.budget.category ? catName(b.budget.category, cats) : "toutes catégories")).join(", ")}.` });
+  if (pro && bq.data && !bq.data.budgets.length) items.push({ id: "n", tone: "info", text: "Aucun budget mensuel défini : un budget par catégorie aide à maîtriser les coûts (onglet Budgets)." });
+  return <InsightCard module="Dépenses" loading={loading} items={items} source="dépenses validées du mois, période précédente de même durée et budgets" emptyText="Aucune dépense ce mois-ci : rien à signaler." />;
 }
 
 function List({ cats, canViewAll, onOpen }: { cats?: Cats; canViewAll: boolean; onOpen: (id: string) => void }) {
