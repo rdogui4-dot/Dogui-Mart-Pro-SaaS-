@@ -28,8 +28,9 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (st.rows("sales").length !== before[0] || st.rows("stock_moves").length !== before[1]) throw new Error("la réimpression a écrit des données"); if (!st.rows("audit_log").some((a) => a.action === "sale.reprint")) throw new Error("réimpression non tracée");
   });
   await step("remboursement partiel : montant calculé par le serveur, répartition exigée, stock remis, vente conservée", async () => {
-    await page.getByRole("button", { name: "Rembourser" }).click(); await page.getByLabel("Quantité à rembourser Eau").fill("1"); await page.waitForSelector("text=500 FCFA", { timeout: 8000 });
-    await page.getByLabel("Motif *").fill("Bouteille fuyante"); const ok = page.getByRole("button", { name: "Valider le remboursement" }); if (await ok.isEnabled()) throw new Error("remboursement sans répartition"); await page.getByLabel("Montant remboursé 1").fill("500"); await ok.click(); await page.getByRole("button", { name: "Confirmer" }).click(); await page.waitForTimeout(2000);
+    await page.getByRole("button", { name: "Retourner des articles" }).click(); await page.getByLabel("Quantité retournée Eau").fill("1"); await page.waitForSelector("text=500 FCFA", { timeout: 8000 }); await page.getByRole("button", { name: "Continuer" }).click();
+    await page.getByLabel("Motif *").fill("Bouteille fuyante"); const ok = page.getByRole("button", { name: "Vérifier" }); if (await ok.isEnabled()) throw new Error("remboursement sans répartition"); await page.getByLabel("Montant remboursé 1").fill("500"); await ok.click();
+    await page.getByRole("button", { name: "Valider le retour" }).click(); await page.getByRole("button", { name: "Confirmer" }).click(); await page.getByText("Retour enregistré").waitFor({ timeout: 8000 }); await page.getByRole("button", { name: "Terminer" }).click(); await page.waitForTimeout(1200);
     if (st.rows("sale_returns").length !== 1 || st.rows("sale_returns")[0].amount !== 500) throw new Error(JSON.stringify(st.rows("sale_returns"))); if (st.rows("sales").length !== 1) throw new Error("vente supprimée"); if (!(await txt()).includes("Remboursement")) throw new Error("historique de retour absent");
   });
   await step("sortie de caisse, solde théorique, comptage et écart à la fermeture", async () => {

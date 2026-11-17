@@ -100,7 +100,7 @@ describe("purchasing", () => {
   });
 });
 
-import { invoiceModel, purchaseOrderModel, receiptModel } from "./documents";
+import { invoiceModel, purchaseOrderModel, receiptModel, returnReceiptModel } from "./documents";
 describe("documents", () => {
   const shop = { name: "Chez Awa", city: "Dakar", phone: "770000000", vatRatePct: 18 };
   it("facture : HT = TTC − TVA, reste à payer", () => {
@@ -118,6 +118,13 @@ describe("documents", () => {
     expect(po.totals[0]!.value).toBe(6000);
     const r = receiptModel({ number: "V-1", soldAt: "2026-01-02T10:00:00Z", total: 2000, change: 500, lines: [{ name: "Riz", qty: 2, unitPrice: 1000 }], payments: [{ method: "cash", amount: 2500 }] }, shop);
     expect(r.totals.map((t) => t.label)).toEqual(["TOTAL", "Espèces", "Monnaie rendue"]);
+  });
+  it("ticket de retour : articles repris avec état et numéros, total remboursé, rappel de la vente et des effets", () => {
+    const r = returnReceiptModel({ saleNumber: "V-20261117-ABC123", at: "2026-11-17T10:00:00Z", kind: "refund", amount: 1500, reason: "Écran cassé", lines: [{ name: "Téléphone", qty: 1, amount: 1000, condition: "damaged", serials: ["SN2"] }, { name: "Eau", qty: 2, amount: 500, condition: "resellable", serials: [] }], refunds: [{ method: "wave", amount: 1500, reference: "W1234" }], points: 3 }, shop);
+    expect(r.title).toBe("TICKET DE RETOUR"); expect(r.rows.map((x) => x.label)).toEqual(["Téléphone (N° SN2) - abîmé", "Eau"]); expect(r.rows[1]!.unit).toBe(250);
+    expect(r.totals).toEqual([{ label: "TOTAL REMBOURSÉ", value: 1500, strong: true }, { label: "Wave", value: 1500 }]);
+    expect(r.footer).toEqual(expect.arrayContaining(["Vente d'origine : V-20261117-ABC123", "Motif : Écran cassé", "Points de fidélité retirés : 3", "Articles abîmés : sortis du stock en perte", "Articles revendables : remis en stock"]));
+    expect(returnReceiptModel({ saleNumber: "V-1", at: "2026-11-17T10:00:00Z", kind: "cancel", amount: 1, reason: "Erreur", lines: [], refunds: [] }, null).title).toBe("TICKET D'ANNULATION");
   });
 });
 

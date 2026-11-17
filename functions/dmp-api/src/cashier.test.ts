@@ -114,7 +114,7 @@ describe("annulation et remboursement : tracés, jamais de suppression", () => {
     await err(call("own2", "sale.refund", { returnId: "rt-0000031", saleId: "bundle000001", kind: "cancel", reason: "test", refunds: [{ method: "cash", amount: 1 }] }, X, T2), 404);
   });
   it("article à série : revendable → disponible (cycle +1, garantie effacée) ; abîmé → défectueux + sortie en perte ; numéro déjà retourné refusé", async () => {
-    for (const [sn, status] of [["SN1", "sold"], ["SN2", "sold"]]) await st.create("article_serials", serialRowId(eau, sn), T, { tenantId: T, shopId: A, productId: eau, serial: sn, status, saleId: "serial000001", saleRef: "V-serial", warrantyUntil: "2030-01-01", cycle: 0 });
+    for (const sn of ["SN1", "SN2"]) await st.create("article_serials", serialRowId(eau, sn), T, { tenantId: T, shopId: A, productId: eau, serial: sn, status: "sold", saleId: "serial000001", saleRef: "V-serial", warrantyUntil: "2030-01-01", cycle: 0 });
     await fake("serial000001", [{ productId: eau, name: "Téléphone", qty: 2, unitPrice: 500, serials: ["SN1", "SN2"] }], 1000);
     const pv = await ok(call("own", "sale.refund", { preview: true, saleId: "serial000001", kind: "refund", reason: "Retour client", lines: [{ index: 0, qty: 1, serials: ["sn2"], condition: "damaged" }], refunds: [{ method: "cash", amount: 500 }] }));
     expect(pv).toMatchObject({ preview: true, amount: 500, effects: [{ qty: 1, condition: "damaged", serials: ["SN2"] }] }); expect(st.rows("sale_returns")).toHaveLength(0);
