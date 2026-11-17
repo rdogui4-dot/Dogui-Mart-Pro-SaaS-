@@ -16,3 +16,7 @@ export function Logo({ size = 40, tagline = false }: { size?: number; tagline?: 
     </span>
   );
 }
+/** Symbole seul (sans tuile), dans la couleur du texte : sur la barre latérale bleu nuit, il apparaît en blanc. Le point reste or. */
+export function MarkInline({ size = 28 }: { size?: number }) {
+  return <svg viewBox="80 90 240 260" width={size} height={size} aria-hidden="true" className="shrink-0"><path d="M108 292 L108 118 L200 214 L292 118 L292 292" fill="none" stroke="currentColor" strokeWidth={44} strokeLinecap="round" strokeLinejoin="round" /><circle cx={200} cy={318} r={24} fill="#C9A227" /></svg>;
+}

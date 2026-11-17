@@ -5,7 +5,7 @@ import { useSession } from "@/lib/session";
 import { SPACES, itemsOf, matchesItem, spaceOfPath, type NavItem } from "@/lib/nav";
 import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
-import { LogoMark, Wordmark } from "./Logo";
+import { LogoMark, MarkInline, Wordmark } from "./Logo";
 import { MasterModalCtx, type MasterTab } from "@/lib/master-modal";
 import { MasterWindow } from "@/routes/master";
 import { ItemLink } from "./ItemLink";
@@ -47,13 +47,13 @@ function LayoutInner() {
   const current = spaceOfPath(path);
   return (
     <div className="h-full flex flex-col md:flex-row pt-[env(safe-area-inset-top)]">
-      {wide && <aside aria-label="Espaces" className="flex flex-col w-60 shrink-0 border-r border-line bg-surface overflow-y-auto">
-        <Link to="/accueil" className="flex items-center gap-2 px-4 py-3 border-b border-line"><LogoMark size={32} /><Wordmark size={15} className="text-main" /><span className="sr-only">Accueil</span></Link>
+      {wide && <aside aria-label="Espaces" className="flex flex-col w-60 shrink-0 bg-nav text-nav-text overflow-y-auto">
+        <Link to="/accueil" className="flex items-center gap-2.5 px-4 py-3.5 border-b border-nav-line text-white"><MarkInline size={26} /><Wordmark size={15} /><span className="sr-only">Accueil</span></Link>
         <nav aria-label="Navigation principale" className="flex flex-col gap-3 p-3">
           <SideLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
           {SPACES.map((sp) => { const its = itemsOf(sp, session, plan); if (!its.length) return null; return (
             <div key={sp.id} className="flex flex-col gap-0.5">
-              <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">{sp.label}</p>
+              <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-nav-muted">{sp.label}</p>
               {its.map((it) => <SideLink key={it.to} item={it} label={it.label} active={matchesItem(it, path)} />)}
             </div>); })}
         </nav>
@@ -108,7 +108,7 @@ function NavLink({ to, label, icon: I, active, disabled }: { to: string; label: 
 }
 
 function SideLink({ to, item, label, icon: I, active }: { to?: string; item?: NavItem; label: string; icon?: LucideIcon; active: boolean }) {
-  const cls = `flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm min-h-9 w-full ${active ? "bg-accent-soft text-accent-text font-semibold" : "text-soft hover:bg-subtle"}`;
+  const cls = `flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm min-h-9 w-full ${active ? "bg-nav-active text-white font-semibold" : "text-nav-text hover:bg-nav-hover"}`;
   const body = <>{I && <I size={18} />}{label}</>;
   if (item) return <ItemLink item={item} className={cls} current={active}>{body}</ItemLink>;
   return <Link to={to!} aria-current={active ? "page" : undefined} className={cls}>{body}</Link>;

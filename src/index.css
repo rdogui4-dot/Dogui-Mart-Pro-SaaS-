@@ -7,6 +7,8 @@
   --accent: #2563eb; --accent-ink: #ffffff; --accent-soft: #e3edfd; --accent-text: #1d4fc4;
   --ok: #0f7b4f; --warn: #8a5a00; --bad: #b42318; --info: #1d5fb8;
   --ok-bg: #e3f5ec; --warn-bg: #fff3d6; --bad-bg: #fde8e6; --info-bg: #e3eefd;
+  --nav-bg: #0b1f3a; --nav-text: #e8eef6; --nav-muted: #a9b8cc; --nav-active-bg: #1d3a63; --nav-active-text: #ffffff; --nav-line: #1c3352; --nav-hover: #142b4b;
+  --tech: #14b8d4; --tech-text: #0e7490; --gold: #c9a227; --gold-text: #7a5c0c;
   --overlay: rgba(16, 36, 58, .55); --chart-1: #2563eb; --chart-2: #0f7b4f; --chart-3: #b45309; --chart-4: #7c3aed; --chart-5: #0e7490;
   color-scheme: light;
 }
@@ -17,6 +19,8 @@
   --accent: #6ea0ff; --accent-ink: #0b1a33; --accent-soft: #1b2f52; --accent-text: #8db4ff;
   --ok: #4ade9a; --warn: #f5b73b; --bad: #ff8a80; --info: #7db7ff;
   --ok-bg: #12301f; --warn-bg: #3a2c0c; --bad-bg: #3d1a18; --info-bg: #142c4d;
+  --nav-bg: #08121f; --nav-text: #e8eef6; --nav-muted: #9db0c5; --nav-active-bg: #1b2f52; --nav-active-text: #ffffff; --nav-line: #1a2738; --nav-hover: #111d2d;
+  --tech: #22c7e0; --tech-text: #5fd0e6; --gold: #d6a84f; --gold-text: #e3bd6e;
   --overlay: rgba(4, 9, 16, .72); --chart-1: #6ea0ff; --chart-2: #4ade9a; --chart-3: #f5b73b; --chart-4: #b79bff; --chart-5: #5fd0e6;
   color-scheme: dark;
 }
@@ -25,26 +29,31 @@
   --color-main: var(--main); --color-soft: var(--soft); --color-muted: var(--muted);
   --color-accent: var(--accent); --color-accent-ink: var(--accent-ink); --color-accent-soft: var(--accent-soft); --color-accent-text: var(--accent-text);
   --color-ok: var(--ok); --color-warn: var(--warn); --color-bad: var(--bad); --color-info: var(--info);
+  --color-nav: var(--nav-bg); --color-nav-text: var(--nav-text); --color-nav-muted: var(--nav-muted); --color-nav-active: var(--nav-active-bg); --color-nav-line: var(--nav-line); --color-nav-hover: var(--nav-hover);
+  --color-tech: var(--tech); --color-tech-text: var(--tech-text); --color-gold: var(--gold); --color-gold-text: var(--gold-text);
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --text-sm: 1rem; --text-sm--line-height: 1.5rem;
   --color-ok-bg: var(--ok-bg); --color-warn-bg: var(--warn-bg); --color-bad-bg: var(--bad-bg); --color-info-bg: var(--info-bg);
 }
 [data-theme] { color: var(--main); }
 /* Mouvement : sobre, utile, jamais bloquant (opacité et translation seulement, ≤ 250 ms). Neutralisé par prefers-reduced-motion plus bas. */
-:root { --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 320ms; --ease-out: cubic-bezier(.2, 0, 0, 1); --ease-in: cubic-bezier(.4, 0, 1, 1); --stagger: 50ms; }
+:root { --dur-fast: 120ms; --dur-press: 160ms; --dur-base: 220ms; --dur-panel: 280ms; --dur-page: 320ms; --dur-reveal: 450ms; --dur-slow: 320ms; --ease-in-out: cubic-bezier(.4, 0, .2, 1); --ease-out: cubic-bezier(.2, 0, 0, 1); --ease-in: cubic-bezier(.4, 0, 1, 1); --stagger: 50ms; }
 @keyframes dmp-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes dmp-sheet { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes dmp-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes dmp-dot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
 /* Pas de transform ni de remplissage final sur le conteneur de page : un transform actif ferait des éléments « fixed » (fiches, boîtes de dialogue, barre de total) des éléments positionnés par rapport à la page et non à l'écran. */
 .page-in { animation: dmp-fade var(--dur-base) var(--ease-out) backwards; }
-.sheet-in { animation: dmp-sheet var(--dur-base) var(--ease-out) backwards; }
+.sheet-in { animation: dmp-sheet var(--dur-panel) var(--ease-out) backwards; }
 .pop-in { animation: dmp-in var(--dur-fast) var(--ease-out) backwards; }
 .fade-in { animation: dmp-fade var(--dur-base) var(--ease-out) backwards; }
 .dots { display: inline-flex; gap: 3px; } .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: dmp-dot 1.2s infinite; } .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
 html, body, #root { height: 100%; }
-body { background: var(--bg); color: var(--main); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+body { background: var(--bg); color: var(--main); font-family: var(--font-sans); font-variant-numeric: tabular-nums; font-size: 1rem; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 h1, h2 { letter-spacing: -.01em; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 0; }
+aside[aria-label="Espaces"] :focus-visible { outline-color: #ffffff; } /* anneau de focus visible sur la barre bleu nuit */
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; animation-delay: 0s !important; scroll-behavior: auto !important; } }
 .btn { @apply rounded-lg px-4 py-2.5 text-base font-semibold transition disabled:opacity-40 min-h-11; background: var(--accent); color: var(--accent-ink); }
 .btn:hover:not(:disabled) { filter: brightness(.94); }

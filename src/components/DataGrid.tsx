@@ -5,7 +5,7 @@ export type Column<R> = { label: string; cell: (r: R) => ReactNode; align?: "rig
 export function DataGrid<R>({ rows, columns, rowKey, onRow, label }: { rows: R[]; columns: Column<R>[]; rowKey: (r: R) => string; onRow?: (r: R) => void; label: string }) {
   return (
     <div className="card !p-0 overflow-x-auto">
-      <table className="w-full text-sm" aria-label={label}>
+      <table className="w-full text-[0.875rem] leading-5" aria-label={label}>
         <thead><tr className="text-left text-muted border-b border-line">{columns.map((c) => <th key={c.label} scope="col" className={`py-2.5 px-3 font-medium ${c.align === "right" ? "text-right" : ""}`}>{c.label}</th>)}</tr></thead>
         <tbody>{rows.map((r) => (
           <tr key={rowKey(r)} className={`border-b border-line last:border-0 ${onRow ? "cursor-pointer hover:bg-subtle" : ""}`} onClick={onRow ? () => onRow(r) : undefined}>

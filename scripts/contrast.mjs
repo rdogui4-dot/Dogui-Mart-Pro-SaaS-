@@ -12,6 +12,7 @@ const PAIRS = [
   ["ok", "surface", 4.5], ["warn", "surface", 4.5], ["bad", "surface", 4.5], ["info", "surface", 4.5],
   ["ok", "ok-bg", 4.5], ["warn", "warn-bg", 4.5], ["bad", "bad-bg", 4.5], ["info", "info-bg", 4.5],
   ["line-strong", "surface", 3], ["line-strong", "bg", 3],
+  ["nav-text", "nav-bg", 4.5], ["nav-muted", "nav-bg", 4.5], ["nav-active-text", "nav-active-bg", 4.5], ["nav-text", "nav-hover", 4.5], ["tech-text", "surface", 4.5], ["tech-text", "bg", 4.5], ["gold-text", "surface", 4.5],
   ["chart-1", "surface", 3], ["chart-2", "surface", 3], ["chart-3", "surface", 3], ["chart-4", "surface", 3], ["chart-5", "surface", 3],
 ];
 let bad = 0;

@@ -1,3 +1,4 @@
+import "@fontsource-variable/inter";
 import "./index.css";
 import { StrictMode, Suspense, lazy, type ComponentType } from "react";
 import { createRoot } from "react-dom/client";
