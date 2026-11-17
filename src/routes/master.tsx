@@ -92,10 +92,15 @@ function Rapports() {
     </div>
   );
 }
+/** Symbole cerveau MASTER DOGUI (monochrome, suit la couleur du texte : noir sur clair, blanc sur sombre). Décoratif : le nom est déjà écrit. */
+export function MasterSymbol({ size = 40 }: { size?: number }) {
+  const url = `url(${import.meta.env.BASE_URL}master-symbol.svg)`;
+  return <span aria-hidden="true" className="inline-block shrink-0 bg-current text-main" style={{ width: size, height: size, WebkitMask: `${url} center / contain no-repeat`, mask: `${url} center / contain no-repeat` }} />;
+}
 export function MasterBody({ tab, setTab }: { tab: MasterTab; setTab: (t: MasterTab) => void }) {
   const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager";
   return (
-    <div className="flex flex-col gap-3"><div className="flex gap-2" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "pro"} onClick={() => setTab("pro")}>Profil</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "rec"} onClick={() => setTab("rec")}>Recommandations</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "chat"} onClick={() => setTab("chat")}>Assistant</button>}</div>{tab === "lic" ? <Licence /> : tab === "rep" ? <Rapports /> : tab === "rec" ? <Recos /> : tab === "chat" ? <Assistant /> : <Profil />}</div>
+    <div className="flex flex-col gap-3"><div className="flex items-center gap-3"><MasterSymbol size={40} /><div className="flex gap-2 flex-wrap" role="tablist" aria-label="MASTER DOGUI"><button role="tab" className="chip" aria-current={tab === "lic"} onClick={() => setTab("lic")}>Licence</button>{mgr && <button role="tab" className="chip" aria-current={tab === "rep"} onClick={() => setTab("rep")}>Rapports</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "pro"} onClick={() => setTab("pro")}>Profil</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "rec"} onClick={() => setTab("rec")}>Recommandations</button>}{mgr && <button role="tab" className="chip" aria-current={tab === "chat"} onClick={() => setTab("chat")}>Assistant</button>}</div></div>{tab === "lic" ? <Licence /> : tab === "rep" ? <Rapports /> : tab === "rec" ? <Recos /> : tab === "chat" ? <Assistant /> : <Profil />}</div>
   );
 }
 

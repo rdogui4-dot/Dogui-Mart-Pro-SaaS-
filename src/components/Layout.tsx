@@ -5,7 +5,7 @@ import { useSession } from "@/lib/session";
 import { SPACES, itemsOf, matchesItem, spaceOfPath, type NavItem } from "@/lib/nav";
 import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
-import { LogoMark } from "./Logo";
+import { LogoMark, Wordmark } from "./Logo";
 import { MasterModalCtx, type MasterTab } from "@/lib/master-modal";
 import { MasterWindow } from "@/routes/master";
 import { ItemLink } from "./ItemLink";
@@ -48,7 +48,7 @@ function LayoutInner() {
   return (
     <div className="h-full flex flex-col md:flex-row pt-[env(safe-area-inset-top)]">
       {wide && <aside aria-label="Espaces" className="flex flex-col w-60 shrink-0 border-r border-line bg-surface overflow-y-auto">
-        <Link to="/accueil" className="flex items-center gap-2 px-4 py-3 border-b border-line"><LogoMark size={32} /><span className="font-bold">Dogui Mart Pro</span></Link>
+        <Link to="/accueil" className="flex items-center gap-2 px-4 py-3 border-b border-line"><LogoMark size={32} /><Wordmark size={15} className="text-main" /><span className="sr-only">Accueil</span></Link>
         <nav aria-label="Navigation principale" className="flex flex-col gap-3 p-3">
           <SideLink to="/accueil" label="Accueil" icon={Home} active={path.startsWith("/accueil")} />
           {SPACES.map((sp) => { const its = itemsOf(sp, session, plan); if (!its.length) return null; return (
@@ -116,7 +116,7 @@ function SideLink({ to, item, label, icon: I, active }: { to?: string; item?: Na
 
 function MasterButton() {
   const m = useContext(MasterModalCtx);
-  return <button type="button" className="btn-ghost !py-1.5 !min-h-9 !px-3 text-sm shrink-0" aria-haspopup="dialog" aria-label="MASTER DOGUI" onClick={() => m.open()}><span className="md:hidden">MASTER</span><span className="hidden md:inline">MASTER DOGUI</span></button>;
+  return <button type="button" className="btn-ghost !py-1.5 !min-h-9 !px-3 text-sm shrink-0 inline-flex items-center gap-2" aria-haspopup="dialog" aria-label="MASTER DOGUI" onClick={() => m.open()}><img src={`${import.meta.env.BASE_URL}master-icon.svg`} width={20} height={20} alt="" aria-hidden="true" className="shrink-0 rounded-[5px]" /><span className="md:hidden">MASTER</span><span className="hidden md:inline">MASTER DOGUI</span></button>;
 }
 
 /** Rappel non bloquant : adresse e-mail non confirmée (sert à récupérer le mot de passe). Aucune fonction n'est coupée. */

@@ -1,6 +1,6 @@
 // Service worker : shell applicatif en cache (réseau d'abord pour les pages, cache en secours). Appwrite n'est jamais mis en cache.
 // Les adresses sont relatives à la portée du service worker : l'application peut vivre à la racine ou sous un sous-chemin (GitHub Pages).
-const CACHE = "dmp-shell-v3";
+const CACHE = "dmp-shell-v4";
 const BASE = self.registration.scope; // ex. https://compte.github.io/depot/
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll([BASE, BASE + "manifest.webmanifest", BASE + "icon.svg", BASE + "icon-192.png", BASE + "favicon.ico"]))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((k) => Promise.all(k.filter((x) => x !== CACHE).map((x) => caches.delete(x))))); self.clients.claim(); });
