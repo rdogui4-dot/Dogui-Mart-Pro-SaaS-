@@ -8,7 +8,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const stock = (p) => st.rows("stock_moves").filter((m) => m.productId === p).reduce((a, m) => a + (m.kind === "sale" ? -Math.abs(m.qty) : Number(m.qty)), 0);
   const count = async (name, qty) => { await page.getByLabel("Scanner ou rechercher").fill(name); await page.getByRole("button", { name: new RegExp(name) }).first().click(); await page.getByLabel("Quantité constatée").fill(String(qty)); await page.getByRole("button", { name: "Enregistrer", exact: true }).click(); await page.waitForSelector('[aria-label="Quantité constatée"]', { state: "detached", timeout: 8000 }); await page.getByLabel("Scanner ou rechercher").fill(""); };
   await step("inventaire complet créé depuis l'interface (brouillon, 3 lignes)", async () => {
-    await page.goto(h.url("inventaire")); await page.getByRole("button", { name: /Nouveau/ }).click(); await page.getByRole("button", { name: "Créer le brouillon" }).click(); await wait("INV-");
+    await page.goto(h.url("inventaire")); await page.getByRole("button", { name: /Démarrer un inventaire/ }).click(); await page.getByRole("button", { name: "Créer le brouillon" }).click(); await wait("INV-");
     const inv = st.rows("inventories")[0]; if (!inv || inv.status !== "draft" || st.rows("inventory_lines").length !== 3) throw new Error(JSON.stringify(inv));
   });
   await step("lancement du comptage ; comptage à l'aveugle : aucune quantité théorique affichée", async () => {

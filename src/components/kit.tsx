@@ -272,7 +272,11 @@ export function Panel({ title, icon: I, action, children, className = "" }: { ti
 }
 
 /** Étapes (assistant, flux de travail) : terminée, en cours, à venir. */
-export function Stepper({ steps, current, label }: { steps: string[]; current: number; label: string }) {
+export function Stepper({ steps, current, label, compact }: { steps: string[]; current: number; label: string; compact?: boolean }) {
+  if (compact) { const cur = Math.min(current, steps.length - 1); const done = current >= steps.length; return (
+    <div className="flex flex-col gap-1.5"><ol aria-label={label} className="flex items-center gap-1.5">{steps.map((st, i) => { const d = i < current, on = i === current; return (
+      <li key={st} className="flex items-center gap-1.5 flex-1 last:flex-none" aria-current={on ? "step" : undefined}><span className={`shrink-0 size-6 rounded-full inline-flex items-center justify-center text-xs font-bold ${d ? "bg-ok text-white" : on ? "bg-accent text-accent-ink" : "bg-subtle text-soft"}`}>{d ? <Check size={13} aria-hidden="true" /> : i + 1}<span className="sr-only">{st}{d ? " (terminée)" : ""}</span></span>{i < steps.length - 1 && <span className={`h-0.5 flex-1 rounded ${d ? "bg-ok" : "bg-line"}`} aria-hidden="true" />}</li>); })}</ol>
+      <p className="text-xs text-soft">{done ? `Toutes les étapes terminées · ${steps[steps.length - 1]}` : `Étape ${cur + 1} sur ${steps.length} · `}{!done && <b className="text-brand">{steps[cur]}</b>}</p></div>); }
   return (
     <ol aria-label={label} className="flex items-center gap-2">
       {steps.map((s, i) => { const done = i < current, on = i === current; return (

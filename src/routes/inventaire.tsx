@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Plus, ScanLine, WifiOff } from "lucide-react";
+import { Lock, Plus, ScanLine, WifiOff, ClipboardCheck, ClipboardList, RefreshCw, CheckCircle2, SlidersHorizontal, EyeOff, ScanBarcode, GitCompare, ShieldCheck } from "lucide-react";
+import { KpiRow, KpiTile, ModuleHeader, Panel, StatusBadge, Stepper, type StatusTone } from "@/components/kit";
 import { api } from "@/lib/api";
 import { list, listTenant } from "@/lib/data";
 import { exportReport, type ExportFormat } from "@/lib/report-export";
@@ -29,6 +30,13 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => <
 const TONE: Record<string, string> = { draft: "text-muted", in_progress: "text-info", counted: "text-warn", review: "text-warn", validated: "text-ok", closed: "text-muted", cancelled: "text-muted" };
 const EVENT: Record<string, string> = { create: "Créé", update: "Modifié", start: "Comptage lancé", count: "Quantité saisie", unknown: "Article inconnu signalé", finish: "Comptage terminé", review: "Passé à la vérification", recount: "Recomptage demandé", approve: "Écarts approuvés", reject: "Écarts refusés", validate: "Validé (ajustements créés)", close: "Clôturé", cancel: "Annulé", attach: "Document ajouté" };
 const Bar = ({ p }: { p: Prog }) => <div aria-label={`Avancement ${p.pct} %`}><div className="h-2 rounded bg-subtle overflow-hidden"><div className="h-full bg-accent" style={{ width: `${p.pct}%` }} /></div><span className="text-xs text-muted">{p.counted}/{p.total} comptés ({p.pct} %){p.recount ? ` · ${p.recount} à recompter` : ""}</span></div>;
+const INV_TONE: Record<InvStatus, StatusTone> = { draft: "muted", in_progress: "progress", counted: "info", review: "warn", validated: "ok", closed: "muted", cancelled: "bad" };
+const STEP: Record<InvStatus, number> = { draft: 0, in_progress: 1, counted: 2, review: 2, validated: 4, closed: 4, cancelled: 0 };
+/** Rappel des garanties réelles du Silent Count (fonctions existantes, rien de promis en plus). */
+function SilentPanel() {
+  const it: [typeof EyeOff, string][] = [[EyeOff, "Comptage à l'aveugle : aucune quantité attendue affichée pendant le comptage"], [ScanBarcode, "Saisie par scan ou recherche, code inconnu toujours signalé"], [GitCompare, "Rapprochement avec le stock théorique, second comptage des écarts importants"], [ShieldCheck, "Aucun ajustement sans validation explicite ; tout est tracé"]];
+  return <Panel title="Silent Count" icon={ClipboardCheck}><ul className="flex flex-col gap-2.5">{it.map(([I, t]) => <li key={t} className="flex gap-2.5 text-sm"><I size={18} className="text-ok shrink-0 mt-0.5" aria-hidden="true" /><span>{t}</span></li>)}</ul></Panel>;
+}
 const sgn = (n: number) => (n > 0 ? `+${n}` : String(n));
 
 /** Silent Count (Business) : inventaire par boutique avec comptage à l'aveugle (aucune quantité théorique affichée pendant le comptage), rapprochement, second comptage, validation et ajustements tracés. */
@@ -36,24 +44,34 @@ export function InventairePage() {
   const { session } = useSession(); const s = session!; const sub = useSubscription(); const allowed = planAllows(sub.data?.entitlement.plan.id, "silentCount"); const qc = useQueryClient(); const manager = s.role === "owner" || s.role === "manager";
   const [sheet, setSheet] = useState<ReactNode>(null); const [status, setStatus] = useState(""); const pro = planAllows(sub.data?.entitlement.plan.id, "silentCountPro"); const [tab, setTab] = useState<"inv" | "camp" | "plan">("inv"); const { switchShop } = useSession();
   const q = useQuery({ queryKey: ["count-list", s.shopId, status], enabled: allowed, retry: 1, queryFn: () => api<{ inventories: Row[] }>(s, "count.list", { status }) });
+  const allQ = useQuery({ queryKey: ["count-list", s.shopId, ""], enabled: allowed, retry: 1, queryFn: () => api<{ inventories: Row[] }>(s, "count.list", { status: "" }) });
+  const allRows = allQ.data?.inventories ?? []; const year = String(new Date().getFullYear());
+  const kpi = { year: allRows.filter((r) => (r.createdAt || "").startsWith(year)).length, running: allRows.filter((r) => ["in_progress", "counted", "review"].includes(r.status)).length, done: allRows.filter((r) => ["validated", "closed"].includes(r.status)).length, adjusted: allRows.reduce((a, r) => a + (r.adjusted || 0), 0) };
   const refresh = () => void qc.invalidateQueries({ predicate: (x) => String(x.queryKey[0]).startsWith("count") || ["stock", "overview"].includes(String(x.queryKey[0])) });
   if (sub.isLoading) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Inventaire</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Silent Count : formule Business</span><p className="text-muted">Comptage physique à l'aveugle, écarts valorisés, second comptage, validation et ajustements tracés.</p><button className="btn text-center" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Voir les formules</button></div></div>;
   const close = () => setSheet(null); const openInv = (id: string) => setSheet(<InventorySheet id={id} close={close} refresh={refresh} manager={manager} />); const proOn = pro && manager;
   return <div className="flex flex-col gap-3">
-    <div className="flex items-center justify-between gap-2"><h1 className="text-2xl font-bold">Inventaire</h1>{manager && <button className="btn !py-2 flex items-center gap-1" onClick={() => setSheet(<CreateForm close={close} done={() => { close(); refresh(); }} />)}><Plus size={16} />Nouveau</button>}</div>
+    <ModuleHeader icon={ClipboardCheck} title="Inventaires (Silent Count)" subtitle="Comptez sans perturber vos ventes : comptage à l'aveugle, rapprochement, validation tracée." actions={manager ? <button className="btn-gold" onClick={() => setSheet(<CreateForm close={close} done={() => { close(); refresh(); }} />)}><Plus size={18} aria-hidden="true" />Démarrer un inventaire</button> : undefined} />
+    <KpiRow cols={4}>
+      <KpiTile icon={ClipboardList} tint="blue" label={`Inventaires (${year})`} value={allQ.data ? String(kpi.year) : "…"} sub="Créés cette année" loading={!allQ.data} />
+      <KpiTile icon={RefreshCw} tint="amber" label="En cours" value={allQ.data ? String(kpi.running) : "…"} sub="Comptage, rapprochement ou vérification" loading={!allQ.data} />
+      <KpiTile icon={CheckCircle2} tint="green" label="Terminés" value={allQ.data ? String(kpi.done) : "…"} sub="Validés ou clôturés" loading={!allQ.data} />
+      <KpiTile icon={SlidersHorizontal} tint="violet" label="Lignes ajustées" value={allQ.data ? String(kpi.adjusted) : "…"} sub="Écarts approuvés, cumul" loading={!allQ.data} />
+    </KpiRow>
     {!navigator.onLine && <div className="card border border-warn/40 text-sm flex gap-2" role="alert"><WifiOff size={16} className="text-warn shrink-0 mt-0.5" /><span>Hors ligne : chaque saisie est enregistrée côté serveur ; reconnectez-vous pour continuer le comptage.</span></div>}
     {proOn && <AlertsBar onOpen={openInv} />}
     {proOn && <nav aria-label="Sections Pro" className="scroll-x">{([["inv", "Inventaires"], ["camp", "Campagnes"], ["plan", "Planification"]] as [typeof tab, string][]).map(([k, l]) => <button key={k} className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>}
     {proOn && tab === "camp" && <CampaignsView onOpen={(id, shopId) => { if (shopId !== s.shopId) switchShop(shopId); openInv(id); }} />}
     {proOn && tab === "plan" && <PlanView onOpen={openInv} />}
     {(!proOn || tab === "inv") && <>
-    <select className="input !py-2 text-sm" aria-label="Statut" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Tous les inventaires</option>{Object.entries(INV_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+    <nav aria-label="Statut" className="scroll-x !gap-2">{([["", "Tous"], ["draft", INV_LABEL.draft], ["in_progress", INV_LABEL.in_progress], ["counted", INV_LABEL.counted], ["review", INV_LABEL.review], ["validated", INV_LABEL.validated], ["closed", INV_LABEL.closed]] as [string, string][]).map(([k, l]) => { const on = status === k; const n = k ? allRows.filter((r) => r.status === k).length : allRows.length; return <button key={k || "_all"} type="button" aria-current={on} onClick={() => setStatus(k)} className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl border px-4 min-h-11 text-sm font-semibold transition ${on ? "bg-accent text-accent-ink border-accent shadow-[var(--shadow-card)]" : "bg-surface border-line hover:bg-subtle"}`}>{l}<span className={on ? "opacity-90" : "text-soft font-normal"}>({allQ.data ? n : "…"})</span></button>; })}</nav>
     {q.isLoading && <div className="card h-20 animate-pulse bg-subtle" aria-busy="true" />}<Err e={q.error} />
     {q.data && !q.data.inventories.length && (manager
       ? <div className="card flex flex-col items-center gap-2 text-center py-8"><b>Aucun inventaire</b><p className="text-sm text-muted max-w-md">Un inventaire compte votre stock physique sans afficher les quantités attendues, puis compare le résultat au stock théorique. Les écarts ne modifient rien tant que vous ne les validez pas.</p></div>
       : <p className="text-center text-muted text-sm py-6">Aucun inventaire ne vous est assigné.</p>)}
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">{q.data?.inventories.map((r) => <button key={r.id} className="card text-left flex flex-col gap-2 w-full" onClick={() => setSheet(<InventorySheet id={r.id} close={close} refresh={refresh} manager={manager} />)}><span className="flex justify-between gap-2"><b>{r.number}</b><span className={`text-sm ${TONE[r.status]}`}>{r.label}</span></span><span className="text-xs text-muted">{r.kind === "partial" ? "Partiel" : "Complet"} · responsable {r.responsible || "—"}{r.adjusted ? ` · ${r.adjusted} ajustement(s)` : ""}</span><Bar p={r.progress} /></button>)}</div>
+    <div className="grid xl:grid-cols-[minmax(0,1fr)_20rem] gap-4 items-start"><div className="grid grid-cols-1 lg:grid-cols-2 gap-3">{q.data?.inventories.map((r) => <button key={r.id} className="card d3-card text-left flex flex-col gap-2.5 w-full hover:bg-subtle" onClick={() => setSheet(<InventorySheet id={r.id} close={close} refresh={refresh} manager={manager} />)}><span className="flex justify-between items-center gap-2"><b className="inline-flex items-center gap-2"><ClipboardCheck size={18} className="text-accent" aria-hidden="true" />{r.number}</b><StatusBadge tone={INV_TONE[r.status]}>{r.label}</StatusBadge></span>{r.status !== "cancelled" && <Stepper label={`Étapes de ${r.number}`} steps={["Paramètres", "Comptage", "Rapprochement", "Validation"]} current={STEP[r.status]} compact />}<span className="text-xs text-muted">{r.kind === "partial" ? "Partiel" : "Complet"} · responsable {r.responsible || "—"}{r.adjusted ? ` · ${r.adjusted} ajustement(s)` : ""}</span><Bar p={r.progress} /></button>)}</div>
+      <SilentPanel /></div>
     </>}
     {sheet}
   </div>;
