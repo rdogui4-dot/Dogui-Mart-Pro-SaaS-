@@ -58,3 +58,15 @@ Chaînage et immuabilité des écritures, propositions et approbations, lettrage
 | F2 | Tableaux comptables et financiers ≥ 1024 px avec volet, montants alignés, feuille de style d'impression | oui |
 | F3 | Avertissements réduits à une ligne dépliable (texte conservé) | oui |
 | F4 | Boutons d'action à largeur naturelle en en-tête, indicateurs sur 3 à 4 colonnes | oui |
+
+## Réalisé (lot 5)
+
+- Onglets regroupés : Finance (Suivi, Mouvements, Engagements, Organisation), ICompta (Saisie, Consultation, Organisation, Pro, Sorties), Investissements (Suivi, Portefeuille, Réglages). Aucun onglet retiré ; colonne des libellés élargie (« Consultation » n'est plus tronqué).
+- Avertissements en `Disclaimer` : une ligne et « Lire la suite » sur téléphone, texte complet à partir de la tablette.
+- Tableaux à partir de 1024 px (cartes en dessous) : comptes, flux, virements (actions dans la ligne), factures clients (fiche en volet), écritures, journal, balance, grand livre, tiers, projets et placements.
+- Trésorerie : indicateurs sur 3 colonnes à partir de la tablette ; la carte vide des comptes n'est plus affichée sans compte actif ; boutons d'action à largeur naturelle, à droite.
+- Fiches en volet (écriture, période, projet, placement, facture) ; nouvelle écriture en grande fenêtre.
+- Impression : navigation, onglets et boutons masqués ; tableaux en noir sur blanc, en-têtes répétés à chaque page.
+- Accessibilité : le choix du client de la facture libre a désormais un nom accessible.
+- Scénario `e2e/compta-finance.cjs` (20 vérifications) : 390, 820 et 1280 px, onglets, tableaux, création d'un compte, d'un virement et d'une facture libre, livres, impression, volets.
+- Limite : le harness navigateur ne connaît que le propriétaire ; les droits par rôle de ces modules restent couverts par les tests unitaires serveur (`access.test.ts`, `fin*.test.ts`, `icompta*.test.ts`, `invest*.test.ts`).

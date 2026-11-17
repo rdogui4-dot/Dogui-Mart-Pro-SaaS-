@@ -9,6 +9,9 @@ import { dueOf, paidOf, type Payment } from "@/domain/purchasing";
 import { invoiceModel, reportModel, type InvoiceDoc } from "@/domain/documents";
 import type { ConsolidatedReport } from "@/domain/reports";
 import { deliverPdf, pdfBlob } from "@/lib/pdf";
+import { DataGrid, StatusPill } from "@/components/DataGrid";
+import { useMinWidth } from "@/lib/media";
+import { Sheet } from "@/components/ui";
 
 type JE = { ref: string; account: string; debit: number; credit: number; label: string; date: string };
 type Inv = { number: string; partyId: string; total: number; paid: number; vat?: number; status: string; dueAt?: string; saleId?: string; ref?: string; lines?: string; payments?: string };
@@ -24,18 +27,29 @@ export function CustomerInvoices() {
   const inv = useQuery({ queryKey: ["inv-customer"], queryFn: () => list<Inv>("invoices", s, [Query.equal("kind", "customer")], 200) });
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => list<Customer>("customers", s, [], 500) });
   const shop = useQuery({ queryKey: ["shop"], queryFn: () => getShop(s) });
-  const [mode, setMode] = useState<"" | "free" | "sale">("");
+  const [mode, setMode] = useState<"" | "free" | "sale">(""); const wide = useMinWidth(1024); const [sel, setSel] = useState<string | null>(null);
+  const cust = (id: string) => customers.data?.find((c) => c.$id === id);
+  const selInv = (inv.data ?? []).find((i) => i.$id === sel);
   const receivable = (inv.data ?? []).reduce((a, i) => a + Math.max(0, i.total - i.paid), 0);
   return (
     <>
       <div className="card">Créances sur factures : <b className="text-accent-text">{formatFcfa(receivable)}</b></div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 md:flex md:justify-end gap-2">
         <button className="btn-ghost" onClick={() => setMode(mode === "free" ? "" : "free")}>Facture libre</button>
         <button className="btn-ghost" onClick={() => setMode(mode === "sale" ? "" : "sale")}>Depuis une vente</button>
       </div>
       {mode === "free" && <FreeForm customers={customers.data ?? []} onDone={() => { setMode(""); refresh(); }} />}
       {mode === "sale" && <FromSale onDone={() => { setMode(""); refresh(); }} />}
-      {(inv.data ?? []).map((i) => <InvoiceCard key={i.$id} inv={i} customer={customers.data?.find((c) => c.$id === i.partyId)} shop={shop.data ?? null} onChange={refresh} />)}
+      {wide && (inv.data ?? []).length > 0 && <DataGrid label="Factures clients" rows={inv.data ?? []} rowKey={(i) => i.$id} onRow={(i) => setSel(i.$id)} columns={[
+        { label: "N°", cell: (i) => i.number },
+        { label: "Client", cell: (i) => cust(i.partyId)?.name ?? "—" },
+        { label: "Échéance", cell: (i) => (i.dueAt ? new Date(i.dueAt).toLocaleDateString("fr-FR") : "—") },
+        { label: "Total", align: "right", cell: (i) => formatFcfa(i.total) },
+        { label: "Reste", align: "right", cell: (i) => <b>{formatFcfa(Math.max(0, i.total - i.paid))}</b> },
+        { label: "Statut", cell: (i) => <StatusPill tone={i.status === "paid" ? "ok" : i.status === "partial" ? "info" : "warn"}>{LABEL[i.status] ?? i.status}</StatusPill> },
+      ]} />}
+      {!wide && (inv.data ?? []).map((i) => <InvoiceCard key={i.$id} inv={i} customer={cust(i.partyId)} shop={shop.data ?? null} onChange={refresh} />)}
+      {wide && selInv && <Sheet size="panel" title={`Facture ${selInv.number}`} onClose={() => setSel(null)}><div className="p-3"><InvoiceCard inv={selInv} customer={cust(selInv.partyId)} shop={shop.data ?? null} onChange={refresh} /></div></Sheet>}
       {inv.data?.length === 0 && <p className="text-center text-muted py-6">Aucune facture client.</p>}
     </>
   );
@@ -54,7 +68,7 @@ function FreeForm({ customers, onDone }: { customers: Row<Customer>[]; onDone: (
   });
   return (
     <form className="card flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); setErr(""); submit.mutate(); }}>
-      <select className="input" required value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+      <select className="input" aria-label="Client" required value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
         <option value="">Client…</option>{customers.map((c) => <option key={c.$id} value={c.$id}>{c.name}</option>)}
       </select>
       {rows.map((r, i) => (

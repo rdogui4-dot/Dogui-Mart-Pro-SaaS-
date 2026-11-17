@@ -4,10 +4,10 @@ import { Lock } from "lucide-react";
 export type TabItem<K extends string> = { key: K; label: string; locked?: boolean };
 export function GroupedTabs<K extends string>({ groups, value, onChange, label }: { groups: { label: string; items: TabItem<K>[] }[]; value: K; onChange: (k: K) => void; label: string }) {
   return (
-    <div className="flex flex-col gap-1.5" aria-label={label}>
+    <div className="flex flex-col gap-1.5 no-print" aria-label={label}>
       {groups.filter((g) => g.items.length > 0).map((g) => (
         <div key={g.label} className="flex items-center gap-2 min-w-0">
-          <span className="hidden md:block w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{g.label}</span>
+          <span className="hidden md:block w-28 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{g.label}</span>
           <div className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap pb-1" role="tablist" aria-label={`${label} — ${g.label}`}>
             {g.items.map((t) => (
               <button key={t.key} role="tab" aria-selected={value === t.key} aria-current={value === t.key} className="chip inline-flex items-center gap-1.5" onClick={() => onChange(t.key)}>
@@ -19,4 +19,11 @@ export function GroupedTabs<K extends string>({ groups, value, onChange, label }
       ))}
     </div>
   );
+}
+
+/** Répartit des onglets [clé, libellé] dans des groupes nommés ; tout onglet non prévu tombe dans « Autres » (aucun onglet ne peut disparaître). */
+export function groupTabs<K extends string>(tabs: [K, string][], spec: [string, K[]][], locked?: (k: K) => boolean): { label: string; items: TabItem<K>[] }[] {
+  const used = new Set<K>(); const out = spec.map(([label, keys]) => ({ label, items: keys.flatMap((k) => { const t = tabs.find(([x]) => x === k); if (!t) return []; used.add(k); return [{ key: k, label: t[1], locked: locked?.(k) }]; }) }));
+  const rest = tabs.filter(([k]) => !used.has(k)).map(([k, l]) => ({ key: k, label: l, locked: locked?.(k) }));
+  return rest.length ? [...out, { label: "Autres", items: rest }] : out;
 }

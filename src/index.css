@@ -65,3 +65,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .tile svg { color: var(--accent); }
 .scroll-x { @apply flex gap-2 overflow-x-auto pb-1; scrollbar-width: none; }
 .scroll-x::-webkit-scrollbar { display: none; }
+
+/* Impression (livres, balances, états) : seule la zone de contenu, en noir sur blanc, sans navigation ni commandes. */
+@media print {
+  aside[aria-label="Espaces"], header, nav, button, [role="tablist"], .no-print { display: none !important; }
+  html, body { background: #fff !important; color: #000 !important; }
+  .card { box-shadow: none !important; border: 1px solid #bbb !important; background: #fff !important; break-inside: avoid; }
+  table { font-size: 10pt; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  .page-in, .fade-in, .pop-in, .sheet-in { animation: none !important; }
+}

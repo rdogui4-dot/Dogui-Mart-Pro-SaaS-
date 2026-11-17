@@ -134,3 +134,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     </ToastCtx.Provider>
   );
 }
+
+/** Avertissement réglementaire ou méthodologique : texte intégral conservé ; sur téléphone, une ligne puis « Lire la suite ». */
+export function Disclaimer({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="text-xs text-muted">
+      <p className={open ? "" : "line-clamp-1 md:line-clamp-none"}>{children}</p>
+      {!open && <button type="button" className="md:hidden underline text-soft" onClick={() => setOpen(true)}>Lire la suite</button>}
+    </div>
+  );
+}

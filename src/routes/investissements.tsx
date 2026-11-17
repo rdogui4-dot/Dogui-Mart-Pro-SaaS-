@@ -1,5 +1,9 @@
 /** IProj-Invest Business (interface) : synthèse, projets d'entreprise, placements déclarés, profil de risque. Outil d'analyse et de simulation, jamais un conseil. */
 import { useState } from "react";
+import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
+import { Disclaimer } from "@/components/ui";
+import { DataGrid } from "@/components/DataGrid";
+import { useMinWidth } from "@/lib/media";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { Sheet } from "@/components/ui";
@@ -23,8 +27,8 @@ export function InvestPage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">Investissements</h1>
-      <p className="text-xs text-muted">Étude de vos projets d'entreprise et suivi de vos placements déclarés. Outil d'analyse et de simulation : ce n'est ni un conseil financier ni une promesse de rendement, et aucune opération n'est exécutée.</p>
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections Investissements">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <Disclaimer>Étude de vos projets d'entreprise et suivi de vos placements déclarés. Outil d'analyse et de simulation : ce n'est ni un conseil financier ni une promesse de rendement, et aucune opération n'est exécutée.</Disclaimer>
+      <GroupedTabs label="Sections Investissements" value={tab} onChange={setTab} groups={groupTabs<Tab>(tabs, [["Suivi", ["syn"]], ["Portefeuille", ["proj", "plac", "port"]], ["Réglages", ["reg", "rpro"]]])} />
       {tab === "syn" && <Synthese onTab={setTab} />}{tab === "proj" && <Items kind="project" mgr={mgr} />}{tab === "plac" && <Items kind="placement" mgr={mgr} />}{tab === "port" && <Portfolio owner={s.role === "owner"} />}{tab === "rpro" && <Reglages />}{tab === "reg" && <Profil owner={s.role === "owner"} />}
     </div>
   );
@@ -45,13 +49,28 @@ function Synthese({ onTab }: { onTab: (t: Tab) => void }) {
 
 type Row = { id: string; kind: string; name: string; status: string; statusLabel: string; budget: number; startOn: string; type?: string; spent?: number; central?: { net: number; roiPct: number | null; paybackMonths: number | null } | null; scenariosSet?: number; alerts: number; riskLabel?: string; endsOn?: string };
 function Items({ kind, mgr }: { kind: "project" | "placement"; mgr: boolean }) {
-  const q = useQ<{ items: Row[]; types: string[]; limits: string[] }>("inv.items", { kind }); const [open, setOpen] = useState(false); const [sel, setSel] = useState<string | null>(null);
+  const wide = useMinWidth(1024); const q = useQ<{ items: Row[]; types: string[]; limits: string[] }>("inv.items", { kind }); const [open, setOpen] = useState(false); const [sel, setSel] = useState<string | null>(null);
   return (
     <div className="flex flex-col gap-3"><Err e={q.error} />
-      {mgr && <button className="btn self-start" onClick={() => setOpen(!open)}>{open ? "Fermer" : kind === "project" ? "Nouveau projet" : "Nouveau placement"}</button>}
+      {mgr && <button className="btn self-start md:self-end" onClick={() => setOpen(!open)}>{open ? "Fermer" : kind === "project" ? "Nouveau projet" : "Nouveau placement"}</button>}
       {open && (kind === "project" ? <ProjectForm types={q.data?.types ?? []} onDone={() => setOpen(false)} /> : <PlacementForm onDone={() => setOpen(false)} />)}
       {q.data?.items.length === 0 && <p className="text-xs text-muted">Aucun {kind === "project" ? "projet" : "placement"} enregistré.</p>}
-      {q.data?.items.map((i) => <button key={i.id} className="card text-left text-sm flex justify-between" onClick={() => setSel(i.id)}><span><b>{i.name}</b><span className="block text-xs text-muted">{i.statusLabel} · {kind === "project" ? `budget ${money(i.budget)} · ${i.scenariosSet ?? 0}/3 scénarios` : `${money(i.budget)} · risque déclaré ${i.riskLabel} · fin ${fmtDay(i.endsOn ?? "")}`}</span></span><span className="text-right">{kind === "project" && i.central && <b className={i.central.net < 0 ? "text-bad" : ""}>{money(i.central.net)}</b>}{i.alerts > 0 && <span className="block text-xs text-warn">{i.alerts} alerte(s)</span>}</span></button>)}
+      {wide && q.data && q.data.items.length > 0 && <DataGrid label={kind === "project" ? "Projets" : "Placements"} rows={q.data.items} rowKey={(i) => i.id} onRow={(i) => setSel(i.id)} columns={kind === "project" ? [
+        { label: "Projet", cell: (i) => i.name },
+        { label: "Statut", cell: (i) => i.statusLabel },
+        { label: "Budget", align: "right", cell: (i) => money(i.budget) },
+        { label: "Scénarios", align: "right", cell: (i) => `${i.scenariosSet ?? 0}/3` },
+        { label: "Résultat central", align: "right", cell: (i) => (i.central ? <b className={i.central.net < 0 ? "text-bad" : ""}>{money(i.central.net)}</b> : "—") },
+        { label: "Alertes", align: "right", cell: (i) => (i.alerts > 0 ? <span className="text-warn">{i.alerts}</span> : "—") },
+      ] : [
+        { label: "Placement", cell: (i) => i.name },
+        { label: "Statut", cell: (i) => i.statusLabel },
+        { label: "Montant", align: "right", cell: (i) => money(i.budget) },
+        { label: "Risque déclaré", cell: (i) => i.riskLabel ?? "—" },
+        { label: "Fin", cell: (i) => fmtDay(i.endsOn ?? "") },
+        { label: "Alertes", align: "right", cell: (i) => (i.alerts > 0 ? <span className="text-warn">{i.alerts}</span> : "—") },
+      ]} />}
+      {!wide && q.data?.items.map((i) => <button key={i.id} className="card text-left text-sm flex justify-between" onClick={() => setSel(i.id)}><span><b>{i.name}</b><span className="block text-xs text-muted">{i.statusLabel} · {kind === "project" ? `budget ${money(i.budget)} · ${i.scenariosSet ?? 0}/3 scénarios` : `${money(i.budget)} · risque déclaré ${i.riskLabel} · fin ${fmtDay(i.endsOn ?? "")}`}</span></span><span className="text-right">{kind === "project" && i.central && <b className={i.central.net < 0 ? "text-bad" : ""}>{money(i.central.net)}</b>}{i.alerts > 0 && <span className="block text-xs text-warn">{i.alerts} alerte(s)</span>}</span></button>)}
       {sel && (kind === "project" ? <ProjectSheet id={sel} onClose={() => setSel(null)} /> : <PlacementSheet id={sel} onClose={() => setSel(null)} />)}
       <Limits items={q.data?.limits} /></div>
   );
@@ -87,7 +106,7 @@ function ProjectSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const exp = async (fmt: ExportFormat) => { setErr(null); try { await exportReport(await api<ReportData>(s, "inv.report", { id }), fmt); } catch (e) { setErr(e); } };
   const nexts: Record<string, [string, string, boolean][]> = { study: [["approved", "Approuver (propriétaire)", false], ["abandoned", "Abandonner", true]], approved: [["in_progress", "Lancer (propriétaire)", false], ["study", "Remettre en étude", true], ["abandoned", "Abandonner", true]], in_progress: [["done", "Clôturer comme terminé (propriétaire)", false], ["abandoned", "Abandonner", true]] };
   return (
-    <Sheet title={it?.name ?? "Projet"} onClose={onClose} back>
+    <Sheet title={it?.name ?? "Projet"} onClose={onClose} back size="panel">
       <Err e={q.error} />{it && q.data && <div className="flex flex-col gap-3 p-3">
         <div className="card text-sm flex flex-col gap-1"><div className="flex justify-between"><b>{it.data.type}</b><b>{it.statusLabel}</b></div><p className="text-xs text-muted">{it.data.objective}</p><p className="text-xs text-muted">Budget initial {money(it.budget)} · début {fmtDay(it.startOn)}{it.data.endOn ? ` · fin ${fmtDay(it.data.endOn)}` : ""} · financé {money(it.financed)}{it.financingGap > 0 ? ` (reste ${money(it.financingGap)} à financer)` : ""}</p></div>
         <Alerts list={it.alerts} />
@@ -131,7 +150,7 @@ type Plc = { id: string; name: string; status: string; statusLabel: string; budg
 function PlacementSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const q = useQ<{ item: Plc; trail: { at: string; action: string; by: string; detail: string }[]; canEdit: boolean; limits: string[] }>("inv.item", { id }); const mat = useAct("inv.maturity"); const close = useAct("inv.item.status", () => setShow(false)); const [show, setShow] = useState(false); const [f, setF] = useState({ real: "", why: "" }); const it = q.data?.item; const can = q.data?.canEdit;
   return (
-    <Sheet title={it?.name ?? "Placement"} onClose={onClose} back>
+    <Sheet title={it?.name ?? "Placement"} onClose={onClose} back size="panel">
       <Err e={q.error} />{it && q.data && <div className="flex flex-col gap-3 p-3"><Alerts list={it.alerts} />
         <div className="card text-sm flex flex-col gap-1"><div className="flex justify-between"><b>{money(it.budget)}</b><b>{it.statusLabel}</b></div><p className="text-xs text-muted">Frais {money(it.data.fees)} · rendement DÉCLARÉ {it.data.expectedRatePct} %/an · horizon {it.data.horizonMonths} mois (fin {fmtDay(it.endsOn)}) · risque déclaré {it.riskLabel}</p><p className="text-xs text-muted">Risques : {it.data.riskNotes}</p></div>
         <div className="card text-sm"><b>Projection mécanique (non garantie)</b><p className="text-xs text-muted">{money(it.projection.projected)} à l'horizon, soit {money(it.projection.gain)} ({it.projection.gainPct} %), si — et seulement si — le rendement que vous avez déclaré se réalisait. Un placement peut perdre de la valeur.</p></div>

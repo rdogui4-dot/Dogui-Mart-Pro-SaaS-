@@ -1,4 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
+import { Disclaimer } from "@/components/ui";
+import { DataGrid, StatusPill } from "@/components/DataGrid";
+import { useMinWidth } from "@/lib/media";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -36,8 +40,8 @@ export function FinancePage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold">Finance</h1>
-      <p className="text-xs text-muted">Boutique active : comptes et soldes sont gérés boutique par boutique. Les montants viennent des pièces réelles (ventes, dépenses, paiements) ; aucun solde n'est inventé.</p>
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Sections de la finance">{tabs.map(([k, l]) => <button key={k} role="tab" className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <Disclaimer>Boutique active : comptes et soldes sont gérés boutique par boutique. Les montants viennent des pièces réelles (ventes, dépenses, paiements) ; aucun solde n'est inventé.</Disclaimer>
+      <GroupedTabs label="Sections de la finance" value={tab} onChange={setTab} groups={groupTabs<Tab>(tabs, [["Suivi", ["dash", "an", "reports"]], ["Mouvements", ["flows", "transfers", "reco"]], ["Engagements", ["dues", "plans", "budgets", "fc"]], ["Organisation", ["accounts", "rules"]]])} />
       {tab === "dash" && <Dash onTab={setTab} />}{tab === "accounts" && <Accounts />}{tab === "flows" && <Flows />}{tab === "transfers" && <Transfers />}{tab === "reco" && <Reco />}{tab === "dues" && <Dues />}{tab === "budgets" && <Budgets mgr={s.role === "owner" || s.role === "manager"} />}{tab === "reports" && <Reports />}{tab === "fc" && <Forecast canAll={s.role === "owner" || s.role === "manager"} />}{tab === "plans" && <Plans />}{tab === "an" && <Analyses canAll={s.role === "owner" || s.role === "manager"} mgr={s.role === "owner" || s.role === "manager"} />}{tab === "rules" && <RulesTab />}
     </div>
   );
@@ -48,15 +52,15 @@ function Dash({ onTab }: { onTab: (t: Tab) => void }) {
   if (q.error) return <Err e={q.error} />; const d = q.data; if (!d) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         <Kpi label="Trésorerie (comptes configurés)" value={d.accounts.some((a) => a.active && a.configured) ? money(d.totalConfigured) : "À configurer"} hint={d.unconfigured ? `${d.unconfigured} compte(s) sans solde d'ouverture` : undefined} />
         <Kpi label="Perspective à 30 jours" value={money(d.outlook30.amount)} hint="Indicatif" />
         <Kpi label="Entrées (30 j)" value={money(d.last30.inflow)} tone="text-ok" /><Kpi label="Sorties (30 j)" value={money(d.last30.outflow)} tone="text-bad" />
         <Kpi label="À encaisser" value={money(d.receivables.total)} hint={`dont échu ${money(d.receivables.overdue)}`} /><Kpi label="À payer" value={money(d.payables.total)} hint={`dont échu ${money(d.payables.overdue)}`} />
       </div>
-      {d.accounts.length === 0 && <div className="card text-sm flex flex-col gap-2"><p>Aucun compte financier pour cette boutique.</p><button className="btn" onClick={() => onTab("accounts")}>Créer un compte</button></div>}
+      {d.accounts.length === 0 && <div className="card text-sm flex flex-col gap-2"><p>Aucun compte financier pour cette boutique.</p><button className="btn self-start" onClick={() => onTab("accounts")}>Créer un compte</button></div>}
       {d.alerts.length > 0 && <div className="card flex flex-col gap-1" aria-label="Alertes">{d.alerts.map((a) => <p key={a.text} className={`text-sm ${a.level === "danger" ? "text-bad" : "text-warn"}`}>{a.text}</p>)}</div>}
-      <div className="card flex flex-col gap-1">{d.accounts.filter((a) => a.active).map((a) => <div key={a.id} className="flex justify-between text-sm"><span>{a.name} <span className="text-muted text-xs">{a.kindLabel}</span></span><span className={a.balance !== null && a.balance < 0 ? "text-bad" : ""}>{a.configured ? money(a.balance) : "Solde d'ouverture à saisir"}</span></div>)}</div>
+      {d.accounts.some((a) => a.active) && <div className="card flex flex-col gap-1">{d.accounts.filter((a) => a.active).map((a) => <div key={a.id} className="flex justify-between text-sm"><span>{a.name} <span className="text-muted text-xs">{a.kindLabel}</span></span><span className={a.balance !== null && a.balance < 0 ? "text-bad" : ""}>{a.configured ? money(a.balance) : "Solde d'ouverture à saisir"}</span></div>)}</div>}
       <Note>{d.outlook30.basis}</Note>
     </div>
   );
@@ -82,13 +86,22 @@ function AccountForm({ acc, methodsTaken, onDone }: { acc?: Acc; methodsTaken: M
 }
 
 function Accounts() {
-  const { session } = useSession(); const mgr = session!.role === "owner" || session!.role === "manager"; const q = useFin<Accounts & { methods: { id: string; account: string | null }[] }>("fin.accounts"); const [edit, setEdit] = useState<Acc | "new" | null>(null);
+  const { session } = useSession(); const mgr = session!.role === "owner" || session!.role === "manager"; const q = useFin<Accounts & { methods: { id: string; account: string | null }[] }>("fin.accounts"); const [edit, setEdit] = useState<Acc | "new" | null>(null); const wide = useMinWidth(1024);
   if (q.error) return <Err e={q.error} />; const d = q.data; if (!d) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />; const taken = new Map(d.methods.filter((x) => x.account).map((x) => [x.id, x.account!]));
   return (
     <div className="flex flex-col gap-3">
-      {mgr && <button className="btn" onClick={() => setEdit("new")}>Nouveau compte</button>}
+      {mgr && <button className="btn md:self-end" onClick={() => setEdit("new")}>Nouveau compte</button>}
       {d.accounts.length === 0 && <p className="text-sm text-muted">Aucun compte. Créez par exemple « Caisse », « Banque », « Wave / Orange Money », « Coffre ».</p>}
-      {d.accounts.map((a) => <div key={a.id} className={`card flex flex-col gap-1 ${a.active ? "" : "opacity-50"}`}><div className="flex justify-between"><b>{a.name}</b><span>{a.configured ? money(a.balance) : <span className="text-warn text-sm">À configurer</span>}</span></div>
+      {wide && d.accounts.length > 0 && <DataGrid label="Comptes" rows={d.accounts} rowKey={(a) => a.id} onRow={mgr ? (a) => setEdit(a) : undefined} columns={[
+        { label: "Compte", cell: (a) => <span className={a.active ? "" : "opacity-50"}>{a.name}</span> },
+        { label: "Type", cell: (a) => a.kindLabel },
+        { label: "Moyens rattachés", cell: (a) => a.methodLabels.join(", ") || "—" },
+        { label: "Entrées", align: "right", cell: (a) => (a.configured ? money(a.inflow) : "—") },
+        { label: "Sorties", align: "right", cell: (a) => (a.configured ? money(a.outflow) : "—") },
+        { label: "Solde", align: "right", cell: (a) => (a.configured ? <b>{money(a.balance)}</b> : <span className="text-warn">À configurer</span>) },
+        { label: "État", cell: (a) => <StatusPill tone={a.active ? "ok" : "muted"}>{a.active ? "Actif" : "Désactivé"}</StatusPill> },
+      ]} />}
+      {!wide && d.accounts.map((a) => <div key={a.id} className={`card flex flex-col gap-1 ${a.active ? "" : "opacity-50"}`}><div className="flex justify-between"><b>{a.name}</b><span>{a.configured ? money(a.balance) : <span className="text-warn text-sm">À configurer</span>}</span></div>
         <p className="text-xs text-muted">{a.kindLabel} · {a.methodLabels.join(", ") || "aucun moyen rattaché"}{!a.active && " · désactivé"}</p>
         {a.configured && <p className="text-xs text-muted">Ouverture {money(a.openingBalance)} au {fmtDay(a.openingDate!)} · entrées {money(a.inflow)} · sorties {money(a.outflow)} · virements +{money(a.transfersIn)} / −{money(a.transfersOut)}</p>}
         {mgr && <button className="btn-ghost self-start" onClick={() => setEdit(a)}>Modifier</button>}</div>)}
@@ -101,16 +114,25 @@ function Accounts() {
 
 function Flows() {
   const [f, setF] = useState({ from: day(-30), to: day(), method: "", source: "", q: "" }); const q = useFin<{ flows: Flow[]; count: number; shown: number; total: { in: number; out: number }; note: string }>("fin.flows", { ...f, from: f.from || undefined, to: f.to || undefined, method: f.method || undefined, source: f.source || undefined, q: f.q || undefined });
+  const wide = useMinWidth(1024);
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2"><Field label="Du"><input className="input" type="date" aria-label="Du" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></Field><Field label="Au"><input className="input" type="date" aria-label="Au" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></Field>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2"><Field label="Du"><input className="input" type="date" aria-label="Du" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></Field><Field label="Au"><input className="input" type="date" aria-label="Au" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></Field>
         <Field label="Moyen"><select className="input" aria-label="Moyen" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}><option value="">Tous</option>{Object.entries(METHOD_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
         <Field label="Source"><select className="input" aria-label="Source" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}><option value="">Toutes</option>{Object.entries(SOURCE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field></div>
       <input className="input" placeholder="Rechercher une pièce ou un libellé" aria-label="Recherche" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
       <Err e={q.error} />
       {q.data && <><div className="grid grid-cols-2 gap-2"><Kpi label="Entrées" value={money(q.data.total.in)} tone="text-ok" /><Kpi label="Sorties" value={money(q.data.total.out)} tone="text-bad" /></div>
         <p className="text-xs text-muted">{q.data.shown} ligne(s) affichée(s) sur {q.data.count}</p>
-        <ul className="flex flex-col gap-1">{q.data.flows.map((x) => <li key={x.key} className="card flex justify-between gap-2 text-sm"><div><div>{x.label || x.sourceLabel}</div><div className="text-xs text-muted">{fmtDay(x.date)} · {x.sourceLabel}{x.ref ? ` · ${x.ref}` : ""} · {x.methodLabel} · {x.account ?? "Non affecté"}{x.by ? ` · ${x.by}` : ""}</div></div><b className={x.amount >= 0 ? "text-ok" : "text-bad"}>{x.amount >= 0 ? "+" : "−"}{money(Math.abs(x.amount))}</b></li>)}</ul>
+        {wide && q.data.flows.length > 0 && <DataGrid label="Flux" rows={q.data.flows} rowKey={(x) => x.key} columns={[
+          { label: "Date", cell: (x) => fmtDay(x.date) },
+          { label: "Libellé", cell: (x) => <>{x.label || x.sourceLabel}<span className="block text-xs text-muted">{x.sourceLabel}{x.ref ? ` · ${x.ref}` : ""}</span></> },
+          { label: "Moyen", cell: (x) => x.methodLabel },
+          { label: "Compte", cell: (x) => x.account ?? <span className="text-warn">Non affecté</span> },
+          { label: "Par", cell: (x) => x.by || "—" },
+          { label: "Montant", align: "right", cell: (x) => <b className={x.amount >= 0 ? "text-ok" : "text-bad"}>{x.amount >= 0 ? "+" : "−"}{money(Math.abs(x.amount))}</b> },
+        ]} />}
+        {!wide && <ul className="flex flex-col gap-1">{q.data.flows.map((x) => <li key={x.key} className="card flex justify-between gap-2 text-sm"><div><div>{x.label || x.sourceLabel}</div><div className="text-xs text-muted">{fmtDay(x.date)} · {x.sourceLabel}{x.ref ? ` · ${x.ref}` : ""} · {x.methodLabel} · {x.account ?? "Non affecté"}{x.by ? ` · ${x.by}` : ""}</div></div><b className={x.amount >= 0 ? "text-ok" : "text-bad"}>{x.amount >= 0 ? "+" : "−"}{money(Math.abs(x.amount))}</b></li>)}</ul>}
         <Note>{q.data.note}</Note></>}
     </div>
   );
@@ -119,13 +141,22 @@ function Flows() {
 function Transfers() {
   const accs = useFin<Accounts>("fin.accounts"); const q = useFin<{ transfers: Transfer[] }>("fin.transfers"); const [open, setOpen] = useState(false); const [key, setKey] = useState(rid); const [f, setF] = useState({ fromId: "", toId: "", amount: "", date: day(), reason: "" }); const [ask, setAsk] = useState<{ t: Transfer; cancel: boolean } | null>(null); const [why, setWhy] = useState(""); const [force, setForce] = useState<string | null>(null);
   const save = useAct("fin.transfer.save", () => { setOpen(false); setKey(rid()); setF({ fromId: "", toId: "", amount: "", date: day(), reason: "" }); }); const confirm = useAct("fin.transfer.confirm"); const cancel = useAct("fin.transfer.cancel", () => { setAsk(null); setWhy(""); });
-  const active = (accs.data?.accounts ?? []).filter((a) => a.active); const { session } = useSession(); const mgr = session!.role === "owner" || session!.role === "manager";
+  const active = (accs.data?.accounts ?? []).filter((a) => a.active); const { session } = useSession(); const mgr = session!.role === "owner" || session!.role === "manager"; const wide = useMinWidth(1024);
+  const acts = (t: Transfer) => <div className="flex gap-2">{t.status === "pending" && <button className="btn" disabled={confirm.isPending} onClick={() => confirm.mutate({ id: t.id })}>Confirmer</button>}{t.status === "pending" && mgr && confirm.error && <button className="btn-ghost" onClick={() => setForce(t.id)}>Forcer…</button>}{(t.status === "pending" || (t.status === "confirmed" && mgr)) && <button className="btn-ghost" onClick={() => setAsk({ t, cancel: true })}>Annuler</button>}</div>;
   return (
     <div className="flex flex-col gap-3">
-      <button className="btn" disabled={active.length < 2} onClick={() => setOpen(true)}>Nouveau virement interne</button>{active.length < 2 && <Note>Il faut au moins deux comptes actifs dans cette boutique.</Note>}
+      <button className="btn md:self-end" disabled={active.length < 2} onClick={() => setOpen(true)}>Nouveau virement interne</button>{active.length < 2 && <Note>Il faut au moins deux comptes actifs dans cette boutique.</Note>}
       <Err e={q.error ?? confirm.error} />
-      {q.data?.transfers.map((t) => <div key={t.id} className="card flex flex-col gap-1"><div className="flex justify-between text-sm"><span>{t.from.name} → {t.to.name}</span><b>{money(t.amount)}</b></div><p className="text-xs text-muted">{fmtDay(t.date)} · {t.statusLabel} · {t.reason}{t.cancelReason ? ` · annulé : ${t.cancelReason}` : ""}</p>
-        <div className="flex gap-2">{t.status === "pending" && <button className="btn" disabled={confirm.isPending} onClick={() => confirm.mutate({ id: t.id })}>Confirmer</button>}{t.status === "pending" && mgr && confirm.error && <button className="btn-ghost" onClick={() => setForce(t.id)}>Forcer…</button>}{(t.status === "pending" || (t.status === "confirmed" && mgr)) && <button className="btn-ghost" onClick={() => setAsk({ t, cancel: true })}>Annuler</button>}</div></div>)}
+      {wide && q.data && q.data.transfers.length > 0 && <DataGrid label="Virements" rows={q.data.transfers} rowKey={(t) => t.id} columns={[
+        { label: "Date", cell: (t) => fmtDay(t.date) },
+        { label: "Trajet", cell: (t) => `${t.from.name} → ${t.to.name}` },
+        { label: "Motif", cell: (t) => <>{t.reason}{t.cancelReason && <span className="block text-xs text-muted">annulé : {t.cancelReason}</span>}</> },
+        { label: "Statut", cell: (t) => <StatusPill tone={t.status === "confirmed" ? "ok" : t.status === "pending" ? "warn" : "muted"}>{t.statusLabel}</StatusPill> },
+        { label: "Montant", align: "right", cell: (t) => <b>{money(t.amount)}</b> },
+        { label: "Actions", cell: acts },
+      ]} />}
+      {!wide && q.data?.transfers.map((t) => <div key={t.id} className="card flex flex-col gap-1"><div className="flex justify-between text-sm"><span>{t.from.name} → {t.to.name}</span><b>{money(t.amount)}</b></div><p className="text-xs text-muted">{fmtDay(t.date)} · {t.statusLabel} · {t.reason}{t.cancelReason ? ` · annulé : ${t.cancelReason}` : ""}</p>
+        {acts(t)}</div>)}
       {q.data && q.data.transfers.length === 0 && <p className="text-sm text-muted">Aucun virement.</p>}
       <Note>Un virement déplace de l'argent entre deux comptes de la même boutique : il ne change pas la trésorerie totale. Il compte dans les soldes seulement une fois confirmé.</Note>
       {open && <Sheet title="Nouveau virement" onClose={() => setOpen(false)}><div className="flex flex-col gap-3 p-3">
