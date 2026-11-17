@@ -34,7 +34,7 @@ const INV_TONE: Record<InvStatus, StatusTone> = { draft: "muted", in_progress: "
 const STEP: Record<InvStatus, number> = { draft: 0, in_progress: 1, counted: 2, review: 2, validated: 4, closed: 4, cancelled: 0 };
 /** Rappel des garanties réelles du Silent Count (fonctions existantes, rien de promis en plus). */
 function SilentPanel() {
-  const it: [typeof EyeOff, string][] = [[EyeOff, "Comptage à l'aveugle : aucune quantité attendue affichée pendant le comptage"], [ScanBarcode, "Saisie par scan ou recherche, code inconnu toujours signalé"], [GitCompare, "Rapprochement avec le stock théorique, second comptage des écarts importants"], [ShieldCheck, "Aucun ajustement sans validation explicite ; tout est tracé"]];
+  const it: [typeof EyeOff, string][] = [[EyeOff, "Quantités attendues masquées pendant tout le comptage"], [ScanBarcode, "Saisie par scan ou recherche, code inconnu toujours signalé"], [GitCompare, "Rapprochement avec le stock enregistré après le comptage, second comptage des écarts importants"], [ShieldCheck, "Aucun ajustement sans validation explicite ; tout est tracé"]];
   return <Panel title="Silent Count" icon={ClipboardCheck}><ul className="flex flex-col gap-2.5">{it.map(([I, t]) => <li key={t} className="flex gap-2.5 text-sm"><I size={18} className="text-ok shrink-0 mt-0.5" aria-hidden="true" /><span>{t}</span></li>)}</ul></Panel>;
 }
 const sgn = (n: number) => (n > 0 ? `+${n}` : String(n));
@@ -52,7 +52,7 @@ export function InventairePage() {
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Inventaire</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Silent Count : formule Business</span><p className="text-muted">Comptage physique à l'aveugle, écarts valorisés, second comptage, validation et ajustements tracés.</p><button className="btn text-center" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Voir les formules</button></div></div>;
   const close = () => setSheet(null); const openInv = (id: string) => setSheet(<InventorySheet id={id} close={close} refresh={refresh} manager={manager} />); const proOn = pro && manager;
   return <div className="flex flex-col gap-3">
-    <ModuleHeader icon={ClipboardCheck} title="Inventaires (Silent Count)" subtitle="Comptez sans perturber vos ventes : comptage à l'aveugle, rapprochement, validation tracée." actions={manager ? <button className="btn-gold" onClick={() => setSheet(<CreateForm close={close} done={() => { close(); refresh(); }} />)}><Plus size={18} aria-hidden="true" />Démarrer un inventaire</button> : undefined} />
+    <ModuleHeader icon={ClipboardCheck} title="Inventaires (Silent Count)" subtitle="Comptez sans perturber vos ventes : quantités attendues masquées, rapprochement, validation tracée." actions={manager ? <button className="btn-gold" onClick={() => setSheet(<CreateForm close={close} done={() => { close(); refresh(); }} />)}><Plus size={18} aria-hidden="true" />Démarrer un inventaire</button> : undefined} />
     <KpiRow cols={4}>
       <KpiTile icon={ClipboardList} tint="blue" label={`Inventaires (${year})`} value={allQ.data ? String(kpi.year) : "…"} sub="Créés cette année" loading={!allQ.data} />
       <KpiTile icon={RefreshCw} tint="amber" label="En cours" value={allQ.data ? String(kpi.running) : "…"} sub="Comptage, rapprochement ou vérification" loading={!allQ.data} />

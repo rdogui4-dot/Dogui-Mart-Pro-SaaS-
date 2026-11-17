@@ -22,7 +22,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   });
   await step("cartes : étapes (Paramètres → Validation) et avancement ; panneau Silent Count (comptage aveugle)", async () => {
     if ((await page.getByRole("list", { name: /Étapes de INV-/ }).count()) < 2) throw new Error("étapes absentes");
-    if (!/Comptage à l'aveugle/.test(await page.getByRole("region", { name: "Silent Count" }).innerText())) throw new Error("panneau");
+    if (!/Quantités attendues masquées/.test(await page.getByRole("region", { name: "Silent Count" }).innerText())) throw new Error("panneau");
     await page.screenshot({ path: path.join(OUT, "kit6-inventaires-1280.png") });
   });
   await step("comptage toujours aveugle : aucune quantité théorique dans l'inventaire en cours", async () => {
