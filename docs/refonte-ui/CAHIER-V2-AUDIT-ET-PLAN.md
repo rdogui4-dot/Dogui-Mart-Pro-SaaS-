@@ -57,3 +57,15 @@ Le lot précédent (Comptabilité, Finance, Investissements) est commité et att
 - Page publique : **réseau neuronal discret** (≤ 60 points, différé, pause hors écran, image fixe en repli et en mouvement réduit) ; rien dans l'espace de gestion.
 - Espace de gestion : **barre latérale bleu nuit** et **texte courant 16 px** (tableaux compacts).
 - Scénarios historiques : **réparer ou retirer** (liste des retraits montrée avant suppression).
+
+## 6. Réalisé
+### N0 — Nettoyage (17/11)
+- Code mort retiré (Badge, Tabs, DataTable, notifications jamais appelées, syncResultOf, homePath).
+- 14 anciens scénarios réparés, 8 retirés (7 sondes sans vérification, j10 couvert ailleurs) ; la suite complète inclut les scénarios de la refonte.
+- Défaut d'accessibilité corrigé : 4 champs annonçaient « aucun » ou un exemple au lieu de leur libellé.
+- Suite complète : 36 scénarios, 325 vérifications, **0 échec**, liste des échecs connus vide.
+### N1 — Nouveau logo (17/11)
+- Icône d'application recentrée (dessin inchangé), favicon 16/32/48, icônes PWA 192/512 et adaptative (zone de sécurité), icône Apple 180, image de partage 1200×630.
+- Mot-symbole « DOGUI MART PRO » (barre latérale, connexion, page de présentation) ; symbole MASTER DOGUI : icône simplifiée sur le bouton, symbole monochrome (suit le thème) en tête de la fenêtre.
+- Cache hors ligne renouvelé (`dmp-shell-v4`) pour que les appareils récupèrent les nouvelles icônes.
+- Scénario `e2e/logo.cjs` : clair/sombre, 390 et 1280 px, aucune image cassée, fichiers d'icônes servis.
