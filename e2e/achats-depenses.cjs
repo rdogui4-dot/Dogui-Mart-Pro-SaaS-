@@ -20,21 +20,22 @@ const rid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 24);
   for (const [route, wait] of [["achats", "Achats & fournisseurs"], ["depenses", "Dépense 1"], ["depenses-pro", "Budgets"]]) for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]])
     await step(`${route} · ${label} (${w} px) : sans débordement, noms accessibles`, async () => { await open(route, w, hh, wait); await noOverflow(`${route} ${label}`); await unnamed(`${route} ${label}`); await page.screenshot({ path: path.join(OUT, `ad-${route}-${w}.png`) }); });
 
-  await step("achats · ordinateur : onglets regroupés (Suivi / Achats / Tiers), indicateurs sur 4 colonnes, aide dépliable", async () => {
-    await open("achats", 1280, 800, "Achats & fournisseurs"); const t = (await txt()).toLowerCase(); for (const x of ["suivi", "achats", "tiers", "commandes", "réceptions", "factures", "fournisseurs", "réclamations", "comment lire ces chiffres"]) if (!t.includes(x)) throw new Error("manquant : " + x);
+  await step("achats · ordinateur : onglets du kit (K7), indicateurs alignés, aide dépliable dans Analyses", async () => {
+    await open("achats", 1280, 800, "Achats & fournisseurs"); const tabs = (await page.getByRole("tablist", { name: "Sections des achats" }).innerText()).toLowerCase(); for (const x of ["commandes d'achat", "réceptions", "factures", "fournisseurs", "réclamations", "demandes d'approvisionnement", "analyses"]) if (!tabs.includes(x)) throw new Error("manquant : " + x);
+    await page.getByRole("tab", { name: "Analyses" }).click(); await page.getByText("Comment lire ces chiffres").waitFor({ timeout: 8000 }); await page.getByRole("tab", { name: "Commandes d'achat" }).click();
     const a = await page.locator("text=Fournisseurs actifs").first().boundingBox(); const b = await page.locator("text=Commandes en cours").first().boundingBox(); if (!a || !b || Math.abs(a.y - b.y) > 40) throw new Error("indicateurs non alignés");
   });
   await step("achats · commandes en tableau (≥ 1024 px), ouverture de la fiche en volet, cartes sur téléphone", async () => {
-    await open("achats", 1280, 800, "Achats & fournisseurs"); await page.getByRole("button", { name: "Commandes", exact: true }).click(); await page.waitForSelector("table", { timeout: 8000 });
+    await open("achats", 1280, 800, "Achats & fournisseurs"); await page.getByRole("tab", { name: "Commandes d'achat" }).click(); await page.waitForSelector("table", { timeout: 8000 });
     const heads = (await page.locator("thead th").allInnerTexts()).join("|"); for (const x of ["Commande", "Fournisseur", "Total TTC", "Statut"]) if (!heads.includes(x)) throw new Error("colonne manquante : " + x + " / " + heads);
     if ((await page.locator("tbody tr").count()) < 4) throw new Error("lignes manquantes");
     await page.locator("tbody tr").first().click(); await page.waitForTimeout(800); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.x < 1280 - 560) throw new Error("fiche non affichée en volet : " + JSON.stringify(d));
     await page.keyboard.press("Escape"); await page.waitForTimeout(400);
-    await open("achats", 390, 800, "Achats & fournisseurs"); await page.getByRole("button", { name: "Commandes", exact: true }).click(); await page.waitForTimeout(1500); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
+    await open("achats", 390, 800, "Achats & fournisseurs"); await page.getByRole("tab", { name: "Commandes d'achat" }).click(); await page.waitForTimeout(1500); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
   });
   await step("achats · filtres mémorisés par appareil et bouton Réinitialiser", async () => {
-    await open("achats", 1280, 800, "Achats & fournisseurs"); await page.getByRole("button", { name: "Commandes", exact: true }).click(); await page.waitForTimeout(800);
-    await page.getByLabel("Statut").selectOption("received"); await page.waitForTimeout(800); await page.reload(); await page.waitForSelector("text=Achats & fournisseurs"); await page.getByRole("button", { name: "Commandes", exact: true }).click(); await page.waitForTimeout(1200);
+    await open("achats", 1280, 800, "Achats & fournisseurs"); await page.getByRole("tab", { name: "Commandes d'achat" }).click(); await page.waitForTimeout(800);
+    await page.getByLabel("Statut").selectOption("received"); await page.waitForTimeout(800); await page.reload(); await page.waitForSelector("text=Achats & fournisseurs"); await page.getByRole("tab", { name: "Commandes d'achat" }).click(); await page.waitForTimeout(1200);
     if ((await page.getByLabel("Statut").inputValue()) !== "received") throw new Error("filtre de statut non retrouvé");
     await page.getByRole("button", { name: "Réinitialiser les filtres" }).click(); await page.waitForTimeout(600); if ((await page.getByLabel("Statut").inputValue()) !== "") throw new Error("Réinitialiser inefficace");
   });
