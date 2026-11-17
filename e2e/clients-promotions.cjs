@@ -14,7 +14,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const noOverflow = async (label) => { const x = await page.evaluate(() => ({ s: document.documentElement.scrollWidth, i: innerWidth })); if (x.s > x.i + 1) throw new Error(`${label} : débordement horizontal (${x.s} > ${x.i})`); };
   const unnamed = async (label) => { const bad = await page.evaluate(() => [...document.querySelectorAll("button, a[href], input, select")].filter((e) => { const r = e.getBoundingClientRect(); if (!r.width || !r.height) return false; const n = (e.getAttribute("aria-label") || e.innerText || e.getAttribute("title") || (e.labels && [...e.labels].map((l) => l.innerText).join("")) || e.getAttribute("placeholder") || "").trim(); return !n; }).map((e) => e.outerHTML.slice(0, 70))); if (bad.length) throw new Error(`${label} : sans nom accessible : ${bad.slice(0, 3).join(" ; ")}`); };
 
-  for (const [route, wait] of [["clients", "Tableau"], ["promotions", "Nouvelle campagne"]]) for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]])
+  for (const [route, wait] of [["clients", "Tableau"], ["promotions", "Créer une promotion"]]) for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]])
     await step(`${route} · ${label} (${w} px) : sans débordement, noms accessibles`, async () => { await open(route, w, hh, wait); await noOverflow(`${route} ${label}`); await unnamed(`${route} ${label}`); await page.screenshot({ path: path.join(OUT, `cp-${route}-${w}.png`) }); });
 
   await step("clients · ordinateur : onglets regroupés (Suivi / Relations / Pro), aucun défilement horizontal", async () => {
@@ -34,21 +34,21 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.getByLabel("Tri").selectOption("spent"); await page.waitForTimeout(600); await page.reload(); await page.waitForSelector("text=Tableau"); await page.getByRole("tab", { name: "Clients", exact: true }).click(); await page.waitForTimeout(1000);
     if ((await page.getByLabel("Tri").inputValue()) !== "spent") throw new Error("tri non retrouvé"); await page.getByRole("button", { name: "Réinitialiser" }).click(); await page.waitForTimeout(500); if ((await page.getByLabel("Tri").inputValue()) !== "name") throw new Error("Réinitialiser inefficace");
   });
-  await step("promotions · onglets regroupés (Campagnes / Suivi / Pro / Réglages), cadenas en icône (pas d'emoji)", async () => {
-    await open("promotions", 1280, 800, "Campagnes"); const t = (await txt()).toLowerCase(); for (const x of ["campagnes", "suivi", "pro", "réglages", "calendrier", "performance", "journal", "résultats", "coupons", "budgets", "magasins", "conseils"]) if (!t.includes(x)) throw new Error("manquant : " + x);
+  await step("promotions · onglets du kit (K9) et seconde ligne, cadenas en icône (pas d'emoji)", async () => {
+    await open("promotions", 1280, 800, "Créer une promotion"); const t = (await txt()).toLowerCase(); for (const x of ["promotions actives", "offres groupées", "programmes de fidélité", "analyses", "réglages", "calendrier", "performance", "journal", "coupons", "budgets", "magasins", "conseils"]) if (!t.includes(x)) throw new Error("manquant : " + x);
     if (/🔒/.test(await txt())) throw new Error("emoji de cadenas encore présent"); const lists = await page.getByRole("tablist").evaluateAll((els) => els.map((e) => e.scrollWidth <= e.clientWidth + 1)); if (lists.some((x) => !x)) throw new Error("une rangée défile horizontalement");
   });
-  await step("promotions · bouton « Nouvelle campagne » à largeur naturelle à droite, tableau des campagnes (≥ 1024 px), fiche large", async () => {
-    await open("promotions", 1280, 800, "Rentrée"); const b = await page.getByRole("button", { name: /Nouvelle campagne/ }).boundingBox(); if (!b || b.width > 400) throw new Error("bouton pleine largeur : " + JSON.stringify(b));
+  await step("promotions · bouton « Créer une promotion » à largeur naturelle à droite, tableau des campagnes (≥ 1024 px), fiche large", async () => {
+    await open("promotions", 1280, 800, "Rentrée"); const b = await page.getByRole("button", { name: "Créer une promotion" }).boundingBox(); if (!b || b.width > 400) throw new Error("bouton pleine largeur : " + JSON.stringify(b));
     if (!(await page.locator("table").count())) throw new Error("pas de tableau"); const heads = (await page.locator("thead th").allInnerTexts()).join("|"); for (const x of ["Campagne", "Remise", "Période", "Statut"]) if (!heads.includes(x)) throw new Error("colonne manquante : " + x);
     if ((await page.locator("tbody tr").count()) < 3) throw new Error("campagnes manquantes");
-    await page.getByRole("button", { name: /Nouvelle campagne/ }).click(); await page.waitForTimeout(700); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.width < 700) throw new Error("fiche étroite : " + JSON.stringify(d));
+    await page.getByRole("button", { name: "Créer une promotion" }).click(); await page.waitForTimeout(700); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.width < 700) throw new Error("fiche étroite : " + JSON.stringify(d));
   });
   await step("promotions · filtres mémorisés (statut) et Réinitialiser ; téléphone : cartes", async () => {
     await open("promotions", 1280, 800, "Rentrée"); await page.getByRole("button", { name: "Brouillons", exact: true }).click(); await page.waitForTimeout(500);
-    await page.reload(); await page.waitForSelector("text=Nouvelle campagne"); await page.waitForTimeout(900); if (!(await page.getByRole("button", { name: "Brouillons", exact: true }).getAttribute("aria-current")).includes("true")) throw new Error("filtre non retrouvé");
+    await page.reload(); await page.waitForSelector("text=Créer une promotion"); await page.waitForTimeout(900); if (!(await page.getByRole("button", { name: "Brouillons", exact: true }).getAttribute("aria-current")).includes("true")) throw new Error("filtre non retrouvé");
     await page.getByRole("button", { name: "Réinitialiser" }).click(); await page.waitForTimeout(400);
-    await open("promotions", 390, 800, "Nouvelle campagne"); await page.waitForTimeout(800); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
+    await open("promotions", 390, 800, "Créer une promotion"); await page.waitForTimeout(800); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
   });
   console.log("ERRORS", h.errors.filter((e) => !/WebSocket|Realtime|Failed to load resource/.test(e)), "\nBAD", h.bad); await h.close(); process.exit(0);
 })();
