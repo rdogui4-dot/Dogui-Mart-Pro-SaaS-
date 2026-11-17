@@ -152,7 +152,12 @@ type StkAlert = { kind: string; level: "high" | "warn" | "info"; title: string; 
 function AlertsBell({ plan }: { plan?: string }) {
   const { session } = useSession(); const pop = usePopover();
   const allowed = !!session && can(session, "stock") && planAllows(plan, "stockIntel");
-  const q = useQuery({ queryKey: ["stk-alerts", session?.shopId, "bell"], enabled: allowed && navigator.onLine, staleTime: 60_000, retry: 1, queryFn: () => api<{ alerts: StkAlert[]; counts: { high: number; warn: number; info: number } }>(session!, "stk.alerts") });
+  // Les alertes ne sont pas urgentes : lues quand le navigateur est inactif (jamais en concurrence avec le premier affichage ou un geste de caisse).
+  const [idle, setIdle] = useState(false);
+  useEffect(() => { const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    if (w.requestIdleCallback) { const id = w.requestIdleCallback(() => setIdle(true), { timeout: 8000 }); return () => w.cancelIdleCallback?.(id); }
+    const t = setTimeout(() => setIdle(true), 4000); return () => clearTimeout(t); }, []);
+  const q = useQuery({ queryKey: ["stk-alerts", session?.shopId, "bell"], enabled: allowed && idle && navigator.onLine, staleTime: 60_000, retry: 1, queryFn: () => api<{ alerts: StkAlert[]; counts: { high: number; warn: number; info: number } }>(session!, "stk.alerts") });
   if (!allowed) return null;
   const n = (q.data?.counts.high ?? 0) + (q.data?.counts.warn ?? 0); const top = (q.data?.alerts ?? []).filter((a) => a.level !== "info").slice(0, 6);
   return (
