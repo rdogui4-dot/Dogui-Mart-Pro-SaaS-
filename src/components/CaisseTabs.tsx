@@ -17,7 +17,7 @@ export function CaisseTabs({ current }: { current: "/pos" | "/ventes" | "/caisse
   if (tabs.length < 2) return null;
   return (
     <nav aria-label="Écrans de la caisse" className="scroll-x">
-      {tabs.map((t) => <Link key={t.to} to={t.to} className="chip" aria-current={current === t.to}>{t.label}</Link>)}
+      {tabs.map((t) => <Link key={t.to} to={t.to} className="chip max-sm:!min-h-9 max-sm:!py-1 max-sm:!px-3 max-sm:text-sm" aria-current={current === t.to}>{t.label}</Link>)}
     </nav>
   );
 }

@@ -51,6 +51,13 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!/Total à payer\s*4\s?000 FCFA/.test(await cart().innerText())) throw new Error("panier en cours écrasé");
   });
   await step("F9 : retour → page Ventes (remboursements tracés)", async () => { await page.keyboard.press("F9"); await page.waitForURL(/\/ventes/, { timeout: 5000 }); });
+  for (const [w, cols] of [[360, 2], [412, 3]]) await step(`Android ${w} px : ${cols} articles par rangée, premiers articles visibles sans défiler, barre de total sur une ligne`, async () => {
+    await open(w, 800); const boxes = await page.locator("button.d3-tile").evaluateAll((els) => els.slice(0, 4).map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.left), Math.round(r.height)]; }));
+    const row1 = boxes.filter((b) => b[0] === boxes[0][0]).length; if (row1 !== cols) throw new Error(`${row1} par rangée : ${JSON.stringify(boxes)}`);
+    if (boxes[0][0] > 380) throw new Error("premier article trop bas : " + boxes[0][0]); if (boxes[0][2] > 240) throw new Error("tuile trop haute : " + boxes[0][2]);
+    await tile("Riz local").click(); const bar = page.getByRole("button", { name: /Voir le paiement/ }); const bh = (await bar.boundingBox()).height; if (bh > 50) throw new Error("barre sur deux lignes : " + bh);
+    await page.screenshot({ path: path.join(OUT, `kit3-android-${w}.png`) });
+  });
   for (const [w, theme] of [[1600, "light"], [820, "light"], [390, "light"], [1280, "dark"]]) await step(`${w} px ${theme} : aucun débordement (captures)`, async () => {
     await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("accueil")); await page.evaluate((t) => localStorage.setItem("dmp-theme", t), theme); await open(w);
     await tile("Riz local").click(); await page.waitForTimeout(300); const o = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o > 1) throw new Error("débordement " + o);

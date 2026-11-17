@@ -43,7 +43,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (await page.locator("button", { hasText: "Voir le paiement" }).count()) throw new Error("barre visible avec un panier vide");
     await add("Article 14"); await add("Article 13"); await page.waitForTimeout(500); // articles du haut du catalogue : le panier reste sous la ligne de flottaison
     const bar = page.locator("button", { hasText: "Voir le paiement" }); await bar.waitFor({ timeout: 5000 });
-    const t = (await bar.innerText()).replace(/\s+/g, " "); if (!/2 articles/.test(t) || !/2[   ]027 FCFA/.test(t)) throw new Error("contenu de la barre : " + t);
+    const t = (await bar.innerText()).replace(/\s+/g, " "); if (!/2 art(icles|\.)/.test(t) || !/2[   ]027 FCFA/.test(t)) throw new Error("contenu de la barre : " + t);
     const box = await bar.boundingBox(); if (!box || box.y + box.height > 800) throw new Error("barre hors de l'écran : " + JSON.stringify(box));
     await bar.click(); await page.waitForTimeout(900);
     const enc = await page.getByRole("button", { name: /Encaisser/ }).boundingBox(); if (!enc || enc.y < 0 || enc.y > 800) throw new Error("bouton Encaisser non visible après « Voir le paiement »");
