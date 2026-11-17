@@ -103,7 +103,7 @@ export function SettingsPage() {
           </div>
           <label className="text-xs text-muted flex flex-col gap-1">NINEA / RCCM (mentions légales)<input aria-label="NINEA / RCCM (mentions légales)" className="input" placeholder="NINEA / RCCM (mentions légales)" value={sh.legal} onChange={(e) => setSh({ ...sh, legal: e.target.value })} /></label>
           <label className="text-xs text-muted flex flex-col gap-1">Taux de TVA (%)<input aria-label="TVA (%)" className="input" inputMode="numeric" placeholder="TVA (%)" value={sh.vatRatePct} onChange={(e) => setSh({ ...sh, vatRatePct: e.target.value })} /></label>
-          <button className="btn">Enregistrer</button>
+          <button className="btn md:self-start md:px-8">Enregistrer</button>
           <Msg text={shMsg} />
         </form>
       )}
