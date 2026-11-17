@@ -46,7 +46,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   });
   await step("précommande automatique : la vente qui passe le riz sous son seuil prépare un brouillon pour son fournisseur", async () => {
     await sell([{ productId: riz, qty: 3 }], [{ method: "cash", amount: 15000 }]); const d = st.rows("purchase_orders").filter((p) => p.createdBy === "auto-preorder"); if (d.length !== 1 || d[0].status !== "draft") throw new Error(JSON.stringify(d).slice(0, 300));
-    await page.goto(h.url("achats")); const sec = page.getByRole("region", { name: "Précommande automatique" }); await sec.waitFor({ timeout: 10000 }); await page.waitForTimeout(800); const t = await sec.innerText();
+    await page.goto(h.url("achats")); await page.getByRole("tab", { name: /^Demandes d.approvisionnement/ }).click(); const sec = page.getByRole("region", { name: "Précommande automatique" }); await sec.waitFor({ timeout: 10000 }); await page.waitForTimeout(800); const t = await sec.innerText();
     if (!/Riz 5 kg × \d+/.test(t) || !/Grossiste Central/.test(t) || !/Brouillon à relire/.test(t)) throw new Error(t.slice(0, 400)); if (!/Sel fin \(3 \/ seuil 5\)/.test(t)) throw new Error("article sans fournisseur non signalé : " + t.slice(0, 300));
     await page.screenshot({ path: path.join(OUT, "precommande-1-achats.png") });
     await sec.getByRole("button", { name: /Brouillon à relire/ }).click(); await page.getByRole("dialog").last().waitFor({ timeout: 6000 }); if (!/Riz 5 kg/.test(await dlg().innerText())) throw new Error("brouillon non ouvert"); await page.keyboard.press("Escape");

@@ -4,7 +4,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const h = await start({ plan: "business", expect: [] }); const { page, st } = h; const T = "t1"; const txt = async () => (await page.locator("body").innerText()).replace(/\s+/g, " ");
   await st.create("products", "p1", T, { tenantId: T, shopId: h.shop, name: "Riz 25kg", price: 1000, cost: 500 }); await st.create("stock_moves", "m0", T, { tenantId: T, shopId: h.shop, productId: "p1", qty: 10, kind: "purchase" });
   const stock = () => st.rows("stock_moves").filter((m) => m.productId === "p1").reduce((a, m) => a + Number(m.qty), 0);
-  const tab = (n) => page.getByRole("button", { name: n, exact: true }).click(); const wait = (t) => page.waitForSelector(`text=${t}`, { timeout: 10000 });
+  const tab = (n) => page.getByRole("tab", { name: new RegExp(`^${n}`) }).click(); const wait = (t) => page.waitForSelector(`text=${t}`, { timeout: 10000 });
   await step("fournisseur créé depuis l'interface (fiche complète) puis retrouvé par la recherche", async () => {
     await page.goto(h.url("achats")); await tab("Fournisseurs"); await page.getByRole("button", { name: /Nouveau/ }).click();
     await page.getByLabel("Nom commercial").fill("Grossiste Sané"); await page.getByLabel("Raison sociale").fill("Sané & Fils SARL"); await page.getByLabel("Personne de contact").fill("Awa Sané"); await page.getByLabel("Téléphone").fill("770001122"); await page.getByLabel("Identifiant fiscal").fill("NINEA 12345"); await page.getByLabel("Catégories d'articles").fill("Alimentaire, Boissons"); await page.getByLabel("Conditions de paiement").fill("30 jours"); await page.getByLabel("Délai habituel").fill("3");
@@ -17,7 +17,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (st.rows("suppliers").length !== 1) throw new Error("doublon écrit sans confirmation"); await page.getByLabel("Fermer").click();
   });
   await step("commande créée (brouillon) avec ligne, remise, frais de transport ; stock inchangé", async () => {
-    await tab("Commandes"); await page.getByRole("button", { name: /Nouvelle/ }).click(); await page.getByRole("dialog").getByLabel("Fournisseur", { exact: true }).selectOption({ label: "Grossiste Sané" });
+    await tab("Commandes d'achat"); await page.getByRole("button", { name: /Nouvelle/ }).click(); await page.getByRole("dialog").getByLabel("Fournisseur", { exact: true }).selectOption({ label: "Grossiste Sané" });
     await await page.getByRole("option", { name: /Riz 25kg/ }).click(); await page.getByLabel("Quantité Riz 25kg").fill("10"); await page.getByLabel("Prix Riz 25kg").fill("700"); await page.getByLabel("Remise Riz 25kg").fill("10"); await page.getByLabel("Frais de transport").fill("1000");
     await wait("Aucune taxe configurée").catch(() => {}); await page.getByRole("button", { name: "Enregistrer le brouillon" }).click(); await page.waitForSelector("text=Aucune commande", { state: "detached", timeout: 10000 }).catch(() => {});
     const po = st.rows("purchase_orders")[0]; if (!po || po.status !== "draft" || po.total !== 6300 + 1000) throw new Error(JSON.stringify(po)); if (stock() !== 10) throw new Error("stock modifié par une commande");
@@ -48,7 +48,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (st.rows("expenses").length) throw new Error("paiement fournisseur compté comme dépense"); await page.getByLabel("Fermer").click();
   });
   await step("tableau de bord : commandé / reçu / facturé / payé séparés, solde à payer", async () => {
-    await tab("Tableau"); await wait("Sur la période"); await page.waitForFunction(() => /Commandé/.test(document.body.innerText) && /Facturé/.test(document.body.innerText), null, { timeout: 8000 }); await page.locator("summary", { hasText: "Comment lire ces chiffres" }).click(); const t = await txt();
+    await tab("Analyses"); await wait("Sur la période"); await page.waitForFunction(() => /Commandé/.test(document.body.innerText) && /Facturé/.test(document.body.innerText), null, { timeout: 8000 }); await page.locator("summary", { hasText: "Comment lire ces chiffres" }).click(); const t = await txt();
     if (!/ne les additionnez pas/.test(t) || !/4\s?300/.test(t) || !/3\s?000/.test(t)) throw new Error(t.slice(0, 1400));
   });
   await step("fournisseur avec historique : suppression refusée (archivage proposé), archivage conserve l'historique", async () => {

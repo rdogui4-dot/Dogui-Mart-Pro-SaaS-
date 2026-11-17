@@ -49,8 +49,19 @@ export async function purchasingDashboard(store: Store, ctx: Ctx, b: { from?: st
   const payByMethod: Record<string, number> = {}; for (const p of payments) payByMethod[`${p.source === "till" ? "caisse" : p.method}`] = (payByMethod[`${p.source === "till" ? "caisse" : p.method}`] ?? 0) + p.amount;
   const topSup = new Map<string, { supplierId: string; name: string; value: number; orders: number }>(); for (const p of pos) { if (!inRange(day10(p.$createdAt), from, to) || ["draft", "cancelled"].includes(poState(p.status))) continue; const k = String(p.supplierId); const s = topSup.get(k) ?? { supplierId: k, name: names.get(k) ?? "", value: 0, orders: 0 }; s.value += poTotalsOf(p).totalHt; s.orders++; topSup.set(k, s); }
 
+  // ----- évolution (6 mois calendaires, commandé HT), période précédente de même durée, répartition par catégorie d'article
+  const counted = pos.filter((p) => !["draft", "cancelled"].includes(poState(p.status)));
+  const months: { month: string; value: number; orders: number }[] = []; { const [y, m] = to.split("-").map(Number) as [number, number]; for (let k = 5; k >= 0; k--) { const d = new Date(Date.UTC(y, m - 1 - k, 1)); months.push({ month: d.toISOString().slice(0, 7), value: 0, orders: 0 }); } }
+  for (const p of counted) { const mo = day10(p.$createdAt).slice(0, 7); const x = months.find((z) => z.month === mo); if (x) { x.value += poTotalsOf(p).totalHt; x.orders++; } }
+  const span = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1; const pTo = new Date(Date.parse(from) - 864e5).toISOString().slice(0, 10); const pFrom = new Date(Date.parse(from) - span * 864e5).toISOString().slice(0, 10);
+  const previousOrdered = counted.filter((p) => inRange(day10(p.$createdAt), pFrom, pTo)).reduce((a, p) => a + poTotalsOf(p).totalHt, 0);
+  const cat = new Map((await store.scan("products", where, { maxRows: 20_000 })).rows.map((x) => [x.$id, String(x.category ?? "").trim() || "Sans catégorie"])); const byCat = new Map<string, { category: string; value: number }>();
+  for (const p of counted) { if (!inRange(day10(p.$createdAt), from, to)) continue; for (const l of parse<OrderLine[]>(p.lines, [])) { const c = cat.get(l.productId) ?? "Sans catégorie"; const e = byCat.get(c) ?? { category: c, value: 0 }; e.value += Math.round(Number(l.lineHt ?? Math.round(Number(l.qty) * Number(l.unitCost ?? 0)))); byCat.set(c, e); } }
+  const catList = [...byCat.values()].sort((a, c) => c.value - a.value); const catTop = catList.slice(0, 4); const rest = catList.slice(4).reduce((a, c) => a + c.value, 0); if (rest > 0) catTop.push({ category: "Autres", value: rest });
+
   return {
     period: { from, to, today: t }, scope: all ? "all" : "shop", supplierId: sid,
+    trend: { months, previous: { from: pFrom, to: pTo, orderedValue: previousOrdered } }, byCategory: catTop,
     suppliers: { active: sups.filter((s) => s.archived !== true).length, archived: sups.filter((s) => s.archived === true).length },
     orders: { byState: states, pending: open.filter((p) => poState(p.status) === "pending").length, inProgress: inProgress.length, awaitingValidation: open.filter((p) => poState(p.status) === "pending").length, orderedCount, orderedValue },
     receipts: { count: receivedCount, value: receivedValue, damagedQty, refusedQty, expected, lateCount: expected.filter((e) => e.late).length },

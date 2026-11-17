@@ -3,7 +3,9 @@ import { DataGrid, StatusPill } from "@/components/DataGrid";
 import { useMinWidth } from "@/lib/media";
 import { usePersistedState } from "@/lib/prefs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Paperclip, Plus, Trash2, WifiOff } from "lucide-react";
+import { AlertTriangle, BarChart3, ClipboardList, FileText, Lock, PackageCheck, Paperclip, Plus, Receipt, ShoppingCart, Sparkles, Trash2, Truck, Users, WifiOff } from "lucide-react";
+import { InsightCard, KpiRow, KpiTile, ModuleHeader, Panel, PillTabs, TabPanel, type Insight, type PillTab } from "@/components/kit";
+import { Donut, LineChart } from "@/components/charts";
 import { api } from "@/lib/api";
 import { compressImage } from "@/lib/articles";
 import { list } from "@/lib/data";
@@ -27,7 +29,7 @@ type RLine = { productId: string; variantId?: string; name: string; ordered: num
 type Rec = { id: string; number: string; status: string; poId: string; po: string; supplier: string; deliveryNote: string; receivedOn: string; by: string; lines: RLine[]; accepted: number; damaged: number; refused: number; notes: string; docs: Doc[]; moves?: { id: string; productId: string; qty: number }[] };
 type Pay = { id: string; amount: number; method: string; date: string; source: string; reference: string; by: string };
 type Inv = { provisional?: boolean; id: string; number: string; ref: string; supplierId: string; supplier: string; poId: string; receiptId: string; total: number; vat: number; paid: number; remaining: number; state: string; overdue: boolean; lateDays: number; issuedOn: string; dueOn: string; disputed: boolean; disputeReason: string; docs: Doc[]; payments: Pay[] };
-type Dash = { period: { from: string; to: string }; suppliers: { active: number; archived: number }; orders: { pending: number; inProgress: number; orderedCount: number; orderedValue: number }; receipts: { count: number; value: number; damagedQty: number; refusedQty: number; lateCount: number; expected: { id: string; number: string; supplier: string; deliveryOn: string; remainingQty: number; remainingValue: number; late: boolean; lateDays: number }[] }; invoices: { issuedCount: number; invoiced: number; toPay: number; toPayCount: number; overdue: number; overdueCount: number; disputedCount: number; overdueList: { id: string; number: string; ref: string; supplier: string; remaining: number; dueOn: string; lateDays: number }[] }; payments: { count: number; paid: number; byMethod: Record<string, number> }; topSuppliers: { supplierId: string; name: string; value: number; orders: number }[]; topArticles: { productId: string; name: string; qty: number; value: number }[]; note: string };
+type Dash = { period: { from: string; to: string }; suppliers: { active: number; archived: number }; orders: { pending: number; inProgress: number; orderedCount: number; orderedValue: number }; receipts: { count: number; value: number; damagedQty: number; refusedQty: number; lateCount: number; expected: { id: string; number: string; supplier: string; deliveryOn: string; remainingQty: number; remainingValue: number; late: boolean; lateDays: number }[] }; invoices: { issuedCount: number; invoiced: number; toPay: number; toPayCount: number; overdue: number; overdueCount: number; disputedCount: number; overdueList: { id: string; number: string; ref: string; supplier: string; remaining: number; dueOn: string; lateDays: number }[] }; payments: { count: number; paid: number; byMethod: Record<string, number> }; topSuppliers: { supplierId: string; name: string; value: number; orders: number }[]; topArticles: { productId: string; name: string; qty: number; value: number }[]; note: string; trend: { months: { month: string; value: number; orders: number }[]; previous: { orderedValue: number } }; byCategory: { category: string; value: number }[] };
 type Cfg = { methods: { id: string; label: string }[]; taxRatePct: number; costNote: string };
 
 const today = () => new Date().toISOString().slice(0, 10); const dayOff = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
@@ -60,27 +62,80 @@ function Docs({ kind, id, docs, onDone }: { kind: "supplier" | "po" | "receipt" 
 /** Achats & fournisseurs (Business) : fournisseurs, commandes, réceptions, factures et paiements. Tous les chiffres viennent du serveur ; commandé, reçu, facturé et payé restent distincts. */
 export function FournisseursPage() {
   const { session } = useSession(); const s = session!; const sub = useSubscription(); const allowed = planAllows(sub.data?.entitlement.plan.id, "purchasing"); const qc = useQueryClient();
-  const [tab, setTab] = useState<"dash" | "sup" | "po" | "rec" | "inv" | "claims">("dash"); const [sheet, setSheet] = useState<ReactNode>(null);
+  type T = "po" | "rec" | "sup" | "pre" | "dash" | "inv" | "claims";
+  const [tab, setTab] = useState<T>("po"); const [sheet, setSheet] = useState<ReactNode>(null);
   const manager = s.role === "owner" || s.role === "manager"; const cfg = useQuery({ queryKey: ["purch-cfg", s.shopId], enabled: allowed, retry: 1, queryFn: () => api<Cfg>(s, "purch.config") });
   const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("purch") || ["stock", "overview", "cash-current"].includes(String(q.queryKey[0])) });
+  const month = useQuery({ queryKey: ["purch-kpi", s.shopId], enabled: allowed && manager, retry: 1, queryFn: () => api<Dash>(s, "purch.dashboard", { from: `${today().slice(0, 8)}01`, to: today() }) });
+  const pre = useQuery({ queryKey: ["purch-preorder", s.shopId], enabled: allowed, retry: 1, queryFn: () => api<Pre>(s, "purch.preorder.status") });
   if (sub.isLoading) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
   if (!allowed) return <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Achats</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Fournisseurs et commandes : formule Business</span><p className="text-muted">Fiches fournisseurs, commandes avec validation, réceptions partielles, factures et paiements fournisseurs.</p><button className="btn text-center" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Voir les formules</button></div><AchatsPage /></div>;
-  const tabs: [typeof tab, string][] = [...(manager ? ([["dash", "Tableau"]] as [typeof tab, string][]) : []), ["sup", "Fournisseurs"], ["po", "Commandes"], ["rec", "Réceptions"], ["claims", "Réclamations"], ...(manager ? ([["inv", "Factures"]] as [typeof tab, string][]) : [])]; const cur = tabs.some(([k]) => k === tab) ? tab : "sup";
-  const open = (n: ReactNode) => setSheet(n); const close = () => setSheet(null);
-  return <div className="flex flex-col gap-3">
-    <h1 className="text-2xl font-bold">Achats & fournisseurs</h1>
+  const tabs: PillTab<T>[] = [{ key: "po", label: "Commandes d'achat", icon: FileText }, { key: "rec", label: "Réceptions", icon: PackageCheck }, { key: "sup", label: "Fournisseurs", icon: Users }, { key: "pre", label: "Demandes d'approvisionnement", icon: ClipboardList, ...(pre.data?.drafts.length ? { count: pre.data.drafts.length } : {}) }, ...(manager ? [{ key: "dash" as const, label: "Analyses", icon: BarChart3 }, { key: "inv" as const, label: "Factures", icon: Receipt }] : []), { key: "claims", label: "Réclamations", icon: AlertTriangle }];
+  const cur = tabs.some((t) => t.key === tab) ? tab : "po";
+  const open = (n: ReactNode) => setSheet(n); const close = () => setSheet(null); const m = month.data;
+  const prev = m?.trend.previous.orderedValue ?? 0; const delta = m && prev > 0 ? Math.round(((m.orders.orderedValue - prev) / prev) * 1000) / 10 : null;
+  return <div className="flex flex-col gap-4">
+    <ModuleHeader icon={Truck} title="Achats & Fournisseurs" subtitle="Gérez vos fournisseurs, commandes, réceptions et approvisionnements."
+      actions={<button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => open(<OrderForm cfg={cfg.data} close={close} done={() => { close(); refresh(); }} />)}><Plus size={18} />Nouvelle commande</button>} />
     {!navigator.onLine && <div className="card border border-warn/40 text-sm flex gap-2" role="alert"><WifiOff size={16} className="text-warn shrink-0 mt-0.5" /><span>Hors ligne : les achats nécessitent une connexion (validation, stock et paiements côté serveur).</span></div>}
-    <div className="flex flex-col gap-1.5">{([["Suivi", ["dash"]], ["Achats", ["po", "rec", "inv"]], ["Tiers", ["sup", "claims"]]] as [string, string[]][]).map(([g, keys]) => { const items = tabs.filter(([k]) => keys.includes(k)); if (!items.length) return null; return (
-      <div key={g} className="flex items-center gap-2 min-w-0"><span className="hidden md:block w-14 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{g}</span>
-        <nav aria-label={g === "Suivi" ? "Sections" : `Sections ${g}`} className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap pb-1">{items.map(([k, l]) => <button key={k} className="chip" aria-current={cur === k} onClick={() => setTab(k)}>{l}</button>)}</nav></div>); })}</div>
-    {(cur === "dash" || cur === "po") && <PreorderPanel onOpen={open} close={close} refresh={refresh} cfg={cfg.data} manager={manager} />}
-    {cur === "dash" && <Dashboard onOpen={open} close={close} refresh={refresh} cfg={cfg.data} />}
-    {cur === "sup" && <Suppliers onOpen={open} close={close} refresh={refresh} />}
-    {cur === "po" && <Orders onOpen={open} close={close} refresh={refresh} cfg={cfg.data} manager={manager} />}
-    {cur === "rec" && <Receipts onOpen={open} close={close} refresh={refresh} />}
-    {cur === "claims" && <ClaimsTab />}
-    {cur === "inv" && <Invoices onOpen={open} close={close} refresh={refresh} cfg={cfg.data} />}
+    {manager && <KpiRow cols={5}>
+      <KpiTile icon={ShoppingCart} tint="blue" label="Achats (mois)" loading={month.isLoading} value={m ? formatFcfa(m.orders.orderedValue) : "—"} sub="commandé HT, commandes validées" {...(delta !== null ? { delta: { text: `${delta > 0 ? "+" : ""}${delta.toLocaleString("fr-FR")} % vs mois précédent`, dir: delta >= 0 ? "up" as const : "down" as const, good: true } } : {})} />
+      <KpiTile icon={Users} tint="amber" label="Fournisseurs actifs" loading={month.isLoading} value={m?.suppliers.active ?? "—"} />
+      <KpiTile icon={FileText} tint="cyan" label="Commandes en cours" loading={month.isLoading} value={m?.orders.inProgress ?? "—"} sub={m ? `${m.orders.pending} en attente de validation` : undefined} />
+      <KpiTile icon={PackageCheck} tint="violet" label="Réceptions ce mois" loading={month.isLoading} value={m?.receipts.count ?? "—"} sub={m && m.receipts.lateCount ? `${m.receipts.lateCount} livraison(s) en retard` : undefined} />
+      <KpiTile icon={Receipt} tint="rose" label="Factures à payer" loading={month.isLoading} value={m ? formatFcfa(m.invoices.toPay) : "—"} sub={m ? `${m.invoices.toPayCount} facture(s)${m.invoices.overdueCount ? ` · ${m.invoices.overdueCount} échue(s)` : ""}` : undefined} />
+    </KpiRow>}
+    {month.error && <Err e={month.error} />}
+    <PillTabs idBase="achats" label="Sections des achats" value={cur} onChange={setTab} items={tabs} />
+    <TabPanel idBase="achats" active={cur}>
+      {cur === "po" && <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <Panel title="Commandes d'achat"><Orders onOpen={open} close={close} refresh={refresh} cfg={cfg.data} manager={manager} /></Panel>
+        {manager && <div className="flex flex-col gap-4">
+          <Panel title="Répartition des achats (valeur)">{m?.byCategory.length ? <Donut label="Répartition des achats du mois par catégorie" data={m.byCategory.map((c) => ({ key: c.category, label: c.category, value: c.value }))} /> : <p className="text-sm text-muted">{month.isLoading ? "Chargement…" : "Aucune commande validée ce mois-ci."}</p>}</Panel>
+          <Panel title="Top 5 fournisseurs (ce mois)" action={<button className="text-sm font-semibold text-accent-text underline" onClick={() => setTab("sup")}>Voir tout</button>}>{m?.topSuppliers.length ? <ol className="flex flex-col gap-1.5">{m.topSuppliers.map((x, i) => <li key={x.supplierId} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2 min-w-0"><span className="size-6 shrink-0 rounded-full bg-[var(--gold-soft)] text-[var(--gold-ink)] text-xs font-bold inline-flex items-center justify-center">{i + 1}</span><span className="truncate">{x.name}</span></span><b className="shrink-0 tabular-nums">{formatFcfa(x.value)}</b></li>)}</ol> : <p className="text-sm text-muted">Aucune commande validée ce mois-ci.</p>}</Panel>
+        </div>}
+      </div>}
+      {cur === "po" && manager && <div className="grid gap-4 lg:grid-cols-3">
+        <SupplierShort onOpen={open} close={close} refresh={refresh} onAll={() => setTab("sup")} />
+        <Panel title="Évolution des achats" action={<span className="text-xs text-muted">6 derniers mois</span>}>{m && m.trend.months.some((x) => x.value > 0) ? <LineChart label="Commandé HT par mois" w={340} data={m.trend.months.map((x) => ({ key: x.month, label: new Date(`${x.month}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "short" }), value: x.value, sub: `${x.orders} commande(s)` }))} /> : <p className="text-sm text-muted">{month.isLoading ? "Chargement…" : "Pas encore de commande validée sur 6 mois."}</p>}</Panel>
+        <PurchMaster pre={pre.data} loading={pre.isLoading} dash={m} manager={manager} onDone={() => { void qc.invalidateQueries({ queryKey: ["purch-preorder"] }); refresh(); setTab("pre"); }} />
+      </div>}
+      {cur === "rec" && <Receipts onOpen={open} close={close} refresh={refresh} />}
+      {cur === "sup" && <Suppliers onOpen={open} close={close} refresh={refresh} />}
+      {cur === "pre" && <PreorderPanel onOpen={open} close={close} refresh={refresh} cfg={cfg.data} manager={manager} />}
+      {cur === "dash" && <Dashboard onOpen={open} close={close} refresh={refresh} cfg={cfg.data} />}
+      {cur === "claims" && <ClaimsTab />}
+      {cur === "inv" && <Invoices onOpen={open} close={close} refresh={refresh} cfg={cfg.data} />}
+    </TabPanel>
     {sheet}
+  </div>;
+}
+
+/** Liste courte des fournisseurs actifs (colonne du kit), vers la fiche ou l'onglet Fournisseurs. */
+function SupplierShort({ onOpen, close, refresh, onAll }: Ctl & { onAll: () => void }) {
+  const { session } = useSession(); const s = session!; const q = useQuery({ queryKey: ["purch-sup-all", s.shopId], retry: 1, queryFn: () => api<SupList>(s, "purch.supplier.list", { status: "all" }) });
+  const act = (q.data?.suppliers ?? []).filter((x) => !x.archived);
+  return <Panel title={`Fournisseurs (${q.data?.counts.active ?? "…"})`} action={<button className="text-sm font-semibold text-accent-text underline" onClick={onAll}>Voir tout</button>}>
+    {q.isLoading && <div className="h-16 animate-pulse bg-subtle rounded-lg" aria-busy="true" />}<Err e={q.error} />
+    {q.data && !act.length && <p className="text-sm text-muted">Aucun fournisseur actif.</p>}
+    <ul className="flex flex-col gap-1">{act.slice(0, 5).map((x) => <li key={x.id}><button className="w-full flex items-center gap-2 text-left text-sm rounded-lg px-1 py-1 hover:bg-subtle" onClick={() => onOpen(<SupplierSheet id={x.id} close={close} refresh={refresh} onOpen={onOpen} />)}><span className="size-7 shrink-0 rounded-full bg-[var(--tint-amber,var(--gold-soft))] text-[var(--gold-ink)] font-bold inline-flex items-center justify-center">{x.name.slice(0, 1).toUpperCase()}</span><span className="min-w-0"><span className="block truncate font-medium">{x.name}</span><span className="text-xs text-ok">Actif{x.balance ? ` · dû ${formatFcfa(x.balance)}` : ""}</span></span></button></li>)}</ul>
+  </Panel>;
+}
+
+/** Encart MASTER des achats : constats réels (précommandes, articles sous le seuil sans fournisseur, retards, factures échues). Le bouton lance la précommande ; rien n'est envoyé sans validation. */
+function PurchMaster({ pre, loading, dash, manager, onDone }: { pre?: Pre; loading: boolean; dash?: Dash; manager: boolean; onDone: () => void }) {
+  const { session } = useSession(); const s = session!;
+  const run = useMutation({ mutationFn: () => api<{ drafts: string[] }>(s, "purch.preorder.run"), onSuccess: onDone });
+  const items: Insight[] = [];
+  if (pre) { const lines = pre.drafts.reduce((a, d) => a + d.lines.length, 0); if (pre.drafts.length) items.push({ id: "d", tone: "warn", text: `${lines} article(s) sous leur seuil dans ${pre.drafts.length} précommande(s) à relire (${formatFcfa(pre.drafts.reduce((a, d) => a + d.total, 0))} HT).` });
+    if (pre.noSupplier.length) items.push({ id: "n", tone: "warn", text: `${pre.noSupplier.length} article(s) sous le seuil sans fournisseur : ${pre.noSupplier.slice(0, 3).map((x) => x.name).join(", ")}${pre.noSupplier.length > 3 ? "…" : ""}.` });
+    if (!pre.enabled) items.push({ id: "o", tone: "info", text: "Précommande automatique désactivée." }); }
+  if (dash?.receipts.lateCount) items.push({ id: "l", tone: "warn", text: `${dash.receipts.lateCount} livraison(s) fournisseur en retard.` });
+  if (dash?.invoices.overdueCount) items.push({ id: "f", tone: "warn", text: `${dash.invoices.overdueCount} facture(s) fournisseur échue(s) : ${formatFcfa(dash.invoices.overdue)}.` });
+  return <div className="flex flex-col gap-2">
+    <InsightCard module="Achats" loading={loading} items={items} source="seuils de stock, commandes, réceptions et factures de la boutique" emptyText="Aucun article sous son seuil, aucun retard ni facture échue." />
+    {manager && pre?.enabled && <button className="btn-gold !py-2.5 inline-flex items-center justify-center gap-2" disabled={run.isPending} onClick={() => run.mutate()}><Sparkles size={18} />{run.isPending ? "Analyse…" : "Générer une commande automatique"}</button>}
+    {run.data && <p className="text-xs text-ok" role="status">{run.data.drafts.length ? `Précommande prête : ${run.data.drafts.join(", ")} (à relire).` : "Aucun nouvel article sous son seuil."}</p>}<Err e={run.error} />
   </div>;
 }
 type Ctl = { onOpen: (n: ReactNode) => void; close: () => void; refresh: () => void };
@@ -205,7 +260,7 @@ function Orders({ onOpen, close, refresh, cfg, manager }: Ctl & { cfg?: Cfg; man
   const { session } = useSession(); const s = session!; const wide = useMinWidth(1024); const [f, setF, resetF] = usePersistedState(`dmp.pref.${s.tenantId}.achats.po`, { q: "", status: "", supplierId: "" }, ["status", "supplierId"]); const filtered = f.q !== "" || f.status !== "" || f.supplierId !== "";
   const q = useQuery({ queryKey: ["purch-po", s.shopId, f], retry: 1, queryFn: () => api<{ orders: Po[]; total: number }>(s, "purch.po.list", f) }); const sups = useQuery({ queryKey: ["purch-sup-all", s.shopId], retry: 1, queryFn: () => api<SupList>(s, "purch.supplier.list", { status: "all" }) }); const sel = "input !py-2 !px-2 text-sm";
   return <div className="flex flex-col gap-2">
-    <div className="flex gap-2"><input className="input flex-1" aria-label="Rechercher une commande" placeholder="Numéro ou fournisseur" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} /><button className="btn !py-2 flex items-center gap-1" onClick={() => onOpen(<OrderForm cfg={cfg} close={close} done={() => { close(); refresh(); }} />)}><Plus size={16} />Nouvelle</button></div>
+    <div className="flex gap-2"><input className="input flex-1" aria-label="Rechercher une commande" placeholder="Numéro ou fournisseur" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} /></div>
     <div className="grid grid-cols-2 md:grid-cols-4 gap-2"><select className={sel} aria-label="Statut" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">Tous statuts</option><option value="open">En cours</option>{Object.entries(PO_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
       <select className={sel} aria-label="Fournisseur" value={f.supplierId} onChange={(e) => setF({ ...f, supplierId: e.target.value })}><option value="">Tous fournisseurs</option>{sups.data?.suppliers.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
     {q.isLoading && <div className="card h-20 animate-pulse bg-subtle" aria-busy="true" />}<Err e={q.error} />

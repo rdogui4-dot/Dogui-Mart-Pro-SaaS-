@@ -350,6 +350,12 @@ describe("tableau de bord Achats et connexions", () => {
     await err(call("ger", "purch.dashboard", { from: day(1), to: day(0) }), 400); await err(call("ger", "purch.dashboard", { shopId: "all" }), 403); await ok(call("own", "purch.dashboard", { shopId: "all" })); await err(call("cais", "purch.dashboard"), 403);
     await err(call("ger", "purch.dashboard", { supplierId: "nope" }), 404);
   });
+  it("évolution sur 6 mois, période précédente et répartition par catégorie : uniquement les commandes non brouillon et non annulées", async () => {
+    st.rows("products").find((x) => x.$id === "p1")!.category = "Alimentaire"; await validatedPo(); await ok(call("own", "purch.po.save", poBody()));
+    const old = await validatedPo(); const r = st.rows("purchase_orders").find((x) => x.$id === old)!; r.$createdAt = new Date(Date.now() - 45 * 864e5).toISOString();
+    const d = await dash(); expect(d.trend.months).toHaveLength(6); expect(d.trend.months[5].month).toBe(day(0).slice(0, 7)); expect(d.trend.months.reduce((a: number, m: any) => a + m.value, 0)).toBe(29_000);
+    expect(d.trend.previous.orderedValue).toBe(14_500); expect(d.byCategory).toEqual([{ category: "Sans catégorie", value: 7500 }, { category: "Alimentaire", value: 7000 }]);
+  });
   it("retard de livraison détecté (commande validée dont la date prévue est dépassée)", async () => {
     const po = await validatedPo({ deliveryOn: day(3) }); st.rows("purchase_orders").find((p) => p.$id === po)!.deliveryOn = `${day(-4)}T12:00:00.000Z`;
     const d = await dash(); expect(d.receipts.lateCount).toBe(1); expect(d.receipts.expected[0].lateDays).toBe(4);
