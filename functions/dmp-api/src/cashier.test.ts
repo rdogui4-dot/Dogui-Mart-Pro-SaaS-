@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MemoryStore } from "./memory-store";
 import { handle } from "./main";
 import { stockOf } from "../../../src/domain/stock";
+import { serialRowId } from "./tracking";
 
 class DatedStore extends MemoryStore { override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { return super.create(t, id, tenant, { $createdAt: new Date().toISOString(), ...d }); } }
 const T = "tenantcs001", T2 = "tenantcs002";
@@ -102,12 +103,49 @@ describe("annulation et remboursement : tracés, jamais de suppression", () => {
     expect((await ok(call("own", "dashboard.business", { preset: "today" }))).kpis.today.revenue).toBe(0); expect(st.rows("sale_returns")[0]!.status).toBe("done");
     await err(call("own", "sale.refund", { returnId: "rt-0000022", saleId: r.saleId, kind: "cancel", reason: "Encore", refunds: [{ method: "cash", amount: 3000 }] }), 409, "annulée");
   });
-  it("retour d'un bundle, d'un article à série ou à lot refusé (non géré) ; vente inconnue ou d'un autre commerce introuvable", async () => {
-    for (const [i, extra] of [{ components: [{ productId: eau, qty: 1 }] }, { serials: ["SN1"] }, { lots: [{ lotId: "l", lotNo: "L1", qty: 1 }] }].entries()) {
-      const id = `tracked${i}000001`; await st.create("sales", id, T, { tenantId: T, shopId: A, number: `V-T${i}`, total: 1000, vat: 0, status: "paid", soldAt: new Date().toISOString(), cashierId: "own", payments: JSON.stringify(cash(1000)), lines: JSON.stringify([{ productId: eau, name: "Eau", qty: 1, unitPrice: 1000, ...extra }]), clientId: id });
-      await err(call("own", "sale.refund", { returnId: `rt-tracked-${i}`, saleId: id, kind: "cancel", reason: "Test", refunds: [{ method: "cash", amount: 1000 }] }), 409, "non géré");
-    }
-    await err(call("own", "sale.refund", { returnId: "rt-0000030", saleId: "inconnue", kind: "cancel", reason: "test", refunds: [{ method: "cash", amount: 1 }] }), 404); expect(st.rows("sale_returns")).toHaveLength(0);
+  const fake = async (id: string, lines: object[], total: number, extra: object = {}) => st.create("sales", id, T, { tenantId: T, shopId: A, number: `V-${id.slice(0, 6)}`, total, vat: 0, status: "paid", soldAt: new Date().toISOString(), cashierId: "own", payments: JSON.stringify(cash(total)), lines: JSON.stringify(lines), ...extra });
+  const moves = (ref: string) => st.rows("stock_moves").filter((m) => m.refId === `retour-${ref}`).map((m) => ({ kind: m.kind, productId: m.productId, qty: Number(m.qty), lotId: m.lotId ?? "", serial: m.serial ?? "" }));
+  it("retour d'un bundle : chaque composant revient en stock ; vente inconnue ou d'un autre commerce introuvable", async () => {
+    await fake("bundle000001", [{ productId: jus, name: "Pack", qty: 2, unitPrice: 1000, components: [{ productId: eau, name: "Eau", qty: 4, perBundle: 2 }, { productId: jus, name: "Jus", qty: 2, perBundle: 1 }] }], 2000);
+    await ok(call("own", "sale.refund", { returnId: "rt-bundle-1", saleId: "bundle000001", kind: "refund", reason: "Test", lines: [{ index: 0, qty: 1 }], refunds: [{ method: "cash", amount: 1000 }] }));
+    expect(moves("V-bundle")).toEqual([{ kind: "return", productId: eau, qty: 2, lotId: "", serial: "" }, { kind: "return", productId: jus, qty: 1, lotId: "", serial: "" }]);
+    expect(st.rows("sales").find((s) => s.$id === "bundle000001")!.status).toBe("paid");
+    await err(call("own", "sale.refund", { returnId: "rt-0000030", saleId: "inconnue", kind: "cancel", reason: "test", refunds: [{ method: "cash", amount: 1 }] }), 404);
+    await err(call("own2", "sale.refund", { returnId: "rt-0000031", saleId: "bundle000001", kind: "cancel", reason: "test", refunds: [{ method: "cash", amount: 1 }] }, X, T2), 404);
+  });
+  it("article à série : revendable → disponible (cycle +1, garantie effacée) ; abîmé → défectueux + sortie en perte ; numéro déjà retourné refusé", async () => {
+    for (const [sn, status] of [["SN1", "sold"], ["SN2", "sold"]]) await st.create("article_serials", serialRowId(eau, sn), T, { tenantId: T, shopId: A, productId: eau, serial: sn, status, saleId: "serial000001", saleRef: "V-serial", warrantyUntil: "2030-01-01", cycle: 0 });
+    await fake("serial000001", [{ productId: eau, name: "Téléphone", qty: 2, unitPrice: 500, serials: ["SN1", "SN2"] }], 1000);
+    const pv = await ok(call("own", "sale.refund", { preview: true, saleId: "serial000001", kind: "refund", reason: "Retour client", lines: [{ index: 0, qty: 1, serials: ["sn2"], condition: "damaged" }], refunds: [{ method: "cash", amount: 500 }] }));
+    expect(pv).toMatchObject({ preview: true, amount: 500, effects: [{ qty: 1, condition: "damaged", serials: ["SN2"] }] }); expect(st.rows("sale_returns")).toHaveLength(0);
+    await ok(call("own", "sale.refund", { returnId: "rt-serial-1", saleId: "serial000001", kind: "refund", reason: "Écran cassé", lines: [{ index: 0, qty: 1, serials: ["SN2"], condition: "damaged" }], refunds: [{ method: "cash", amount: 500 }] }));
+    expect(st.rows("article_serials").find((r) => r.serial === "SN2")).toMatchObject({ status: "defective", saleId: "", cycle: 1 });
+    expect(moves("V-serial")).toEqual([{ kind: "return", productId: eau, qty: 1, lotId: "", serial: "SN2" }, { kind: "loss", productId: eau, qty: 1, lotId: "", serial: "SN2" }]);
+    await err(call("own", "sale.refund", { returnId: "rt-serial-2", saleId: "serial000001", kind: "refund", reason: "Retour client", lines: [{ index: 0, qty: 1, serials: ["SN2"] }], refunds: [{ method: "cash", amount: 500 }] }), 400, "numéro");
+    await ok(call("own", "sale.refund", { returnId: "rt-serial-3", saleId: "serial000001", kind: "refund", reason: "Ne plaît pas", lines: [{ index: 0, qty: 1 }], refunds: [{ method: "cash", amount: 500 }] }));
+    expect(st.rows("article_serials").find((r) => r.serial === "SN1")).toMatchObject({ status: "available", saleId: "", warrantyUntil: null, cycle: 1 });
+    expect(st.rows("sales").find((s) => s.$id === "serial000001")!.status).toBe("refunded");
+  });
+  it("article à lots : retour dans les lots vendus (dernier lot d'abord), plafonné à la quantité vendue ; article simple abîmé : retour puis perte, stock inchangé", async () => {
+    await fake("lots00000001", [{ productId: eau, name: "Eau", qty: 3, unitPrice: 500, lots: [{ lotId: "LA", lotNo: "A", qty: 2 }, { lotId: "LB", lotNo: "B", qty: 1 }] }, { productId: jus, name: "Jus", qty: 1, unitPrice: 1000 }], 2500);
+    const before = stockOfProduct(jus);
+    await ok(call("own", "sale.refund", { returnId: "rt-lots-1", saleId: "lots00000001", kind: "refund", reason: "Retour client", lines: [{ index: 0, qty: 2 }, { index: 1, qty: 1, condition: "damaged" }], refunds: [{ method: "cash", amount: 2000 }] }));
+    const m = moves("V-lots00"); expect(m.filter((x) => x.productId === eau).map((x) => [x.lotId, x.qty]).sort()).toEqual([["LA", 1], ["LB", 1]]);
+    expect(m.filter((x) => x.productId === jus).map((x) => x.kind)).toEqual(["return", "loss"]); expect(stockOfProduct(jus)).toBe(before);
+    await ok(call("own", "sale.refund", { returnId: "rt-lots-2", saleId: "lots00000001", kind: "refund", reason: "Retour client", lines: [{ index: 0, qty: 1 }], refunds: [{ method: "cash", amount: 500 }] }));
+    expect(moves("V-lots00").filter((x) => x.productId === eau && x.lotId === "LA").reduce((a, x) => a + x.qty, 0)).toBe(2);
+    await err(call("own", "sale.refund", { returnId: "rt-lots-3", saleId: "lots00000001", kind: "refund", reason: "Retour client", lines: [{ index: 0, qty: 1 }], refunds: [{ method: "cash", amount: 500 }] }), 409, "entièrement");
+  });
+  it("annulation : coupon redevenu utilisable (trace « void »), reprise idempotente sans double écriture", async () => {
+    await fake("coupon000001", [{ productId: eau, name: "Eau", qty: 2, unitPrice: 500 }], 1000);
+    await st.create("promotion_coupons", "coupon1", T, { tenantId: T, shopId: A, code: "BIENVENUE", usedCount: 1 });
+    await st.create("promotion_coupon_usage", "cuse1", T, { tenantId: T, shopId: A, couponId: "coupon1", saleId: "coupon000001", outcome: "used" });
+    const pv = await ok(call("own", "sale.refund", { preview: true, saleId: "coupon000001", kind: "cancel", reason: "Retour client", refunds: [{ method: "cash", amount: 1000 }] })); expect(pv.couponReleased).toBe(true);
+    const body = { returnId: "rt-coupon-1", saleId: "coupon000001", kind: "cancel", reason: "Erreur de caisse", refunds: [{ method: "cash", amount: 1000 }] };
+    await ok(call("own", "sale.refund", body)); const nMoves = st.rows("stock_moves").length;
+    expect(st.rows("promotion_coupon_usage")[0]).toMatchObject({ outcome: "void", reason: "vente annulée" }); expect(st.rows("promotion_coupons")[0]!.usedCount).toBe(0);
+    expect(st.rows("sales").find((s) => s.$id === "coupon000001")!.status).toBe("cancelled");
+    expect((await ok(call("own", "sale.refund", body))).duplicate).toBe(true); expect(st.rows("stock_moves").length).toBe(nMoves); expect(st.rows("sale_returns")).toHaveLength(1);
   });
 });
 
