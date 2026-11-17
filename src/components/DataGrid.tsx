@@ -8,7 +8,7 @@ export function DataGrid<R>({ rows, columns, rowKey, onRow, label }: { rows: R[]
       <table className="w-full text-[0.875rem] leading-5" aria-label={label}>
         <thead><tr className="text-left text-muted border-b border-line">{columns.map((c) => <th key={c.label} scope="col" className={`py-2.5 px-3 font-medium ${c.align === "right" ? "text-right" : ""}`}>{c.label}</th>)}</tr></thead>
         <tbody>{rows.map((r) => (
-          <tr key={rowKey(r)} className={`border-b border-line last:border-0 ${onRow ? "cursor-pointer hover:bg-subtle" : ""}`} onClick={onRow ? () => onRow(r) : undefined}>
+          <tr key={rowKey(r)} className={`border-b border-line last:border-0 ${onRow ? "d3-row cursor-pointer hover:bg-subtle" : ""}`} onClick={onRow ? () => onRow(r) : undefined}>
             {columns.map((c, i) => (
               <td key={c.label} className={`py-2.5 px-3 ${c.align === "right" ? "text-right tabular-nums" : ""} ${c.className ?? ""}`}>
                 {i === 0 && onRow ? <button className="text-left font-semibold hover:underline" onClick={(e) => { e.stopPropagation(); onRow(r); }}>{c.cell(r)}</button> : c.cell(r)}

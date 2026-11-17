@@ -62,3 +62,10 @@ Donner à toute l'application une **profondeur 3D cohérente et fonctionnelle** 
 - Vignettes nettes : chargement différé, décodage asynchrone, dimensions fixes.
 - **Défaut corrigé** : le bandeau de suggestions disparaissait et réapparaissait à chaque ajout au panier, décalant la grille (CLS 0,077 sur téléphone) → 0,009.
 - Scénarios : `fx3d.cjs` 12 vérifications (dont caisse HD, boîte de confirmation bien placée, aucun transform résiduel, INP 72–120 ms au processeur ×4) ; `caisse.cjs` 10/10 inchangé.
+
+## 10. Réalisé — lot 3D-4 (autres modules), 17/11/2026
+- Composants communs (s'applique à tous les modules) : fiches et fenêtres qui entrent en perspective selon leur taille — volet latéral depuis la droite en pivotant, fenêtre centrée (MASTER DOGUI) qui sort de la profondeur, fiche plein écran qui monte en basculant ; entrée seulement, aucun transform résiduel (vérifié).
+- Onglets regroupés : l'onglet actif est en relief.
+- Tableaux (composant commun et tableau des articles) : la ligne survolée se soulève (ordinateur).
+- Mouvement réduit ou 3D désactivée : comportement plat inchangé.
+- Scénarios : `fx3d.cjs` 13 vérifications ; master-modal, clients-promotions, compta-finance et stock inchangés et verts.

@@ -28,7 +28,7 @@ export function Sheet({ title, onClose, children, back, size = "md" }: { title: 
   return (
     <>
       {floating && <div className="hidden md:block fixed inset-0 z-30 bg-[var(--overlay)]" aria-hidden="true" onClick={onClose} />}
-      <div ref={ref} tabIndex={-1} className={`sheet-in fixed z-40 bg-[var(--bg)] overflow-y-auto outline-none ${where}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={ref} tabIndex={-1} className={`sheet-in d3-sheet-${size} fixed z-40 bg-[var(--bg)] overflow-y-auto outline-none ${where}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-3 bg-[var(--surface)] border-b border-[var(--line)]">
           <button className="p-2" aria-label="Fermer" onClick={onClose}>{back ? <ChevronLeft /> : <X />}</button><h2 className="font-bold truncate">{title}</h2>
         </div>

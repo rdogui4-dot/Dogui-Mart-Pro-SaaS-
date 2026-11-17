@@ -74,6 +74,16 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     const m = await page.evaluate(() => ({ cls: Number(window.__cls2.toFixed(3)), inp: Math.round(window.__inp2) })); console.log("     mesures caisse", JSON.stringify(m)); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }); if (m.cls > 0.1 || m.inp > 200) throw new Error(JSON.stringify(m));
     await page.screenshot({ path: path.join(OUT, "fx-caisse-390.png") });
   });
+  await step("modules : volet en perspective (fiche article), fenêtre MASTER qui sort de la profondeur, onglet actif en relief, lignes de tableau en relief ; aucun transform résiduel", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("articles")); await page.waitForSelector("table", { timeout: 15000 }); await page.waitForTimeout(600);
+    if (!(await page.locator("tbody tr.d3-row").count())) throw new Error("lignes sans relief");
+    await page.locator("tbody tr").first().click(); await page.waitForTimeout(40); const an = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].flatMap((d) => d.getAnimations().map((a) => a.animationName)).join(","));
+    if (!/d3-sheet-(panel|lg|md)/.test(an)) throw new Error("fiche sans entrée 3D : " + an); await page.waitForTimeout(500);
+    const tr = await page.evaluate(() => getComputedStyle(document.querySelector('[role="dialog"]')).transform); if (tr !== "none") throw new Error("transform résiduel : " + tr); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+    await page.locator("header").getByRole("button", { name: "MASTER DOGUI" }).click(); await page.waitForTimeout(40); const am = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].flatMap((d) => d.getAnimations().map((a) => a.animationName)).join(","));
+    if (!/d3-sheet-modal/.test(am)) throw new Error("fenêtre MASTER sans entrée 3D : " + am); await page.waitForTimeout(400); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+    await page.goto(h.url("finance")); await page.waitForTimeout(1000); const tab = await page.locator('[role="tab"][aria-selected="true"]').first().evaluate((e) => getComputedStyle(e).transform); if (tab === "none") throw new Error("onglet actif sans relief");
+  });
   await step("mesures (processeur ×4) : tableau de bord 3D — CLS ≤ 0,1, INP ≤ 200 ms (retournement d'une carte)", async () => {
     const cdp = await page.context().newCDPSession(page); await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 }); await page.setViewportSize({ width: 1280, height: 900 });
     await page.addInitScript(() => { window.__cls = 0; window.__inp = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: "layout-shift", buffered: true }); new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__inp = Math.max(window.__inp, e.duration); }).observe({ type: "event", buffered: true, durationThreshold: 16 }); });

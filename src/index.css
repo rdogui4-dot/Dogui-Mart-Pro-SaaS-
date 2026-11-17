@@ -125,3 +125,17 @@ aside[aria-label="Espaces"] :focus-visible { outline-color: #ffffff; } /* anneau
 [data-fx3d="full"] .d3-flip-in, [data-fx3d="lite"] .d3-flip-in { animation: d3-flip-in 280ms var(--ease-out) backwards; transform-origin: left center; }
 [data-fx3d="full"] .d3-lift { transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out); }
 [data-fx3d="full"] .d3-lift:hover { transform: translateY(-2px); box-shadow: var(--d3-shadow); }
+/* Modules (3D-4) : fiches et fenêtres qui entrent en perspective, onglet actif en relief, lignes de tableau en relief au survol. Entrées seulement (aucun transform résiduel). */
+@keyframes d3-sheet-md { from { opacity: 0; transform: perspective(1000px) translateY(28px) rotateX(9deg); } to { opacity: 1; transform: none; } }
+@keyframes d3-sheet-lg { from { opacity: 0; transform: perspective(1000px) translateY(28px) rotateX(9deg); } to { opacity: 1; transform: none; } }
+@keyframes d3-sheet-panel { from { opacity: 0; transform: perspective(1200px) translateX(48px) rotateY(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes d3-sheet-modal { from { opacity: 0; transform: perspective(1200px) translateY(18px) scale(.95) rotateX(7deg); } to { opacity: 1; transform: none; } }
+.d3-sheet-panel { transform-origin: right center; } .d3-sheet-modal, .d3-sheet-md, .d3-sheet-lg { transform-origin: center top; }
+[data-fx3d="full"] .sheet-in.d3-sheet-md, [data-fx3d="lite"] .sheet-in.d3-sheet-md { animation: d3-sheet-md var(--dur-panel) var(--ease-out) backwards; }
+[data-fx3d="full"] .sheet-in.d3-sheet-lg, [data-fx3d="lite"] .sheet-in.d3-sheet-lg { animation: d3-sheet-lg var(--dur-panel) var(--ease-out) backwards; }
+[data-fx3d="full"] .sheet-in.d3-sheet-panel, [data-fx3d="lite"] .sheet-in.d3-sheet-panel { animation: d3-sheet-panel var(--dur-panel) var(--ease-out) backwards; }
+[data-fx3d="full"] .sheet-in.d3-sheet-modal, [data-fx3d="lite"] .sheet-in.d3-sheet-modal { animation: d3-sheet-modal var(--dur-panel) var(--ease-out) backwards; }
+[data-fx3d="full"] [role="tab"].chip, [data-fx3d="lite"] [role="tab"].chip { transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out), background-color 160ms; }
+[data-fx3d="full"] [role="tab"].chip[aria-selected="true"], [data-fx3d="lite"] [role="tab"].chip[aria-selected="true"] { transform: translateY(-1px); box-shadow: var(--d3-shadow); }
+[data-fx3d="full"] tr.d3-row { transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out); }
+[data-fx3d="full"] tr.d3-row:hover { transform: translateY(-1px); box-shadow: 0 6px 14px -8px rgba(16,36,58,.35); position: relative; z-index: 1; }

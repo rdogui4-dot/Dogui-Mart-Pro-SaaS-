@@ -129,7 +129,7 @@ function Catalogue() {
             <tbody>{rows.map((a) => {
               const qty = levels ? qtyOf(levels, a) : undefined; const low = qty !== undefined && !a.hasVariants && isLow(qty, a.minStock ?? 0); const nv = a.hasVariants ? liveVariants.filter((v) => v.productId === a.$id).length : 0;
               return (
-                <tr key={a.$id} className={`border-b border-line last:border-0 cursor-pointer hover:bg-subtle ${a.archived ? "opacity-60" : ""} ${detail?.$id === a.$id ? "bg-accent-soft" : ""}`} onClick={() => setDetail(a)}>
+                <tr key={a.$id} className={`d3-row border-b border-line last:border-0 cursor-pointer hover:bg-subtle ${a.archived ? "opacity-60" : ""} ${detail?.$id === a.$id ? "bg-accent-soft" : ""}`} onClick={() => setDetail(a)}>
                   <td className="py-2 px-3"><button className="flex items-center gap-3 text-left" onClick={(e) => { e.stopPropagation(); setDetail(a); }}><Thumb id={a.imageFileId} size={40} className="shrink-0" /><span className="min-w-0"><span className="block font-semibold truncate">{a.name}</span><span className="block text-xs text-muted truncate">{[a.sku, nv ? `${nv} variante${nv > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</span></span></button></td>
                   <td className="py-2 px-3 text-soft">{a.category || "—"}</td>
                   <td className="py-2 px-3 text-right font-semibold tabular-nums text-accent-text">{formatFcfa(a.price)}</td>
