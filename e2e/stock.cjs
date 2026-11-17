@@ -11,14 +11,14 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const noOverflow = async (label) => { const x = await page.evaluate(() => ({ s: document.documentElement.scrollWidth, i: innerWidth })); if (x.s > x.i + 1) throw new Error(`${label} : débordement horizontal (${x.s} > ${x.i})`); };
   const unnamed = async (label) => { const bad = await page.evaluate(() => [...document.querySelectorAll("button, a[href], input, select")].filter((e) => { const r = e.getBoundingClientRect(); if (!r.width || !r.height) return false; const n = (e.getAttribute("aria-label") || e.innerText || e.getAttribute("title") || (e.labels && [...e.labels].map((l) => l.innerText).join("")) || e.getAttribute("placeholder") || "").trim(); return !n; }).map((e) => e.outerHTML.slice(0, 70))); if (bad.length) throw new Error(`${label} : sans nom accessible : ${bad.slice(0, 3).join(" ; ")}`); };
 
-  for (const [route, wait] of [["stock", "Tableau"], ["articles", "Article 01"], ["bundles", "Bundles"], ["inventaire", "Inventaire"]]) {
+  for (const [route, wait] of [["stock", "Vue du stock"], ["articles", "Article 01"], ["bundles", "Bundles"], ["inventaire", "Inventaire"]]) {
     for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]]) {
       await step(`${route} · ${label} (${w} px) : sans débordement, noms accessibles`, async () => { await open(route, w, hh, wait); await noOverflow(`${route} ${label}`); await unnamed(`${route} ${label}`); await page.screenshot({ path: path.join(OUT, `stock-${route}-${w}.png`) }); });
     }
   }
 
   await step("stock · ordinateur : onglets regroupés (principal / Analyses / Suivi) sans défilement horizontal, indicateurs sur 4 colonnes", async () => {
-    await open("stock", 1280, 800, "Tableau");
+    await open("stock", 1280, 800, "Vue du stock");
     const t = (await txt()).toLowerCase(); for (const x of ["Comptage rapide", "Mouvements", "Transferts", "Analyses", "Suivi", "Réappro", "Lots", "Rapports"].map((x) => x.toLowerCase())) if (!t.includes(x)) throw new Error("manquant : " + x);
     const lists = await page.getByRole("tablist").evaluateAll((els) => els.map((e) => e.scrollWidth <= e.clientWidth + 1)); if (lists.some((x) => !x)) throw new Error("une rangée d'onglets défile horizontalement : " + JSON.stringify(lists));
     const k = await page.locator("text=Articles suivis").first().boundingBox(); const v = await page.locator("text=Valeur estimée du stock").first().boundingBox(); if (!k || !v || Math.abs(k.y - v.y) > 40) throw new Error("indicateurs non alignés sur une même ligne");

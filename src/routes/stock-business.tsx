@@ -1,7 +1,10 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, ArrowRightLeft } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Boxes, CheckCircle2, AlertCircle, PackageX, Coins, Layers, ArrowLeftRight, Bell, ClipboardCheck, Download, Plus, ArrowDownCircle, ArrowUpCircle, SlidersHorizontal, LayoutGrid, ListChecks } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { InsightCard, KitTable, KpiRow, KpiTile, ModuleHeader, Panel, StatusBadge, type StatusTone } from "@/components/kit";
+import { useProductsAll, useVariantsAll } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { list, listAll, qtyOf, variantQty, type Product, type VariantRow } from "@/lib/data";
 import { useStockLevels } from "@/lib/queries";
@@ -46,23 +49,28 @@ export function StockHub({ legacy }: { legacy: (onCard: Open) => ReactNode }) {
   const open: Open = (productId, variantId = "") => setCard({ productId, variantId });
   const alerts = useQuery({ queryKey: ["stk-alerts", s.shopId], retry: 1, queryFn: () => api<{ counts: { high: number; warn: number; info: number } }>(s, "stk.alerts"), staleTime: 30_000 });
   const n = (alerts.data?.counts.high ?? 0) + (alerts.data?.counts.warn ?? 0);
-  const main: [Tab, string][] = [["dash", "Tableau"], ["art", "Comptage rapide"], ["mov", "Mouvements"], ["xfer", "Transferts"], ["alert", n ? `Alertes (${n})` : "Alertes"]];
+  const main: [Tab, string][] = [["dash", "Vue du stock"], ["art", "Comptage rapide"], ["mov", "Mouvements"], ["xfer", "Transferts"], ["alert", n ? `Alertes (${n})` : "Alertes"]];
+  const ICON: Partial<Record<Tab, typeof Boxes>> = { dash: LayoutGrid, art: ListChecks, mov: ArrowLeftRight, xfer: ArrowRightLeft, alert: Bell };
+  const [newXfer, setNewXfer] = useState(0); const manager = s.role === "owner" || s.role === "manager";
   const analyses: [Tab, string][] = [["ana", "Analyse"], ["rep", "Réappro"], ["net", "Réseau"], ["ano", "Anomalies"], ["rap", "Rapports"]];
   const suivi: [Tab, string][] = [["lot", "Lots"]];
   const row = (label: string, items: [Tab, string][]) => (
     <div className="flex items-center gap-2 min-w-0">
       {label && <span className="hidden md:block w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{label}</span>}
-      <div className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap pb-1" role="tablist" aria-label={label || "Sections du stock"}>{items.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className="chip" aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <div className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap pb-1" role="tablist" aria-label={label || "Sections du stock"}>{items.map(([k, l]) => { const I = ICON[k]; const on = tab === k; return <button key={k} role="tab" aria-selected={on} aria-current={on} onClick={() => setTab(k)} className={label ? "chip" : `shrink-0 inline-flex items-center gap-2 rounded-xl border px-4 min-h-11 text-sm font-semibold transition ${on ? "bg-accent text-accent-ink border-accent shadow-[var(--shadow-card)]" : "bg-surface border-line hover:bg-subtle"}`}>{I && <I size={18} aria-hidden="true" />}{l}</button>; })}
+        {!label && <Link to="/inventaire" className="shrink-0 inline-flex items-center gap-2 rounded-xl border px-4 min-h-11 text-sm font-semibold bg-surface border-line hover:bg-subtle"><ClipboardCheck size={18} aria-hidden="true" />Inventaires</Link>}</div>
     </div>
   );
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="sr-only">Stock</h1>
+      <ModuleHeader icon={Boxes} title="Stocks & Mouvements" subtitle="Quantités, entrées, sorties, transferts et suivi des mouvements." actions={<>
+        {pro && manager && <button type="button" className="btn-ghost inline-flex items-center gap-2" onClick={() => setTab("rap")}><Download size={18} aria-hidden="true" />Exporter</button>}
+        {manager && s.shops.length > 1 && tab !== "xfer" && <button type="button" className="btn-gold" onClick={() => { setTab("xfer"); setNewXfer((x) => x + 1); }}><Plus size={18} aria-hidden="true" />Nouveau transfert</button>}</>} />
       <div className="flex flex-col gap-1.5">{row("", main)}{pro && row("Analyses", analyses)}{pro && row("Suivi", suivi)}</div>
       {tab === "dash" && <Dashboard onOpen={open} onTab={setTab} pro={pro} />}
       {tab === "art" && legacy(open)}
       {tab === "mov" && <Moves onOpen={open} />}
-      {tab === "xfer" && <Transfers />}
+      {tab === "xfer" && <Transfers openNew={newXfer} />}
       {tab === "alert" && <Alerts onOpen={open} onTab={setTab} />}
       {pro && tab === "ana" && <ProAnalysis onOpen={open} />}
       {pro && tab === "rep" && <ProReplenish onOpen={open} />}
@@ -76,6 +84,41 @@ export function StockHub({ legacy }: { legacy: (onCard: Open) => ReactNode }) {
 }
 
 // ------------------------------------------------------------------ tableau de bord
+/** Type de mouvement pour l'affichage (entrée, sortie, transfert, ajustement) : déduit du libellé serveur et du signe. */
+function moveKind(label: string, qty: number) {
+  const l = label.toLowerCase();
+  if (/transfert/.test(l)) return { icon: ArrowLeftRight, cls: "bg-[var(--tint-blue-bg)] text-[var(--tint-blue)]" };
+  if (/ajust|correct|inventaire/.test(l)) return { icon: SlidersHorizontal, cls: "bg-[var(--tint-violet-bg)] text-[var(--tint-violet)]" };
+  return qty < 0 ? { icon: ArrowUpCircle, cls: "bg-bad-bg text-bad" } : { icon: ArrowDownCircle, cls: "bg-ok-bg text-ok" };
+}
+type Row = { key: string; productId: string; variantId: string; name: string; sku: string; qty: number; min: number; value: number | null; state: StockStatus };
+const STATE_TONE: Record<StockStatus, StatusTone> = { ok: "ok", watch: "info", low: "warn", out: "bad", negative: "bad" };
+const SEV: Record<StockStatus, number> = { negative: 0, out: 1, low: 2, watch: 3, ok: 4 };
+/** État des stocks : niveaux réels (journal des mouvements) de chaque article de la boutique, les plus critiques d'abord. Le réservé et le disponible détaillés sont sur la fiche de stock. */
+function StockTable({ onOpen, onAll, category }: { onOpen: Open; onAll: () => void; category: string }) {
+  const prodQ = useProductsAll(); const varQ = useVariantsAll(); const lvl = useStockLevels();
+  const rows: Row[] = [];
+  if (prodQ.data && varQ.data && lvl.data) for (const p of prodQ.data) {
+    if (p.archived || isVirtualBundle(p) || p.kind === "bundle" || (category && p.category !== category)) continue;
+    const push = (key: string, variantId: string, name: string, sku: string, qty: number, min: number, cost: number | undefined) => { const state: StockStatus = qty < 0 ? "negative" : qty === 0 ? "out" : min > 0 && qty <= min ? "low" : "ok"; rows.push({ key, productId: p.$id, variantId, name, sku, qty, min, value: cost ? Math.max(qty, 0) * cost : null, state }); };
+    if (p.hasVariants) for (const v of varQ.data.filter((x) => x.productId === p.$id && !x.archived)) push(v.$id, v.$id, `${p.name} — ${v.label}`, v.sku ?? "", variantQty(lvl.data, v), v.minStock ?? 0, v.cost);
+    else push(p.$id, "", p.name, p.sku ?? "", qtyOf(lvl.data, p), p.minStock ?? 0, p.cost);
+  }
+  rows.sort((a, b) => SEV[a.state] - SEV[b.state] || a.name.localeCompare(b.name, "fr"));
+  const top = rows.slice(0, 10);
+  return (
+    <Panel title={`État des stocks${rows.length ? ` (${rows.length} articles)` : ""}`} icon={Boxes} action={rows.length > 10 ? <button className="text-sm font-semibold text-accent-text underline" onClick={onAll}>Tout voir</button> : undefined}>
+      {!prodQ.data || !lvl.data ? <p className="text-sm text-muted" role="status">Chargement…</p> : !top.length ? <p className="text-sm text-muted">Aucun article suivi.</p> :
+        <KitTable label="État des stocks" rows={top} rowKey={(r) => r.key} onRow={(r) => onOpen(r.productId, r.variantId)}
+          columns={[{ key: "n", label: "Article", cell: (r) => <b className="text-sm">{r.name}</b> }, { key: "sku", label: "Réf.", cell: (r) => <span className="text-soft">{r.sku || "—"}</span>, hideBelow: "lg", nowrap: true },
+            { key: "q", label: "Stock", align: "right", cell: (r) => <span className={`inline-block rounded-md px-2 py-0.5 font-semibold ${r.state === "ok" ? "bg-ok-bg text-ok" : r.state === "low" ? "bg-warn-bg text-warn" : "bg-bad-bg text-bad"}`}>{formatQty(r.qty)}</span> },
+            { key: "m", label: "Seuil minimum", align: "right", cell: (r) => (r.min ? formatQty(r.min) : "—"), hideBelow: "md" }, { key: "v", label: "Valeur (F CFA)", align: "right", cell: (r) => (r.value === null ? <span className="text-muted">Sans coût</span> : formatFcfa(r.value).replace(" FCFA", "")), hideBelow: "md" },
+            { key: "s", label: "Statut", align: "center", cell: (r) => <StatusBadge tone={STATE_TONE[r.state]}>{STATUS_LABEL[r.state]}</StatusBadge> }]}
+          renderCard={(r) => <button type="button" className="w-full text-left flex items-center gap-3" onClick={() => onOpen(r.productId, r.variantId)}><span className="min-w-0 flex-1"><b className="block text-sm truncate">{r.name}</b><span className="text-xs text-muted">Seuil {r.min ? formatQty(r.min) : "—"}</span></span><span className="text-right"><b className="block tabular-nums">{formatQty(r.qty)}</b><StatusBadge tone={STATE_TONE[r.state]}>{STATUS_LABEL[r.state]}</StatusBadge></span></button>} />}
+    </Panel>
+  );
+}
+
 function Dashboard({ onOpen, onTab, pro }: { onOpen: Open; onTab: (t: Tab) => void; pro: boolean }) {
   const { session } = useSession(); const s = session!; const owner = s.role === "owner" && s.shops.length > 1;
   const [f, setF] = useState({ category: "", from: dayOff(-29), to: dayOff(0), all: false });
@@ -92,28 +135,31 @@ function Dashboard({ onOpen, onTab, pro }: { onOpen: Open; onTab: (t: Tab) => vo
       {q.isLoading && <p className="text-muted text-sm" role="status">Chargement…</p>}
       <Err e={q.error} />
       {d && <>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <Kpi label="Articles suivis" value={d.totals.articles} />
-          <Kpi label="Valeur estimée du stock" value={formatFcfa(d.totals.value)} hint="Quantité × coût configuré (pas un chiffre d'affaires)" />
-          <Kpi label="Disponibles" value={d.totals.ok + d.totals.watch} tone="text-ok" />
-          <Kpi label="Stock bas" value={d.totals.low} tone="text-warn" />
-          <Kpi label="En rupture" value={d.totals.out} tone="text-bad" />
-          <Kpi label="Stock négatif" value={d.totals.negative} tone={d.totals.negative ? "text-bad" : ""} hint={d.totals.negative ? "À corriger" : undefined} />
-          <Kpi label="En transit (à recevoir)" value={formatQty(d.totals.inTransitIn)} />
-          <Kpi label="En transit (expédié)" value={formatQty(d.totals.inTransitOut)} />
-        </div>
+        <KpiRow>
+          <KpiTile icon={Layers} tint="blue" label="Articles suivis" value={String(d.totals.articles)} sub={`${formatQty(d.byLocation.reduce((a, l) => a + l.units, 0))} unités en stock`} />
+          <KpiTile icon={CheckCircle2} tint="green" label="Disponibles" value={String(d.totals.ok + d.totals.watch)} sub="Au-dessus du seuil d'alerte" />
+          <KpiTile icon={AlertCircle} tint="amber" label="Stock bas" value={String(d.totals.low)} sub="Sous le seuil minimum" />
+          <KpiTile icon={PackageX} tint="rose" label="En rupture" value={String(d.totals.out)} sub={d.totals.negative ? `+ ${d.totals.negative} en stock négatif (à corriger)` : "Stock à zéro"} />
+          <KpiTile icon={Coins} tint="violet" label="Valeur estimée du stock" value={formatFcfa(d.totals.value)} sub="Quantité × coût (pas un chiffre d'affaires)" />
+        </KpiRow>
+        {(d.totals.inTransitIn > 0 || d.totals.inTransitOut > 0) && <p className="card !py-2.5 text-sm text-soft flex flex-wrap gap-x-4"><span>En transit (à recevoir) : <b>{formatQty(d.totals.inTransitIn)}</b></span><span>En transit (expédié) : <b>{formatQty(d.totals.inTransitOut)}</b></span></p>}
         {d.totals.missingCost > 0 && <p className="card text-sm text-warn" role="status">{d.totals.missingCost} article(s) en stock sans coût : non valorisés{d.missingCostNames.length ? ` (${d.missingCostNames.slice(0, 5).join(", ")}${d.missingCostNames.length > 5 ? "…" : ""})` : ""}. Renseignez le coût d'achat ou réceptionnez-les.</p>}
+        <div className="grid xl:grid-cols-3 gap-4 items-start">
+          <div className="xl:col-span-2 min-w-0"><StockTable onOpen={onOpen} onAll={() => onTab("art")} category={f.category} /></div>
+          <Panel title="Derniers mouvements" icon={ArrowLeftRight} action={<button className="text-sm font-semibold text-accent-text underline" onClick={() => onTab("mov")}>Voir tout</button>}>
+            {d.lastMoves.length === 0 ? <p className="text-sm text-muted">Aucun mouvement sur la période.</p> : <ul className="flex flex-col">{d.lastMoves.slice(0, 6).map((m, i) => { const k = moveKind(m.label, m.qty); const I = k.icon; return (
+              <li key={i} className="flex items-center gap-2.5 py-2 border-t border-line first:border-0"><span aria-hidden="true" className={`size-8 shrink-0 rounded-full flex items-center justify-center ${k.cls}`}><I size={17} /></span>
+                <span className="min-w-0 flex-1"><span className="flex justify-between gap-2"><b className="text-sm truncate">{m.article}</b><b className={`text-sm tabular-nums whitespace-nowrap ${m.qty < 0 ? "text-bad" : "text-ok"}`}>{signedQty(m.qty)}</b></span><span className="text-xs text-muted flex justify-between gap-2"><span className="truncate">{m.label}{m.ref ? ` · ${m.ref}` : ""}</span><span className="whitespace-nowrap">{fmtAt(m.at)}</span></span></span></li>); })}</ul>}
+          </Panel>
+        </div>
+        <InsightCard module="Stocks" source="alertes de stock calculées par le serveur (seuils, ruptures, stock négatif, transferts)" items={d.alerts.top.slice(0, 4).map((a, i) => ({ id: String(i), text: `${a.title}${a.detail ? ` — ${a.detail}` : ""}`, tone: a.level === "high" ? "warn" as const : a.level === "warn" ? "warn" as const : "info" as const }))} emptyText="Aucune alerte de stock : rien à signaler sur cette boutique." />
+        <div className="grid md:grid-cols-2 gap-4 items-start">
         <section className="card flex flex-col gap-1"><h2 className="font-semibold">Par boutique</h2>
           {d.byShop.map((b) => <div key={b.shopId} className="text-sm flex justify-between gap-2 border-t border-[var(--line)] pt-1"><span className="truncate">{b.shop}</span><span className="text-muted text-right">{b.articles} art. · {b.low + b.out} alerte(s) · {formatFcfa(b.value)}{b.inTransitIn + b.inTransitOut > 0 ? ` · transit ${formatQty(b.inTransitIn)}↓ ${formatQty(b.inTransitOut)}↑` : ""}</span></div>)}</section>
         <section className="card flex flex-col gap-1"><h2 className="font-semibold">Par emplacement</h2>
           {d.byLocation.map((l) => <div key={l.location} className="text-sm flex justify-between gap-2 border-t border-[var(--line)] pt-1"><span className="truncate">{l.location}</span><span className="text-muted">{l.articles} art. · {formatQty(l.units)} u. · {formatFcfa(l.value)}</span></div>)}
           <p className="text-xs text-muted">L'emplacement se renseigne sur la fiche de stock de chaque article.</p></section>
-        <section className="card flex flex-col gap-1"><div className="flex justify-between items-center"><h2 className="font-semibold">Alertes ({d.alerts.count})</h2><button className="text-accent-text text-sm" onClick={() => onTab("alert")}>Tout voir</button></div>
-          {d.alerts.top.length === 0 && <p className="text-sm text-muted">Aucune alerte.</p>}
-          {d.alerts.top.map((a, i) => <button key={i} className="text-left text-sm border-t border-[var(--line)] pt-1" onClick={() => (a.productId ? onOpen(a.productId, a.variantId) : onTab("alert"))}><span className={LEVEL_TONE[a.level]}>{a.title}</span></button>)}</section>
-        <section className="card flex flex-col gap-1"><div className="flex justify-between items-center"><h2 className="font-semibold">Derniers mouvements</h2><button className="text-accent-text text-sm" onClick={() => onTab("mov")}>Journal</button></div>
-          {d.lastMoves.length === 0 && <p className="text-sm text-muted">Aucun mouvement sur la période.</p>}
-          {d.lastMoves.slice(0, 8).map((m, i) => <p key={i} className="text-xs text-soft border-t border-[var(--line)] pt-1"><span className="text-muted">{fmtAt(m.at)}</span> · {m.label} · {m.article} · <b className={m.qty < 0 ? "text-bad" : "text-ok"}>{signedQty(m.qty)}</b></p>)}</section>
+        </div>
         {!pro && <ProLock />}
         <div className="text-xs text-muted flex flex-col gap-1">{d.notes.map((n) => <p key={n}>{n}</p>)}</div>
       </>}
@@ -247,8 +293,8 @@ function Alerts({ onOpen, onTab }: { onOpen: Open; onTab: (t: Tab) => void }) {
 }
 
 // ------------------------------------------------------------------ transferts entre boutiques
-function Transfers() {
-  const { session } = useSession(); const s = session!; const [flt, setFlt] = useState<"open" | "">("open"); const [sheet, setSheet] = useState<"new" | string | null>(null);
+function Transfers({ openNew = 0 }: { openNew?: number }) {
+  const { session } = useSession(); const s = session!; const [flt, setFlt] = useState<"open" | "">("open"); const [sheet, setSheet] = useState<"new" | string | null>(openNew ? "new" : null);
   const manager = s.role === "owner" || s.role === "manager";
   const q = useQuery({ queryKey: ["xfer-list", s.shopId, flt], retry: 1, queryFn: () => api<{ transfers: Xfer[] }>(s, "xfer.list", flt ? { status: flt } : {}) });
   return (
