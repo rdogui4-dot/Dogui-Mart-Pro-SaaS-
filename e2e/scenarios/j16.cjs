@@ -1,7 +1,7 @@
 const { start } = require("../harness.cjs");
 const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 4).join(" | ").slice(0, 600)); } };
 (async () => {
-  const h = await start({ plan: "business" }); const { page, call, st } = h;
+  const h = await start({ plan: "business", expect: ["stk.alerts"] /* la cloche reçoit un refus « formule » quand le test bascule en Starter côté serveur */ }); const { page, call, st } = h;
   const txt = async () => (await page.locator("body").innerText()).replace(/\s+/g, " ");
   const mk = async (name, price, cost, qty, extra = {}) => (await call("article.save", { data: { name, price, cost, ...extra }, ...(qty ? { initialQty: qty } : {}) }, h.shop)).body.data.id;
   await step("état vide : aucun chiffre inventé, aucune alerte", async () => {
@@ -21,8 +21,8 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.getByRole("button", { name: "Période personnalisée" }).click(); const today = new Date().toISOString().slice(0, 10); await page.locator("input[type=date]").nth(0).fill(today); await page.locator("input[type=date]").nth(1).fill(today); await page.waitForTimeout(1500); if (!/Ventes réalisées 2/.test(await txt())) throw new Error("custom " + (await txt()).slice(0, 300));
   });
   await step("graphiques et activité : top articles, modes de paiement, détail d'une vente", async () => {
-    await page.getByRole("button", { name: "30 derniers jours" }).click(); await page.waitForTimeout(1200); const t = await txt(); if (!/1\. Eau|1\. Jus/.test(t) || !/Espèces/.test(t) || !/Carte/.test(t) || !/Boissons/.test(t)) throw new Error(t.slice(0, 900));
-    await page.locator("section[aria-label='Activité récente'] button").filter({ hasText: /V-/ }).first().click(); await page.waitForTimeout(600); if (!/Lignes/.test(await txt())) throw new Error("détail vente"); await page.getByLabel("Fermer").click();
+    await page.getByRole("button", { name: "30 derniers jours" }).click(); await page.waitForTimeout(1200); const t = await txt(); const top = await page.locator("section[aria-label='Top 5 des articles vendus'] li").first().innerText(); if (!/Eau|Jus/.test(top) || !/Espèces/.test(t) || !/Carte/.test(t) || !/Boissons/.test(t)) throw new Error(t.slice(0, 900));
+    await page.locator("section[aria-label='Activités récentes']").getByRole("button", { name: "Tout voir" }).click(); await page.locator("[role=dialog] section[aria-label='Activité récente'] button").filter({ hasText: /V-/ }).first().click(); await page.waitForTimeout(600); if (!/Lignes/.test(await txt())) throw new Error("détail vente"); await page.getByLabel("Fermer").click();
     await page.screenshot({ path: "ov1.png", fullPage: true });
   });
   await step("hors ligne : message clair, les derniers chiffres restent affichés", async () => {

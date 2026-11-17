@@ -26,8 +26,9 @@ export function BarChart({ data, label, format = formatFcfa }: { data: { key: st
 }
 
 /** Courbe de période (aire) interactive : glisser/toucher pour lire un jour. */
-export function LineChart({ data, label }: { data: { key: string; label: string; value: number; sub?: string }[]; label: string }) {
-  const [sel, setSel] = useState<number | null>(null); const max = Math.max(1, ...data.map((d) => d.value)); const W = 320, H = 120, P = 6; const step = data.length > 1 ? (W - P * 2) / (data.length - 1) : 0;
+/** w : largeur du repère (320 par défaut ; plus large = graphique en bandeau, moins haut à largeur égale). */
+export function LineChart({ data, label, w = 320 }: { data: { key: string; label: string; value: number; sub?: string }[]; label: string; w?: number }) {
+  const [sel, setSel] = useState<number | null>(null); const max = Math.max(1, ...data.map((d) => d.value)); const W = w, H = 120, P = 6; const fs = w > 320 ? 10 : 8; const step = data.length > 1 ? (W - P * 2) / (data.length - 1) : 0;
   const pts = data.map((d, i) => [P + i * step, H - 4 - (d.value / max) * (H - 18)] as const); const path = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const cur = sel !== null ? data[sel] : undefined;
   const pick = (e: React.PointerEvent<SVGSVGElement>) => { const r = e.currentTarget.getBoundingClientRect(); const x = ((e.clientX - r.left) / r.width) * W; setSel(Math.max(0, Math.min(data.length - 1, Math.round((x - P) / (step || 1))))); };
@@ -39,8 +40,8 @@ export function LineChart({ data, label }: { data: { key: string; label: string;
         {data.length > 1 && <><path d={`${path} L${pts.at(-1)![0]},${H} L${pts[0]![0]},${H} Z`} fill={PALETTE[0]} fillOpacity={0.15} /><path d={path} fill="none" stroke={PALETTE[0]} strokeWidth={2} strokeLinejoin="round" /></>}
         {data.length === 1 && <circle cx={W / 2} cy={pts[0]![1]} r={4} fill={PALETTE[0]} />}
         {sel !== null && <><line x1={pts[sel]![0]} y1={0} x2={pts[sel]![0]} y2={H} stroke={PALETTE[0]} strokeOpacity={0.5} /><circle cx={pts[sel]![0]} cy={pts[sel]![1]} r={4} fill={PALETTE[0]} /></>}
-        <text x={P} y={H + 12} fontSize={8} fill="currentColor" fillOpacity={0.6}>{data[0]?.label}</text><text x={W - P} y={H + 12} textAnchor="end" fontSize={8} fill="currentColor" fillOpacity={0.6}>{data.at(-1)?.label}</text>
-        <text x={W - P} y={10} textAnchor="end" fontSize={8} fill="currentColor" fillOpacity={0.5}>{short(max)}</text>
+        <text x={P} y={H + 12} fontSize={fs} fill="currentColor" fillOpacity={0.6}>{data[0]?.label}</text><text x={W - P} y={H + 12} textAnchor="end" fontSize={fs} fill="currentColor" fillOpacity={0.6}>{data.at(-1)?.label}</text>
+        <text x={W - P} y={10} textAnchor="end" fontSize={fs} fill="currentColor" fillOpacity={0.5}>{short(max)}</text>
       </svg>
     </div>
   );
