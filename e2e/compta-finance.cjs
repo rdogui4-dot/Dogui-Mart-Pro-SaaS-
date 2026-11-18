@@ -29,23 +29,23 @@ const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 1
   for (const [route, wait] of [["finance", "Trésorerie"], ["icompta", "Facturation"], ["investissements", "Synthèse"]]) for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]])
     await step(`${route} · ${label} (${w} px) : sans débordement, noms accessibles`, async () => { await open(route, w, hh, wait); await noOverflow(`${route} ${label}`); await unnamed(`${route} ${label}`); await page.screenshot({ path: path.join(OUT, `cf-${route}-${w}.png`) }); });
 
-  await step("finance · onglets regroupés (Suivi / Mouvements / Engagements / Organisation), les 12 anciens onglets présents", async () => {
+  await step("finance · onglets du kit (K11) et seconde ligne, les anciens onglets tous présents", async () => {
     await open("finance", 1280, 800, "Trésorerie"); const t = (await txt()).toLowerCase();
-    for (const x of ["suivi", "mouvements", "engagements", "organisation", "trésorerie", "comptes", "flux", "virements", "rapprochement", "échéances", "budgets", "prévisions", "échéancier", "analyses", "règles", "rapports"]) if (!t.includes(x)) throw new Error("manquant : " + x);
+    for (const x of ["vue d'ensemble", "trésorerie", "flux de caisse", "résultats", "rentabilité", "comptes", "virements", "rapprochement", "échéances", "budgets", "prévisions", "échéancier", "analyses", "règles", "rapports"]) if (!t.includes(x)) throw new Error("manquant : " + x);
     await rowGroups();
   });
   await step("finance · avertissement replié sur téléphone (« Lire la suite »)", async () => {
-    await open("finance", 390, 800, "Trésorerie"); if (!(await page.getByRole("button", { name: /Lire la suite/ }).count())) throw new Error("avertissement non replié");
+    await open("finance", 390, 800, "Trésorerie"); await tab("Trésorerie"); if (!(await page.getByRole("button", { name: /Lire la suite/ }).count())) throw new Error("avertissement non replié");
   });
   await step("finance · trésorerie : indicateurs sur 3 colonnes (tablette+), soldes réels des comptes", async () => {
-    await open("finance", 1280, 800, "Perspective"); const t = await txt(); if (!t.includes("Caisse") || !t.includes("Banque")) throw new Error("comptes absents de la trésorerie");
+    await open("finance", 1280, 800, "Trésorerie"); await tab("Trésorerie"); await page.waitForSelector("text=Perspective", { timeout: 10000 }); const t = await txt(); if (!t.includes("Caisse") || !t.includes("Banque")) throw new Error("comptes absents de la trésorerie");
     const tops = await page.locator(".card:has-text('Trésorerie (comptes configurés)'), .card:has-text('Perspective à 30 jours'), .card:has-text('Entrées (30 j)')").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top))); if (new Set(tops).size !== 1) throw new Error("indicateurs pas sur une même ligne : " + tops);
   });
   await step("finance · comptes : tableau (≥ 1024 px), création d'un compte, bouton à largeur naturelle ; téléphone : cartes", async () => {
     await open("finance", 1280, 800, "Trésorerie"); await tab("Comptes"); await page.waitForSelector("table", { timeout: 8000 });
     const hd = await heads(); for (const x of ["Compte", "Type", "Solde", "État"]) if (!hd.includes(x)) throw new Error("colonne manquante : " + x);
     const b = await page.getByRole("button", { name: "Nouveau compte" }).boundingBox(); if (!b || b.width > 400) throw new Error("bouton pleine largeur");
-    await page.getByRole("button", { name: "Nouveau compte" }).click(); await page.getByLabel("Nom du compte").fill("Coffre"); await page.getByLabel("Type de compte").selectOption({ index: 0 }); await page.getByRole("button", { name: "Enregistrer" }).click(); await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: "Nouveau compte" }).click(); await page.getByLabel("Nom du compte").fill("Coffre"); await page.getByLabel("Type de compte").selectOption({ index: 0 }); await page.getByRole("button", { name: "Enregistrer", exact: true }).click(); await page.waitForTimeout(1200);
     if (!(await page.locator("tbody", { hasText: "Coffre" }).count())) throw new Error("compte créé absent du tableau");
     await open("finance", 390, 800, "Trésorerie"); await tab("Comptes"); await page.waitForTimeout(600); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
   });
@@ -53,7 +53,7 @@ const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 1
     await open("finance", 1280, 800, "Trésorerie"); await tab("Virements"); const b = await page.getByRole("button", { name: "Nouveau virement interne" }).boundingBox(); if (!b || b.width > 400) throw new Error("bouton pleine largeur");
     await page.getByRole("button", { name: "Nouveau virement interne" }).click(); await page.getByLabel("Compte source").selectOption({ label: "Caisse" }); await page.getByLabel("Compte destination").selectOption({ label: "Banque" }); await page.getByLabel("Montant du virement").fill("10000"); await page.getByLabel("Motif du virement").fill("Dépôt banque"); await page.getByRole("button", { name: "Créer le virement" }).click(); await page.waitForTimeout(1200);
     await page.waitForSelector("table", { timeout: 8000 }); const hd = await heads(); for (const x of ["Trajet", "Statut", "Montant", "Actions"]) if (!hd.includes(x)) throw new Error("colonne virement manquante : " + x);
-    await tab("Flux"); await page.waitForTimeout(600); if ((await page.getByRole("table", { name: "Flux" }).count()) === 0 && !(await txt()).includes("0 ligne")) throw new Error("ni tableau ni liste vide des flux");
+    await tab("Flux de caisse"); await page.waitForTimeout(600); if ((await page.getByRole("table", { name: "Flux" }).count()) === 0 && !(await txt()).includes("0 ligne")) throw new Error("ni tableau ni liste vide des flux");
   });
 
   await step("icompta · onglets regroupés (Saisie / Consultation / Organisation / Pro / Sorties), tous les anciens onglets présents", async () => {
