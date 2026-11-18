@@ -40,3 +40,15 @@ export function bundleAvailable(components: Component[], stockOf: (productId: st
 export const componentNeeds = (components: Component[], qty: number): Component[] => components.map((c) => ({ ...c, qty: milli(c.qty) * qty / 1000 }));
 /** Kits assemblables = même calcul que la disponibilité d'un bundle virtuel. */
 export const maxAssemblable = bundleAvailable;
+
+// ------------------------------------------------------------------ prix d'un bundle : total sans remise, remise, économie client (fenêtre « Créer un Bundle »)
+/** Total sans remise = Σ prix de vente unitaire × quantité (arrondi au franc). */
+export const bundleGross = (lines: { unitPrice: number; qty: number }[]): number => Math.round(lines.reduce((s, l) => s + (Number(l.unitPrice) || 0) * (Number(l.qty) || 0), 0));
+/** Remise (%) d'un prix par rapport au total sans remise, à une décimale ; null si le total est nul. Négative si le bundle coûte plus cher que ses articles. */
+export const discountPct = (gross: number, price: number): number | null => (gross > 0 ? Math.round(((gross - price) / gross) * 1000) / 10 : null);
+/** Prix correspondant à une remise (%) : arrondi au franc, jamais négatif. */
+export const priceForDiscount = (gross: number, pct: number): number => Math.max(0, Math.round(gross * (1 - pct / 100)));
+export function bundleSummary(lines: { unitPrice: number; qty: number }[], price: number) {
+  const gross = bundleGross(lines); const units = Math.round(lines.reduce((s, l) => s + (Number(l.qty) || 0), 0) * 1000) / 1000;
+  return { lines: lines.length, units, gross, price, saving: gross - price, savingPct: discountPct(gross, price) };
+}

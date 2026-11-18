@@ -38,11 +38,10 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!(await txt()).includes("SN002")) throw new Error("numéros non listés");
   });
   await step("bundles: création avec composants simple + lot + série", async () => {
-    await goto("bundles"); await page.getByRole("button", { name: /Nouveau bundle/ }).click();
-    await page.getByLabel("Nom du bundle *").fill("Pack test"); await page.getByLabel("Prix de vente (FCFA) *").fill("55000");
-    const sel = page.getByLabel("Composant", { exact: true }); await sel.first().selectOption({ label: "Savon Dove" });
-    for (const lab of [/Yaourt/, /Téléphone X/]) { await page.getByRole("button", { name: /Ajouter un composant/ }).click(); await page.getByLabel("Composant", { exact: true }).last().selectOption({ label: (await page.getByLabel("Composant", { exact: true }).last().locator("option").allInnerTexts()).find((t) => lab.test(t)) }); }
-    await page.getByRole("button", { name: "Créer le bundle" }).click(); await page.waitForTimeout(2000);
+    await goto("bundles"); await page.getByRole("button", { name: "Créer un Bundle" }).click(); const addArt = async (q) => { await page.getByRole("button", { name: /Ajouter un article/ }).click(); await page.getByLabel("Rechercher un article à ajouter").fill(q); await page.getByRole("dialog", { name: "Ajouter un article" }).getByRole("button", { name: new RegExp(q) }).first().click(); await page.waitForTimeout(250); };
+    await page.getByLabel("Nom du bundle *").fill("Pack test"); await page.getByLabel(/Prix du bundle/).fill("55000");
+    for (const q of ["Savon Dove", "Yaourt", "Téléphone X"]) await addArt(q);
+    await page.getByRole("button", { name: "Enregistrer le bundle" }).click(); await page.waitForTimeout(2000);
     const b = st.rows("products").find((x) => x.name === "Pack test"); if (!b) throw new Error("bundle non créé: " + (await txt()).slice(0, 300));
     if (st.rows("article_components").filter((c) => c.bundleId === b.$id).length !== 3) throw new Error("composants");
   });

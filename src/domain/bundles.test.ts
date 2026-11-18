@@ -21,3 +21,15 @@ describe("bundles (domaine)", () => {
   });
   it("besoins pour n bundles", () => { expect(componentNeeds([{ productId: "a", qty: 2 }, { productId: "b", qty: 0.5 }], 3)).toEqual([{ productId: "a", qty: 6 }, { productId: "b", qty: 1.5 }]); });
 });
+
+import { bundleGross, bundleSummary, discountPct, priceForDiscount } from "./bundles";
+describe("prix d'un bundle (remise, économie client)", () => {
+  const LINES = [{ unitPrice: 2950, qty: 1 }, { unitPrice: 1700, qty: 1 }, { unitPrice: 900, qty: 1 }, { unitPrice: 500, qty: 1 }, { unitPrice: 600, qty: 1 }];
+  it("exemple Pack Cuisine Essentiel : 6 650 F sans remise, prix 6 000 F → économie 650 F (−9,8 %)", () => {
+    expect(bundleGross(LINES)).toBe(6650); expect(bundleSummary(LINES, 6000)).toEqual({ lines: 5, units: 5, gross: 6650, price: 6000, saving: 650, savingPct: 9.8 });
+  });
+  it("remise ↔ prix réciproques, quantités décimales, total nul", () => {
+    expect(priceForDiscount(6650, 9.8)).toBe(5998); expect(discountPct(6650, priceForDiscount(6650, 10))).toBe(10); expect(priceForDiscount(1000, 150)).toBe(0);
+    expect(bundleGross([{ unitPrice: 1200, qty: 0.5 }, { unitPrice: 300, qty: 2 }])).toBe(1200); expect(discountPct(0, 100)).toBeNull(); expect(discountPct(1000, 1100)).toBe(-10);
+  });
+});

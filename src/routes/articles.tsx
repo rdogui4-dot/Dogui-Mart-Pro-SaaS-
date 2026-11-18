@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CatalogTabs } from "@/components/CatalogTabs";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Camera, Grid2x2, Image as ImageIcon, List, Lock, Pencil, Plus, ScanLine, Search, Trash2, Undo2, X } from "lucide-react";
 import { api } from "@/lib/api";
@@ -103,6 +104,7 @@ function Catalogue() {
   return (
     <div className="flex flex-col gap-3">
       <ModuleHeader icon={Package} title="Articles & Catalogue" subtitle="Gérez votre catalogue : prix, photos, stock et fiches articles." actions={<button className="btn-gold" onClick={() => setForm("new")}><Plus size={18} aria-hidden="true" />Ajouter un article</button>} />
+      <CatalogTabs current="articles" articles={stats.data ? active.length : undefined} bundles={stats.data ? stats.data.all.filter((p) => p.kind === "bundle").length : undefined} />
       <KpiRow cols={4}>
         <KpiTile icon={Package} tint="blue" label="Articles actifs" value={stats.data ? String(active.length) : "…"} sub="Hors bundles et archivés" loading={!stats.data} />
         <KpiTile icon={Coins} tint="amber" label="Valeur du stock" value={stats.data ? formatFcfa(value) : "…"} sub="Au prix d'achat renseigné" loading={!stats.data} />

@@ -26,10 +26,10 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!st.rows("article_serials").some((r) => r.status === "defective")) throw new Error("statut inchangé");
   });
   await step("bundles: création kit physique + assemblage + démontage (UI)", async () => {
-    await goto("bundles"); await page.getByRole("button", { name: /Nouveau bundle/ }).click(); await page.getByLabel("Type de bundle").selectOption("kit");
-    await page.getByLabel("Nom du bundle *").fill("Coffret"); await page.getByLabel("Prix de vente (FCFA) *").fill("3000");
-    await page.getByLabel("Composant", { exact: true }).first().selectOption({ label: "Jus" }); await page.getByRole("button", { name: /Ajouter un composant/ }).click(); await page.getByLabel("Composant", { exact: true }).last().selectOption({ label: "Pain" });
-    await page.getByRole("button", { name: "Créer le bundle" }).click(); await page.waitForTimeout(1800);
+    await goto("bundles"); await page.getByRole("button", { name: "Créer un Bundle" }).click(); const addArt = async (q) => { await page.getByRole("button", { name: /Ajouter un article/ }).click(); await page.getByLabel("Rechercher un article à ajouter").fill(q); await page.getByRole("dialog", { name: "Ajouter un article" }).getByRole("button", { name: new RegExp(q) }).first().click(); await page.waitForTimeout(250); };
+    await page.getByRole("switch", { name: /Suivre le stock du bundle/ }).uncheck(); await page.getByLabel("Nom du bundle *").fill("Coffret"); await page.getByLabel(/Prix du bundle/).fill("3000");
+    await addArt("Jus"); await addArt("Pain");
+    await page.getByRole("button", { name: "Enregistrer le bundle" }).click(); await page.waitForTimeout(1800);
     await page.getByText("Coffret").first().click(); await page.waitForTimeout(800); await page.getByRole("button", { name: /Assembler \/ démonter/ }).click(); await page.waitForTimeout(500);
     await page.getByLabel("Nombre de kits").fill("3").catch(async () => { await page.locator('input[inputmode=numeric]').last().fill("3"); }); await page.getByRole("button", { name: "Assembler", exact: true }).click(); await page.waitForTimeout(1500);
     if (!st.rows("assembly_orders").some((o) => o.type === "assemble" && o.status === "done")) throw new Error("assemblage non enregistré: " + (await txt()).slice(0, 300));
