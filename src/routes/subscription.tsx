@@ -1,11 +1,14 @@
-import { Check, ShieldCheck } from "lucide-react";
+import { CalendarClock, Check, CreditCard, Download, FileText, Layers, Receipt, ShieldCheck, Sparkles, Wallet } from "lucide-react";
+import { ErrorState, InsightCard, LoadingState, Panel, PillTabs, StatusBadge, type PillTab } from "@/components/kit";
+import { subscriptionInsights, perMonth, type Receipt as ReceiptData } from "@/domain/subscription-kit";
+import { PLATFORM_MODULES, modulesFor } from "@/domain/settings-kit";
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
-import { PERIODS, PERIOD_LABEL, priceFor, type Entitlement, type Period, type Plan, type PlanId } from "@/domain/subscriptions";
+import { PERIODS, PERIOD_DAYS, PERIOD_LABEL, TRIAL, priceFor, type Entitlement, type Period, type Plan, type PlanId } from "@/domain/subscriptions";
 import { selarOptionLabel } from "@/domain/selar";
 import { bannerMessage, stateLabel, whatsappNumber, type ReminderLevel } from "@/domain/reminders";
 
@@ -54,87 +57,168 @@ export function SubscriptionBanner() {
   );
 }
 
+type SubTab = "mine" | "receipts" | "payments" | "compare";
+const MODULE_NOTE = "Toutes les formules ouvrent les mêmes écrans de base ; les modules avancés dépendent de la formule.";
+
+/** Abonnement & Facturation (kit écran 23) : formule et échéance réelles, formules au tarif de la plateforme, reçus des paiements validés,
+ *  historique des demandes, comparaison. Renouvellement manuel via Selar : aucun prélèvement automatique, aucun moyen de paiement enregistré. */
 export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; period?: Period } }) {
-  const { session } = useSession(); const s = session!;
+  const { session } = useSession(); const s = session!; const owner = s.role === "owner";
   const picked = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
-  const { data, isLoading, error } = useSubscription();
+  const { data, isLoading, error, refetch } = useSubscription();
   const [period, setPeriod] = useState<Period>(initial?.period ?? "month");
   const [cameFrom] = useState(initial); // offre indiquée par l'URL de redirection de Selar
-  useEffect(() => { picked.current?.scrollIntoView({ block: "center" }); }, [!!cameFrom]);
+  const [tab, setTab] = useState<SubTab>("mine");
+  useEffect(() => { picked.current?.scrollIntoView({ block: "center" }); }, [!!cameFrom, !!data]);
   const [pay, setPay] = useState<Plan | null>(null);
-  if (isLoading) return <p className="text-muted">Chargement…</p>;
-  if (error || !data) return <p className="text-bad text-sm">{(error as Error)?.message ?? "Erreur"}</p>;
+  if (isLoading) return <LoadingState label="Chargement de l'abonnement" />;
+  if (error || !data) return <ErrorState message={(error as Error)?.message} onRetry={() => void refetch()} />;
   const e = data.entitlement;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["subscription", s.tenantId] });
-  const use = (label: string, used: number, max: number) => (
-    <div><div className="flex justify-between text-sm"><span>{label}</span><span className={max >= 0 && used >= max ? "text-bad" : "text-muted"}>{used} / {lim(max)}</span></div>
-      {max >= 0 && <div className="h-1.5 rounded bg-subtle"><div className={`h-1.5 rounded ${used >= max ? "bg-bad" : "bg-accent"}`} style={{ width: `${Math.min(100, (used / max) * 100)}%` }} /></div>}</div>
-  );
+  const receipts = data.payments.filter((p) => p.status === "approved" && p.provider === "selar" && p.amount > 0);
+  const tabs: PillTab<SubTab>[] = [{ key: "mine", label: "Mon abonnement", icon: CreditCard }, ...(owner ? [{ key: "receipts" as const, label: "Reçus de paiement", icon: FileText, count: receipts.length }, { key: "payments" as const, label: "Paiements", icon: Receipt, count: data.payments.length }] : []), { key: "compare", label: "Comparer les offres", icon: Layers }];
   return (
     <>
-      {e.lifetime ? (
-        <div className="card flex flex-col gap-2 border-accent">
-          <div className="flex justify-between items-baseline"><b className="text-lg">Accès à vie</b><span className="text-sm text-ok">Actif</span></div>
-          <p className="text-sm text-soft">Ce commerce dispose d'un accès à vie : toutes les fonctions actuelles et futures, sans limite de boutiques, d'utilisateurs ni de produits, et sans paiement ni renouvellement.</p>
-          {use("Boutiques", data.usage.shops, e.limits.maxShops)}{use("Utilisateurs (vous inclus)", data.usage.users, e.limits.maxUsers)}{use("Produits", data.usage.products, e.limits.maxProducts)}
-        </div>
-      ) : (
-        <div className="card flex flex-col gap-2">
-          <div className="flex justify-between items-baseline"><b className="text-lg">Formule {e.plan.name}{e.trial && " (essai)"}</b><span className={`text-sm ${STATE_TONE[e.state]}`}>{STATE_LABEL[e.state]}</span></div>
-          <div className="text-sm text-muted">{e.state === "locked" || e.state === "grace" ? "Échue le" : "Valable jusqu'au"} {dateFr(e.endsAt)}{e.state === "active" || e.state === "expiring" ? ` · ${e.daysLeft} jour(s) restant(s)` : ""}</div>
-          {use("Boutiques", data.usage.shops, e.limits.maxShops)}{use("Utilisateurs (vous inclus)", data.usage.users, e.limits.maxUsers)}{use("Produits", data.usage.products, e.limits.maxProducts)}
-        </div>
-      )}
-
-      {!e.lifetime && <section aria-label="Formules" className="flex flex-col gap-4">
-        <div className="text-center flex flex-col gap-1">
-          <h2 className="text-xl font-bold">Choisissez votre formule</h2>
-          <p className="text-sm text-muted">Toutes les fonctions dans chaque formule. Seules les limites changent. Sans engagement : vous payez la durée choisie.</p>
-        </div>
-        {cameFrom && <p className="text-sm rounded-lg bg-[var(--surface-2)] border border-accent/40 p-3">Vous revenez de Selar ? Votre formule est en surbrillance. Sélectionnez la période que vous avez payée, touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
-        <div role="tablist" aria-label="Durée" className="grid grid-cols-5 gap-1">
-          {PERIODS.map((p) => <button key={p} role="tab" aria-selected={period === p} aria-current={period === p} className="chip !px-1 !py-2 text-xs text-center" onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</button>)}
-        </div>
-        {data.plans.map((p, i) => {
-          const price = priceFor(p, period, 1); const save = savingPct(p, period);
-          const popular = p.id === "business"; const current = p.id === e.plan.id; const target = cameFrom?.plan === p.id;
-          return (
-            <div key={p.id} ref={target ? picked : undefined} className={`relative rounded-xl border p-5 flex flex-col gap-3 bg-[var(--surface)] ${target ? "ring-2 ring-[var(--accent)]/60 border-accent" : popular || current ? "border-accent" : "border-[var(--line)]"}`}>
-              {(popular || current) && <span className="absolute -top-3 left-5 rounded-full bg-accent text-accent-ink text-xs font-bold px-3 py-1">{current ? "Votre formule" : "Le plus choisi"}</span>}
-              <div className="flex items-baseline justify-between"><h3 className="text-lg font-bold">{p.name}</h3>{save > 0 && <span className="text-xs rounded-full bg-ok-bg text-ok px-2 py-1">−{save} % vs jour</span>}</div>
-              <div><span className="text-accent-text text-3xl font-extrabold">{formatFcfa(price)}</span><span className="text-sm text-muted"> / {PER_LABEL[period]}</span></div>
-              <ul className="text-sm flex flex-col gap-1.5">
-                {[`${lim(p.limits.maxShops)} boutique(s)`, `${lim(p.limits.maxUsers)} utilisateur(s)`, `${lim(p.limits.maxProducts)} produits`, "Caisse, stock, achats, clients, compta", "Paiement QR Wave / Orange, factures PDF", "Fonctionne hors ligne"].map((f) => <li key={f} className="flex gap-2"><Check size={16} className="text-accent-text shrink-0 mt-0.5" />{f}</li>)}
-              </ul>
-              {!current && !e.trial && e.state !== "locked" && i >= 0 && <div className="text-xs text-warn">Changer de formule démarre la nouvelle période maintenant : le temps restant de l'actuelle n'est pas reporté.</div>}
-              <button className={popular ? "btn" : "btn-ghost"} disabled={!data.available[p.id]} onClick={() => setPay(p)}>{data.available[p.id] ? `Payer sur Selar · ${PERIOD_LABEL[period]}` : "Paiement bientôt disponible"}</button>
-            </div>
-          );
-        })}
-        {!Object.keys(data.available).length && <p className="text-xs text-warn text-center">Le paiement en ligne n'est pas encore activé par la plateforme.</p>}
-        <ol className="card text-sm text-soft flex flex-col gap-2">
-          <li className="font-semibold text-main">Comment ça marche</li>
-          <li>1. Choisissez la formule et la durée, touchez « Payer sur Selar ».</li>
-          <li>2. Réglez sur Selar (Wave, Orange Money, carte) en sélectionnant la même durée.</li>
-          <li>3. Saisissez la référence de commande reçue par e-mail : votre formule est activée après vérification. Si vous gardez la même formule, la durée s'ajoute à l'échéance.</li>
-        </ol>
-        <p className="text-xs text-muted text-center flex items-center justify-center gap-1"><ShieldCheck size={14} />Paiement sécurisé par Selar · vos données restent conservées si l'abonnement expire.</p>
-      </section>}
-
-      {!e.lifetime && data.payments.length > 0 && (
-        <div className="card flex flex-col gap-1">
-          <h2 className="font-semibold">Mes paiements</h2>
-          {data.payments.map((p) => (
-            <div key={p.id} className="flex justify-between text-sm gap-2">
-              <span>{p.plan} · {PERIOD_LABEL[p.period]} ×{p.count} · {formatFcfa(p.amount)}<br /><span className="text-xs text-muted">{p.reference} · {new Date(p.createdAt).toLocaleDateString("fr-FR")}{p.note ? ` · ${p.note}` : ""}</span></span>
-              <span className={p.status === "approved" ? "text-ok" : p.status === "rejected" ? "text-bad" : "text-warn"}>{PAY_LABEL[p.status] ?? p.status}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <PillTabs idBase="abo" label="Sections Abonnement & Facturation" value={tab} onChange={setTab} items={tabs} />
+      {tab === "mine" && <Mine data={data} period={period} setPeriod={setPeriod} cameFrom={cameFrom} picked={picked} receipts={receipts} owner={owner} onPay={setPay} onTab={setTab} />}
+      {tab === "receipts" && owner && <Panel title="Reçus de paiement" icon={FileText}><ReceiptList rows={receipts} empty="Aucun paiement validé pour le moment. Un reçu est disponible dès que la plateforme a validé votre paiement Selar." /></Panel>}
+      {tab === "payments" && owner && <Panel title="Mes paiements" icon={Receipt}>
+        {data.payments.length === 0 ? <p className="text-sm text-muted">Aucune demande de paiement.</p> : <ul className="flex flex-col divide-y divide-[var(--line)]">{data.payments.map((p) => (
+          <li key={p.id} className="flex justify-between items-start gap-3 py-2 text-sm">
+            <span className="min-w-0">{planName(data.plans, p.plan)} · {PERIOD_LABEL[p.period]}{p.count > 1 ? ` ×${p.count}` : ""} · {p.provider === "manual" ? "attribution par la plateforme" : formatFcfa(p.amount)}<br /><span className="text-xs text-muted">{p.reference} · {new Date(p.createdAt).toLocaleDateString("fr-FR")}{p.note ? ` · ${p.note}` : ""}</span></span>
+            <StatusBadge tone={p.status === "approved" ? "ok" : p.status === "rejected" ? "bad" : "warn"}>{PAY_LABEL[p.status] ?? p.status}</StatusBadge>
+          </li>))}</ul>}
+        <p className="text-xs text-muted mt-2">Une demande « À payer » est réglée sur Selar ; ensuite, saisissez la référence de commande depuis « Mon abonnement » (même formule et même durée) pour la faire valider.</p>
+      </Panel>}
+      {tab === "compare" && <Compare data={data} period={period} setPeriod={setPeriod} />}
       {pay && <PayModal plan={pay} period={period} onClose={() => { setPay(null); refresh(); }} />}
     </>
+  );
+}
+
+const planName = (plans: Plan[], id: string) => plans.find((p) => p.id === id)?.name ?? id;
+const DurationTabs = ({ period, setPeriod }: { period: Period; setPeriod: (p: Period) => void }) => (
+  <div role="tablist" aria-label="Durée" className="grid grid-cols-5 gap-1">
+    {PERIODS.map((p) => <button key={p} type="button" role="tab" aria-selected={period === p} aria-current={period === p} className="chip !px-1 !py-2 text-xs text-center" onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</button>)}
+  </div>
+);
+
+function UsageBar({ label, used, max }: { label: string; used: number; max: number }) {
+  return <div><div className="flex justify-between text-sm"><span>{label}</span><span className={max >= 0 && used >= max ? "text-bad" : "opacity-80"}>{used} / {lim(max)}</span></div>
+    {max >= 0 && <div className="h-1.5 rounded bg-white/15"><div className={`h-1.5 rounded ${used >= max ? "bg-bad" : "bg-[var(--gold)]"}`} style={{ width: `${Math.min(100, max ? (used / max) * 100 : 100)}%` }} /></div>}</div>;
+}
+
+function Mine({ data, period, setPeriod, cameFrom, picked, receipts, owner, onPay, onTab }: { data: SubInfo; period: Period; setPeriod: (p: Period) => void; cameFrom?: { plan: PlanId; period?: Period }; picked: React.RefObject<HTMLDivElement | null>; receipts: SubInfo["payments"]; owner: boolean; onPay: (p: Plan) => void; onTab: (t: SubTab) => void }) {
+  const e = data.entitlement; const total = e.trial ? TRIAL.days : PERIOD_DAYS[e.period];
+  const elapsedPct = e.lifetime ? 100 : Math.max(0, Math.min(100, Math.round((e.daysLeft / total) * 100)));
+  const insights = subscriptionInsights(e, data.usage, data.plans);
+  const online = Object.keys(data.available).length > 0;
+  const mods = modulesFor(e.lifetime ? "pro" : e.plan.id);
+  const renewAmount = priceFor(e.plan, period, 1);
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="flex flex-col gap-4 min-w-0">
+        <section aria-label="Abonnement actuel" data-theme="dark" className="rounded-2xl p-5 flex flex-col gap-3 bg-[var(--nav-bg)] text-[var(--nav-text)]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><p className="text-xs uppercase tracking-wider opacity-70">Abonnement actuel</p><h2 className="text-2xl font-bold">{e.lifetime ? "Accès à vie" : `Formule ${e.plan.name}`}{e.trial && " (essai)"}</h2></div>
+            <StatusBadge tone={e.state === "active" ? "ok" : e.state === "locked" ? "bad" : "warn"}>{e.lifetime ? "Actif" : STATE_LABEL[e.state]}</StatusBadge>
+          </div>
+          {e.lifetime ? <p className="text-sm opacity-85">Toutes les fonctions actuelles et futures, sans limite ni renouvellement.</p> : <>
+            <p className="text-sm opacity-85">{e.state === "locked" || e.state === "grace" ? "Échue le" : "Valable jusqu'au"} {dateFr(e.endsAt)}{e.state === "active" || e.state === "expiring" ? ` · ${e.daysLeft} jour(s) restant(s)` : ""}</p>
+            <div role="meter" aria-label="Jours restants" aria-valuemin={0} aria-valuemax={total} aria-valuenow={Math.min(e.daysLeft, total)} className="h-2 rounded bg-white/15"><div className="h-2 rounded bg-[var(--gold)]" style={{ width: `${elapsedPct}%` }} /></div>
+          </>}
+          <div className="grid gap-2 sm:grid-cols-3"><UsageBar label="Boutiques" used={data.usage.shops} max={e.limits.maxShops} /><UsageBar label="Utilisateurs" used={data.usage.users} max={e.limits.maxUsers} /><UsageBar label="Produits" used={data.usage.products} max={e.limits.maxProducts} /></div>
+          {!e.lifetime && owner && <div><button type="button" className="btn" disabled={!data.available[e.plan.id]} onClick={() => onPay(e.plan)}>{data.available[e.plan.id] ? `Renouveler maintenant · ${PERIOD_LABEL[period]}` : "Paiement bientôt disponible"}</button></div>}
+        </section>
+
+        {!e.lifetime && <section aria-label="Formules" className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-bold">Nos formules</h2><p className="text-xs text-muted">Sans engagement : vous payez la durée choisie.</p></div>
+          {cameFrom && <p className="text-sm rounded-lg bg-[var(--surface-2)] border border-accent/40 p-3">Vous revenez de Selar ? Votre formule est en surbrillance. Sélectionnez la période que vous avez payée, touchez « Payer sur Selar » sur cette formule : dans la fenêtre qui s'ouvre, saisissez la référence de commande reçue par e-mail et l'adresse utilisée pour l'achat (inutile de repayer).</p>}
+          <DurationTabs period={period} setPeriod={setPeriod} />
+          <div className="grid gap-3 md:grid-cols-3">{data.plans.map((p) => {
+            const price = priceFor(p, period, 1); const save = savingPct(p, period); const current = p.id === e.plan.id; const target = cameFrom?.plan === p.id;
+            return (
+              <div key={p.id} ref={target ? picked : undefined} className={`relative rounded-xl border p-4 flex flex-col gap-2 bg-[var(--surface)] ${target ? "ring-2 ring-[var(--accent)]/60 border-accent" : current ? "border-accent" : "border-[var(--line)]"}`}>
+                {current && <span className="absolute -top-3 left-4 rounded-full bg-accent text-accent-ink text-xs font-bold px-3 py-0.5">Formule actuelle</span>}
+                <div className="flex items-baseline justify-between gap-2"><h3 className="text-lg font-bold">{p.name}</h3>{save > 0 && <span className="text-xs rounded-full bg-ok-bg text-ok px-2 py-0.5">−{save} % vs jour</span>}</div>
+                <div><span className="text-accent-text text-2xl font-extrabold">{formatFcfa(price)}</span><span className="text-sm text-muted"> / {PER_LABEL[period]}</span></div>
+                <ul className="text-sm flex flex-col gap-1">{[`${lim(p.limits.maxShops)} boutique(s)`, `${lim(p.limits.maxUsers)} utilisateur(s)`, `${lim(p.limits.maxProducts)} produits`, `${modulesFor(p.id).active} modules sur ${mods.total}`].map((f) => <li key={f} className="flex gap-2"><Check size={16} className="text-accent-text shrink-0 mt-0.5" />{f}</li>)}</ul>
+                {!current && !e.trial && e.state !== "locked" && <p className="text-xs text-warn">Changer de formule démarre la nouvelle période maintenant : le temps restant de l'actuelle n'est pas reporté.</p>}
+                {owner && <button type="button" className={current ? "btn" : "btn-ghost"} disabled={!data.available[p.id]} onClick={() => onPay(p)}>{data.available[p.id] ? `Payer sur Selar · ${PERIOD_LABEL[period]}` : "Paiement bientôt disponible"}</button>}
+              </div>);
+          })}</div>
+          {!online && <p className="text-xs text-warn">Le paiement en ligne n'est pas encore activé par la plateforme.</p>}
+          {!owner && <p className="text-xs text-muted">Seul le propriétaire du commerce peut payer l'abonnement.</p>}
+        </section>}
+
+        <InsightCard module="Abonnement" items={insights.map((i) => ({ id: i.id, text: i.text, tone: i.tone }))} source="votre formule, son échéance, l'utilisation de vos limites et les tarifs de la plateforme" />
+      </div>
+
+      <aside className="flex flex-col gap-4 min-w-0">
+        {!e.lifetime && <Panel title="Prochaine échéance" icon={CalendarClock}>
+          <p className="text-xl font-bold">{dateFr(e.endsAt)}</p>
+          <p className="text-sm text-soft">Renouvellement {e.plan.name} · {PERIOD_LABEL[period]} : <b>{formatFcfa(renewAmount)}</b></p>
+          <p className="text-xs text-muted mt-1">Renouvellement manuel via Selar, aucun prélèvement automatique. Avec la même formule, la durée payée s'ajoute à l'échéance.</p>
+        </Panel>}
+        {owner && !e.lifetime && <Panel title="Reçus récents" icon={FileText} action={receipts.length > 3 ? <button type="button" className="text-sm font-semibold text-accent-text" onClick={() => onTab("receipts")}>Tout voir</button> : undefined}>
+          <ReceiptList rows={receipts.slice(0, 3)} empty="Aucun paiement validé pour le moment." compact />
+        </Panel>}
+        {!e.lifetime && <Panel title="Moyens de paiement" icon={Wallet}>
+          <ul className="flex flex-col gap-2 text-sm">{["Wave", "Orange Money", "Carte bancaire"].map((m) => <li key={m} className="flex items-center justify-between gap-2"><span>{m}</span><StatusBadge tone={online ? "info" : "muted"}>{online ? "Disponible via Selar" : "Pas encore activé"}</StatusBadge></li>)}</ul>
+          <p className="text-xs text-muted mt-2 flex items-center gap-1"><ShieldCheck size={14} />Paiement sécurisé par Selar ; aucun moyen de paiement n'est enregistré dans l'application.</p>
+        </Panel>}
+        <Panel title="Avantages de votre formule" icon={Sparkles}>
+          <ul className="flex flex-col gap-1.5 text-sm">
+            <li className="flex justify-between"><span>Boutiques</span><b>{lim(e.limits.maxShops)}</b></li>
+            <li className="flex justify-between"><span>Utilisateurs</span><b>{lim(e.limits.maxUsers)}</b></li>
+            <li className="flex justify-between"><span>Produits</span><b>{lim(e.limits.maxProducts)}</b></li>
+            <li className="flex justify-between"><span>Modules ouverts</span><b>{mods.active} / {mods.total}</b></li>
+          </ul>
+          <ul className="flex flex-wrap gap-1.5 mt-2">{mods.list.map((m) => <li key={m.key}><StatusBadge tone={m.active ? "ok" : "muted"} icon={null}>{m.label}</StatusBadge></li>)}</ul>
+          <p className="text-xs text-muted mt-2">{MODULE_NOTE} Vos données sont conservées si vous changez de formule ou si l'abonnement expire.</p>
+        </Panel>
+      </aside>
+    </div>
+  );
+}
+
+function ReceiptList({ rows, empty, compact }: { rows: SubInfo["payments"]; empty: string; compact?: boolean }) {
+  const { session } = useSession(); const s = session!;
+  const [busy, setBusy] = useState(""); const [err, setErr] = useState("");
+  async function download(id: string) {
+    setBusy(id); setErr("");
+    try { const r = await api<ReceiptData>(s, "subscription.receipt", { paymentId: id }); const { receiptPdf } = await import("@/lib/receipt-pdf"); const { deliverPdf } = await import("@/lib/pdf"); await deliverPdf(await receiptPdf(r), `recu-${r.reference}.pdf`); }
+    catch (x) { setErr((x as Error).message); } finally { setBusy(""); }
+  }
+  if (!rows.length) return <p className="text-sm text-muted">{empty}</p>;
+  return <>
+    <ul className="flex flex-col divide-y divide-[var(--line)]">{rows.map((p) => (
+      <li key={p.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+        <span className="min-w-0"><b>{formatFcfa(p.amount)}</b> · {PERIOD_LABEL[p.period]}<br /><span className="text-xs text-muted">{p.reference} · {new Date(p.createdAt).toLocaleDateString("fr-FR")}</span></span>
+        <button type="button" className={compact ? "icon-btn" : "btn-ghost !min-h-9 text-sm"} aria-label={`Télécharger le reçu ${p.reference}`} disabled={busy === p.id} onClick={() => void download(p.id)}><Download size={16} />{!compact && " Reçu PDF"}</button>
+      </li>))}</ul>
+    {err && <p role="alert" className="text-sm text-bad">{err}</p>}
+  </>;
+}
+
+function Compare({ data, period, setPeriod }: { data: SubInfo; period: Period; setPeriod: (p: Period) => void }) {
+  const e = data.entitlement;
+  const rows: [string, (p: Plan) => string][] = [
+    [`Prix (${PER_LABEL[period]})`, (p) => formatFcfa(priceFor(p, period, 1))],
+    ["Prix ramené au mois", (p) => { const v = perMonth(p, period); return v === null ? "—" : formatFcfa(Math.round(v)); }],
+    ["Boutiques", (p) => lim(p.limits.maxShops)], ["Utilisateurs", (p) => lim(p.limits.maxUsers)], ["Produits", (p) => lim(p.limits.maxProducts)],
+    ...PLATFORM_MODULES.map((m) => [m.label, (p: Plan) => (modulesFor(p.id).list.find((x) => x.key === m.key)!.active ? "Inclus" : "—")] as [string, (p: Plan) => string]),
+  ];
+  return (
+    <Panel title="Comparer les offres" icon={Layers}>
+      <DurationTabs period={period} setPeriod={setPeriod} />
+      <div className="overflow-x-auto mt-3"><table className="w-full text-sm min-w-[32rem]">
+        <thead><tr className="text-left border-b border-line"><th scope="col" className="py-2 pr-2 font-semibold">Caractéristique</th>{data.plans.map((p) => <th key={p.id} scope="col" className="py-2 px-2 font-semibold">{p.name}{!e.lifetime && p.id === e.plan.id && <span className="block text-xs font-normal text-accent-text">Formule actuelle</span>}</th>)}</tr></thead>
+        <tbody>{rows.map(([label, f]) => <tr key={label} className="border-b border-line/60"><th scope="row" className="py-1.5 pr-2 font-normal text-soft">{label}</th>{data.plans.map((p) => <td key={p.id} className="py-1.5 px-2">{f(p)}</td>)}</tr>)}</tbody>
+      </table></div>
+      <p className="text-xs text-muted mt-2">Tarifs fixés par la plateforme. {MODULE_NOTE}</p>
+    </Panel>
   );
 }
 

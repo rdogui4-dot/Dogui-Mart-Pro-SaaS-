@@ -32,7 +32,7 @@ import { checkout, stockScaled, stockScaledVariant, type CheckoutInput } from ".
 import { HttpError, need, type Ctx, type Row, type Store, needModule } from "./store";
 import { setShopLogo, createFreeInvoice, invoiceFromSale, payCustomerInvoice, saveShop } from "./invoicing";
 import { consolidatedReport } from "./reports";
-import { platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionSubmitProof } from "./subscriptions";
+import { platformGrant, platformLifetime, platformMarkReminded, platformMe, platformPayments, platformRenewals, platformReview, platformSettingsGet, platformSettingsSave, subscriptionCheckout, subscriptionGet, subscriptionReceipt, subscriptionSubmitProof } from "./subscriptions";
 import { createShop, createStaff, initTenant, resetStaffPassword, transferStock, updateStaff } from "./team";
 import { saveUnits } from "./units";
 import { deletePriceRule, savePriceRule } from "./pricing";
@@ -67,7 +67,7 @@ const mine = (ctx: Ctx, r: Record<string, unknown> | null) => !!r && r.tenantId 
 
 // Champs modifiables par le client. creditBalance / points / annualSpend sont gérés par le serveur uniquement.
 /** Actions de lecture / d'abonnement toujours permises, même quand l'abonnement est expiré. */
-export const LOCK_EXEMPT = new Set(["report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "payments.settings.get", "payment_link.status", "md.license", "md.pay.list", "md.reports", "md.report", "md.profile", "md.reco.list", "md.chat.list", "md.chat.get", "md.chat.delete"]);
+export const LOCK_EXEMPT = new Set(["report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "subscription.receipt", "tenant.init", "payments.settings.get", "payment_link.status", "md.license", "md.pay.list", "md.reports", "md.report", "md.profile", "md.reco.list", "md.chat.list", "md.chat.get", "md.chat.delete"]);
 
 const ENTITIES = {
   products: { module: "stock", fields: [] }, // géré par articles.ts
@@ -217,7 +217,7 @@ export async function paymentLinkStatus(store: Store, ctx: Ctx, b: { linkId: str
 }
 
 /** Actions qui ne dépendent d'aucune boutique particulière (le shopId du contexte est alors vide). */
-export const TENANT_LEVEL = new Set(["md.license", "md.chat.ask", "md.chat.list", "md.chat.get", "md.chat.delete", "md.reco.generate", "md.reco.list", "md.reco.decide", "md.reco.cfg.save", "md.profile", "md.profile.set", "md.profile.confirm", "md.profile.delete", "md.trial.start", "md.pay.request", "md.pay.list", "report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword"]);
+export const TENANT_LEVEL = new Set(["md.license", "md.chat.ask", "md.chat.list", "md.chat.get", "md.chat.delete", "md.reco.generate", "md.reco.list", "md.reco.decide", "md.reco.cfg.save", "md.profile", "md.profile.set", "md.profile.confirm", "md.profile.delete", "md.trial.start", "md.pay.request", "md.pay.list", "report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "subscription.receipt", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword"]);
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
@@ -227,7 +227,7 @@ export const ACTIONS = {
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
   "shop.save": saveShop, "invoice.customer.fromSale": invoiceFromSale, "invoice.customer.create": createFreeInvoice, "invoice.customer.pay": payCustomerInvoice,
   "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "stock.transfer": transferStock,
-  "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof,
+  "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof, "subscription.receipt": subscriptionReceipt,
   "platform.me": platformMe, "platform.subscription.lifetime": platformLifetime, "platform.renewals.list": platformRenewals, "platform.renewals.markReminded": platformMarkReminded, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
   "report.consolidated": consolidatedReport,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,

@@ -125,6 +125,22 @@ export async function subscriptionSubmitProof(store: Store, ctx: Ctx, b: { payme
   return { status: "pending_review" };
 }
 
+/** Données du reçu d'un paiement d'abonnement VALIDÉ (paiement Selar vérifié par la plateforme). Le PDF est produit dans l'application.
+ *  Pas de reçu pour une attribution manuelle (montant non encaissé via l'application) ni pour une demande non validée. */
+export async function subscriptionReceipt(store: Store, ctx: Ctx, b: { paymentId: string }) {
+  need(ctx, "owner");
+  const p = must(await store.get("subscription_payments", String(b.paymentId ?? "")), "Paiement introuvable");
+  if (p.tenantId !== ctx.tenantId) throw new HttpError(403, "Accès refusé");
+  if (p.status !== "approved") throw new HttpError(409, "Reçu disponible seulement pour un paiement validé");
+  if (p.provider !== "selar" || !(Number(p.amount) > 0)) throw new HttpError(409, "Aucun reçu pour une attribution manuelle");
+  const plan = planById(await loadPlans(store), String(p.plan));
+  const shop = (ctx.shopId ? await store.get("shops", ctx.shopId) : null) ?? (await store.list("shops", { tenantId: ctx.tenantId }, 1))[0];
+  const sv = (k: string) => String((shop && shop.tenantId === ctx.tenantId ? shop[k] : "") ?? "");
+  return { reference: String(p.reference), txRef: String(p.txRef ?? ""), payerEmail: String(p.payerEmail ?? ""), plan: String(p.plan), planName: plan?.name ?? String(p.plan), period: p.period as Period, count: Number(p.count), amount: Number(p.amount),
+    requestedAt: String(p.$createdAt), startsAt: String(p.startsAt ?? ""), endsAt: String(p.endsAt ?? ""),
+    customer: { name: sv("name") || String(p.tenantName ?? ""), companyName: sv("companyName"), legal: sv("legal"), address: [sv("address"), sv("city")].filter(Boolean).join(", "), phone: sv("phone") } };
+}
+
 // ---------- côté plateforme (administrateur) ----------
 async function applySubscription(store: Store, tenantId: string, plan: PlanId, period: Period, startsAt: string, endsAt: string) {
   const row = await store.get("subscriptions", tenantId);
