@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
 import { Disclaimer } from "@/components/ui";
 import { DataGrid, StatusPill } from "@/components/DataGrid";
 import { useMinWidth } from "@/lib/media";
@@ -8,6 +7,10 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { Sheet } from "@/components/ui";
 import { formatFcfa } from "@/domain/money";
+import { DEFAULT_CATEGORIES as EXP_CATS } from "@/domain/expenses";
+import { ArrowLeftRight, BarChart3, Coins, Gift, Landmark, LayoutGrid, Percent, Plus, Target, TrendingUp, Wallet } from "lucide-react";
+import { InsightCard, KpiRow, KpiTile, ModuleHeader, Panel, PillTabs, type Insight, type PillTab } from "@/components/kit";
+import { Donut, LineChart } from "@/components/charts";
 import { KIND_LABEL, METHOD_LABEL, SOURCE_LABEL, type AccountKind } from "@/domain/fin";
 import { Analyses, Forecast, Plans, RulesTab, useFinPro } from "./finance-pro";
 import { exportReport, type ExportFormat } from "@/lib/report-export";
@@ -33,18 +36,86 @@ type Side = { total: number; overdue: number; dueSoon: number; aging: { key: str
 const useFin = <T,>(action: string, payload: object = {}, enabled = true) => { const { session } = useSession(); const s = session!; return useQuery({ queryKey: ["fin", action, s.shopId, payload], enabled, retry: 1, queryFn: () => api<T>(s, action, payload) }); };
 const useAct = (action: string, onOk?: (r: any) => void) => { const { session } = useSession(); const s = session!; const qc = useQueryClient(); return useMutation({ mutationFn: (b: object) => api<any>(s, action, b), onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ["fin"] }); onOk?.(r); } }); };
 
-type Tab = "dash" | "accounts" | "flows" | "transfers" | "reco" | "dues" | "budgets" | "reports" | "fc" | "plans" | "an" | "rules";
+type Tab = "ov" | "dash" | "accounts" | "flows" | "results" | "profit" | "transfers" | "reco" | "dues" | "budgets" | "reports" | "fc" | "plans" | "an" | "rules";
+type Month = { month: string; revenue: number; revenueHt: number; sales: number; grossMargin: number | null; expenses: number; net: number | null; netMarginPct: number | null; reasons: string[] };
+type Perf = { months: Month[]; current: Month & { avgBasket: number | null; chargesPct: number | null; byCategory: { key: string; total: number }[] }; previous: Month; notes: string[] };
+type DashD = { accounts: Acc[]; totalConfigured: number; unconfigured: number; last30: { inflow: number; outflow: number; net: number }; receivables: { total: number; overdue: number; dueSoon: number }; payables: { total: number; overdue: number; dueSoon: number }; budgets: { month: string; over: number; warn: number }; alerts: { level: string; text: string }[] };
+const catLabel = (k: string) => EXP_CATS.find((c) => c.id === k)?.label ?? k;
+const monthLbl = (m: string) => new Date(`${m}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "short" });
 export function FinancePage() {
-  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<Tab>("dash");
-  const tabs: [Tab, string][] = [["dash", "Trésorerie"], ["accounts", "Comptes"], ["flows", "Flux"], ["transfers", "Virements"], ["reco", "Rapprochement"], ["dues", "Échéances"], ["budgets", "Budgets"], ["fc", "Prévisions"], ["plans", "Échéancier"], ["an", "Analyses"], ["rules", "Règles"], ["reports", "Rapports"]];
+  const { session } = useSession(); const s = session!; const [tab, setTab] = useState<Tab>("ov");
+  const main: PillTab<Tab>[] = [{ key: "ov", label: "Vue d'ensemble", icon: LayoutGrid }, { key: "dash", label: "Trésorerie", icon: Wallet }, { key: "flows", label: "Flux de caisse", icon: ArrowLeftRight }, { key: "results", label: "Résultats", icon: BarChart3 }, { key: "profit", label: "Rentabilité", icon: Target }, { key: "budgets", label: "Budgets", icon: Gift }, { key: "fc", label: "Prévisions", icon: TrendingUp }];
+  const extra: [Tab, string][] = [["accounts", "Comptes"], ["transfers", "Virements"], ["reco", "Rapprochement"], ["dues", "Échéances"], ["plans", "Échéancier"], ["an", "Analyses"], ["rules", "Règles"], ["reports", "Rapports"]];
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-lg font-semibold">Finance</h1>
-      <Disclaimer>Boutique active : comptes et soldes sont gérés boutique par boutique. Les montants viennent des pièces réelles (ventes, dépenses, paiements) ; aucun solde n'est inventé.</Disclaimer>
-      <GroupedTabs label="Sections de la finance" value={tab} onChange={setTab} groups={groupTabs<Tab>(tabs, [["Suivi", ["dash", "an", "reports"]], ["Mouvements", ["flows", "transfers", "reco"]], ["Engagements", ["dues", "plans", "budgets", "fc"]], ["Organisation", ["accounts", "rules"]]])} />
+      <ModuleHeader icon={TrendingUp} title="FinI — Finance Intelligente" subtitle="Pilotez votre trésorerie, vos encaissements et la rentabilité de votre activité." actions={<button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => setTab("transfers")}><Plus size={18} />Enregistrer une opération</button>} />
+      <FinKpis />
+      <PillTabs idBase="fin" label="Sections de la finance" value={main.some((t) => t.key === tab) ? tab : ("" as Tab)} onChange={setTab} items={main} />
+      <div role="tablist" aria-label="Autres sections de la finance" className="scroll-x !gap-1.5 -mt-2">{extra.map(([k, l]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className="chip !min-h-8 !py-1 !px-3 text-sm" onClick={() => setTab(k)}>{l}</button>)}</div>
+      {tab !== "ov" && <Disclaimer>Boutique active : comptes et soldes sont gérés boutique par boutique. Les montants viennent des pièces réelles (ventes, dépenses, paiements) ; aucun solde n'est inventé.</Disclaimer>}
+      {tab === "ov" && <Overview onTab={setTab} />}{tab === "results" && <Results />}{tab === "profit" && <Profit />}
       {tab === "dash" && <Dash onTab={setTab} />}{tab === "accounts" && <Accounts />}{tab === "flows" && <Flows />}{tab === "transfers" && <Transfers />}{tab === "reco" && <Reco />}{tab === "dues" && <Dues />}{tab === "budgets" && <Budgets mgr={s.role === "owner" || s.role === "manager"} />}{tab === "reports" && <Reports />}{tab === "fc" && <Forecast canAll={s.role === "owner" || s.role === "manager"} />}{tab === "plans" && <Plans />}{tab === "an" && <Analyses canAll={s.role === "owner" || s.role === "manager"} mgr={s.role === "owner" || s.role === "manager"} />}{tab === "rules" && <RulesTab />}
     </div>
   );
+}
+
+const usePerf = () => useFin<Perf>("fin.performance");
+const useDashD = () => useFin<DashD>("fin.dashboard");
+/** Indicateurs du kit : mois en cours (ventes payées, dépenses validées), trésorerie des comptes configurés. Résultat et marge seulement s'ils sont calculables. */
+function FinKpis() {
+  const p = usePerf(); const d = useDashD(); const c = p.data?.current; const v = p.data?.previous;
+  const dl = (cur: number | null | undefined, prev: number | null | undefined, goodUp = true) => { if (cur === null || cur === undefined || !prev) return {}; const x = Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10; return { delta: { text: `${x > 0 ? "+" : ""}${x.toLocaleString("fr-FR")} % vs mois précédent`, dir: x >= 0 ? "up" as const : "down" as const, good: goodUp ? x >= 0 : x <= 0 } }; };
+  return <KpiRow cols={5}>
+    <KpiTile icon={Coins} tint="amber" label="Chiffre d'affaires (mois)" loading={p.isLoading} value={c ? formatFcfa(c.revenue) : "—"} sub={c && !v?.revenue ? `${c.sales} vente(s) payée(s)` : undefined} {...dl(c?.revenue, v?.revenue)} />
+    <KpiTile icon={Wallet} tint="rose" label="Charges totales" loading={p.isLoading} value={c ? formatFcfa(c.expenses) : "—"} sub={c && !v?.expenses ? "dépenses validées du mois" : undefined} {...dl(c?.expenses, v?.expenses, false)} />
+    <KpiTile icon={TrendingUp} tint="green" label="Résultat net" loading={p.isLoading} value={c ? (c.net === null ? "Non calculable" : formatFcfa(c.net)) : "—"} sub={c && c.net === null ? c.reasons[0] : undefined} {...(c?.net !== null ? dl(c?.net, v?.net) : {})} />
+    <KpiTile icon={Percent} tint="violet" label="Marge nette" loading={p.isLoading} value={c ? (c.netMarginPct === null ? "—" : `${c.netMarginPct.toLocaleString("fr-FR")} %`) : "—"} sub={c && v && c.netMarginPct !== null && v.netMarginPct !== null ? `${(Math.round((c.netMarginPct - v.netMarginPct) * 10) / 10).toLocaleString("fr-FR")} pts vs mois précédent` : c?.netMarginPct === null ? "résultat non calculable" : undefined} />
+    <KpiTile icon={Landmark} tint="blue" label="Trésorerie disponible" loading={d.isLoading} value={d.data ? (d.data.accounts.some((a) => a.active && a.configured) ? formatFcfa(d.data.totalConfigured) : "À configurer") : "—"} sub={d.data?.unconfigured ? `${d.data.unconfigured} compte(s) sans solde d'ouverture` : "comptes configurés"} />
+  </KpiRow>;
+}
+
+function Overview({ onTab }: { onTab: (t: Tab) => void }) {
+  const p = usePerf(); const d = useDashD(); const fl = useFin<{ flows: Flow[] }>("fin.flows", { from: day(-30), to: day() }); const P = p.data; const D = d.data; const c = P?.current;
+  const items: Insight[] = [];
+  if (c && P) { if (c.net !== null && P.previous.net !== null && P.previous.net !== 0) { const x = Math.round(((c.net - P.previous.net) / Math.abs(P.previous.net)) * 1000) / 10; items.push({ id: "r", tone: x >= 0 ? "ok" : "warn", text: `Résultat ${x >= 0 ? "en hausse" : "en baisse"} de ${Math.abs(x).toLocaleString("fr-FR")} % par rapport au mois précédent.` }); }
+    if (c.net === null && c.reasons.length) items.push({ id: "n", tone: "info", text: `Résultat du mois non calculable : ${c.reasons.join(" ; ")}.` });
+    if (c.chargesPct !== null) items.push({ id: "c", tone: c.chargesPct > 50 ? "warn" : "ok", text: `Les charges représentent ${c.chargesPct.toLocaleString("fr-FR")} % du chiffre d'affaires HT du mois.` }); }
+  if (D) { if (D.receivables.overdue) items.push({ id: "re", tone: "warn", text: `${formatFcfa(D.receivables.overdue)} de créances clients échues à encaisser.` }); if (D.payables.overdue) items.push({ id: "pa", tone: "warn", text: `${formatFcfa(D.payables.overdue)} de dettes échues à régler.` }); if (D.budgets.over) items.push({ id: "b", tone: "warn", text: `${D.budgets.over} budget(s) du mois dépassé(s).` }); if (D.last30.net < 0) items.push({ id: "f", tone: "warn", text: `Flux de trésorerie négatif sur 30 jours (${formatFcfa(D.last30.net)}).` }); }
+  const gm = c && c.grossMargin !== null && c.revenueHt > 0 ? Math.round((c.grossMargin / c.revenueHt) * 1000) / 10 : null;
+  const row = (l: string, v: ReactNode, tone = "") => <div className={`flex justify-between gap-2 rounded-lg px-2 py-1.5 text-sm ${tone}`}><span>{l}</span><b className="tabular-nums">{v}</b></div>;
+  if (p.error || d.error) return <Err e={p.error ?? d.error} />;
+  return <div className="flex flex-col gap-4">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <Panel title="Évolution du chiffre d'affaires et du résultat" action={<span className="text-xs text-muted">6 derniers mois</span>}>{P?.months.some((m) => m.revenue > 0) ? <LineChart label="Chiffre d'affaires TTC par mois" w={360} data={P.months.map((m) => ({ key: m.month, label: monthLbl(m.month), value: m.revenue, sub: `résultat ${m.net === null ? "non calculable" : formatFcfa(m.net)}` }))} /> : <p className="text-sm text-muted">{p.isLoading ? "Chargement…" : "Pas encore de vente payée sur 6 mois."}</p>}</Panel>
+      <Panel title="Flux de trésorerie (30 jours)">{D ? <div className="flex flex-col gap-2">{row("Encaissements (entrées)", <span className="text-ok">{formatFcfa(D.last30.inflow)}</span>, "bg-ok-bg/40")}{row("Décaissements (sorties)", <span className="text-bad">{formatFcfa(D.last30.outflow)}</span>, "bg-bad-bg/40")}{row("Flux net", `${D.last30.net >= 0 ? "+ " : ""}${formatFcfa(D.last30.net)}`, "bg-[var(--gold-soft)]")}</div> : <p className="text-sm text-muted">Chargement…</p>}</Panel>
+      <Panel title="Répartition des charges">{c?.byCategory.length ? <Donut label="Dépenses validées du mois par catégorie" data={c.byCategory.map((x) => ({ key: x.key, label: catLabel(x.key), value: x.total }))} /> : <p className="text-sm text-muted">{p.isLoading ? "Chargement…" : "Aucune dépense validée ce mois-ci."}</p>}</Panel>
+    </div>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Panel title="Trésorerie">{D ? (D.accounts.filter((a) => a.active).length ? <div className="flex flex-col gap-1 text-sm"><p className="text-xs text-muted">Trésorerie disponible</p><b className="text-lg text-ok">{D.accounts.some((a) => a.active && a.configured) ? formatFcfa(D.totalConfigured) : "À configurer"}</b>{D.accounts.filter((a) => a.active).map((a) => <div key={a.id} className="flex justify-between gap-2 border-t border-[var(--line)] pt-1"><span className="truncate">{a.name}</span><b className="tabular-nums">{money(a.balance)}</b></div>)}</div> : <div className="text-sm flex flex-col gap-2"><p className="text-muted">Aucun compte financier pour cette boutique.</p><button className="btn !py-2 self-start" onClick={() => onTab("accounts")}>Créer un compte</button></div>) : <p className="text-sm text-muted">Chargement…</p>}</Panel>
+      <Panel title="Résultat & Rentabilité">{c ? <div className="flex flex-col gap-1">{row("Chiffre d'affaires", formatFcfa(c.revenue), "bg-subtle")}{row("Total charges", formatFcfa(c.expenses), "bg-bad-bg/40")}{row("Résultat net", c.net === null ? "Non calculable" : formatFcfa(c.net), "bg-ok-bg/40")}{row("Marge nette", c.netMarginPct === null ? "—" : `${c.netMarginPct.toLocaleString("fr-FR")} %`, "bg-subtle")}</div> : <p className="text-sm text-muted">Chargement…</p>}</Panel>
+      <Panel title="Indicateurs clés">{c ? <div className="flex flex-col gap-1 text-sm">{row("Panier moyen", c.avgBasket === null ? "—" : formatFcfa(c.avgBasket))}{row("Taux de charges", c.chargesPct === null ? "—" : `${c.chargesPct.toLocaleString("fr-FR")} %`)}{row("Taux de marge brute", gm === null ? "—" : `${gm.toLocaleString("fr-FR")} %`)}{row("Créances échues", D ? formatFcfa(D.receivables.overdue) : "—")}{row("Dettes échues", D ? formatFcfa(D.payables.overdue) : "—")}</div> : <p className="text-sm text-muted">Chargement…</p>}</Panel>
+      <div className="flex flex-col gap-2"><InsightCard module="FinI" loading={p.isLoading || d.isLoading} items={items} source="ventes, dépenses, comptes, créances et budgets de la boutique" emptyText="Rien à signaler sur le mois." /></div>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <Panel title="Opérations récentes" action={<button className="text-sm font-semibold text-accent-text underline" onClick={() => onTab("flows")}>Voir tout</button>}>{fl.data?.flows.length ? <ul className="flex flex-col">{fl.data.flows.slice(0, 6).map((f) => <li key={f.key} className="flex items-center justify-between gap-2 text-sm border-t border-[var(--line)] py-1.5 first:border-t-0"><span className="min-w-0"><span className="block truncate">{f.label || f.ref}</span><span className="text-xs text-muted">{fmtDay(f.date)} · {f.sourceLabel} · {f.methodLabel}</span></span><span className={`shrink-0 text-xs font-semibold rounded-full px-2 py-0.5 ${f.amount >= 0 ? "bg-ok-bg text-ok" : "bg-bad-bg text-bad"}`}>{f.amount >= 0 ? "Encaissement" : "Décaissement"}</span><b className="shrink-0 tabular-nums w-28 text-right">{formatFcfa(Math.abs(f.amount))}</b></li>)}</ul> : <p className="text-sm text-muted">{fl.isLoading ? "Chargement…" : "Aucune opération sur 30 jours."}</p>}</Panel>
+      <Panel title="Budget du mois" action={<button className="text-sm font-semibold text-accent-text underline" onClick={() => onTab("budgets")}>Voir le détail</button>}>{D ? <div className="text-sm flex flex-col gap-1"><p>{D.budgets.over ? <b className="text-bad">{D.budgets.over} budget(s) dépassé(s)</b> : "Aucun budget dépassé"}{D.budgets.warn ? ` · ${D.budgets.warn} proche(s) du plafond` : ""}</p><p className="text-xs text-muted">Mois {D.budgets.month}. Les montants prévus et réalisés sont dans l'onglet Budgets.</p></div> : <p className="text-sm text-muted">Chargement…</p>}</Panel>
+    </div>
+    {P && <Note>{P.notes.join(" ")}</Note>}
+  </div>;
+}
+
+/** Résultats mois par mois (6 mois) : jamais de résultat sans les données nécessaires. */
+function Results() {
+  const p = usePerf(); if (p.error) return <Err e={p.error} />; if (!p.data) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
+  return <div className="flex flex-col gap-2"><div className="card overflow-x-auto !p-0"><table className="w-full text-sm" aria-label="Résultats mensuels"><thead><tr className="text-left text-xs text-muted">{["Mois", "CA TTC", "CA HT", "Marge brute HT", "Charges", "Résultat", "Marge nette"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
+    <tbody>{[...p.data.months].reverse().map((m) => <tr key={m.month} className="border-t border-[var(--line)]"><td className="px-3 py-2 capitalize">{new Date(`${m.month}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</td><td className="px-3 py-2 tabular-nums">{formatFcfa(m.revenue)}</td><td className="px-3 py-2 tabular-nums">{formatFcfa(m.revenueHt)}</td><td className="px-3 py-2 tabular-nums">{money(m.grossMargin)}</td><td className="px-3 py-2 tabular-nums">{formatFcfa(m.expenses)}</td><td className="px-3 py-2 tabular-nums" title={m.reasons.join(" ; ")}>{m.net === null ? <span className="text-muted">Non calculable</span> : <b className={m.net < 0 ? "text-bad" : "text-ok"}>{formatFcfa(m.net)}</b>}</td><td className="px-3 py-2 tabular-nums">{m.netMarginPct === null ? "—" : `${m.netMarginPct.toLocaleString("fr-FR")} %`}</td></tr>)}</tbody></table></div>
+    {p.data.months.some((m) => m.net === null && m.revenue > 0) && <Note>Résultat non calculable quand le coût d'achat d'une partie des ventes est inconnu ou qu'une dépense attend sa validation (motif au survol).</Note>}<Note>{p.data.notes.join(" ")}</Note></div>;
+}
+/** Rentabilité mois par mois : taux de marge brute, taux de charges, marge nette. */
+function Profit() {
+  const p = usePerf(); if (p.error) return <Err e={p.error} />; if (!p.data) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
+  const pct = (a: number | null, b: number) => (a === null || b <= 0 ? null : Math.round((a / b) * 1000) / 10);
+  return <div className="grid gap-3 md:grid-cols-3">{[...p.data.months].reverse().slice(0, 6).map((m) => { const gm = pct(m.grossMargin, m.revenueHt), ch = pct(m.expenses, m.revenueHt); return <div key={m.month} className="card text-sm flex flex-col gap-1"><b className="capitalize">{new Date(`${m.month}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</b><div className="flex justify-between"><span className="text-muted">Taux de marge brute</span><b>{gm === null ? "—" : `${gm.toLocaleString("fr-FR")} %`}</b></div><div className="flex justify-between"><span className="text-muted">Taux de charges</span><b>{ch === null ? "—" : `${ch.toLocaleString("fr-FR")} %`}</b></div><div className="flex justify-between"><span className="text-muted">Marge nette</span><b>{m.netMarginPct === null ? "—" : `${m.netMarginPct.toLocaleString("fr-FR")} %`}</b></div>{!!m.reasons.length && m.revenue > 0 && <span className="text-xs text-muted">{m.reasons.join(" ; ")}</span>}</div>; })}</div>;
 }
 
 function Dash({ onTab }: { onTab: (t: Tab) => void }) {

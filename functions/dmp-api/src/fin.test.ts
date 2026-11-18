@@ -150,3 +150,16 @@ describe("FinI Business — créances, dettes, budgets, rapports", () => {
     const f = await ok(call("compta", "fin.report", { section: "flows", from: day(-30), to: day(0) })); expect(f.sections[0].rows).toHaveLength(1); expect(st.rows("audit_log").filter((a) => a.action === "fin.export").length).toBe(6); await err(call("compta", "fin.report", { from: day(0), to: day(-5) }), 400); await err(call("cais", "fin.report", {}), 403);
   });
 });
+
+describe("performance mensuelle (vue d'ensemble FinI)", () => {
+  const sale = (id: string, total: number, vat: number, lines: object[], soldAt = new Date().toISOString()) => st.create("sales", id, T, { tenantId: T, shopId: A, number: `V-${id}`, total, vat, status: "paid", soldAt, cashierId: "own", payments: "[]", lines: JSON.stringify(lines), clientId: id });
+  const exp = (id: string, amount: number, status = "approved", category = "loyer") => st.create("expenses", id, T, { tenantId: T, shopId: A, number: `D-${id}`, label: id, category, amount, status, spentOn: `${day(0)}T12:00:00.000Z` });
+  it("6 mois : CA, marge HT, charges, résultat et marge nette ; résultat masqué si un coût manque ou une dépense est en attente", async () => {
+    await sale("s1", 11800, 1800, [{ productId: "p", name: "Riz", qty: 2, unitPrice: 5900, unitCost: 3000 }]); await exp("e1", 2000); await exp("e2", 1000, "approved", "transport");
+    const r = await ok(call("ger", "fin.performance")); expect(r.months).toHaveLength(6); expect(r.current).toMatchObject({ revenue: 11800, revenueHt: 10000, grossMargin: 4000, expenses: 3000, net: 1000, netMarginPct: 10, avgBasket: 11800, chargesPct: 30 });
+    expect(r.current.byCategory).toEqual([{ key: "loyer", total: 2000 }, { key: "transport", total: 1000 }]); expect(r.previous.revenue).toBe(0);
+    await exp("e3", 500, "pending"); const r2 = await ok(call("ger", "fin.performance")); expect(r2.current.net).toBeNull(); expect(r2.current.reasons.join(" ")).toMatch(/en attente/);
+    await sale("s2", 1000, 0, [{ productId: "q", name: "Sel", qty: 1, unitPrice: 1000 }]); const r3 = await ok(call("ger", "fin.performance")); expect(r3.current.grossMargin).toBeNull(); expect(r3.current.reasons.join(" ")).toMatch(/coût d'achat inconnu/);
+    await err(call("cais", "fin.performance"), 403);
+  });
+});

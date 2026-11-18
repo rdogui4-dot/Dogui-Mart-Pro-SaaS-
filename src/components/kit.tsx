@@ -73,7 +73,7 @@ export function PillTabs<K extends string>({ items, value, onChange, label, idBa
         return (
           <button key={t.key} ref={(el) => { refs.current[i] = el; }} id={`${base}-${t.key}`} role="tab" type="button" aria-selected={on} aria-controls={`${base}-panel`} tabIndex={on ? 0 : -1}
             onClick={() => onChange(t.key)} onKeyDown={(e) => onKey(e, i)}
-            className={`shrink-0 inline-flex items-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold border transition ${on ? "bg-accent text-accent-ink border-accent shadow-[var(--shadow-card)]" : "bg-surface text-main border-line hover:bg-subtle"}`}>
+            className={`shrink-0 inline-flex items-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold border transition ${on ? "bg-accent text-accent-ink border-accent shadow-[var(--shadow-card)] [transform:translateY(-1px)] motion-reduce:[transform:none]" : "bg-surface text-main border-line hover:bg-subtle"}`}>
             {I && <I size={18} aria-hidden="true" />}<span>{t.label}</span>
             {t.count !== undefined && <span className={`text-xs rounded-full px-1.5 ${on ? "bg-white/20" : "bg-subtle text-soft"}`}>{t.count}</span>}
             {t.locked && <Lock size={14} aria-label="Réservé à une offre supérieure" />}

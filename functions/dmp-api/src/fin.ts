@@ -3,6 +3,7 @@
 import { AGING, KIND_LABEL, METHOD_LABEL, MONEY_ACCOUNTS, SOURCE_LABEL, STATUS_LABEL, SUGGESTED_METHODS, aging, balanceOf, budgetState, classifyJournal, dedupe, isKind, isMethod, routing, suggestMatches, validDay, validMonth, type Account, type Flow, type StatementLine, type Transfer } from "../../../src/domain/fin";
 import type { ReportData } from "../../../src/domain/exports";
 import { needFeature } from "./articles";
+import { lineTotal } from "../../../src/domain/money";
 import { planAllows } from "../../../src/domain/features";
 import { entitlementOf } from "./subscriptions";
 import { enforce } from "./fin-rules";
@@ -190,4 +191,27 @@ export async function finReport(store: Store, ctx: Ctx, b: { section?: string; f
   if (kind === "budgets") { const m = validMonth(b.month ?? to.slice(0, 7)) ?? to.slice(0, 7); const r = await finBudgets(store, ctx, { month: m }); sections.push({ name: `Budgets ${m}`, columns: ["Catégorie", "Budget", "Dépensé", "Reste", "% utilisé", "État"], rows: r.rows.map((x) => [x.category, x.budget, x.spent, x.remaining, x.pct, x.state === "over" ? "Dépassé" : x.state === "warn" ? "À surveiller" : x.state === "none" ? "Sans budget" : "OK"]) }); }
   await store.create("audit_log", crypto.randomUUID().replace(/-/g, "").slice(0, 30), ctx.tenantId, { ...MIN(ctx), userId: ctx.userId, action: "fin.export", detail: `${kind} ${from}→${to}` });
   return { title: `Finance — ${({ flows: "flux", accounts: "comptes", dues: "créances et dettes", transfers: "virements", budgets: "budgets" } as Record<string, string>)[kind]}`, generatedAt: new Date().toISOString(), tz: "UTC", period: { from, to }, scope: [String(shop?.name ?? "Boutique")], filters: {}, notes, sections };
+}
+
+// ------------------------------------------------------------------ performance mensuelle (vue d'ensemble FinI)
+/** 6 mois calendaires (UTC) : chiffre d'affaires TTC, marge brute HT, dépenses validées, résultat. Le résultat d'un mois n'est donné que si le coût d'achat de toutes
+ *  ses ventes est connu et qu'aucune dépense du mois n'est en attente (même règle que le rapport des dépenses). Mois en cours : panier moyen et charges par catégorie. */
+export async function finPerformance(store: Store, ctx: Ctx) {
+  await gate(store, ctx); const now = new Date(); const months: { month: string; from: string; to: string }[] = [];
+  for (let k = 5; k >= 0; k--) { const a = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - k, 1)); const b = new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + 1, 1)); months.push({ month: a.toISOString().slice(0, 7), from: a.toISOString(), to: b.toISOString() }); }
+  const where = { tenantId: ctx.tenantId, shopId: ctx.shopId };
+  const sales = (await store.scan("sales", { ...where, status: "paid" }, { range: { field: "soldAt", from: months[0]!.from, to: months[5]!.to }, maxRows: 100_000 })).rows;
+  const exps = (await store.scan("expenses", where, { range: { field: "spentOn", from: months[0]!.from, to: months[5]!.to }, maxRows: 20_000 })).rows;
+  const out = months.map((m) => {
+    const ss = sales.filter((s) => String(s.soldAt) >= m.from && String(s.soldAt) < m.to); let revenue = 0, vat = 0, netAll = 0, netKnown = 0, costKnown = 0;
+    for (const s of ss) { revenue += Number(s.total); vat += Number(s.vat ?? 0); for (const l of parse<{ unitPrice: number; qty: number; discountPct?: number; amount?: number; unitCost?: number }[]>(s.lines, [])) { const n = lineTotal(l as never); netAll += n; if (l.unitCost) { netKnown += n; costKnown += Math.round(l.unitCost * l.qty); } } }
+    const ee = exps.filter((e) => String(e.spentOn) >= m.from && String(e.spentOn) < m.to); const approved = ee.filter((e) => e.status === "approved"); const expenses = approved.reduce((a, e) => a + Number(e.amount), 0); const pending = ee.filter((e) => e.status === "pending").length;
+    const costMissing = netAll > 0 && netKnown < netAll; const margin = ss.length && !costMissing ? Math.round(netKnown - costKnown - (netAll > 0 ? (vat * netKnown) / netAll : 0)) : null;
+    const reasons = [...(!ss.length ? ["aucune vente"] : []), ...(costMissing ? [`coût d'achat inconnu pour ${Math.round((1 - netKnown / netAll) * 100)} % du chiffre d'affaires`] : []), ...(pending ? [`${pending} dépense(s) en attente`] : [])];
+    const net = reasons.length || margin === null ? null : margin - expenses; const revenueHt = revenue - vat;
+    return { month: m.month, revenue, revenueHt, sales: ss.length, grossMargin: margin, expenses, net, netMarginPct: net !== null && revenueHt > 0 ? Math.round((net / revenueHt) * 1000) / 10 : null, reasons, byCategory: m === months[5] ? [...approved.reduce((acc, e) => acc.set(String(e.category), (acc.get(String(e.category)) ?? 0) + Number(e.amount)), new Map<string, number>())].map(([key, total]) => ({ key, total })).sort((a, c) => c.total - a.total) : undefined };
+  });
+  const cur = out[5]!; const prev = out[4]!;
+  return { months: out.map(({ byCategory: _b, ...r }) => r), current: { ...cur, avgBasket: cur.sales ? Math.round(cur.revenue / cur.sales) : null, chargesPct: cur.revenueHt > 0 ? Math.round((cur.expenses / cur.revenueHt) * 1000) / 10 : null, byCategory: cur.byCategory ?? [] }, previous: prev,
+    notes: ["Chiffre d'affaires = ventes payées TTC du mois ; charges = dépenses validées à leur date ; les achats de marchandises sont dans le coût de la marge.", "Résultat = marge brute HT − charges, affiché seulement si le coût d'achat de toutes les ventes du mois est connu et qu'aucune dépense n'est en attente."] };
 }
