@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { DataGrid, StatusPill } from "@/components/DataGrid";
 import { useMinWidth } from "@/lib/media";
-import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
 import { Disclaimer } from "@/components/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -9,6 +8,9 @@ import { can, useSession } from "@/lib/session";
 import { CustomerInvoices, Reports as ActivityReports } from "./compta";
 import { Sheet } from "@/components/ui";
 import { formatFcfa } from "@/domain/money";
+import { BarChart3, BookOpen, Calculator, CheckCircle2, Coins, FileText, LayoutGrid, Library, Lock, Plus, Scale, TrendingUp, Wallet } from "lucide-react";
+import { InsightCard, KpiRow, KpiTile, ModuleHeader, Panel, PillTabs, type Insight, type PillTab } from "@/components/kit";
+import { LineChart } from "@/components/charts";
 import { JOURNALS, STATUS_LABEL } from "@/domain/icompta";
 import { exportReport, type ExportFormat } from "@/lib/report-export";
 import type { ReportData } from "@/domain/exports";
@@ -18,21 +20,69 @@ import { Err, Field, Kpi, Note, day, fmtDay, money, rid, useAct, useQ } from "./
 
 type Line = { account: string; debit: number; credit: number; label?: string };
 type Ent = { id: string; number: string; seq: number | null; journal: string; date: string; label: string; lines: Line[]; total: number; status: "draft" | "pending" | "validated" | "rejected"; statusLabel: string; kind: string; kindLabel: string; originRef: string; pieces: { ref: string; file?: string; sha256?: string; size?: number }[]; approvals?: { by: string; name: string; at: string; role: string }[]; required?: number; requireOwner?: boolean; pro?: boolean; by: string; validator: string; rejecter: string; rejectReason: string; reversalOf: string; reversedBy: string; correctionOf: string; selfValidated: boolean; hash: string; prevHash: string; note: string };
-type Tab = "fact" | "act" | "syn" | "ent" | "prop" | "books" | "third" | "per" | "plan" | "rep" | ProTab;
+type Tab = "ov" | "fact" | "act" | "syn" | "ent" | "prop" | "books" | "third" | "per" | "plan" | "rep" | ProTab;
 const ST_TONE: Record<string, string> = { draft: "text-muted", pending: "text-warn", validated: "text-ok", rejected: "text-bad" };
+type MonthC = { month: string; products: number; charges: number; net: number; netMarginPct: number | null; entries: number; accounts: number };
+type Monthly = { months: MonthC[]; current: MonthC; previous: MonthC; note: string };
+type Ov = { counts: Record<string, number>; proposals: { ready: number; blocked: number }; setup: { accounts: number; unconfirmed: number; unmappedCategories: number; deferredPayable: boolean; methodsMapped: boolean }; integrity: { ok: boolean; validated: number } };
 
 export function IComptaPage() {
-  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager";
-  const all: [Tab, string, "invoices" | "reports" | "accounting"][] = [["fact", "Facturation", "invoices"], ["syn", "Synthèse", "accounting"], ["ent", "Écritures", "accounting"], ["prop", "Propositions", "accounting"], ["books", "Livres", "accounting"], ["third", "Tiers", "accounting"], ["per", "Périodes", "accounting"], ["plan", "Plan de comptes", "accounting"], ...PRO_TABS.map(([k, l]) => [k, l, "accounting"] as [Tab, string, "accounting"]), ["rep", "Exports comptables", "accounting"], ["act", "Rapports d'activité", "reports"]];
-  const ov = useQ<{ pro: boolean }>("icp.overview", {}, can(s, "accounting")); const tabs = all.filter(([, , m]) => can(s, m)); const [pick, setTab] = useState<Tab>(tabs[0]?.[0] ?? "fact"); const tab = tabs.some(([k]) => k === pick) ? pick : tabs[0]?.[0] ?? "fact";
+  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const acc = can(s, "accounting");
+  const ov = useQ<{ pro: boolean }>("icp.overview", {}, acc); const pro = ov.data?.pro === true;
+  const mainDef: [Tab, string, "invoices" | "reports" | "accounting", typeof Wallet, boolean][] = [["ov", "Vue d'ensemble", "accounting", LayoutGrid, false], ["ent", "Écritures", "accounting", FileText, false], ["plan", "Plan comptable", "accounting", BookOpen, false], ["books", "Journaux", "accounting", Library, false], ["etat", "États financiers", "accounting", BarChart3, true], ["per", "Clôture", "accounting", Lock, false]];
+  const extraDef: [Tab, string, "invoices" | "reports" | "accounting", boolean][] = [["fact", "Facturation", "invoices", false], ["syn", "Synthèse", "accounting", false], ["prop", "Propositions", "accounting", false], ["third", "Tiers", "accounting", false], ["let", "Lettrage", "accounting", true], ["imm", "Immobilisations", "accounting", true], ["ana", "Analytique", "accounting", true], ["clo", "Clôture guidée", "accounting", true], ["pro", "Réglages Pro", "accounting", true], ["rep", "Exports comptables", "accounting", false], ["act", "Rapports d'activité", "reports", false]];
+  const main: PillTab<Tab>[] = mainDef.filter(([, , m]) => can(s, m)).map(([k, l, , i, isPro]) => ({ key: k, label: l, icon: i, locked: isPro && !pro }));
+  const extra = extraDef.filter(([, , m]) => can(s, m)); const allKeys = [...main.map((t) => t.key), ...extra.map(([k]) => k)];
+  const [pick, setTab] = useState<Tab>(allKeys[0] ?? "fact"); const tab = allKeys.includes(pick) ? pick : allKeys[0] ?? "fact"; const [nw, setNw] = useState(false);
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-lg font-semibold">ICompta</h1>
+      <ModuleHeader icon={Calculator} title="ICompta — Comptabilité Intelligente" subtitle="Gérez votre comptabilité simplement, conformément au SYSCOHADA." actions={acc ? <button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => setNw(true)}><Plus size={18} />Nouvelle écriture</button> : undefined} />
+      {acc && <IcKpis />}
+      <PillTabs idBase="ic" label="Sections ICompta" value={main.some((t) => t.key === tab) ? tab : ("" as Tab)} onChange={setTab} items={main} />
+      {!!extra.length && <div role="tablist" aria-label="Autres sections ICompta" className="scroll-x !gap-1.5 -mt-2">{extra.map(([k, l, , isPro]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className="chip !min-h-8 !py-1 !px-3 text-sm inline-flex items-center gap-1" onClick={() => setTab(k)}>{l}{isPro && !pro && <Lock size={12} aria-label="Réservé à une offre supérieure" />}</button>)}</div>}
       <Disclaimer>Facturation, comptabilité et rapports au même endroit. Les écritures validées sont immuables et chaînées : toute modification ou suppression est détectée. Paramétrage et règles à faire confirmer par un expert-comptable.</Disclaimer>
-      <GroupedTabs label="Sections ICompta" value={tab} onChange={setTab} groups={groupTabs(tabs.map(([k, l]) => [k, l] as [Tab, string]), [["Saisie", ["fact", "ent", "prop"]], ["Consultation", ["syn", "books", "third", "etat"]], ["Organisation", ["per", "plan", "clo"]], ["Pro", ["let", "imm", "ana", "pro"]], ["Sorties", ["rep", "act"]]] as [string, Tab[]][])} />
-      {tab === "fact" && <CustomerInvoices />}{tab === "act" && <ActivityReports />}{tab === "syn" && <Synthese onTab={setTab} />}{tab === "ent" && <Entries mgr={mgr} />}{tab === "prop" && <Proposals />}{tab === "books" && <Books />}{tab === "third" && <Third />}{tab === "per" && <Periods mgr={mgr} owner={s.role === "owner"} />}{tab === "plan" && <Plan mgr={mgr} owner={s.role === "owner"} />}{tab === "rep" && <Reports />}{PRO_TABS.some(([k]) => k === tab) && <ProPanel tab={tab as ProTab} pro={ov.data?.pro === true} mgr={mgr} owner={s.role === "owner"} onTab={(t) => setTab(t as Tab)} />}
+      {tab === "ov" && <IcOverview onTab={setTab} onNew={() => setNw(true)} />}
+      {tab === "fact" && <CustomerInvoices />}{tab === "act" && <ActivityReports />}{tab === "syn" && <Synthese onTab={setTab} />}{tab === "ent" && <Entries mgr={mgr} />}{tab === "prop" && <Proposals />}{tab === "books" && <Books />}{tab === "third" && <Third />}{tab === "per" && <Periods mgr={mgr} owner={s.role === "owner"} />}{tab === "plan" && <Plan mgr={mgr} owner={s.role === "owner"} />}{tab === "rep" && <Reports />}{PRO_TABS.some(([k]) => k === tab) && <ProPanel tab={tab as ProTab} pro={pro} mgr={mgr} owner={s.role === "owner"} onTab={(t) => setTab(t as Tab)} />}
+      {nw && <Sheet title="Nouvelle écriture" onClose={() => setNw(false)} back size="lg"><EntryForm onDone={() => setNw(false)} /></Sheet>}
     </div>
   );
+}
+
+const lbl = (m: string) => new Date(`${m}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "short" });
+/** Indicateurs du kit : écritures validées (et journal système) du mois, classes 6 et 7. */
+function IcKpis() {
+  const q = useQ<Monthly>("ic.monthly"); const c = q.data?.current, v = q.data?.previous;
+  const dl = (cur?: number, prev?: number, goodUp = true) => { if (cur === undefined || !prev) return {}; const x = Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10; return { delta: { text: `${x > 0 ? "+" : ""}${x.toLocaleString("fr-FR")} % vs mois précédent`, dir: x >= 0 ? "up" as const : "down" as const, good: goodUp ? x >= 0 : x <= 0 } }; };
+  return <KpiRow cols={5}>
+    <KpiTile icon={Coins} tint="blue" label="Produits (mois)" loading={q.isLoading} value={c ? formatFcfa(c.products) : "—"} sub={c && !v?.products ? "comptes de classe 7" : undefined} {...dl(c?.products, v?.products)} />
+    <KpiTile icon={Wallet} tint="amber" label="Charges (mois)" loading={q.isLoading} value={c ? formatFcfa(c.charges) : "—"} sub={c && !v?.charges ? "comptes de classe 6" : undefined} {...dl(c?.charges, v?.charges, false)} />
+    <KpiTile icon={TrendingUp} tint="green" label="Résultat net" loading={q.isLoading} value={c ? formatFcfa(c.net) : "—"} sub={c && !v?.net ? "produits − charges" : undefined} {...dl(c?.net, v?.net)} />
+    <KpiTile icon={FileText} tint="violet" label="Écritures" loading={q.isLoading} value={c?.entries ?? "—"} sub="pièces du mois" />
+    <KpiTile icon={CheckCircle2} tint="cyan" label="Comptes actifs" loading={q.isLoading} value={c?.accounts ?? "—"} sub="mouvementés ce mois" />
+  </KpiRow>;
+}
+function IcOverview({ onTab, onNew }: { onTab: (t: Tab) => void; onNew: () => void }) {
+  const q = useQ<Monthly>("ic.monthly"); const o = useQ<Ov>("ic.overview"); const M = q.data; const c = M?.current; const O = o.data;
+  if (q.error || o.error) return <Err e={q.error ?? o.error} />;
+  const items: Insight[] = [];
+  if (O) { items.push(O.integrity.ok ? { id: "i", tone: "ok", text: O.integrity.validated ? `Chaîne des écritures intacte (${O.integrity.validated} écriture(s) validée(s) vérifiée(s)).` : "Chaîne des écritures intacte : elle démarrera à la première écriture validée." } : { id: "i", tone: "warn", text: "Anomalie d'intégrité détectée dans la chaîne des écritures : vérifiez l'onglet Clôture." });
+    if (O.counts.pending) items.push({ id: "p", tone: "warn", text: `${O.counts.pending} écriture(s) en attente de validation.` });
+    if (O.proposals.ready) items.push({ id: "r", tone: "info", text: `${O.proposals.ready} proposition(s) d'écriture prête(s) depuis les ventes, achats et dépenses.` });
+    if (O.setup.unconfirmed || O.setup.unmappedCategories || !O.setup.methodsMapped) items.push({ id: "s", tone: "warn", text: `Paramétrage à compléter${O.setup.unconfirmed ? ` : ${O.setup.unconfirmed} compte(s) à confirmer` : ""}${O.setup.unmappedCategories ? ` · ${O.setup.unmappedCategories} catégorie(s) de dépense sans compte` : ""}${!O.setup.methodsMapped ? " · moyens de paiement non rattachés" : ""}.` }); }
+  if (M && M.current.netMarginPct !== null && M.previous.netMarginPct !== null) { const d = Math.round((M.current.netMarginPct - M.previous.netMarginPct) * 10) / 10; items.push({ id: "m", tone: d >= 0 ? "ok" : "warn", text: `Marge nette ${d >= 0 ? "en hausse" : "en baisse"} de ${Math.abs(d).toLocaleString("fr-FR")} point(s) par rapport au mois précédent.` }); }
+  const row = (l: string, v: ReactNode, tone = "") => <div className={`flex justify-between gap-2 rounded-lg px-2 py-1.5 text-sm ${tone}`}><span>{l}</span><b className="tabular-nums">{v}</b></div>;
+  const quick: [string, typeof Plus, () => void][] = [["Nouvelle écriture", Plus, onNew], ["Plan comptable", BookOpen, () => onTab("plan")], ["Journaux", FileText, () => onTab("books")], ["Grand livre", Library, () => onTab("books")], ["Balance", Scale, () => onTab("books")], ["États financiers", BarChart3, () => onTab("etat")]];
+  return <div className="flex flex-col gap-4">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <Panel title="Évolution du résultat net" action={<span className="text-xs text-muted">6 derniers mois</span>}>{M?.months.some((m) => m.products || m.charges) ? <LineChart label="Résultat net par mois" w={380} data={M.months.map((m) => ({ key: m.month, label: lbl(m.month), value: m.net, sub: `produits ${formatFcfa(m.products)} · charges ${formatFcfa(m.charges)}` }))} /> : <p className="text-sm text-muted">{q.isLoading ? "Chargement…" : "Aucune écriture validée sur 6 mois."}</p>}</Panel>
+      <Panel title="Situation comptable (ce mois)">{c ? <div className="flex flex-col gap-1">{row("Chiffre d'affaires (produits)", formatFcfa(c.products), "bg-subtle")}{row("Charges d'exploitation", formatFcfa(c.charges), "bg-bad-bg/40")}{row("Résultat net", formatFcfa(c.net), "bg-ok-bg/40")}{row("Marge nette", c.netMarginPct === null ? "—" : `${c.netMarginPct.toLocaleString("fr-FR")} %`, "bg-subtle")}</div> : <p className="text-sm text-muted">Chargement…</p>}</Panel>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <Panel title="Accès rapide"><div className="grid grid-cols-3 md:grid-cols-6 gap-2">{quick.map(([l, I, go]) => <button key={l} className="rounded-2xl border border-[var(--line)] p-3 flex flex-col items-center gap-1 text-center text-sm hover:bg-subtle" onClick={go}><I size={22} className="text-accent-text" aria-hidden="true" />{l}</button>)}</div></Panel>
+      <InsightCard module="ICompta" loading={o.isLoading || q.isLoading} items={items} source="écritures, propositions, paramétrage et contrôle d'intégrité de la boutique" emptyText="Rien à signaler." />
+    </div>
+    {M && <Note>{M.note}</Note>}
+  </div>;
 }
 
 function Synthese({ onTab }: { onTab: (t: Tab) => void }) {
@@ -94,7 +144,6 @@ function Entries({ mgr }: { mgr: boolean }) {
   const wide = useMinWidth(1024); const [status, setStatus] = useState(""); const [q, setQ] = useState(""); const list = useQ<{ entries: Ent[]; count: number; counts: Record<string, number>; note: string }>("ic.entries", { status: status || undefined, q: q || undefined }); const [open, setOpen] = useState<string | null>(null); const [nw, setNw] = useState(false);
   return (
     <div className="flex flex-col gap-3">
-      <button className="btn md:self-end" onClick={() => setNw(true)}>Nouvelle écriture</button>
       <div className="flex gap-2 flex-wrap">{["", "draft", "pending", "validated", "rejected"].map((s) => <button key={s || "all"} className="chip" aria-current={status === s} onClick={() => setStatus(s)}>{s ? STATUS_LABEL[s as keyof typeof STATUS_LABEL] : "Toutes"}{s && list.data ? ` (${list.data.counts[s] ?? 0})` : ""}</button>)}</div>
       <input className="input" aria-label="Rechercher une écriture" placeholder="Rechercher (n°, libellé, pièce)" value={q} onChange={(e) => setQ(e.target.value)} /><Err e={list.error} />
       {wide && list.data && list.data.entries.length > 0 && <DataGrid label="Écritures" rows={list.data.entries} rowKey={(e) => e.id} onRow={(e) => setOpen(e.id)} columns={[

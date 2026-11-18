@@ -271,3 +271,13 @@ export async function report(store: Store, ctx: Ctx, b: { section?: string; from
   return { title: `ICompta — ${({ journal: "journal", balance: "balance", ledger: "grand livre", third: "comptes tiers" } as Record<string, string>)[section]}`, generatedAt: new Date().toISOString(), tz: "UTC", period: { from, to }, scope: [String(shop?.name ?? "Boutique")], filters: {}, notes, sections };
 }
 void need;
+
+/** Résumé mensuel (6 mois calendaires) depuis les seules écritures validées et le journal système : produits (classe 7, crédit − débit),
+ *  charges (classe 6, débit − crédit), résultat, marge nette sur produits, nombre de pièces et comptes mouvementés. */
+export async function monthly(store: Store, ctx: Ctx) {
+  await gate(store, ctx); const now = new Date(); const months: string[] = []; for (let k = 5; k >= 0; k--) months.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - k, 1)).toISOString().slice(0, 7));
+  const lines = await ledgerLines(store, ctx, `${months[0]}-01`, undefined);
+  const out = months.map((m) => { const ls = lines.filter((l) => l.date.slice(0, 7) === m); const products = ls.filter((l) => l.account.startsWith("7")).reduce((a, l) => a + l.credit - l.debit, 0); const charges = ls.filter((l) => l.account.startsWith("6")).reduce((a, l) => a + l.debit - l.credit, 0); const net = products - charges;
+    return { month: m, products, charges, net, netMarginPct: products > 0 ? Math.round((net / products) * 1000) / 10 : null, entries: new Set(ls.map((l) => `${l.source}|${l.number || l.ref}`)).size, accounts: new Set(ls.map((l) => l.account)).size }; });
+  return { months: out, current: out[5], previous: out[4], note: "Produits = comptes de classe 7, charges = comptes de classe 6, sur les seules écritures validées (et le journal système des ventes, achats et dépenses). Paramétrage à faire confirmer par un expert-comptable." };
+}
