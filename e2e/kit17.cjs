@@ -13,11 +13,11 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await ok(call("platform.payment.review", { paymentId: a.id, approve: true }));
   await ok(call("subscription.checkout", { requestId: "request-k17-02", plan: "pro", period: "year" })); // reste « À payer »
   const open = async (w = 1440, hh = 1000) => { await page.setViewportSize({ width: w, height: hh }); await page.goto(h.url("reglages?onglet=abonnement")); await page.getByRole("heading", { name: "Abonnement & Facturation" }).waitFor({ timeout: 15000 }); await page.getByRole("region", { name: "Abonnement actuel" }).waitFor({ timeout: 15000 }); await page.waitForTimeout(800); };
-  const reg = (n) => page.getByRole("region", { name: n });
+  const reg = (n) => page.getByRole("region", { name: n }); const aboTab = (n) => page.getByRole("tablist", { name: "Sections Abonnement & Facturation" }).getByRole("tab", { name: new RegExp("^" + n) });
 
   await step("onglets du kit ; abonnement actuel : formule Business, échéance, jours restants, limites réelles", async () => {
     await open();
-    for (const t of ["Mon abonnement", "Reçus de paiement", "Paiements", "Comparer les offres"]) if (!(await page.getByRole("tab", { name: new RegExp("^" + t) }).count())) throw new Error("onglet " + t);
+    for (const t of ["Mon abonnement", "Reçus de paiement", "Paiements", "Comparer les offres"]) if (!(await aboTab(t).count())) throw new Error("onglet " + t);
     const cur = await reg("Abonnement actuel").innerText();
     if (!/Formule Business/.test(cur) || !/Actif/.test(cur) || !/jour\(s\) restant\(s\)/.test(cur) || !/1 \/ 3/.test(cur)) throw new Error(cur);
     if (!(await reg("Abonnement actuel").getByRole("button", { name: /Renouveler maintenant/ }).count())) throw new Error("bouton renouveler");
@@ -42,9 +42,9 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.screenshot({ path: path.join(OUT, "kit17-abonnement-1440.png"), fullPage: true });
   });
   await step("onglets Reçus (1 reçu), Paiements (validé + à payer), Comparer (tarifs et modules)", async () => {
-    await page.getByRole("tab", { name: /^Reçus de paiement/ }).click(); const rc = await reg("Reçus de paiement").innerText(); if (!/Reçu PDF/.test(rc) || (rc.match(/ABO-/g) ?? []).length !== 1) throw new Error(rc);
-    await page.getByRole("tab", { name: /^Paiements/ }).click(); const p = await reg("Mes paiements").innerText(); if (!/Validé/.test(p) || !/À payer/.test(p)) throw new Error(p);
-    await page.getByRole("tab", { name: /^Comparer les offres/ }).click(); const c = await reg("Comparer les offres").innerText(); if (!/Prix ramené au mois/.test(c) || !/Rapports & Analyses/.test(c) || !/Inclus/.test(c)) throw new Error(c);
+    await aboTab("Reçus de paiement").click(); const rc = await reg("Reçus de paiement").innerText(); if (!/Reçu PDF/.test(rc) || (rc.match(/ABO-/g) ?? []).length !== 1) throw new Error(rc);
+    await aboTab("Paiements").click(); const p = await reg("Mes paiements").innerText(); if (!/Validé/.test(p) || !/À payer/.test(p)) throw new Error(p);
+    await aboTab("Comparer les offres").click(); const c = await reg("Comparer les offres").innerText(); if (!/Prix ramené au mois/.test(c) || !/Rapports & Analyses/.test(c) || !/Inclus/.test(c)) throw new Error(c);
   });
   for (const [w, theme] of [[1600, "light"], [1280, "light"], [820, "light"], [390, "light"], [1280, "dark"]]) await step(`${w} px ${theme} : aucun débordement (captures)`, async () => {
     await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("accueil")); await page.evaluate((t) => localStorage.setItem("dmp-theme", t), theme); await open(w, 900);
