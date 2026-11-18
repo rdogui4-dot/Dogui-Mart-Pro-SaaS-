@@ -45,7 +45,7 @@ describe("vue exécutive : chiffres comptables et non calculables", () => {
     const d = await pro({ preset: "today" }); const t = d.totals; expect(t).toMatchObject({ count: 2, revenue: 5000, encaisse: 2000, credit: 3000 }); expect(t.encaisse + t.credit).toBe(t.revenue);
     const rate = 18; const ht = Math.round(5000 / (1 + rate / 100)); expect(t.cogs).toBe(4 * 300 + 3 * 600); expect(t.margin).toBe(t.revenueHt - t.cogs); expect(t.revenueHt).toBe(ht); expect(t.marginRate).toBe(Math.round(t.margin / ht * 1000) / 10); expect(t.markup).toBe(Math.round(t.margin / t.cogs * 1000) / 10);
     const b = await ok(call("own", "dashboard.business", { preset: "today" })); expect(b.kpis.period.revenue).toBe(t.revenue); expect(b.kpis.period.margin.amount).toBe(t.margin); expect(d.checks).toEqual({ seriesEqualsTotal: true, paymentsEqualRevenue: true });
-    expect(d.unavailable.map((x: any) => x.id)).toEqual(["expenses", "operating"]); expect(d.unavailable.every((x: any) => x.reason.length > 20)).toBe(true); expect(d.refunds).toEqual({ amount: 0, count: 0 });
+    expect(d.unavailable.map((x: any) => x.id)).toEqual(["operating"]); expect(d.unavailable[0].reason).toContain("dépenses validées"); expect(d.unavailable.every((x: any) => x.reason.length > 20)).toBe(true); expect(d.refunds).toEqual({ amount: 0, count: 0 });
     expect(d.stock.value).toBeGreaterThan(0); expect(d.stock.methodLabel).toBeTruthy(); expect(d.definitions.margin[1]).toContain("PAS un bénéfice");
   });
   it("ventes annulées / non finalisées jamais comptées ; état « non finalisées » les isole", async () => {
@@ -159,5 +159,26 @@ describe("rapports et exports (données)", () => {
     const com = await ok(call("own", "dashboard.report", { kind: "commercial", preset: "today" }, A)); expect(com.sections[0].rows.find((x: any) => x[0].startsWith("Chiffre"))[1]).toBe(screen.totals.revenue);
     const f = await ok(call("own", "dashboard.report", { kind: "commercial", preset: "today", filters: { categories: ["Hygiène"] } }, A)); expect(f.sections[0].rows[0][1]).toBe(800); expect(f.filters).toEqual({ categories: ["Hygiène"] });
     await err(call("own", "dashboard.report", { kind: "inconnu" }), 400); await err(call(U.cais!, "dashboard.report", { kind: "commercial" }), 403);
+  });
+});
+
+describe("Rapports & Analyses (kit) : vue d'ensemble et rapports clients", () => {
+  it("vue d'ensemble : CA, quantités, résultat net = marge − dépenses validées, charges (achats + dépenses), 6 mois, top, constats ; Business refusé", async () => {
+    await ok(sell([{ productId: eau, qty: 4 }], cash(2000))); await ok(sell([{ productId: jus, qty: 2 }], cash(2000)));
+    const day = new Date().toISOString().slice(0, 10);
+    await st.create("expenses", "exp1", T, { tenantId: T, shopId: A, number: "D-1", label: "Loyer", category: "Loyer", amount: 500, status: "approved", spentOn: day });
+    await st.create("expenses", "exp2", T, { tenantId: T, shopId: A, number: "D-2", label: "Brouillon", category: "Divers", amount: 9999, status: "pending", spentOn: day });
+    const d = await pro({ space: "kit", preset: "today" }); const k = d.kpis;
+    expect(k).toMatchObject({ revenue: 4000, qty: 6, count: 2, expenses: 500 }); expect(k.net).toBe(k.margin - 500); expect(k.netMarginPct).toBe(Math.round((k.net / k.revenueHt) * 1000) / 10);
+    expect(d.charges).toEqual([{ key: "Loyer", amount: 500 }]); expect(d.months).toHaveLength(7); expect(d.months.at(-1).revenue).toBe(4000); expect(d.projection).toBeNull();
+    expect(d.top[0]).toMatchObject({ name: "Eau" }); expect(d.byCategory[0]).toMatchObject({ key: "Boissons", revenue: 4000 }); expect(d.insights.join(" ")).toContain("Article le plus vendu");
+    setPlan("business"); await err(call("own", "dashboard.pro", { space: "kit", preset: "today" }), 402);
+  });
+  it("rapports clients : ventes rattachées, comptoir à part, nouveaux clients, encours ; rapport exportable", async () => {
+    const c = (await ok(call("own", "entity.save", { table: "customers", data: { name: "Awa", creditLimit: 50000 } }))).id as string;
+    await ok(sell([{ productId: jus, qty: 3 }], [{ method: "credit", amount: 3000 }], { customerId: c })); await ok(sell([{ productId: eau, qty: 2 }], cash(1000)));
+    const d = await pro({ space: "clients", preset: "today" });
+    expect(d).toMatchObject({ buyers: 1, identifiedRevenue: 3000, walkInRevenue: 1000, walkInSales: 1, basket: 3000, newCustomers: 1, credit: 3000, creditCustomers: 1 }); expect(d.top[0]).toMatchObject({ name: "Awa", revenue: 3000, count: 1 });
+    const r = await ok(call("own", "dashboard.report", { kind: "clients", preset: "today" })); expect(r.title).toBe("Rapport clients"); expect(r.sections[1].rows[0][0]).toBe("Awa");
   });
 });

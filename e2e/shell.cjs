@@ -19,9 +19,9 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await bc.getByRole("link", { name: "Comptabilité et finance" }).click(); await page.waitForURL(/espace\/compta/, { timeout: 5000 });
     await open("accueil"); if (await page.getByRole("navigation", { name: "Fil d'Ariane" }).count()) throw new Error("fil affiché sur l'accueil");
   });
-  await step("recherche (Ctrl + K) : « factu » propose ICompta, Entrée ouvre la page ; formule Business : Pilotage Pro absent", async () => {
+  await step("recherche (Ctrl + K) : « factu » propose ICompta, Entrée ouvre la page ; formule Business : Rapports & Analyses absent", async () => {
     await open("accueil"); await page.keyboard.press("Control+k"); const dlg = page.getByRole("dialog", { name: /Aller à une page/ }); await dlg.waitFor({ timeout: 4000 });
-    const all = (await dlg.getByRole("option").allInnerTexts()).join("|"); if (/Pilotage Pro/.test(all)) throw new Error("page hors formule proposée"); if (!/Caisse/.test(all)) throw new Error("caisse absente : " + all.slice(0, 200));
+    const all = (await dlg.getByRole("option").allInnerTexts()).join("|"); if (/Rapports & Analyses/.test(all)) throw new Error("page hors formule proposée"); if (!/Caisse/.test(all)) throw new Error("caisse absente : " + all.slice(0, 200));
     await page.getByLabel("Rechercher une page", { exact: true }).fill("factu"); await page.waitForTimeout(200); const first = await dlg.getByRole("option").first().innerText(); if (!/ICompta/.test(first)) throw new Error("premier résultat : " + first);
     await page.keyboard.press("Enter"); await page.waitForURL(/icompta/, { timeout: 5000 });
     await page.keyboard.press("Control+k"); await page.getByLabel("Rechercher une page", { exact: true }).fill("zzzz"); await page.waitForTimeout(200); if (!/Aucune page accessible/.test(await page.locator("body").innerText())) throw new Error("état vide absent"); await page.keyboard.press("Escape");

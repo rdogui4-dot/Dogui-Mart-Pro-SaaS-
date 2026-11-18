@@ -26,7 +26,7 @@ export const SPACES: Space[] = [
   ] },
   { id: "piloter", label: "Piloter", icon: TrendingUp, hint: "Tableaux de bord et MASTER DOGUI", items: [
     { to: "/activite", label: "Tableau de bord", hint: "Ventes, marge, stock et alertes", perm: "reports" },
-    { to: "/pilotage", label: "Pilotage Pro", hint: "Rentabilité, stocks, prévisions, exports", perm: "reports" },
+    { to: "/pilotage", label: "Rapports & Analyses", hint: "Ventes, stocks, finances, clients, prévisions, exports", perm: "reports" },
     { to: "/master", label: "MASTER DOGUI", hint: "Vue d'ensemble, assistant, recommandations, rapports, licence", perm: "settings" },
   ] },
   { id: "compta", label: "Comptabilité et finance", icon: BookOpen, hint: "Finance, ICompta, investissements", items: [

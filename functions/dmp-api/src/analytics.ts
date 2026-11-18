@@ -1,6 +1,7 @@
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { addDays, boundsOf, daysIn, monthStart, resolvePeriod, todayIn, type Period } from "../../../src/domain/overview";
 import * as A from "../../../src/domain/analytics";
+import { clientsReport, lastMonths, monthly, projectRevenue } from "../../../src/domain/analytics-kit";
 import { fromScaled, scaleOf } from "../../../src/domain/quantity";
 import { methodLabel } from "../../../src/domain/costing";
 import { needFeature } from "./articles";
@@ -13,7 +14,7 @@ const iso = (v: unknown): string => { const t = Date.parse(String(v)); return Nu
 const created = (r: Row): number => Date.parse(String(r.$createdAt ?? r.createdOn ?? "")) || 0;
 const arr = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.map(String))].slice(0, 200) : []);
 const r1 = (n: number) => Math.round(n * 10) / 10;
-export const SPACES = ["exec", "sales", "profit", "stock", "purchases", "stores", "forecast"] as const;
+export const SPACES = ["exec", "sales", "profit", "stock", "purchases", "stores", "forecast", "kit", "clients"] as const;
 export type Space = (typeof SPACES)[number];
 const PRESET_PRO = ["year", "lastYear", "last90", "last365"] as const;
 
@@ -70,7 +71,7 @@ async function world(store: Store, ctx: Ctx, b: Params, needMoves: boolean) {
   const shopName = (id: string) => String(all.find((s) => s.$id === id)?.name ?? id);
   const refunds = { amount: 0, count: 0 };
   { const rb = boundsOf(period.from, period.to, tz); for (const shop of target) for (const r of (await store.scan("sale_returns", { tenantId: ctx.tenantId, shopId: String(shop.$id) }, { range: { field: "at", from: rb.gte, to: rb.lt }, maxRows: 20_000 })).rows) if (r.status !== "failed") { refunds.amount += Number(r.amount ?? 0); refunds.count++; } }
-  return { refunds, ctx, now, tz, today, all, allowed, target, home, period, prev, compare, gran, th, filters, state, facts, prevFacts, factsAll, products, perShop, suppliers, sellerName, shopName, truncated, rowsRead, hasLineFilter: !!(filters.categories.length || filters.articles.length || filters.suppliers.length), sales };
+  return { refunds, ctx, now, tz, today, all, allowed, target, home, period, prev, compare, gran, th, filters, state, facts, prevFacts, factsAll, products, perShop, suppliers, sellerName, shopName, truncated, rowsRead, hasLineFilter: !!(filters.categories.length || filters.articles.length || filters.suppliers.length), sales, prevSales, c, toSale };
 }
 type World = Awaited<ReturnType<typeof world>>;
 
@@ -114,8 +115,7 @@ function exec(w: World) {
   return { ...head(w, "exec"), totals: t, refunds: w.refunds, previous: pt, comparison: cmp(t, pt), comparisonNote: w.compare === "none" ? null : pt && pt.count > 0 ? "Comparaison descriptive : elle n'établit pas de lien de cause." : "Aucune vente sur la période de comparaison : pas de comparaison.",
     series: A.series(w.facts, w.period, w.gran), previousSeries: w.prev ? A.series(w.prevFacts, { from: w.prev.from, to: w.prev.to }, w.gran) : null, stock: { ...svr, partialShops: st.partialShops, methodLabel: methodLabel(String(w.home.costMethod ?? "cmup")) },
     unavailable: [
-      { id: "expenses", label: "Dépenses d'exploitation", reason: "Les dépenses hors achats de marchandises ne sont pas saisies dans l'application." },
-      { id: "operating", label: "Résultat opérationnel estimé", reason: "Non calculable : il exige les charges d'exploitation (loyer, salaires, transport…) qui ne sont pas enregistrées. La marge brute n'est pas un bénéfice." },
+      { id: "operating", label: "Résultat net", reason: "Affiché dans la Vue d'ensemble : marge brute HT − dépenses validées (module Dépenses) de la période, si le coût d'achat de toutes les lignes vendues est connu. La marge brute seule n'est pas un bénéfice." },
     ],
     highlights: { out: st.rows.filter((r) => r.cls === "out").length, dormant: st.rows.filter((r) => r.cls === "dormant").length, overstock: st.rows.filter((r) => r.cls === "overstock").length, lowMarginLines: t.cost.linesWithoutCost },
     definitions: DEFS,
@@ -251,13 +251,48 @@ function forecast(w: World) {
   return { ...head(w, "forecast"), insufficient: false, window: win, historyDays: hist, recommendations: recs.sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 80), disclaimer: "Prévisions indicatives fondées sur l'historique de ventes : ce ne sont pas des certitudes. Chacune indique sa période, ses données, sa méthode, sa fiabilité et ses limites.", definitions: DEFS };
 }
 
+// ------------------------------------------------------------------ vue d'ensemble du kit (écran 21) : indicateurs de la période, 6 mois, charges, projection, constats
+async function journal601(store: Store, w: World, from: string, to: string) { const pb = boundsOf(from, to, w.tz); let t = 0; for (const s of w.target) t += (await store.scan("journal_entries", { tenantId: w.ctx.tenantId, shopId: String(s.$id), account: "601" }, { range: { field: "date", from: pb.gte, to: pb.lt }, maxRows: 20_000 })).rows.reduce((a, r) => a + Number(r.debit ?? 0) - Number(r.credit ?? 0), 0); return Math.round(t); }
+async function expensesIn(store: Store, w: World, from: string, to: string) { const rows: Row[] = []; for (const s of w.target) rows.push(...(await store.scan("expenses", { tenantId: w.ctx.tenantId, shopId: String(s.$id), status: "approved" }, { maxRows: 20_000 })).rows.filter((e) => String(e.spentOn ?? "").slice(0, 10) >= from && String(e.spentOn ?? "").slice(0, 10) <= to)); return rows; }
+const qtyOf = (fs: A.Fact[]) => Math.round(fs.reduce((s, f) => s + f.lines.reduce((a, l) => a + l.qty, 0), 0) * 1000) / 1000;
+async function kit(store: Store, w: World) {
+  const t = A.totalsOf(w.facts); const pt = w.prev ? A.totalsOf(w.prevFacts) : null; const st = stockAnalysis(w); const svr = stockValueRotation(w, st, t.cogs);
+  const [exps, pexps, purchasesHt] = await Promise.all([expensesIn(store, w, w.period.from, w.period.to), w.prev ? expensesIn(store, w, w.prev.from, w.prev.to) : Promise.resolve(null), journal601(store, w, w.period.from, w.period.to)]);
+  const sum = (rows: Row[]) => rows.reduce((a, e) => a + Number(e.amount ?? 0), 0); const expenses = sum(exps); const pexpenses = pexps ? sum(pexps) : null;
+  const net = t.margin !== null ? t.margin - expenses : null; const pnet = pt && pt.margin !== null && pexpenses !== null ? pt.margin - pexpenses : null;
+  const nmp = (n: number | null, ht: number) => (n !== null && ht > 0 ? r1((n / ht) * 100) : null); const netMarginPct = nmp(net, t.revenueHt), pNetMarginPct = pt ? nmp(pnet, pt.revenueHt) : null;
+  // 6 derniers mois (indépendants de la période choisie) : ventes terminées des boutiques ciblées
+  const months = lastMonths(w.today, 7); const mb = boundsOf(`${months[0]}-01`, w.today, w.tz); const raw: A.RawSale[] = [];
+  for (const s of w.target) raw.push(...(await store.scan("sales", { tenantId: w.ctx.tenantId, shopId: String(s.$id), status: "paid" }, { range: { field: "soldAt", from: mb.gte, to: mb.lt }, maxRows: MAX_SALES })).rows.map(w.toSale));
+  const mrows = monthly(A.applyFilters(A.buildFacts(raw, w.c, "paid"), w.filters), months); const projection = projectRevenue(mrows.slice(0, -1).map((r) => ({ month: r.month, revenue: r.revenue })));
+  const byCat = new Map<string, number>(); for (const e of exps) byCat.set(String(e.category || "Autres"), (byCat.get(String(e.category || "Autres")) ?? 0) + Number(e.amount ?? 0));
+  const charges = [...(purchasesHt > 0 ? [{ key: "Achats de marchandises", amount: purchasesHt }] : []), ...[...byCat].map(([key, amount]) => ({ key, amount })).sort((a, b) => b.amount - a.amount)];
+  const cats = A.byCategory(w.facts).map((c) => ({ key: c.key || "Sans catégorie", revenue: c.revenue })).sort((a, b) => b.revenue - a.revenue);
+  const top = A.byArticle(w.facts).map((a) => ({ name: a.name, revenue: a.revenue, qty: (a as { qty?: number }).qty ?? null })).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  const insights: string[] = []; const d = (a: number, b: number) => r1(((a - b) / b) * 100);
+  if (pt && pt.revenue > 0) { const x = d(t.revenue, pt.revenue); insights.push(`Chiffre d'affaires ${x >= 0 ? "en hausse" : "en baisse"} de ${Math.abs(x).toLocaleString("fr-FR")} % par rapport à la période de comparaison.`); }
+  if (netMarginPct !== null && pNetMarginPct !== null) { const x = r1(netMarginPct - pNetMarginPct); insights.push(`Marge nette de ${netMarginPct.toLocaleString("fr-FR")} % (${x >= 0 ? "+" : ""}${x.toLocaleString("fr-FR")} point(s)).`); }
+  else if (t.margin === null && t.count) insights.push("Marge nette non calculable : coût d'achat inconnu sur certaines lignes vendues.");
+  if (top[0]) insights.push(`Article le plus vendu : « ${top[0].name} » (${Math.round(top[0].revenue).toLocaleString("fr-FR")} F).`);
+  const outTop = top.filter((a) => st.rows.some((r) => r.name === a.name && r.closing <= 0)); if (outTop.length) insights.push(`En rupture parmi les meilleures ventes : ${outTop.map((a) => a.name).join(", ")}.`);
+  if (projection) insights.push(`Projection du mois prochain : ${projection.points[0]!.value.toLocaleString("fr-FR")} F (fiabilité ${projection.reliability}).`);
+  return { ...head(w, "kit"), kpis: { revenue: t.revenue, revenueDelta: pt ? A.delta(t.revenue, pt.revenue) : null, qty: qtyOf(w.facts), qtyDelta: pt ? A.delta(qtyOf(w.facts), qtyOf(w.prevFacts)) : null, netMarginPct, netMarginPts: netMarginPct !== null && pNetMarginPct !== null ? r1(netMarginPct - pNetMarginPct) : null, rotation: svr.rotation, net, netDelta: net !== null && pnet !== null ? A.delta(net, pnet) : null, expenses, margin: t.margin, revenueHt: t.revenueHt, count: t.count },
+    months: mrows, projection, byCategory: cats, top, charges, insights,
+    notes: ["Résultat net = marge brute HT − dépenses validées de la période ; affiché seulement si le coût d'achat de toutes les lignes vendues est connu.", "Charges = achats de marchandises (journal 601) + dépenses validées par catégorie.", "Évolution : 6 derniers mois complets et le mois en cours, indépendamment de la période choisie."] };
+}
+async function clients(store: Store, w: World) {
+  const map = new Map<string, string | undefined>([...w.sales, ...w.prevSales].map((s) => [s.id, s.customerId])); const custs: { id: string; name: string; createdAt: string; credit: number }[] = [];
+  for (const s of w.target) for (const c of (await store.scan("customers", { tenantId: w.ctx.tenantId, shopId: String(s.$id) }, { maxRows: 20_000 })).rows) custs.push({ id: String(c.$id), name: String(c.name ?? ""), createdAt: iso(c.$createdAt), credit: Number(c.creditBalance ?? 0) });
+  return { ...head(w, "clients"), ...clientsReport(w.facts, w.prevFacts, map, custs, w.period), notes: ["Clients = ventes rattachées à une fiche client ; les ventes au comptoir sans client sont comptées à part.", "Nouveaux clients = fiches créées dans la période ; clients revenus = clients ayant acheté dans la période ET dans la période de comparaison.", "Encours = soldes de crédit actuels des fiches clients."] };
+}
+
 /** Point d'entrée : un espace du tableau de bord Pro. Formule Pro vérifiée côté serveur ; lecture seule ; isolation commerce/boutique. */
 export async function proDashboard(store: Store, ctx: Ctx, b: Params = {}) {
-  const space = (SPACES as readonly string[]).includes(String(b.space)) ? (b.space as Space) : "exec"; const needMoves = space !== "sales" && space !== "profit"; const w = await world(store, ctx, b, needMoves);
+  const space = (SPACES as readonly string[]).includes(String(b.space)) ? (b.space as Space) : "exec"; const needMoves = space !== "sales" && space !== "profit" && space !== "clients"; const w = await world(store, ctx, b, needMoves);
   const minMargin = Number(w.home.minMarginPct ?? 0) > 0 ? Number(w.home.minMarginPct) : 10;
   let journal = new Map<string, number>();
   if (space === "purchases" || space === "exec") { const pb = boundsOf(w.period.from, w.period.to, w.tz); for (const s of w.target) { const rows = (await store.scan("journal_entries", { tenantId: ctx.tenantId, shopId: String(s.$id), account: "601" }, { range: { field: "date", from: pb.gte, to: pb.lt }, maxRows: 20_000 })).rows; journal.set(String(s.$id), rows.reduce((a, r) => a + Number(r.debit ?? 0), 0)); } }
-  const out = space === "exec" ? { ...exec(w), purchasesHt: [...journal.values()].reduce((a, b2) => a + b2, 0) } : space === "sales" ? sales(w) : space === "profit" ? profit(w, minMargin) : space === "stock" ? (({ _f, ...x }) => x)(stocks(w)) : space === "purchases" ? purchases(w, journal) : space === "stores" ? stores(w) : forecast(w);
+  const out = space === "kit" ? await kit(store, w) : space === "clients" ? await clients(store, w) : space === "exec" ? { ...exec(w), purchasesHt: [...journal.values()].reduce((a, b2) => a + b2, 0) } : space === "sales" ? sales(w) : space === "profit" ? profit(w, minMargin) : space === "stock" ? (({ _f, ...x }) => x)(stocks(w)) : space === "purchases" ? purchases(w, journal) : space === "stores" ? stores(w) : forecast(w);
   const checks = w.hasLineFilter ? null : (() => { const t = A.totalsOf(w.facts); const s = A.series(w.facts, w.period, "day").reduce((a, p) => a + p.revenue, 0); return { seriesEqualsTotal: s === t.revenue, paymentsEqualRevenue: t.encaisse + t.credit === t.revenue }; })();
   return { ...out, checks };
 }
@@ -265,12 +300,12 @@ export async function proDashboard(store: Store, ctx: Ctx, b: Params = {}) {
 // ------------------------------------------------------------------ rapports et exports
 export type ReportSection = { name: string; columns: string[]; rows: (string | number | null)[][] };
 export type Report = { kind: string; title: string; generatedAt: string; tz: string; period: { from: string; to: string }; scope: string[]; filters: Record<string, string[]>; notes: string[]; sections: ReportSection[] };
-export const REPORT_KINDS = ["commercial", "profit", "stock", "inventory", "purchases", "suppliers", "store", "seller"] as const;
+export const REPORT_KINDS = ["commercial", "profit", "stock", "inventory", "purchases", "suppliers", "store", "seller", "clients"] as const;
 const pctv = (n: number | null) => (n === null ? null : n);
 /** Données d'un rapport : mêmes calculs que les écrans, mêmes filtres (période, magasin, catégories…). Le format (PDF/Excel/CSV) est produit par le client à partir de ces lignes. */
 export async function proReport(store: Store, ctx: Ctx, b: Params & { kind?: string } = {}): Promise<Report> {
   const kind = (REPORT_KINDS as readonly string[]).includes(String(b.kind)) ? String(b.kind) : ""; if (!kind) throw new HttpError(400, "Type de rapport inconnu");
-  const base = { ...b, space: kind === "commercial" || kind === "seller" ? "sales" : kind === "profit" ? "profit" : kind === "stock" || kind === "inventory" ? "stock" : kind === "purchases" || kind === "suppliers" ? "purchases" : "stores" } as Params;
+  const base = { ...b, space: kind === "commercial" || kind === "seller" ? "sales" : kind === "profit" ? "profit" : kind === "stock" || kind === "inventory" ? "stock" : kind === "purchases" || kind === "suppliers" ? "purchases" : kind === "clients" ? "clients" : "stores" } as Params;
   const d = (await proDashboard(store, ctx, base)) as unknown as Record<string, any>; const H = d; const sections: ReportSection[] = []; const notes: string[] = []; let title = "";
   const money = (n: number | null | undefined) => (n === null || n === undefined ? null : Math.round(n));
   if (kind === "commercial") { title = "Rapport commercial"; const t = d.totals; sections.push({ name: "Synthèse", columns: ["Indicateur", "Valeur"], rows: [["Chiffre d'affaires TTC", money(t.revenue)], ["Ventes", t.count], ["Panier moyen", money(t.basket)], ["Encaissé", money(t.encaisse)], ["Vendu à crédit", money(t.credit)]] });
@@ -286,6 +321,7 @@ export async function proReport(store: Store, ctx: Ctx, b: Params & { kind?: str
   if (kind === "purchases") { title = "Rapport d'achats"; sections.push({ name: "Synthèse", columns: ["Indicateur", "Valeur"], rows: [["Facturé HT (journal 601)", money(d.invoicedHt)], ["Commandé", money(d.orderedTotal)], ["Commandes", d.orders], ["Délai moyen observé (j)", d.leadTimes.avgDays]] }); sections.push({ name: "Historique des commandes", columns: ["N°", "Fournisseur", "Magasin", "Statut", "Total", "Commandée", "1re réception", "Délai (j)"], rows: d.history.map((h: any) => [h.number, h.supplier, h.shop, h.status, h.total, h.orderedAt.slice(0, 10), h.firstReceipt?.slice(0, 10) ?? null, h.leadDays]) });
     sections.push({ name: "Variations anormales de prix", columns: ["Article", "Date", "Prix", "Référence (médiane)", "Écart %"], rows: d.anomalies.map((a: any) => [a.name, a.at.slice(0, 10), a.price, a.baseline, a.deviationPct]) }); sections.push({ name: "À réapprovisionner", columns: ["Article", "Magasin", "Stock", "Ventes/jour", "Déjà commandé", "Quantité suggérée"], rows: d.reorder.items.map((r: any) => [r.name, r.shop, r.stock, r.perDay, r.onOrder, r.suggested]) }); notes.push(...Object.values(d.methods) as string[], d.reorder.method); }
   if (kind === "suppliers") { title = "Rapport fournisseurs"; sections.push({ name: "Fournisseurs", columns: ["Fournisseur", "Commandes", "Montant", "Articles", "Délai moyen (j)", "Observations de délai"], rows: d.bySupplier.map((s: any) => [s.name, s.orders, s.total, s.items, s.avgLeadDays, s.leadObservations]) }); sections.push({ name: "Comparaison de prix", columns: ["Article", "Fournisseur", "Prix moyen", "Commandes", "Écart max %"], rows: d.compare.flatMap((c: any) => c.suppliers.map((s: any) => [c.name, s.name, s.avgPrice, s.orders, c.spreadPct])) }); sections.push({ name: "Évolution des prix d'achat", columns: ["Article", "Observations", "Premier", "Dernier", "Variation %"], rows: d.evolution.map((e: any) => [e.name, e.observations, e.first, e.last, e.changePct]) }); notes.push(d.methods.lead, d.methods.anomalies); }
+  if (kind === "clients") { title = "Rapport clients"; sections.push({ name: "Synthèse", columns: ["Indicateur", "Valeur"], rows: [["Clients acheteurs", d.buyers], ["CA des clients identifiés", money(d.identifiedRevenue)], ["Part du CA identifiée %", d.identifiedSharePct], ["Panier moyen (clients identifiés)", money(d.basket)], ["Ventes au comptoir (sans client)", d.walkInSales], ["CA au comptoir", money(d.walkInRevenue)], ["Nouveaux clients", d.newCustomers], ["Clients revenus", d.returning], ["Encours de crédit", money(d.credit)], ["Clients avec encours", d.creditCustomers]] }); sections.push({ name: "Meilleurs clients", columns: ["Client", "Ventes", "CA TTC", "Panier moyen", "Dernier achat"], rows: d.top.map((c: any) => [c.name, c.count, c.revenue, c.basket, c.lastDay]) }); notes.push(...d.notes); }
   if (kind === "store") { title = "Rapport par magasin"; sections.push({ name: "Magasins", columns: ["Rang", "Magasin", "CA TTC", "Ventes", "Panier moyen", "Marge brute", "Taux de marge %", "Valeur du stock", "Rotation", "Écart CA vs moyenne %"], rows: d.shops.map((s: any) => [s.rankRevenue, s.name, s.revenue, s.count, s.basket, money(s.margin), s.marginRate, s.stockValue, s.rotation, s.revenueGapPct]) }); for (const s of d.shops) sections.push({ name: `Vendeurs — ${s.name}`, columns: ["Vendeur", "Ventes", "CA TTC", "Marge brute"], rows: s.sellers.map((v: any) => [v.name, v.tickets, v.revenue, money(v.margin)]) }); notes.push(d.note); }
   return { kind, title, generatedAt: new Date().toISOString(), tz: H.tz, period: { from: H.period.from, to: H.period.to }, scope: H.scope.selected.map((id: string) => H.scope.shops.find((s: any) => s.id === id)?.name ?? id), filters: Object.fromEntries(Object.entries(H.filters as Record<string, string[]>).filter(([, v]) => v.length)), notes: notes.filter(Boolean), sections };
 }

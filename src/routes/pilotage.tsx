@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronDown, Download, Filter, Lock, RefreshCw, TrendingDown, TrendingUp, WifiOff, Zap } from "lucide-react";
+import { AlertTriangle, BarChart3, ChevronDown, Coins, Download, Eye, FileText, Filter, LayoutGrid, Lock, Package, Percent, RefreshCw, RotateCw, ShoppingCart, TrendingDown, TrendingUp, Users, WifiOff, Zap } from "lucide-react";
+import { InsightCard, KpiRow, KpiTile, ModuleHeader, Panel, PillTabs, type Insight, type PillTab } from "@/components/kit";
 import { api } from "@/lib/api";
 import { client } from "@/lib/appwrite";
 import { useSession } from "@/lib/session";
 import { Sheet } from "@/components/ui";
-import { BarChart, Donut, HBars, LineChart, PALETTE } from "@/components/charts";
+import { BarChart, Donut, HBars, LineChart, MultiLine, PALETTE } from "@/components/charts";
 import { exportReport, type ExportFormat } from "@/lib/report-export";
 import type { ReportData } from "@/domain/exports";
 import { planAllows } from "@/domain/features";
@@ -21,7 +22,7 @@ const GRANS = [["", "Auto"], ["day", "Jour"], ["week", "Semaine"], ["month", "Mo
 const METHOD: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "À crédit" };
 const FKEYS = ["categories", "articles", "suppliers", "sellers", "shops", "methods"] as const;
 const FLABEL: Record<string, string> = { categories: "Catégories", articles: "Articles", suppliers: "Fournisseurs", sellers: "Vendeurs", shops: "Magasins", methods: "Modes de paiement" };
-const REPORTS = [["commercial", "Rapport commercial"], ["profit", "Rapport de rentabilité"], ["stock", "Rapport de stock"], ["inventory", "Rapport d'inventaire"], ["purchases", "Rapport d'achats"], ["suppliers", "Rapport fournisseurs"], ["store", "Rapport par magasin"], ["seller", "Rapport par vendeur"]] as const;
+const REPORTS = [["commercial", "Rapport commercial"], ["profit", "Rapport de rentabilité"], ["stock", "Rapport de stock"], ["inventory", "Rapport d'inventaire"], ["purchases", "Rapport d'achats"], ["suppliers", "Rapport fournisseurs"], ["clients", "Rapport clients"], ["store", "Rapport par magasin"], ["seller", "Rapport par vendeur"]] as const;
 const KIND_TONE: Record<string, string> = { comptable: "bg-info-bg text-info", commercial: "bg-ok-bg text-ok", estimatif: "bg-warn-bg text-warn" };
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v} %`);
 const money = (v: number | null | undefined) => (v === null || v === undefined ? "Non calculable" : formatFcfa(v));
@@ -60,53 +61,134 @@ function Rows({ cols, rows, max = 8 }: { cols: string[]; rows: (string | number 
 const Warn = ({ children }: { children: React.ReactNode }) => <div className="card border border-warn/40 text-sm flex gap-2 items-start" role="status"><AlertTriangle size={16} className="text-warn shrink-0 mt-0.5" /><span>{children}</span></div>;
 
 /** Tableau de bord Pro : 9 espaces (Activité Business incluse). Chaque espace est UNE action serveur qui calcule sur les données réelles, selon les mêmes filtres ; rien n'est calculé ni simulé ici. */
+type Tab = "kit" | "sales" | "stock" | "fin" | "clients" | "adv" | "essential" | "exec" | "reports";
+const MAIN: PillTab<Tab>[] = [{ key: "kit", label: "Vue d'ensemble", icon: LayoutGrid }, { key: "sales", label: "Rapports de ventes", icon: BarChart3 }, { key: "stock", label: "Rapports de stocks", icon: Package }, { key: "fin", label: "Rapports financiers", icon: Coins }, { key: "clients", label: "Rapports clients", icon: Users }, { key: "adv", label: "Analyses avancées", icon: TrendingUp }];
+const EXTRA: [Tab, string][] = [["essential", "Activité"], ["exec", "Vue exécutive"], ["reports", "Exports"]];
 export function PilotagePage() {
   const { session } = useSession(); const s = session!; const sub = useSubscription(); const allowed = planAllows(sub.data?.entitlement.plan.id, "proDashboard"); const qc = useQueryClient();
-  const [space, setSpace] = useState<SpaceId>("exec"); const [preset, setPreset] = useState("last30"); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [compare, setCompare] = useState("prev"); const [gran, setGran] = useState(""); const [shop, setShop] = useState(s.shopId);
+  const [tab, setTab] = useState<Tab>("kit"); const [finSub, setFinSub] = useState<"profit" | "purchases">("profit"); const [advSub, setAdvSub] = useState<"forecast" | "stores">("forecast");
+  const space: string = tab === "fin" ? finSub : tab === "adv" ? advSub : tab;
+  const [preset, setPreset] = useState("last30"); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [compare, setCompare] = useState("prev"); const [gran, setGran] = useState(""); const [shop, setShop] = useState(s.shopId);
   const [filters, setFilters] = useState<Filters>(EMPTY); const [saleState, setSaleState] = useState("paid"); const [showF, setShowF] = useState(false); const [th, setTh] = useState({ slowDays: "90", fastDays: "15", overDays: "180", coverTarget: "30" }); const [live, setLive] = useState(false);
   const custom = preset === "custom"; const ready = !custom || (!!from && !!to && from <= to); const active = FKEYS.reduce((a, k) => a + (filters[k].length ? 1 : 0), 0) + (saleState !== "paid" ? 1 : 0);
-  const params = useMemo(() => ({ space, preset, ...(custom ? { from, to } : {}), compare, gran: gran || undefined, shopId: shop, filters, saleState, thresholds: Object.fromEntries(Object.entries(th).map(([k, v]) => [k, Number(v)])) }), [space, preset, custom, from, to, compare, gran, shop, filters, saleState, th]);
-  const q = useQuery({ queryKey: ["pro-dash", s.shopId, params], enabled: allowed && ready && space !== "essential" && space !== "reports", placeholderData: keepPreviousData, staleTime: 60_000, retry: 1, queryFn: () => api<Any>(s, "dashboard.pro", params) });
+  const base = useMemo(() => ({ preset, ...(custom ? { from, to } : {}), compare, gran: gran || undefined, shopId: shop, filters, saleState, thresholds: Object.fromEntries(Object.entries(th).map(([k, v]) => [k, Number(v)])) }), [preset, custom, from, to, compare, gran, shop, filters, saleState, th]);
+  const params = useMemo(() => ({ space, ...base }), [space, base]);
+  const q = useQuery({ queryKey: ["pro-dash", s.shopId, params], enabled: allowed && ready && space !== "essential" && space !== "reports" && space !== "kit", placeholderData: keepPreviousData, staleTime: 60_000, retry: 1, queryFn: () => api<Any>(s, "dashboard.pro", params) });
+  const k = useQuery({ queryKey: ["pro-dash", s.shopId, { space: "kit", ...base }], enabled: allowed && ready, placeholderData: keepPreviousData, staleTime: 60_000, retry: 1, queryFn: () => api<Any>(s, "dashboard.pro", { space: "kit", ...base }) });
   const opts = useQuery({ queryKey: ["pro-options", s.shopId], enabled: allowed && showF, staleTime: 5 * 60_000, queryFn: () => api<Any>(s, "dashboard.options", { shopId: "all" }) });
   // Temps réel : une vente ou un mouvement enregistré invalide les indicateurs (aucun chiffre n'est modifié côté client).
   useEffect(() => { if (!allowed) return; let un: (() => void) | undefined; let timer: ReturnType<typeof setTimeout> | undefined; const db = import.meta.env.VITE_APPWRITE_DATABASE_ID || "dmp";
     try { un = client.subscribe([`databases.${db}.tables.sales.rows`, `databases.${db}.tables.stock_moves.rows`, `databases.${db}.tables.purchase_orders.rows`], () => { clearTimeout(timer); timer = setTimeout(() => void qc.invalidateQueries({ queryKey: ["pro-dash"] }), 1500); }) as unknown as () => void; setLive(true); } catch { setLive(false); }
     return () => { clearTimeout(timer); try { un?.(); } catch { /* déjà fermé */ } }; }, [allowed, qc]);
   if (!allowed) return (
-    <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Tableau de bord Pro</h1><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">Performance commerciale, rentabilité, stocks, achats, magasins, prévisions indicatives et exports PDF, Excel, CSV. Le tableau de bord Business reste disponible.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div></div>
+    <div className="flex flex-col gap-3"><ModuleHeader icon={BarChart3} title="Rapports & Analyses" subtitle="Mesurez, comprenez et optimisez la performance de votre activité." /><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">Performance commerciale, rentabilité, stocks, achats, magasins, clients, prévisions et rapports exportables. Votre tableau de bord de l'accueil reste disponible.</span><button className="btn !py-2 self-start" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div></div>
   );
-  const d = q.data; const fresh = d && d.space === space ? d : undefined; const offline = typeof navigator !== "undefined" && !navigator.onLine; const set = (k: (typeof FKEYS)[number], v: string[]) => setFilters({ ...filters, [k]: v });
+  const view = space === "kit" ? k : q; const d = view.data; const fresh = d && d.space === space ? d : undefined; const offline = typeof navigator !== "undefined" && !navigator.onLine; const set = (kk: (typeof FKEYS)[number], v: string[]) => setFilters({ ...filters, [kk]: v });
+  const kd = k.data?.kpis; const sub2 = (opts2: [string, string][], v: string, on: (x: any) => void, lab: string) => <div role="tablist" aria-label={lab} className="flex gap-2 flex-wrap">{opts2.map(([id, l]) => <button key={id} role="tab" type="button" aria-selected={v === id} className="chip !min-h-8 !py-1 !px-3 text-sm" onClick={() => on(id)}>{l}</button>)}</div>;
+  const dl = (v: number | null | undefined, unit = "%", goodUp = true) => (v === null || v === undefined ? {} : { delta: { text: `${v > 0 ? "+" : ""}${v.toLocaleString("fr-FR")} ${unit} vs comparaison`, dir: v >= 0 ? "up" as const : "down" as const, good: goodUp ? v >= 0 : v <= 0 } });
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2"><h1 className="text-2xl font-bold">Tableau de bord Pro</h1><div className="flex gap-1">
+      <ModuleHeader icon={BarChart3} title="Rapports & Analyses" subtitle="Mesurez, comprenez et optimisez la performance de votre activité." actions={<div className="flex gap-1">
         <button className="btn-ghost !px-3 !py-2 text-sm flex items-center gap-1" onClick={() => setShowF(true)} aria-label="Filtres"><Filter size={16} />{active ? `Filtres (${active})` : "Filtres"}</button>
-        <button className="btn-ghost !px-3 !py-2" aria-label="Actualiser" onClick={() => { void qc.invalidateQueries({ queryKey: ["pro-dash"] }); void qc.invalidateQueries({ queryKey: ["overview"] }); }}><RefreshCw size={16} className={q.isFetching ? "animate-spin" : ""} /></button></div></div>
-      <nav aria-label="Espaces" className="scroll-x">{SPACES.map((x) => <button key={x.id} className="chip" aria-current={space === x.id} onClick={() => setSpace(x.id)}>{x.l}</button>)}</nav>
+        <button className="btn-ghost !px-3 !py-2" aria-label="Actualiser" onClick={() => { void qc.invalidateQueries({ queryKey: ["pro-dash"] }); void qc.invalidateQueries({ queryKey: ["overview"] }); }}><RefreshCw size={16} className={view.isFetching ? "animate-spin" : ""} /></button></div>} />
+      <KpiRow cols={5}>
+        <KpiTile icon={ShoppingCart} tint="blue" label="Chiffre d'affaires" loading={k.isLoading} value={kd ? formatFcfa(kd.revenue) : "—"} sub={kd ? `${kd.count} vente(s)` : undefined} {...dl(kd?.revenueDelta)} />
+        <KpiTile icon={Package} tint="amber" label="Quantités vendues" loading={k.isLoading} value={kd ? kd.qty.toLocaleString("fr-FR") : "—"} {...dl(kd?.qtyDelta)} />
+        <KpiTile icon={Percent} tint="green" label="Marge nette" loading={k.isLoading} value={kd?.netMarginPct == null ? "—" : `${kd.netMarginPct.toLocaleString("fr-FR")} %`} sub={kd && kd.netMarginPct == null ? "coût d'achat incomplet" : undefined} {...dl(kd?.netMarginPts, "pt")} />
+        <KpiTile icon={RotateCw} tint="violet" label="Rotation des stocks" loading={k.isLoading} value={kd?.rotation == null ? "—" : `${kd.rotation.toLocaleString("fr-FR")} fois`} sub={kd && kd.rotation == null ? "non calculable" : "sur la période"} />
+        <KpiTile icon={Coins} tint="cyan" label="Résultat net" loading={k.isLoading} value={kd?.net == null ? "—" : formatFcfa(kd.net)} sub={kd ? (kd.net == null ? "non calculable" : `dépenses ${formatFcfa(kd.expenses)}`) : undefined} {...dl(kd?.netDelta)} />
+      </KpiRow>
+      <PillTabs idBase="rpt" label="Sections Rapports & Analyses" value={MAIN.some((t) => t.key === tab) ? tab : ("" as Tab)} onChange={setTab} items={MAIN} />
+      <div role="tablist" aria-label="Autres vues" className="scroll-x !gap-1.5 -mt-1 md:flex-wrap md:overflow-x-visible">{EXTRA.map(([id, l]) => <button key={id} role="tab" type="button" aria-selected={tab === id} className="chip !min-h-8 !py-1 !px-3 text-sm" onClick={() => setTab(id)}>{l}</button>)}</div>
+      {tab === "fin" && sub2([["profit", "Rentabilité"], ["purchases", "Achats"]], finSub, setFinSub, "Rapports financiers")}
+      {tab === "adv" && sub2([["forecast", "Prévisions"], ["stores", "Magasins"]], advSub, setAdvSub, "Analyses avancées")}
       {space !== "essential" && <>
         <nav aria-label="Période" className="scroll-x">{PRESETS.map(([id, l]) => <button key={id} className="chip" aria-current={preset === id} onClick={() => setPreset(id)}>{l}</button>)}</nav>
         {custom && <div className="grid grid-cols-2 gap-2"><label className="text-xs text-muted">Du<input className="input mt-1" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs text-muted">Au<input className="input mt-1" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></label></div>}
-        <div className="grid grid-cols-2 gap-2"><label className="text-xs text-muted">Comparer à<select className="input mt-1" value={compare} onChange={(e) => setCompare(e.target.value)}><option value="none">Aucune comparaison</option><option value="prev">Période précédente</option><option value="yoy">Même période l'an dernier</option></select></label>
-          {["exec", "sales"].includes(space) && <label className="text-xs text-muted">Évolution<select className="input mt-1" value={gran} onChange={(e) => setGran(e.target.value)}>{GRANS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>}</div>
-        {(d?.scope?.shops?.length ?? 0) > 1 && <label className="text-xs text-muted flex flex-col gap-1">Magasin<select className="input" value={shop} onChange={(e) => setShop(e.target.value)}>{d!.scope.shops.map((x: Any) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="all">Tous mes magasins</option></select></label>}
-        {(offline || q.error) && space !== "reports" && <div className="card border border-warn/40 text-sm flex gap-2 items-start" role="alert"><WifiOff size={16} className="text-warn shrink-0 mt-0.5" /><span>{offline ? "Hors ligne : ce tableau a besoin d'une connexion." : `Impossible de charger : ${(q.error as Error).message}`} <button className="underline text-accent-text" onClick={() => void q.refetch()}>Réessayer</button></span></div>}
-        {(q.isLoading || (q.isPlaceholderData && !fresh)) && space !== "reports" && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-20 animate-pulse bg-subtle" />)}</div>}
-        {d && space !== "reports" && <p className="text-xs text-muted flex items-center gap-1">{live && <Zap size={11} className="text-ok" />}{d.period.label} · {d.period.from} → {d.period.to}{d.prevPeriod ? ` · comparé à ${d.prevPeriod.from} → ${d.prevPeriod.to}` : ""} · fuseau {d.tz} · calculé à {new Date(d.generatedAt).toLocaleTimeString("fr-FR", { timeZone: d.tz, hour: "2-digit", minute: "2-digit" })}{live ? " · mise à jour en direct" : ""}</p>}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2"><label className="text-xs text-muted">Comparer à<select className="input mt-1" value={compare} onChange={(e) => setCompare(e.target.value)}><option value="none">Aucune comparaison</option><option value="prev">Période précédente</option><option value="yoy">Même période l'an dernier</option></select></label>
+          {["exec", "sales"].includes(space) && <label className="text-xs text-muted">Évolution<select className="input mt-1" value={gran} onChange={(e) => setGran(e.target.value)}>{GRANS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>}
+          {(d?.scope?.shops?.length ?? k.data?.scope?.shops?.length ?? 0) > 1 && <label className="text-xs text-muted flex flex-col">Magasin<select className="input mt-1" value={shop} onChange={(e) => setShop(e.target.value)}>{(d?.scope ?? k.data!.scope).shops.map((x: Any) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="all">Tous mes magasins</option></select></label>}</div>
+        {(offline || view.error) && space !== "reports" && <div className="card border border-warn/40 text-sm flex gap-2 items-start" role="alert"><WifiOff size={16} className="text-warn shrink-0 mt-0.5" /><span>{offline ? "Hors ligne : ce tableau a besoin d'une connexion." : `Impossible de charger : ${(view.error as Error).message}`} <button className="underline text-accent-text" onClick={() => void view.refetch()}>Réessayer</button></span></div>}
+        {(view.isLoading || (view.isPlaceholderData && !fresh)) && space !== "reports" && <div className="grid grid-cols-2 gap-2" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className="card h-20 animate-pulse bg-subtle" />)}</div>}
+        {d && space !== "reports" && <p className="text-xs text-muted flex items-center gap-1">{live && <Zap size={11} className="text-ok" />}{d.period.label} · {d.period.from} → {d.period.to}{d.prevPeriod ? ` · comparé à ${d.prevPeriod.from} → ${d.prevPeriod.to}` : ""} · fuseau {d.tz} · calculé à {new Date(d.generatedAt).toLocaleTimeString("fr-FR", { timeZone: d.tz, hour: "2-digit", minute: "2-digit" })}</p>}
         {d?.truncated && <Warn>Volume très élevé : certaines lignes n'ont pas été lues. Les totaux peuvent être partiels (réduisez la période ou filtrez).</Warn>}
         {d?.saleState === "open" && <Warn>Vous consultez les ventes <b>non finalisées</b> : elles ne sont pas du chiffre d'affaires.</Warn>}
       </>}
       {space === "essential" && <ActivitePage embedded />}
+      {fresh && space === "kit" && <KitOverview d={fresh} params={base} />}{fresh && space === "clients" && <Clients d={fresh} />}
       {fresh && space === "exec" && <Exec d={fresh} />}{fresh && space === "sales" && <Sales d={fresh} />}{fresh && space === "profit" && <Profit d={fresh} />}{fresh && space === "stock" && <Stock d={fresh} th={th} setTh={setTh} />}{fresh && space === "purchases" && <Purchases d={fresh} />}{fresh && space === "stores" && <Stores d={fresh} />}{fresh && space === "forecast" && <Forecast d={fresh} />}
       {space === "reports" && <Reports params={params} />}
       {showF && <Sheet title="Filtres avancés" onClose={() => setShowF(false)}>
         <p className="text-xs text-muted">Tous les graphiques, indicateurs et rapports se recalculent avec ces filtres. Un filtre d'article, de catégorie ou de fournisseur réduit chaque vente à ses lignes concernées.</p>
         <label className="text-sm flex flex-col gap-1"><span className="text-muted">État des ventes</span><select className="input" value={saleState} onChange={(e) => setSaleState(e.target.value)}><option value="paid">Terminées (comptabilisées)</option><option value="open">Non finalisées (diagnostic)</option></select></label>
         {opts.isLoading && <p className="text-sm text-muted">Chargement des listes…</p>}{opts.error && <p className="text-bad text-sm">{(opts.error as Error).message}</p>}
-        {opts.data && FKEYS.map((k) => { const list: { id: string; name: string }[] = k === "categories" ? opts.data!.categories.map((c: string) => ({ id: c, name: c })) : k === "methods" ? opts.data!.methods.map((m: string) => ({ id: m, name: METHOD[m] ?? m })) : opts.data![k]; return <FilterList key={k} title={FLABEL[k]!} list={list} value={filters[k]} onChange={(v) => set(k, v)} />; })}
+        {opts.data && FKEYS.map((kk) => { const list: { id: string; name: string }[] = kk === "categories" ? opts.data!.categories.map((c: string) => ({ id: c, name: c })) : kk === "methods" ? opts.data!.methods.map((m: string) => ({ id: m, name: METHOD[m] ?? m })) : opts.data![kk]; return <FilterList key={kk} title={FLABEL[kk]!} list={list} value={filters[kk]} onChange={(v) => set(kk, v)} />; })}
         <div className="flex gap-2"><button className="btn-ghost flex-1" onClick={() => { setFilters(EMPTY); setSaleState("paid"); }}>Réinitialiser</button><button className="btn flex-1" onClick={() => setShowF(false)}>Appliquer</button></div>
       </Sheet>}
     </div>
   );
 }
+
+const mlab = (m: string) => new Date(`${m}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "short" }).replace(".", "");
+/** Vue d'ensemble (kit écran 21) : évolution 6 mois, catégories, top 5, performance mensuelle, charges, tendance, rapports, export, MASTER. */
+function KitOverview({ d, params }: { d: Any; params: Any }) {
+  const months: Any[] = d.months; const proj: Any | null = d.projection; const n = months.length; const labels = [...months.map((m) => mlab(m.month)), ...(proj ? proj.points.slice(1).map((p: Any) => mlab(p.month)) : [])];
+  const totalCharges = (d.charges as Any[]).reduce((a, c) => a + c.amount, 0); const totalCat = (d.byCategory as Any[]).reduce((a, c) => a + c.revenue, 0);
+  const insights: Insight[] = (d.insights as string[]).map((t, i) => ({ id: String(i), text: t, tone: /baisse|rupture|non calculable/.test(t) ? "warn" : "ok" }));
+  return <div className="flex flex-col gap-4">
+    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <Panel title="Évolution du chiffre d'affaires" action={<span className="text-xs text-muted">6 mois + mois en cours</span>}>{months.some((m) => m.revenue > 0) ? <MultiLine label="Chiffre d'affaires et marge par mois" labels={months.map((m) => mlab(m.month))} series={[{ name: "CA (F CFA)", values: months.map((m) => m.revenue) }, { name: "Marge brute (F CFA)", values: months.map((m) => m.margin), color: "var(--chart-2)" }]} /> : <p className="text-sm text-muted">Aucune vente sur les 6 derniers mois.</p>}</Panel>
+      <Panel title="Ventes par catégorie">{totalCat > 0 ? <Donut label="Chiffre d'affaires par catégorie" data={(d.byCategory as Any[]).slice(0, 6).map((c) => ({ key: c.key, label: c.key, value: c.revenue }))} /> : <p className="text-sm text-muted">Aucune vente sur la période.</p>}</Panel>
+      <Panel title="Top 5 articles (CA)">{d.top.length ? <table className="w-full text-sm" aria-label="Top 5 articles"><thead className="text-xs text-muted"><tr><th className="text-left">#</th><th className="text-left">Article</th><th className="text-right">CA (F CFA)</th></tr></thead><tbody>{(d.top as Any[]).map((a, i) => <tr key={a.name} className="border-t border-[var(--line)]"><td className="py-1.5"><span className="inline-flex w-5 h-5 rounded-full bg-[var(--gold)]/25 text-xs font-bold items-center justify-center">{i + 1}</span></td><td className="truncate max-w-[10rem]">{a.name}</td><td className="text-right tabular-nums">{Math.round(a.revenue).toLocaleString("fr-FR")}</td></tr>)}</tbody></table> : <p className="text-sm text-muted">Aucune vente sur la période.</p>}</Panel>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <Panel title="Performance mensuelle">{months.some((m) => m.revenue > 0) ? <BarChart label="Ventes par mois et croissance" data={months.map((m) => ({ key: m.month, label: mlab(m.month), value: m.revenue, sub: m.growthPct === null ? "croissance non calculable" : `croissance ${m.growthPct > 0 ? "+" : ""}${m.growthPct.toLocaleString("fr-FR")} %` }))} /> : <p className="text-sm text-muted">Aucune vente sur les 6 derniers mois.</p>}</Panel>
+      <Panel title="Répartition des charges">{totalCharges > 0 ? <ul className="flex flex-col gap-2 text-sm">{(d.charges as Any[]).slice(0, 7).map((c, i) => { const p = Math.round((c.amount / totalCharges) * 1000) / 10; return <li key={c.key}><div className="flex justify-between gap-2"><span className="truncate">{c.key}</span><span className="tabular-nums shrink-0">{formatFcfa(c.amount)} · <b>{p.toLocaleString("fr-FR")} %</b></span></div><div className="h-2 rounded bg-subtle mt-1"><div className="h-2 rounded" style={{ width: `${p}%`, background: PALETTE[i % PALETTE.length] }} /></div></li>; })}</ul> : <p className="text-sm text-muted">Aucun achat ni dépense validée sur la période.</p>}</Panel>
+      <Panel title="Tendances & prévisions">{proj ? <><MultiLine label="Chiffre d'affaires réalisé et prévision" labels={labels} series={[{ name: "CA réalisé (mois en cours partiel)", values: [...months.map((m) => m.revenue), ...proj.points.slice(1).map(() => null)] }, { name: "Prévision (3 mois)", values: [...months.map((m, i) => (i === n - 2 ? m.revenue : null)).slice(0, n - 1), ...proj.points.map((p: Any) => p.value)], color: "var(--chart-3)", dashed: true }]} /><p className="text-xs text-muted mt-1">Fiabilité {proj.reliability} · {proj.method}</p></> : <p className="text-sm text-muted">Historique insuffisant pour une prévision fiable (au moins 4 mois complets avec des ventes) : aucune projection n'est affichée plutôt qu'une projection fragile.</p>}</Panel>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
+      <Available params={params} />
+      <ExportPanel params={params} />
+      <InsightCard module="Rapports" items={insights} source="ventes, coûts, dépenses, achats et stocks de la période" emptyText="Rien à signaler pour la période." />
+    </div>
+    <div className="text-xs text-muted flex flex-col gap-0.5">{(d.notes as string[]).map((n, i) => <p key={i}>• {n}</p>)}</div>
+  </div>;
+}
+
+/** Rapports disponibles : générés à la demande à partir des mêmes calculs (aucun historique ni statut inventé). */
+function Available({ params }: { params: Any }) {
+  const { session } = useSession(); const s = session!; const [view, setView] = useState<ReportData | null>(null); const [busy, setBusy] = useState(""); const [err, setErr] = useState("");
+  const get = async (kind: string) => { const { space: _s, ...rest } = params; return api<ReportData>(s, "dashboard.report", { ...rest, kind }); };
+  const go = async (kind: string, mode: "view" | "pdf") => { setBusy(`${kind}:${mode}`); setErr(""); try { const r = await get(kind); if (mode === "view") setView(r); else await exportReport(r, "pdf"); } catch (e) { setErr((e as Error).message); } finally { setBusy(""); } };
+  const per = PRESETS.find(([id]) => id === params.preset)?.[1] ?? "Période choisie";
+  return <Panel title="Rapports disponibles" icon={FileText}><div className="overflow-x-auto"><table className="w-full text-sm" aria-label="Rapports disponibles"><thead className="text-xs text-muted"><tr><th className="text-left py-1">Rapport</th><th className="text-left">Période</th><th className="text-right">Actions</th></tr></thead>
+    <tbody>{REPORTS.map(([k, l]) => <tr key={k} className="border-t border-[var(--line)]"><td className="py-1.5">{l}</td><td className="text-xs text-muted">{per}</td><td className="text-right whitespace-nowrap"><button type="button" className="btn-ghost !p-1.5" aria-label={`Voir le ${l.toLowerCase()}`} title="Voir" disabled={!!busy} onClick={() => void go(k, "view")}>{busy === `${k}:view` ? "…" : <Eye size={16} />}</button><button type="button" className="btn-ghost !p-1.5" aria-label={`Télécharger le ${l.toLowerCase()} (PDF)`} title="Télécharger (PDF)" disabled={!!busy} onClick={() => void go(k, "pdf")}>{busy === `${k}:pdf` ? "…" : <Download size={16} />}</button></td></tr>)}</tbody></table></div>
+    {err && <p className="text-bad text-sm" role="alert">{err}</p>}<p className="text-xs text-muted mt-1">Chaque rapport est calculé au moment de la demande, avec la période, le magasin et les filtres choisis.</p>
+    {view && <Sheet title={view.title} onClose={() => setView(null)} back size="lg"><div className="flex flex-col gap-3"><p className="text-xs text-muted">{view.period.from} → {view.period.to} · {view.scope.join(", ")}</p>{view.sections.map((sec) => <section key={sec.name} className="card flex flex-col gap-1"><h3 className="font-semibold text-sm">{sec.name}</h3>{sec.rows.length ? <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="text-muted"><tr>{sec.columns.map((c) => <th key={c} className="text-left pr-2">{c}</th>)}</tr></thead><tbody>{sec.rows.slice(0, 50).map((r, i) => <tr key={i} className="border-t border-[var(--line)]">{r.map((v, j) => <td key={j} className="pr-2 py-0.5">{v === null || v === undefined ? "—" : typeof v === "number" ? v.toLocaleString("fr-FR") : String(v)}</td>)}</tr>)}</tbody></table></div> : <p className="text-xs text-muted">Aucune ligne.</p>}{sec.rows.length > 50 && <p className="text-xs text-muted">50 premières lignes affichées ; le fichier contient tout.</p>}</section>)}
+      <div className="flex gap-2">{(["pdf", "xlsx", "csv"] as const).map((f) => <button key={f} className="btn-ghost" onClick={() => void exportReport(view, f)}>{f === "xlsx" ? "Excel" : f.toUpperCase()}</button>)}</div></div></Sheet>}
+  </Panel>;
+}
+function ExportPanel({ params }: { params: Any }) {
+  const { session } = useSession(); const s = session!; const [fmt, setFmt] = useState<ExportFormat>("pdf"); const [kind, setKind] = useState<string>("commercial"); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(""); const [err, setErr] = useState("");
+  const run = async () => { setBusy(true); setErr(""); setMsg(""); try { const { space: _s, ...rest } = params; const r = await api<ReportData>(s, "dashboard.report", { ...rest, kind }); await exportReport(r, fmt); setMsg(`« ${r.title} » généré.`); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
+  return <Panel title="Exporter un rapport" icon={Download}><div className="flex flex-col gap-2 text-sm">
+    <fieldset className="flex flex-col gap-1"><legend className="text-xs text-muted mb-1">Format</legend>{([["pdf", "PDF (recommandé)"], ["xlsx", "Excel (.xlsx)"], ["csv", "CSV (.csv)"]] as const).map(([f, l]) => <label key={f} className="inline-flex items-center gap-2"><input type="radio" name="fmt" checked={fmt === f} onChange={() => setFmt(f)} />{l}</label>)}</fieldset>
+    <label className="flex flex-col gap-1"><span className="text-xs text-muted">Rapport</span><select className="input" aria-label="Rapport à exporter" value={kind} onChange={(e) => setKind(e.target.value)}>{REPORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+    <p className="text-xs text-muted">Période : {PRESETS.find(([id]) => id === params.preset)?.[1] ?? "personnalisée"} (modifiable en haut de page).</p>
+    <button type="button" className="btn-gold inline-flex items-center justify-center gap-2" disabled={busy} onClick={() => void run()}><Download size={16} />{busy ? "Génération…" : "Générer le rapport"}</button>
+    {msg && <p className="text-ok text-xs" role="status">{msg}</p>}{err && <p className="text-bad text-xs" role="alert">{err}</p>}</div></Panel>;
+}
+
+/** Rapports clients : meilleurs clients, nouveaux, revenus, panier, encours ; comptoir à part. */
+function Clients({ d }: { d: Any }) {
+  return <div className="flex flex-col gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2"><Card label="Clients acheteurs" value={String(d.buyers)} sub={d.identifiedSharePct === null ? undefined : `${d.identifiedSharePct} % du CA identifié`} kind="commercial" /><Card label="Panier moyen (clients)" value={d.basket === null ? "—" : formatFcfa(d.basket)} kind="commercial" /><Card label="Nouveaux clients" value={String(d.newCustomers)} sub="fiches créées sur la période" kind="commercial" /><Card label="Clients revenus" value={String(d.returning)} sub="achat sur la période et la précédente" kind="commercial" /></div>
+    <div className="grid grid-cols-2 gap-2"><Card label="Ventes au comptoir (sans client)" value={`${d.walkInSales} vente(s)`} sub={formatFcfa(d.walkInRevenue)} kind="commercial" /><Card label="Encours de crédit clients" value={formatFcfa(d.credit)} sub={`${d.creditCustomers} client(s)`} kind="comptable" /></div>
+    <Box title="Meilleurs clients" empty={d.top.length ? undefined : "Aucune vente rattachée à un client sur la période."}><Rows cols={["Client", "Ventes", "CA TTC", "Panier moyen", "Dernier achat"]} rows={(d.top as Any[]).map((c) => [c.name, c.count, formatFcfa(c.revenue), formatFcfa(c.basket), c.lastDay])} max={10} /></Box>
+    <div className="text-xs text-muted flex flex-col gap-0.5">{(d.notes as string[]).map((n, i) => <p key={i}>• {n}</p>)}</div>
+  </div>;
+}
+
 function FilterList({ title, list, value, onChange }: { title: string; list: { id: string; name: string }[]; value: string[]; onChange: (v: string[]) => void }) {
   const [find, setFind] = useState(""); const shown = list.filter((x) => !find.trim() || x.name.toLowerCase().includes(find.trim().toLowerCase())).slice(0, 60);
   return <details className="card"><summary className="cursor-pointer text-sm font-semibold">{title}{value.length ? ` (${value.length})` : ""}</summary><div className="flex flex-col gap-1 pt-2"><input className="input !py-1.5" placeholder="Rechercher" value={find} onChange={(e) => setFind(e.target.value)} aria-label={`Rechercher — ${title}`} />
