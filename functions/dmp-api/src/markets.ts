@@ -17,7 +17,9 @@ let nowFn = () => Date.now();
 export const setMarketFetch = (f: Fetcher | null, now?: () => number) => { doFetch = f ?? ((u, i) => fetch(u, i) as unknown as ReturnType<Fetcher>); nowFn = now ?? (() => Date.now()); };
 async function get(url: string, ms: number, headers: Record<string, string> = {}, method = "GET") {
   const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
-  try { const r = await doFetch(url, { headers, method, signal: c.signal }); if (!r.ok && r.status !== 206) throw new Error(`réponse ${r.status}`); return r; }
+  try { const r = await doFetch(url, { headers, method, signal: c.signal });
+    if (!r.ok && r.status !== 206) { let why = ""; try { const b = JSON.parse(await r.text()) as { error_message?: string; message?: string }; why = String(b.error_message ?? b.message ?? "").replace(/api_key=[^&\s]+/g, "api_key=…").slice(0, 140); } catch { why = ""; } throw new Error(`réponse ${r.status}${why ? ` : ${why}` : ""}`); }
+    return r; }
   catch (e) { throw new Error((e as Error).name === "AbortError" ? "délai dépassé" : (e as Error).message || "injoignable"); }
   finally { clearTimeout(t); }
 }
@@ -192,11 +194,12 @@ export function parseFred(id: string, json: { observations?: { date: string; val
   return { last, yearAgo: yr && yr.date < last.date ? yr : null, points: pts.slice(-13) };
 }
 export async function world(store: Store, ctx: Ctx, b: { force?: boolean } = {}) {
-  await need(store, ctx, "world"); const key = process.env.FRED_API_KEY ?? "";
+  await need(store, ctx, "world"); const key = (process.env.FRED_API_KEY ?? "").trim().replace(/^["']|["']$/g, "").toLowerCase();
   if (!key) return { keyMissing: true, series: [], meta: { ...meta("world", { data: null, fetchedAt: "", stale: false, error: "" }), error: "Clé FRED non configurée sur le serveur (variable FRED_API_KEY de la fonction)." } };
+  if (!/^[a-z0-9]{32}$/.test(key)) return { keyMissing: false, series: [], meta: { ...meta("world", { data: null, fetchedAt: "", stale: false, error: "" }), error: `Clé FRED au format invalide : 32 caractères (chiffres et lettres minuscules) attendus, ${key.length} reçus. Corrigez la variable FRED_API_KEY de la fonction.` } };
   const start = day(nowFn() - 400 * 864e5);
   const c = await cached(store, "world", SOURCES.world.ttlH, async () => { const res = await Promise.allSettled(FRED_SERIES.map(async (s) => ({ ...s, ...parseFred(s.id, await getJson(`https://api.stlouisfed.org/fred/series/observations?series_id=${s.id}&api_key=${encodeURIComponent(key)}&file_type=json&frequency=m&aggregation_method=eop&observation_start=${start}`, 10_000)) })));
-    const ok = res.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])); if (!ok.length) throw new Error("aucune série reçue"); return ok; }, !!b.force && roleKind(ctx) === "owner");
+    const ok = res.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])); if (!ok.length) throw new Error(`aucune série reçue — ${String((res.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined)?.reason?.message ?? "raison inconnue")}`); return ok; }, !!b.force && roleKind(ctx) === "owner");
   return { keyMissing: false, series: c.data ?? [], meta: meta("world", c) };
 }
 

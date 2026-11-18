@@ -74,8 +74,13 @@ describe("Marchés — droits, sources, cache", () => {
   it("source jamais chargée et en panne : liste vide et erreur, aucune valeur inventée", async () => { down.add("api.worldbank.org"); const m = await ok(call("ger", "mk.macro")); expect(m.countries).toEqual([]); expect(m.meta.error).toContain("indisponible"); });
   it("contexte mondial : sans clé FRED, message explicite ; avec clé, valeurs non numériques ignorées", async () => {
     const a = await ok(call("ger", "mk.world")); expect(a.keyMissing).toBe(true); expect(a.meta.error).toContain("FRED_API_KEY");
-    process.env.FRED_API_KEY = "clef-de-test"; const b = await ok(call("ger", "mk.world")); expect(b.series).toHaveLength(4); expect(b.series[0].last).toEqual({ date: "2026-10-01", value: 3.5 }); expect(b.series[0].yearAgo).toEqual({ date: "2025-11-01", value: 4 });
-    expect(calls.some((c) => c.includes("api_key=clef-de-test"))).toBe(true); expect(JSON.stringify(b)).not.toContain("clef-de-test");
+    process.env.FRED_API_KEY = " Abcdefghijklmnopqrstuvwxyz012345\n"; const b = await ok(call("ger", "mk.world")); expect(b.series).toHaveLength(4); expect(b.series[0].last).toEqual({ date: "2026-10-01", value: 3.5 }); expect(b.series[0].yearAgo).toEqual({ date: "2025-11-01", value: 4 });
+    expect(calls.some((c) => c.includes("api_key=abcdefghijklmnopqrstuvwxyz012345"))).toBe(true); expect(JSON.stringify(b)).not.toContain("bcdefghijklmnopqrstuvwxyz0123");
+  });
+  it("contexte mondial : clé au format invalide signalée sans la révéler ; refus de FRED affiché tel quel", async () => {
+    process.env.FRED_API_KEY = "trop-courte"; const a = await ok(call("ger", "mk.world")); expect(a.meta.error).toContain("format invalide"); expect(a.meta.error).toContain("11 reçus"); expect(JSON.stringify(a)).not.toContain("trop-courte");
+    process.env.FRED_API_KEY = "abcdefghijklmnopqrstuvwxyz012345"; setMarketFetch(((u: string, i: any) => (u.includes("stlouisfed") ? res(JSON.stringify({ error_code: 400, error_message: "Bad Request.  The value for variable api_key is not registered." }), 400) : fake(u, i))) as never, () => clock);
+    const b = await ok(call("ger", "mk.world")); expect(b.meta.error).toContain("not registered"); expect(JSON.stringify(b)).not.toContain("abcdefghijklmnopqrstuvwxyz012345");
   });
   it("liens Pro : pays requis ; rendement réel des placements ; taux débiteur de 2016 jugé trop ancien", async () => {
     let l = await ok(call("ger", "mk.links")); expect(l.country).toBeNull();
