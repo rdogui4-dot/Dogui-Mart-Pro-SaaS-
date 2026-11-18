@@ -1,10 +1,11 @@
 import { useRef, useState, type ReactNode } from "react";
-import { GroupedTabs } from "@/components/GroupedTabs";
 import { DataGrid, StatusPill } from "@/components/DataGrid";
 import { useMinWidth } from "@/lib/media";
 import { usePersistedState } from "@/lib/prefs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Phone, Plus } from "lucide-react";
+import { BarChart3, CalendarClock, Coins, Gift, Lock, Megaphone, Phone, PieChart, Plus, ShoppingCart, Star, Target, UserPlus, Users } from "lucide-react";
+import { InsightCard, KpiRow, KpiTile, LockedState, ModuleHeader, Panel, PillTabs, type Insight, type PillTab } from "@/components/kit";
+import { Donut, LineChart } from "@/components/charts";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { Confirm, Sheet } from "@/components/ui";
@@ -41,21 +42,32 @@ const useOwners = () => { const { session } = useSession(); const s = session!; 
 
 /** CRM Business : clients, prospects et pipeline, opportunités, agenda de relances, tableau de bord. Tous les chiffres viennent du serveur et des ventes réelles. */
 export function CrmHub({ legacy }: { legacy: ReactNode }) {
-  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const [tab, setTab] = useState<Tab>(mgr ? "dash" : "cust"); const [seg, setSeg] = useState<string>(""); const pro = planAllows(useSubscription().data?.entitlement.plan.id, "crmPro");
-  const tabs: [Tab, string][] = [...(mgr ? ([["dash", "Tableau"]] as [Tab, string][]) : []), ["cust", "Clients"], ["lead", "Prospects"], ...(mgr ? ([["opp", "Opportunités"]] as [Tab, string][]) : []), ["agenda", "Agenda"], ...(pro && mgr ? ([["seg", "Segments"], ["camp", "Campagnes"], ["auto", "Automatisations"], ["team", "Équipes"], ["ana", "Analyses"], ["loy", "Fidélité"]] as [Tab, string][]) : []), ["credit", "Crédit & fidélité"]];
+  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const [tab, setTab] = useState<Tab>("cust"); const [seg, setSeg] = useState<string>(""); const pro = planAllows(useSubscription().data?.entitlement.plan.id, "crmPro"); const qc = useQueryClient();
+  const [form, setForm] = useState(false); const [opened, setOpened] = useState<string | null>(null);
+  const dq = useQuery({ queryKey: ["crm", "dash-kpi", s.shopId], enabled: mgr, retry: 1, queryFn: () => api<Dash>(s, "crm.dashboard", { days: 30 }) });
+  const main: PillTab<Tab>[] = [{ key: "cust", label: "Liste des clients", icon: Users }, { key: "lead", label: "Prospects", icon: Target }, ...(mgr ? [{ key: "seg" as Tab, label: "Segmentation", icon: PieChart, locked: !pro }, { key: "loy" as Tab, label: "Fidélité", icon: Gift, locked: !pro }, { key: "camp" as Tab, label: "Communications", icon: Megaphone, locked: !pro }, { key: "ana" as Tab, label: "Analyses", icon: BarChart3, locked: !pro }] : [])];
+  const extra: [Tab, string, boolean][] = [...(mgr ? ([["dash", "Tableau", false], ["opp", "Opportunités", false]] as [Tab, string, boolean][]) : []), ["agenda", "Agenda", false], ...(mgr ? ([["auto", "Automatisations", true], ["team", "Équipes", true]] as [Tab, string, boolean][]) : []), ["credit", "Crédit & fidélité", false]];
+  const lockedPro = !pro && ["seg", "loy", "camp", "ana", "auto", "team"].includes(tab);
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="sr-only">Clients & CRM</h1>
-      <GroupedTabs label="Sections du CRM" value={tab} onChange={setTab} groups={[
-        { label: "Suivi", items: tabs.filter(([k]) => k === "dash" || k === "agenda").map(([k, l]) => ({ key: k, label: l })) },
-        { label: "Relations", items: tabs.filter(([k]) => k === "cust" || k === "lead" || k === "opp" || k === "credit").map(([k, l]) => ({ key: k, label: l })) },
-        { label: "Pro", items: tabs.filter(([k]) => ["seg", "camp", "auto", "team", "ana", "loy"].includes(k)).map(([k, l]) => ({ key: k, label: l })) },
-      ]} />
-      {tab === "dash" && <Dashboard onSegment={(x) => { setSeg(x); setTab("cust"); }} onTab={setTab} />}
-      {tab === "cust" && <Customers key={seg} seg={seg} />}
+      <ModuleHeader icon={Users} title="CRM — Clients, Prospects & Fidélisation" subtitle="Développez votre clientèle, suivez vos relations et fidélisez durablement." actions={<button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => setForm(true)}><Plus size={18} />Ajouter un client</button>} />
+      {mgr && <CrmKpis d={dq.data} loading={dq.isLoading} />}{dq.error && <Err e={dq.error} />}
+      <PillTabs idBase="crm" label="Sections du CRM" value={main.some((t) => t.key === tab) ? tab : ("" as Tab)} onChange={setTab} items={main} />
+      <div role="tablist" aria-label="Autres sections du CRM" className="scroll-x !gap-1.5 -mt-2">{extra.map(([k, l, isPro]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className="chip !min-h-8 !py-1 !px-3 text-sm inline-flex items-center gap-1" onClick={() => setTab(k)}>{l}{isPro && !pro && <Lock size={12} aria-label="Réservé à une offre supérieure" />}</button>)}</div>
+      {tab === "cust" && <div className={mgr ? "grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" : ""}>
+        <Panel title={`Base clients${dq.data ? ` (${dq.data.customers.total})` : ""}`}><Customers key={seg} seg={seg} /></Panel>
+        {mgr && <div className="flex flex-col gap-4"><CrmSegments d={dq.data} onSegment={(x) => { setSeg(x); setTab("cust"); }} /><CrmLoyalty d={dq.data} pro={pro} onManage={() => setTab("loy")} /></div>}
+      </div>}
+      {tab === "cust" && mgr && <div className="grid gap-4 lg:grid-cols-3">
+        <Panel title="Évolution de la clientèle" action={<span className="text-xs text-muted">6 derniers mois</span>}>{dq.data?.trend.some((m) => m.active > 0 || m.new > 0) ? <LineChart label="Clients ayant acheté par mois" w={340} data={dq.data.trend.map((m) => ({ key: m.month, label: new Date(`${m.month}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "short" }), value: m.active, sub: `${m.new} nouveau(x) client(s)` }))} /> : <p className="text-sm text-muted">{dq.isLoading ? "Chargement…" : "Pas encore d'achat rattaché à un client sur 6 mois."}</p>}</Panel>
+        <Panel title="Top clients (CA)" action={<button className="text-sm font-semibold text-accent-text underline" onClick={() => setTab("dash")}>Voir tout</button>}>{dq.data?.topCustomers.length ? <ol className="flex flex-col gap-1.5">{dq.data.topCustomers.slice(0, 5).map((c, i) => <li key={c.id}><button className="w-full flex items-center justify-between gap-2 text-sm text-left" onClick={() => setOpened(c.id)}><span className="flex items-center gap-2 min-w-0"><span className="size-6 shrink-0 rounded-full bg-[var(--gold-soft)] text-[var(--gold-ink)] text-xs font-bold inline-flex items-center justify-center">{i + 1}</span><span className="truncate">{c.name}</span></span><b className="shrink-0 tabular-nums">{formatFcfa(c.total)}</b></button></li>)}</ol> : <p className="text-sm text-muted">Aucune vente rattachée à un client pour le moment.</p>}</Panel>
+        <CrmMaster d={dq.data} loading={dq.isLoading} onTab={setTab} />
+      </div>}
+      {tab === "dash" && mgr && <Dashboard onSegment={(x) => { setSeg(x); setTab("cust"); }} onTab={setTab} />}
       {tab === "lead" && <Leads />}
       {tab === "opp" && mgr && <Opps />}
       {tab === "agenda" && <Agenda />}
+      {lockedPro && <LockedState feature="Segmentation avancée, fidélité configurable, campagnes, automatisations, équipes et analyses" plan="Pro" />}
       {pro && mgr && tab === "seg" && <ProSegments />}
       {pro && mgr && tab === "camp" && <ProCampaigns />}
       {pro && mgr && tab === "auto" && <ProAutomations />}
@@ -63,12 +75,50 @@ export function CrmHub({ legacy }: { legacy: ReactNode }) {
       {pro && mgr && tab === "ana" && <ProAnalytics />}
       {pro && mgr && tab === "loy" && <ProLoyalty />}
       {tab === "credit" && legacy}
+      {form && <PartyForm kind="customer" onClose={() => setForm(false)} onSaved={(id) => { setForm(false); setTab("cust"); setOpened(id); void qc.invalidateQueries({ queryKey: ["crm"] }); }} />}
+      {opened && <CustomerSheet id={opened} onClose={() => setOpened(null)} />}
     </div>
   );
 }
 
+/** Indicateurs du kit (30 jours), tous calculés par le serveur depuis les ventes rattachées à un client. */
+function CrmKpis({ d, loading }: { d?: Dash; loading: boolean }) {
+  const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null); const dl = (v: number | null, label: string) => (v === null ? {} : { delta: { text: `${v > 0 ? "+" : ""}${v.toLocaleString("fr-FR")} % ${label}`, dir: v >= 0 ? "up" as const : "down" as const, good: v >= 0 } });
+  const loyal = d?.customers.segments.loyal ?? 0; const total = d?.customers.total ?? 0;
+  return <KpiRow cols={5}>
+    <KpiTile icon={Users} tint="blue" label="Clients actifs" loading={loading} value={d?.sales.buyers ?? "—"} sub={d && pct(d.sales.buyers, d.sales.previous.buyers) === null ? "clients ayant acheté, 30 j" : undefined} {...(d ? dl(pct(d.sales.buyers, d.sales.previous.buyers), "vs 30 j précédents") : {})} />
+    <KpiTile icon={UserPlus} tint="amber" label="Nouveaux clients" loading={loading} value={d?.customers.newInPeriod ?? "—"} sub={d && pct(d.customers.newInPeriod, d.sales.previous.newCustomers) === null ? "créés sur 30 jours" : undefined} {...(d ? dl(pct(d.customers.newInPeriod, d.sales.previous.newCustomers), "vs 30 j précédents") : {})} />
+    <KpiTile icon={ShoppingCart} tint="violet" label="Panier moyen" loading={loading} value={d?.sales.avgBasket !== null && d?.sales.avgBasket !== undefined ? formatFcfa(d.sales.avgBasket) : "—"} sub={d ? `${d.sales.count} achat(s) de clients identifiés` : undefined} />
+    <KpiTile icon={Star} tint="amber" label="Clients fidèles" loading={loading} value={d ? loyal : "—"} sub={d && total ? `${Math.round((loyal / total) * 1000) / 10} % des clients` : undefined} />
+    <KpiTile icon={Coins} tint="green" label="CA généré par les clients" loading={loading} value={d ? formatFcfa(d.sales.revenue) : "—"} sub={d && pct(d.sales.revenue, d.sales.previous.revenue) === null ? "30 jours, net des retours" : undefined} {...(d ? dl(pct(d.sales.revenue, d.sales.previous.revenue), "vs 30 j précédents") : {})} />
+  </KpiRow>;
+}
+function CrmSegments({ d, onSegment }: { d?: Dash; onSegment: (s: string) => void }) {
+  const data = (Object.keys(SEGMENT_LABEL) as Segment[]).map((k) => ({ key: k, label: SEGMENT_LABEL[k].split(" (")[0]!, value: d?.customers.segments[k] ?? 0 })).filter((x) => x.value > 0);
+  return <Panel title="Segmentation des clients">{data.length ? <><Donut label="Répartition des clients par segment" data={data} /><div className="flex flex-wrap gap-1.5">{data.map((x) => <button key={x.key} className="chip !min-h-8 !py-1 text-xs" onClick={() => onSegment(x.key)}>{x.label} ({x.value})</button>)}</div></> : <p className="text-sm text-muted">Aucun client enregistré.</p>}</Panel>;
+}
+function CrmLoyalty({ d, pro, onManage }: { d?: Dash; pro: boolean; onManage: () => void }) {
+  const L = d?.loyalty; const total = d?.customers.total ?? 0;
+  return <Panel title="Programme de fidélité" action={pro ? <button className="text-sm font-semibold text-accent-text underline" onClick={onManage}>Gérer</button> : undefined}>
+    {!L ? <p className="text-sm text-muted">Chargement…</p> : <div className="flex flex-col gap-2 text-sm">
+      <p className="rounded-xl bg-[var(--gold-soft)] p-2"><b>Points de fidélité</b><span className="block text-xs">{L.cfaPerPoint ? `${formatFcfa(L.cfaPerPoint)} d'achat = 1 point` : "Règle de points non définie"}</span></p>
+      <div className="grid grid-cols-2 gap-2"><span><span className="block text-xs text-muted">Clients avec des points</span><b>{L.members}{total ? ` (${Math.round((L.members / total) * 1000) / 10} %)` : ""}</b></span><span><span className="block text-xs text-muted">Points en circulation</span><b>{L.pointsOutstanding.toLocaleString("fr-FR")} pts</b></span></div>
+      {!pro && <span className="text-xs text-muted inline-flex items-center gap-1"><Lock size={12} />Règles personnalisables en formule Pro.</span>}
+    </div>}
+  </Panel>;
+}
+function CrmMaster({ d, loading, onTab }: { d?: Dash; loading: boolean; onTab: (t: Tab) => void }) {
+  const items: Insight[] = [];
+  if (d) { if (d.customers.newInPeriod) items.push({ id: "n", tone: "ok", text: `${d.customers.newInPeriod} nouveau(x) client(s) sur 30 jours.` });
+    if (d.inactiveCount) items.push({ id: "i", tone: "warn", text: `${d.inactiveCount} client(s) n'ont pas acheté depuis plus de ${d.inactiveDays} jours : à relancer.` });
+    if (d.agenda.overdue) items.push({ id: "a", tone: "warn", text: `${d.agenda.overdue} relance(s) en retard dans l'agenda.` });
+    if (d.leads.open) items.push({ id: "l", tone: "info", text: `${d.leads.open} prospect(s) ouvert(s) à convertir${d.leads.conversionRate !== null ? ` (conversion ${d.leads.conversionRate} % sur la période)` : ""}.` }); }
+  return <div className="flex flex-col gap-2"><InsightCard module="CRM" loading={loading} items={items} source="clients, ventes, prospects et agenda de la boutique" emptyText="Rien à signaler : aucun client inactif ni relance en retard." />
+    {!!d?.inactiveCount && <button className="btn-ghost !py-2 text-sm" onClick={() => onTab("dash")}>Voir les clients à relancer</button>}</div>;
+}
+
 // ------------------------------------------------------------------ tableau de bord
-type Dash = { period: { days: number; from: string; to: string }; inactiveDays: number; customers: { total: number; segments: Record<string, number>; newInPeriod: number }; leads: { total: number; byStage: Record<string, number>; createdInPeriod: number; convertedInPeriod: number; conversionRate: number | null; open: number }; pipeline: { openCount: number; openValue: number; weighted: number; overdue: number; wonCount: number; wonValue: number; lostCount: number; lostValue: number; byStage: { stage: string; label: string; count: number; value: number }[] }; agenda: { open: number; overdue: number; today: number; next7: number; bySeller: { name: string; open: number; overdue: number }[] }; topCustomers: { id: string; name: string; total: number; salesCount: number }[]; inactive: { id: string; name: string; phone: string; days: number | null; total: number; salesCount: number }[]; inactiveCount: number; sources: { source: string; label: string; count: number }[]; notes: string[] };
+type Dash = { sales: { revenue: number; count: number; buyers: number; avgBasket: number | null; previous: { revenue: number; buyers: number; newCustomers: number } }; loyalty: { members: number; pointsOutstanding: number; cfaPerPoint: number | null }; trend: { month: string; active: number; new: number }[]; period: { days: number; from: string; to: string }; inactiveDays: number; customers: { total: number; segments: Record<string, number>; newInPeriod: number }; leads: { total: number; byStage: Record<string, number>; createdInPeriod: number; convertedInPeriod: number; conversionRate: number | null; open: number }; pipeline: { openCount: number; openValue: number; weighted: number; overdue: number; wonCount: number; wonValue: number; lostCount: number; lostValue: number; byStage: { stage: string; label: string; count: number; value: number }[] }; agenda: { open: number; overdue: number; today: number; next7: number; bySeller: { name: string; open: number; overdue: number }[] }; topCustomers: { id: string; name: string; total: number; salesCount: number }[]; inactive: { id: string; name: string; phone: string; days: number | null; total: number; salesCount: number }[]; inactiveCount: number; sources: { source: string; label: string; count: number }[]; notes: string[] };
 function Dashboard({ onSegment, onTab }: { onSegment: (s: string) => void; onTab: (t: Tab) => void }) {
   const { session } = useSession(); const s = session!; const [days, setDays] = useState(30); const [open, setOpen] = useState<string | null>(null); const [relance, setRelance] = useState<{ id: string; name: string } | null>(null);
   const q = useQuery({ queryKey: ["crm", "dash", s.shopId, days], retry: 1, queryFn: () => api<Dash>(s, "crm.dashboard", { days }) }); const d = q.data;

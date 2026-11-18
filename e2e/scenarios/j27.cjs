@@ -5,7 +5,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await st.create("products", "p1", T, { tenantId: T, shopId: A, name: "Riz 25kg", price: 1000, cost: 500 }); await st.create("stock_moves", "m0", T, { tenantId: T, shopId: A, productId: "p1", qty: 100, kind: "purchase" });
   const tab = (n) => page.getByRole("tab", { name: n }).click(); const wait = (t) => page.waitForSelector(`text=${t}`, { timeout: 10000 });
   await step("CRM visible en Business : onglets, état vide honnête (aucun faux client)", async () => {
-    await page.goto(h.url("clients")); await tab("Clients"); await wait("Aucun client pour le moment"); for (const k of ["Tableau", "Prospects", "Opportunités", "Agenda", "Crédit & fidélité"]) if (!(await page.getByRole("tab", { name: k }).count())) throw new Error("onglet manquant " + k);
+    await page.goto(h.url("clients")); await tab("Liste des clients"); await wait("Aucun client pour le moment"); for (const k of ["Tableau", "Prospects", "Opportunités", "Agenda", "Crédit & fidélité"]) if (!(await page.getByRole("tab", { name: k }).count())) throw new Error("onglet manquant " + k);
   });
   await step("fiche client créée depuis le formulaire (validation, consentements), retrouvée par la recherche", async () => {
     await page.getByRole("button", { name: "Nouveau client", exact: true }).click(); await page.getByLabel("Nom", { exact: true }).fill("Awa Ndiaye"); await page.getByLabel("Téléphone").fill("77 000 11 22"); await page.getByLabel("E-mail", { exact: true }).fill("awa@mail.sn"); await page.getByLabel("Entreprise").fill("Boutique Awa"); await page.getByLabel("Origine du contact").selectOption("referral"); await page.getByLabel("Consentement WhatsApp").check();
@@ -19,7 +19,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("une vente réelle en caisse met à jour la fiche (achat, chronologie, article) sans doublon", async () => {
     const cid = st.rows("customers").find((c) => c.name === "Awa Ndiaye").$id; const body = { clientId: "client-crm-0001", customerId: cid, lines: [{ productId: "p1", qty: 2 }], payments: [{ method: "cash", amount: 2000 }] };
     const r1 = await h.call("checkout", body, A); const r2 = await h.call("checkout", body, A); if (r1.status !== 200 || r2.status !== 200) throw new Error(JSON.stringify([r1.body, r2.body]));
-    await page.reload(); await tab("Clients"); await page.getByLabel("Rechercher un client").fill("Boutique Awa"); await page.getByText("Awa Ndiaye").first().click(); await wait("Achats confirmés"); const t = await txt(); if (!/Achats confirmés\s*1\b/.test(t) || !/Riz 25kg/.test(t) || !/Vente V-/.test(t)) throw new Error(t.slice(0, 800)); await page.getByLabel("Fermer").click();
+    await page.reload(); await tab("Liste des clients"); await page.getByLabel("Rechercher un client").fill("Boutique Awa"); await page.getByText("Awa Ndiaye").first().click(); await wait("Achats confirmés"); const t = await txt(); if (!/Achats confirmés\s*1\b/.test(t) || !/Riz 25kg/.test(t) || !/Vente V-/.test(t)) throw new Error(t.slice(0, 800)); await page.getByLabel("Fermer").click();
   });
   await step("prospect : création, étape, note, relance planifiée ; « gagné » seulement par conversion", async () => {
     await tab("Prospects"); await wait("Aucun prospect"); await page.getByRole("button", { name: "Nouveau prospect" }).click(); await page.getByLabel("Nom", { exact: true }).fill("Moussa Fall"); await page.getByLabel("Téléphone").fill("770009999"); await page.getByLabel("Origine du contact").selectOption("whatsapp"); await page.getByLabel("Notes du prospect").fill("Veut 50 sacs de riz");
@@ -31,7 +31,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("conversion réelle : confirmation, un seul client créé, relance et historique rattachés", async () => {
     await page.getByRole("button", { name: "Convertir en client" }).click(); await page.getByRole("button", { name: /Convertir Moussa Fall en client/ }).click(); await page.getByRole("button", { name: "Convertir", exact: true }).click(); await wait("Converti en client");
     const cs = st.rows("customers"); if (cs.length !== 3 || !cs.some((c) => c.name === "Moussa Fall")) throw new Error(JSON.stringify(cs.map((c) => c.name))); const cu = cs.find((c) => c.name === "Moussa Fall"); if (st.rows("crm_tasks")[0].customerId !== cu.$id) throw new Error("relance non rattachée");
-    await page.getByLabel("Fermer").click(); await tab("Clients"); await page.getByLabel("Rechercher un client").fill("Moussa"); await wait("Moussa Fall");
+    await page.getByLabel("Fermer").click(); await tab("Liste des clients"); await page.getByLabel("Rechercher un client").fill("Moussa"); await wait("Moussa Fall");
   });
   await step("opportunité depuis la fiche client, pipeline pondéré, gagnée avec auteur et date", async () => {
     await page.getByText("Moussa Fall").first().click(); await page.getByRole("button", { name: "Nouvelle opportunité" }).click(); await page.getByLabel("Intitulé de l'opportunité").fill("50 sacs de riz"); await page.getByLabel("Valeur estimée").fill("1500000"); await page.getByRole("button", { name: "Créer l'opportunité" }).click(); await wait("50 sacs de riz"); await page.getByLabel("Fermer").click();

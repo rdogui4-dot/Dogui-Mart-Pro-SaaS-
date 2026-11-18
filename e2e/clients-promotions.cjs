@@ -17,21 +17,21 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   for (const [route, wait] of [["clients", "Tableau"], ["promotions", "Créer une promotion"]]) for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]])
     await step(`${route} · ${label} (${w} px) : sans débordement, noms accessibles`, async () => { await open(route, w, hh, wait); await noOverflow(`${route} ${label}`); await unnamed(`${route} ${label}`); await page.screenshot({ path: path.join(OUT, `cp-${route}-${w}.png`) }); });
 
-  await step("clients · ordinateur : onglets regroupés (Suivi / Relations / Pro), aucun défilement horizontal", async () => {
-    await open("clients", 1280, 800, "Tableau"); const t = (await txt()).toLowerCase(); for (const x of ["suivi", "relations", "pro", "agenda", "prospects", "opportunités", "segments", "campagnes", "automatisations", "équipes", "analyses", "crédit"]) if (!t.includes(x)) throw new Error("manquant : " + x);
+  await step("clients · ordinateur : onglets du kit (K10) et seconde ligne, aucun défilement horizontal", async () => {
+    await open("clients", 1280, 800, "Tableau"); const t = (await txt()).toLowerCase(); for (const x of ["liste des clients", "prospects", "segmentation", "fidélité", "communications", "analyses", "tableau", "agenda", "opportunités", "automatisations", "équipes", "crédit"]) if (!t.includes(x)) throw new Error("manquant : " + x);
     const lists = await page.getByRole("tablist").evaluateAll((els) => els.map((e) => e.scrollWidth <= e.clientWidth + 1)); if (lists.some((x) => !x)) throw new Error("une rangée défile horizontalement");
   });
   await step("clients · ordinateur : tableau (colonnes), ouverture de la fiche en volet, Échap ; téléphone : cartes", async () => {
-    await open("clients", 1280, 800, "Tableau"); await page.getByRole("tab", { name: "Clients", exact: true }).click(); await page.waitForSelector("table", { timeout: 8000 });
+    await open("clients", 1280, 800, "Tableau"); await page.getByRole("tab", { name: "Liste des clients", exact: true }).click(); await page.waitForSelector("table", { timeout: 8000 });
     const heads = (await page.locator("thead th").allInnerTexts()).join("|"); for (const x of ["Client", "Contact", "Segment", "Total"]) if (!heads.includes(x)) throw new Error("colonne manquante : " + x);
     if ((await page.locator("tbody tr").count()) < 4) throw new Error("clients manquants");
     await page.locator("tbody tr").first().click(); await page.waitForTimeout(900); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.x < 1280 - 560) throw new Error("fiche non affichée en volet : " + JSON.stringify(d));
     await page.keyboard.press("Escape"); await page.waitForTimeout(400);
-    await open("clients", 390, 800, "Tableau"); await page.getByRole("tab", { name: "Clients", exact: true }).click(); await page.waitForTimeout(1200); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
+    await open("clients", 390, 800, "Tableau"); await page.getByRole("tab", { name: "Liste des clients", exact: true }).click(); await page.waitForTimeout(1200); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
   });
   await step("clients · filtres mémorisés par appareil (tri) et bouton Réinitialiser", async () => {
-    await open("clients", 1280, 800, "Tableau"); await page.getByRole("tab", { name: "Clients", exact: true }).click(); await page.waitForTimeout(800);
-    await page.getByLabel("Tri").selectOption("spent"); await page.waitForTimeout(600); await page.reload(); await page.waitForSelector("text=Tableau"); await page.getByRole("tab", { name: "Clients", exact: true }).click(); await page.waitForTimeout(1000);
+    await open("clients", 1280, 800, "Tableau"); await page.getByRole("tab", { name: "Liste des clients", exact: true }).click(); await page.waitForTimeout(800);
+    await page.getByLabel("Tri").selectOption("spent"); await page.waitForTimeout(600); await page.reload(); await page.waitForSelector("text=Tableau"); await page.getByRole("tab", { name: "Liste des clients", exact: true }).click(); await page.waitForTimeout(1000);
     if ((await page.getByLabel("Tri").inputValue()) !== "spent") throw new Error("tri non retrouvé"); await page.getByRole("button", { name: "Réinitialiser" }).click(); await page.waitForTimeout(500); if ((await page.getByLabel("Tri").inputValue()) !== "name") throw new Error("Réinitialiser inefficace");
   });
   await step("promotions · onglets du kit (K9) et seconde ligne, cadenas en icône (pas d'emoji)", async () => {

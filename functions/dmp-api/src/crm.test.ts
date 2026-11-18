@@ -160,8 +160,10 @@ describe("tableau de bord", () => {
     const d = await ok(call("ger", "crm.dashboard")); expect(d.customers.segments).toMatchObject({ new: 1, inactive: 1, never: 1 }); expect(d.customers.total).toBe(3); expect(d.leads).toMatchObject({ total: 2, createdInPeriod: 2, convertedInPeriod: 1, conversionRate: 50 }); expect(d.leads.byStage).toMatchObject({ contacted: 1, won: 1 });
     expect(d.pipeline).toMatchObject({ openCount: 1, openValue: 100000, weighted: 80000, wonCount: 1, wonValue: 50000 }); expect(d.agenda).toMatchObject({ open: 2, overdue: 1 }); expect(d.agenda.bySeller[0]).toMatchObject({ name: "cais", open: 2, overdue: 1 }); expect(d.topCustomers[0]).toMatchObject({ name: "Awa", total: 20000 }); expect(d.inactive.map((x: any) => x.name)).toEqual(["Bara"]); expect(d.inactive[0].days).toBeGreaterThanOrEqual(99);
     expect(d.sources.find((s: any) => s.source === "referral").count).toBe(1); expect(d.notes.join(" ")).toMatch(/aucune donnée d'exemple/);
+    expect(d.sales).toMatchObject({ revenue: 20000, count: 1, buyers: 1, avgBasket: 20000, previous: { revenue: 0, buyers: 0, newCustomers: 0 } }); expect(d.trend).toHaveLength(6); expect(d.trend[5].active).toBe(1); expect(d.trend.reduce((x: number, m: any) => x + m.new, 0)).toBe(3);
+    expect(d.loyalty).toMatchObject({ members: expect.any(Number), pointsOutstanding: expect.any(Number) });
   });
-  it("base vide : zéros partout, aucune donnée fictive", async () => { const d = await ok(call("own", "crm.dashboard")); expect(d.customers.total).toBe(0); expect(d.pipeline.openCount).toBe(0); expect(d.topCustomers).toEqual([]); expect(d.inactive).toEqual([]); expect(d.leads.conversionRate).toBeNull(); });
+  it("base vide : zéros partout, aucune donnée fictive", async () => { const d = await ok(call("own", "crm.dashboard")); expect(d.customers.total).toBe(0); expect(d.pipeline.openCount).toBe(0); expect(d.topCustomers).toEqual([]); expect(d.inactive).toEqual([]); expect(d.leads.conversionRate).toBeNull(); expect(d.sales).toMatchObject({ revenue: 0, avgBasket: null }); expect(d.loyalty.members).toBe(0); });
 });
 
 describe("abonnement : Pro → Business → Starter sans perte", () => {

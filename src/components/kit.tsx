@@ -67,7 +67,7 @@ export function PillTabs<K extends string>({ items, value, onChange, label, idBa
     if (j < 0) return; e.preventDefault(); refs.current[j]?.focus(); onChange(items[j]!.key);
   };
   return (
-    <div role="tablist" aria-label={label} className="scroll-x !gap-2">
+    <div role="tablist" aria-label={label} className="scroll-x !gap-2 md:flex-wrap md:overflow-x-visible">
       {items.map((t, i) => {
         const on = t.key === value; const I = t.icon;
         return (
