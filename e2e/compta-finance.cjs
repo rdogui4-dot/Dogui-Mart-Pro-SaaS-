@@ -56,13 +56,13 @@ const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 1
     await tab("Flux de caisse"); await page.waitForTimeout(600); if ((await page.getByRole("table", { name: "Flux" }).count()) === 0 && !(await txt()).includes("0 ligne")) throw new Error("ni tableau ni liste vide des flux");
   });
 
-  await step("icompta · onglets regroupés (Saisie / Consultation / Organisation / Pro / Sorties), tous les anciens onglets présents", async () => {
+  await step("icompta · onglets du kit (K12) et seconde ligne, tous les anciens onglets présents", async () => {
     await open("icompta", 1280, 800, "Facturation"); const t = (await txt()).toLowerCase();
-    for (const x of ["saisie", "consultation", "organisation", "sorties", "facturation", "synthèse", "écritures", "propositions", "livres", "tiers", "périodes", "plan de comptes", "lettrage", "immobilisations", "analytique", "états", "clôture guidée", "exports comptables", "rapports d'activité"]) if (!t.includes(x)) throw new Error("manquant : " + x);
+    for (const x of ["vue d'ensemble", "facturation", "synthèse", "écritures", "propositions", "journaux", "tiers", "clôture", "plan comptable", "lettrage", "immobilisations", "analytique", "états financiers", "clôture guidée", "exports comptables", "rapports d'activité"]) if (!t.includes(x)) throw new Error("manquant : " + x);
     await rowGroups();
   });
   await step("icompta · factures : tableau (≥ 1024 px), fiche en volet ; création d'une facture libre", async () => {
-    await open("icompta", 1280, 800, "Facturation"); await page.waitForSelector("table", { timeout: 8000 }); const hd = await heads(); for (const x of ["N°", "Client", "Total", "Reste", "Statut"]) if (!hd.includes(x)) throw new Error("colonne manquante : " + x);
+    await open("icompta", 1280, 800, "Facturation"); await tab("Facturation"); await page.waitForSelector("table", { timeout: 8000 }); const hd = await heads(); for (const x of ["N°", "Client", "Total", "Reste", "Statut"]) if (!hd.includes(x)) throw new Error("colonne manquante : " + x);
     if (!(await page.locator("tbody", { hasText: "Awa Traoré" }).count())) throw new Error("facture du client absente");
     await page.locator("tbody tr").first().click(); await page.waitForTimeout(800); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.x < 1280 - 600) throw new Error("fiche non affichée en volet : " + JSON.stringify(d)); await page.keyboard.press("Escape"); await page.waitForTimeout(400);
     const before = await page.locator("tbody tr").count(); await page.getByRole("button", { name: "Facture libre" }).click(); await page.getByLabel("Client", { exact: true }).selectOption({ label: "Awa Traoré" });
@@ -76,13 +76,13 @@ const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 1
     await page.getByRole("button", { name: "Nouvelle écriture" }).click(); await page.waitForTimeout(700); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.width < 600) throw new Error("fenêtre étroite : " + JSON.stringify(d));
   });
   await step("icompta · livres : balance, grand livre et journal en tableaux ; téléphone : cartes", async () => {
-    await open("icompta", 1280, 800, "Facturation"); await tab("Livres"); await page.waitForSelector("table", { timeout: 8000 }); let hd = await heads(); for (const x of ["Compte", "Intitulé", "Débit", "Crédit", "Solde"]) if (!hd.includes(x)) throw new Error("balance : colonne manquante " + x);
+    await open("icompta", 1280, 800, "Facturation"); await tab("Journaux"); await page.waitForSelector("table", { timeout: 8000 }); let hd = await heads(); for (const x of ["Compte", "Intitulé", "Débit", "Crédit", "Solde"]) if (!hd.includes(x)) throw new Error("balance : colonne manquante " + x);
     await page.getByRole("button", { name: "Grand livre d'un compte" }).click(); await page.waitForTimeout(1000); hd = await heads(); for (const x of ["Date", "Pièce", "Libellé", "Débit", "Crédit", "Solde"]) if (!hd.includes(x)) throw new Error("grand livre : colonne manquante " + x);
     await page.getByRole("button", { name: "Journal", exact: true }).click(); await page.waitForTimeout(1000); hd = await heads(); for (const x of ["Pièce", "Compte", "Débit", "Crédit"]) if (!hd.includes(x)) throw new Error("journal : colonne manquante " + x);
-    await open("icompta", 390, 800, "Facturation"); await tab("Livres"); await page.waitForTimeout(800); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
+    await open("icompta", 390, 800, "Facturation"); await tab("Journaux"); await page.waitForTimeout(800); if (await page.locator("table").count()) throw new Error("tableau sur téléphone");
   });
   await step("icompta · impression : navigation et onglets masqués", async () => {
-    await open("icompta", 1280, 800, "Facturation"); await tab("Livres"); await page.emulateMedia({ media: "print" });
+    await open("icompta", 1280, 800, "Facturation"); await tab("Journaux"); await page.emulateMedia({ media: "print" });
     const vis = await page.evaluate(() => [...document.querySelectorAll("nav, header, [role=tablist]")].filter((e) => getComputedStyle(e).display !== "none").length); await page.emulateMedia({ media: "screen" }); if (vis) throw new Error(vis + " élément(s) de navigation imprimé(s)");
   });
 
