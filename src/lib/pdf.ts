@@ -6,16 +6,30 @@ const GOLD: [number, number, number] = [201, 162, 39];
 
 /** Construit le PDF (A4 pour factures et bons de commande, rouleau 80 mm pour le ticket). */
 export async function buildPdf(m: DocModel, width: 58 | 80 = 80): Promise<jsPDF> {
-  const { jsPDF } = await import("jspdf");
-  if (m.kind === "receipt") { const doc = new jsPDF({ unit: "mm", format: [width, receiptHeight(m)] }); const qr = m.qr ? (await import("qrcode")).default : null; return receipt(doc, m, qr ? await qr.toDataURL(m.qr!, { margin: 1, width: 240 }) : undefined); }
-  return a4(new jsPDF({ unit: "mm", format: "a4" }), m);
+  const { jsPDF } = await import("jspdf"); const logo = m.issuer.logoFileId ? await logoDataUrl(m.issuer.logoFileId) : null;
+  if (m.kind === "receipt") { const doc = new jsPDF({ unit: "mm", format: [width, receiptHeight(m) + (logo ? 16 : 0)] }); const qr = m.qr ? (await import("qrcode")).default : null; return receipt(doc, m, qr ? await qr.toDataURL(m.qr!, { margin: 1, width: 240 }) : undefined, logo); }
+  return a4(new jsPDF({ unit: "mm", format: "a4" }), m, logo);
+}
+type Logo = { url: string; ratio: number };
+const logoCache = new Map<string, Logo | null>();
+/** Logo de l'entreprise (stockage de l'application) converti en PNG pour le PDF ; en cas d'échec, le document est produit sans logo. */
+async function logoDataUrl(fileId: string): Promise<Logo | null> {
+  if (logoCache.has(fileId)) return logoCache.get(fileId)!;
+  try {
+    const env = import.meta.env; let fallback = ""; try { fallback = localStorage.getItem("cookieFallback") ?? ""; } catch { /* navigation privée */ }
+    const r = await fetch(`${env.VITE_APPWRITE_ENDPOINT}/storage/buckets/articles/files/${fileId}/view`, { headers: { "X-Appwrite-Project": String(env.VITE_APPWRITE_PROJECT_ID), "X-Fallback-Cookies": fallback }, credentials: "include" });
+    if (!r.ok) throw new Error(String(r.status)); const bmp = await createImageBitmap(await r.blob()); const max = 400; const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+    const v = { url: c.toDataURL("image/png"), ratio: c.width / Math.max(1, c.height) }; logoCache.set(fileId, v); return v;
+  } catch { logoCache.set(fileId, null); return null; }
 }
 export async function pdfBlob(m: DocModel, width: 58 | 80 = 80): Promise<Blob> { return (await buildPdf(m, width)).output("blob"); }
 
 const receiptHeight = (m: DocModel) => 40 + (m.issuer.lines?.length ?? 0) * 4 + m.rows.length * 9 + m.totals.length * 5 + m.footer.length * 5 + (m.qr ? 34 : 0);
 
-function receipt(doc: jsPDF, m: DocModel, qrImg?: string): jsPDF {
+function receipt(doc: jsPDF, m: DocModel, qrImg?: string, logo?: Logo | null): jsPDF {
   const W = doc.internal.pageSize.getWidth(), M = 4; let y = 8;
+  if (logo) { const h = 14, w = Math.min(W - 2 * M, h * logo.ratio); doc.addImage(logo.url, "PNG", (W - w) / 2, y - 4, w, h); y += h; }
   const center = (t: string, size = 9, bold = false) => { doc.setFont("helvetica", bold ? "bold" : "normal").setFontSize(size); doc.text(t, W / 2, y, { align: "center" }); y += size * 0.45 + 1; };
   center(m.issuer.name, 12, true); for (const l of m.issuer.lines ?? []) center(l, 8);
   y += 1; center(`${m.title}`, 9, true); center(`N° ${m.number}`, 8); center(m.date, 8);
@@ -32,8 +46,9 @@ function receipt(doc: jsPDF, m: DocModel, qrImg?: string): jsPDF {
   return doc;
 }
 
-function a4(doc: jsPDF, m: DocModel): jsPDF {
+function a4(doc: jsPDF, m: DocModel, logo?: Logo | null): jsPDF {
   const W = 210, M = 15, R = W - M; let y = 20;
+  if (logo) { const h = 16, w = Math.min(50, h * logo.ratio); doc.addImage(logo.url, "PNG", M, 8, w, h); y = 8 + h + 7; }
   const text = (t: string, x: number, size: number, bold = false, align: "left" | "right" = "left") => { doc.setFont("helvetica", bold ? "bold" : "normal").setFontSize(size); doc.text(t, x, y, { align }); };
   // En-tête
   doc.setFillColor(...GOLD).rect(0, 0, W, 4, "F");

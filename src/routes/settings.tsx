@@ -10,7 +10,9 @@ import { DEFAULT_PLANS } from "@/domain/subscriptions";
 import { COST_METHODS, isCostMethod, methodLabel } from "@/domain/costing";
 import { planAllows } from "@/domain/features";
 import { EXPIRED_POLICIES, isExpiredPolicy } from "@/domain/tracking";
-import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
+import { ModuleHeader, PillTabs, type PillTab } from "@/components/kit";
+import { Building2, CreditCard, Scale, ScrollText, Settings as SettingsIcon, Store, UserCog } from "lucide-react";
+import { GeneralSection, SettingsKpis } from "./settings-general";
 import { ActivityLog } from "./activity-log";
 import { readFxPref, writeFxPref, useFxLevel, type FxPref } from "@/lib/fx3d";
 
@@ -21,7 +23,8 @@ function FxPrefCard() {
   return <div className="card flex flex-col gap-2 md:max-w-2xl"><h2 className="font-semibold">Effets 3D</h2><label className="text-xs text-muted flex flex-col gap-1">Sur cet appareil<select className="input" aria-label="Effets 3D" value={pref} onChange={(e) => { const v = e.target.value as FxPref; setPref(v); writeFxPref(v); }}><option value="auto">Automatique (recommandé)</option><option value="on">Activés</option><option value="off">Désactivés</option></select></label><p className="text-xs text-muted" role="status">Actuellement : {FX_TXT[level]}. Si votre appareil demande de réduire les animations, l'affichage reste plat.</p></div>;
 }
 
-type STab = "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
+type STab = "general" | "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
+const MAIN_SET: PillTab<STab>[] = [{ key: "general", label: "Général", icon: SettingsIcon }, { key: "shop", label: "Boutique", icon: Store }, { key: "rules", label: "Règles de gestion", icon: Scale }, { key: "shops", label: "Boutiques", icon: Building2 }, { key: "payments", label: "Paiements", icon: CreditCard }, { key: "activity", label: "Journal d'activité", icon: ScrollText }];
 /** Message après enregistrement : succès en vert (statut), erreur en rouge (alerte). */
 const Msg = ({ text }: { text: string }) => (!text ? null : /^(Enregistr|Méthode enregistr|Politique enregistr|Marge minimale enregistr|Lien retiré)/.test(text) ? <p className="d3-saved text-sm text-ok font-medium self-start rounded-lg bg-ok-bg px-3 py-1.5" role="status">✓ {text}</p> : <p className="text-sm text-bad" role="alert">{text}</p>);
 
@@ -32,7 +35,7 @@ export function SettingsPage() {
   const pay = useQuery({ queryKey: ["pay-settings", s.shopId], enabled: can(s, "settings"), queryFn: () => api<{ wave: boolean; orange: boolean }>(s, "payments.settings.get", {}) });
   // Arrivée depuis Selar (URL de redirection) : on ouvre l'onglet Abonnement sur l'offre indiquée. Lu une seule fois.
   const [deep] = useState(() => parseDeepLink(window.location.search, DEFAULT_PLANS.map((p) => p.id)));
-  const [tab, setTab] = useState<STab>(deep.tab === "profile" || !can(s, "settings") ? "profile" : deep.tab ?? "shop");
+  const [tab, setTab] = useState<STab>(deep.tab === "profile" || !can(s, "settings") ? "profile" : deep.tab ?? "general");
   const sub = useSubscription();
   const me = useQuery({ queryKey: ["platform-me"], queryFn: () => api<{ admin: boolean }>(s, "platform.me", {}), staleTime: 300_000 });
   const [opened, setOpened] = useState(false);
@@ -79,11 +82,14 @@ export function SettingsPage() {
   }
   return (
     <div className="flex flex-col gap-3">
-      <h1 className="text-2xl font-bold">Réglages</h1>
-      {can(s, "settings") && (
-        <GroupedTabs label="Sections des réglages" value={tab} onChange={setTab} groups={groupTabs<STab>([["profile", "Mon profil"], ["shop", "Boutique"], ["rules", "Règles de gestion"], ["shops", "Boutiques"], ["staff", "Équipe & accès"], ["subscription", "Abonnement"], ["payments", "Paiements QR"], ["activity", "Journal d'activité"], ...(me.data?.admin ? [["platform", "Plateforme"] as [STab, string]] : [])], [["Compte", ["profile"]], ["Commerce", ["shop", "rules", "shops"]], ["Équipe", ["staff"]], ["Abonnement et paiements", ["subscription", "payments"]], ["Suivi", ["activity"]], ["Administration", ["platform"]]])} />
-      )}
+      <ModuleHeader icon={tab === "staff" ? UserCog : tab === "subscription" ? CreditCard : SettingsIcon} title={tab === "staff" ? "Équipe & Permissions" : tab === "subscription" ? "Abonnement & Facturation" : "Paramètres généraux"} subtitle={tab === "staff" ? "Membres, rôles, accès et boutiques autorisées." : tab === "subscription" ? "Votre formule, vos paiements et vos échéances." : "Configurez et personnalisez DOGUI MART PRO selon vos besoins."} />
+      {can(s, "settings") && <>
+        {tab !== "staff" && tab !== "subscription" && <SettingsKpis />}
+        <PillTabs idBase="set" label="Sections des paramètres" value={MAIN_SET.some((t) => t.key === tab) ? tab : ("" as STab)} onChange={setTab} items={MAIN_SET} />
+        <div role="tablist" aria-label="Autres sections" className="scroll-x !gap-1.5 -mt-1 md:flex-wrap md:overflow-x-visible">{([["profile", "Mon profil"], ["staff", "Équipe & accès"], ["subscription", "Abonnement"], ...(me.data?.admin ? [["platform", "Plateforme"]] : [])] as [STab, string][]).map(([k, l]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className="chip !min-h-8 !py-1 !px-3 text-sm" onClick={() => setTab(k)}>{l}</button>)}</div>
+      </>}
       <div key={tab} className="d3-settings flex flex-col gap-3">
+      {tab === "general" && can(s, "settings") && <GeneralSection onTab={(t) => setTab(t as STab)} />}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}

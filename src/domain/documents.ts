@@ -3,7 +3,7 @@ import { paidOf, poTotalHt, type Payment, type PoLine } from "./purchasing";
 import type { ConsolidatedReport } from "./reports";
 
 /** Modèle neutre d'un document imprimable (facture, bon de commande, ticket). Le rendu PDF est séparé (src/lib/pdf.ts). */
-export type Party = { name: string; lines?: string[] };
+export type Party = { name: string; lines?: string[]; logoFileId?: string };
 export type DocRow = { label: string; qty: number; unit: number; total: number };
 export type DocModel = {
   kind: "invoice" | "purchase_order" | "receipt" | "report";
@@ -16,11 +16,12 @@ export type DocModel = {
   footer: string[];
   /** Code de vérification imprimé en QR sur le ticket (Pro) : fourni par le serveur après confirmation de la vente. */ qr?: string;
 };
-export type Shop = { name?: string; address?: string; city?: string; phone?: string; legal?: string; vatRatePct?: number };
+export type Shop = { name?: string; address?: string; city?: string; phone?: string; legal?: string; vatRatePct?: number; companyName?: string; taxRegime?: string; logoFileId?: string };
 
 export const issuerOf = (s: Shop | null | undefined): Party => ({
   name: s?.name || "Mon commerce",
-  lines: [s?.address, s?.city, s?.phone && `Tél. ${s.phone}`, s?.legal].filter((x): x is string => !!x),
+  lines: [s?.companyName && s.companyName !== s?.name ? s.companyName : "", s?.address, s?.city, s?.phone && `Tél. ${s.phone}`, s?.legal, s?.taxRegime && `Régime fiscal : ${s.taxRegime}`].filter((x): x is string => !!x),
+  ...(s?.logoFileId ? { logoFileId: s.logoFileId } : {}),
 });
 /** Montant avec espaces ASCII : les polices PDF standard ne savent pas afficher l'espace fine insécable d'Intl. */
 export const plainMoney = (n: number): string => formatFcfa(n).replace(/[\u202f\u00a0]/g, " ");

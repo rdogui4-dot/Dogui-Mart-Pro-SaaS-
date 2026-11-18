@@ -1,6 +1,8 @@
 import { isCostMethod } from "../../../src/domain/costing";
 import { isExpiredPolicy } from "../../../src/domain/tracking";
-import { needFeature } from "./articles";
+import { MAGIC, MAX_IMAGE_BYTES, needFeature } from "./articles";
+import { isTimezone } from "../../../src/domain/promotions";
+import { readRoles } from "./permissions";
 import { ACCOUNTS, saleJournal } from "../../../src/domain/accounting";
 import { toFcfa } from "../../../src/domain/money";
 import { invoiceStatus, invoiceTtc, paidOf, type Payment } from "../../../src/domain/purchasing";
@@ -13,7 +15,7 @@ const parse = <T,>(s: unknown, fallback: T): T => { try { return JSON.parse(Stri
 const ymd = (iso: string) => iso.slice(0, 10).replace(/-/g, "");
 const TREASURY = { cash: ACCOUNTS.cash, wave: ACCOUNTS.wave, orange: ACCOUNTS.orange, card: ACCOUNTS.bank } as const;
 
-export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; address?: string; city?: string; phone?: string; legal?: string; vatRatePct?: number; costMethod?: string; expiredPolicy?: string; minMarginPct?: number; cashRequired?: boolean; varianceTolerance?: number }) {
+export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; address?: string; city?: string; phone?: string; legal?: string; companyName?: string; taxRegime?: string; promoTz?: string; vatRatePct?: number; costMethod?: string; expiredPolicy?: string; minMarginPct?: number; cashRequired?: boolean; varianceTolerance?: number }) {
   need(ctx, "owner");
   if (b.expiredPolicy !== undefined) { // vente des lots périmés : interdite par défaut ; la rendre possible est un choix du propriétaire (Pro), journalisé
     if (!isExpiredPolicy(b.expiredPolicy)) throw new HttpError(400, "Politique inconnue");
@@ -40,7 +42,8 @@ export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; addre
   if (vat !== undefined && !(vat >= 0 && vat <= 30)) throw new HttpError(400, "TVA invalide (0 à 30 %)");
   const clean = (v: unknown, n: number) => (v === undefined ? undefined : String(v).slice(0, n));
   if (b.varianceTolerance !== undefined) { await needFeature(store, ctx, "smartPosPro"); const t = Number(b.varianceTolerance); if (!Number.isInteger(t) || t < 0 || t > 1_000_000) throw new HttpError(400, "Tolérance d'écart invalide (0 à 1 000 000 FCFA)"); }
-  const data: Record<string, unknown> = { ...(b.varianceTolerance !== undefined ? { varianceTolerance: Number(b.varianceTolerance) } : {}), ...(b.cashRequired !== undefined ? { cashRequired: b.cashRequired === true } : {}), ...(b.costMethod !== undefined ? { costMethod: b.costMethod } : {}), ...(b.expiredPolicy !== undefined ? { expiredPolicy: b.expiredPolicy } : {}), ...(b.minMarginPct !== undefined ? { minMarginPct: Number(b.minMarginPct) } : {}), name: clean(b.name, 120), address: clean(b.address, 160), city: clean(b.city, 80), phone: clean(b.phone, 32), legal: clean(b.legal, 120), vatRatePct: vat };
+  const data: Record<string, unknown> = { ...(b.varianceTolerance !== undefined ? { varianceTolerance: Number(b.varianceTolerance) } : {}), ...(b.cashRequired !== undefined ? { cashRequired: b.cashRequired === true } : {}), ...(b.costMethod !== undefined ? { costMethod: b.costMethod } : {}), ...(b.expiredPolicy !== undefined ? { expiredPolicy: b.expiredPolicy } : {}), ...(b.minMarginPct !== undefined ? { minMarginPct: Number(b.minMarginPct) } : {}), name: clean(b.name, 120), address: clean(b.address, 160), city: clean(b.city, 80), phone: clean(b.phone, 32), legal: clean(b.legal, 120), companyName: clean(b.companyName, 160), taxRegime: clean(b.taxRegime, 80), promoTz: b.promoTz === undefined ? undefined : String(b.promoTz), vatRatePct: vat };
+  if (data.promoTz !== undefined && !isTimezone(String(data.promoTz))) throw new HttpError(400, "Fuseau horaire inconnu");
   for (const k of Object.keys(data)) if (data[k] === undefined) delete data[k];
   if (data.name === "") throw new HttpError(400, "Nom requis");
   const id = ctx.shopId.slice(0, 36);
@@ -139,4 +142,17 @@ export async function payCustomerInvoice(store: Store, ctx: Ctx, b: { invoiceId:
   await store.create("audit_log", `${base}_a`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action: "invoice.customer.pay", detail: `${inv.number} ${amount} ${b.method}` });
   const paid = paidOf(payments);
   return { paid, due: Math.max(0, total - paid), status: invoiceStatus(total, paid), duplicate: !!done };
+}
+
+/** Logo de l'entreprise (en-tête des tickets et factures) : propriétaire seul ; contenu vérifié (JPEG, PNG ou WebP, 450 Ko max) ; lisible par l'équipe de la boutique ; journalisé. */
+export async function setShopLogo(store: Store, ctx: Ctx, b: { data: string | null }) {
+  need(ctx, "owner"); const id = ctx.shopId.slice(0, 36); const shop = await store.get("shops", id); if (!shop || shop.tenantId !== ctx.tenantId) throw new HttpError(404, "Boutique introuvable");
+  const old = shop.logoFileId ? String(shop.logoFileId) : ""; const log = (action: string) => store.create("audit_log", crypto.randomUUID().replace(/-/g, "").slice(0, 30), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action, detail: String(shop.name ?? id) });
+  if (b.data === null) { await store.update("shops", id, { logoFileId: "" }); if (old) await store.deleteFile(old); await log("shop.logo.remove"); return { fileId: "" }; }
+  if (typeof b.data !== "string" || !/^[A-Za-z0-9+/]+=*$/.test(b.data)) throw new HttpError(400, "Image invalide");
+  const bytes = new Uint8Array(Buffer.from(b.data, "base64")); if (bytes.length < 100) throw new HttpError(400, "Image invalide"); if (bytes.length > MAX_IMAGE_BYTES) throw new HttpError(413, "Image trop lourde (450 Ko maximum après compression)");
+  const kind = MAGIC.find((m) => m.ok(bytes)); if (!kind) throw new HttpError(400, "Format d'image non pris en charge (JPEG, PNG ou WebP)");
+  const fileId = crypto.randomUUID().replace(/-/g, "").slice(0, 30);
+  await store.putFile(fileId, bytes, `logo-${id}.${kind.ext}`, kind.mime, readRoles("shops", ctx.tenantId, shop as Record<string, unknown>, id));
+  await store.update("shops", id, { logoFileId: fileId }); if (old) await store.deleteFile(old); await log("shop.logo"); return { fileId };
 }

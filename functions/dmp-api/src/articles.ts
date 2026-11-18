@@ -13,7 +13,7 @@ const must = (r: Row | null, msg = "Article introuvable"): Row => { if (!r) thro
 const INITIAL = "stock-initial";
 /** Champs que le client peut envoyer. imageFileId n'en fait pas partie : la photo passe uniquement par article.image. */
 const FIELDS = ["name", "sku", "barcode", "category", "price", "cost", "minStock", "archived", "description", "unit", "supplierId", "qtyScale", "tracking", "kind", "bundleMode"] as const;
-const MAX_IMAGE_BYTES = 450_000;
+export const MAX_IMAGE_BYTES = 450_000;
 
 /** Droit lié à la FORMULE (distinct du rôle de l'employé). 402 = « passez à l'offre supérieure ». */
 export async function needFeature(store: Store, ctx: Ctx, key: FeatureKey): Promise<void> {
@@ -174,7 +174,7 @@ export async function deleteArticle(store: Store, ctx: Ctx, b: { id: string }) {
   return { id: row.$id };
 }
 
-const MAGIC: { mime: string; ext: string; ok: (b: Uint8Array) => boolean }[] = [
+export const MAGIC: { mime: string; ext: string; ok: (b: Uint8Array) => boolean }[] = [
   { mime: "image/jpeg", ext: "jpg", ok: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   { mime: "image/png", ext: "png", ok: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
   { mime: "image/webp", ext: "webp", ok: (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50 },
