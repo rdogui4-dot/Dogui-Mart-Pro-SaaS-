@@ -140,5 +140,6 @@ export const TABLES = {
   md_usage: { cols: [s("tenantId", 64, true), s("day", 10, true), i("n"), s("userId", 64), i("tokensIn"), i("tokensOut"), i("aiUsed"), i("fallback")], idx: [["day", ["tenantId", "day"]], ["tenantonly", ["tenantId"]], ["dayonly", ["day"]]] },
   md_events: { cols: [s("tenantId", 64), s("status", 10, true), s("ref", 64), i("amount"), s("email", 120), s("currency", 8), s("bodyHash", 64), t("raw"), s("note", 200), s("requestId", 64), s("decidedBy", 64)], idx: [["status", ["status"]]] },
   platform_settings: { cols: [t("selarLinks"), t("plans"), t("masterHook")], idx: [] },
+  market_cache: { cols: [t("data"), s("fetchedAt", 32), s("attemptAt", 32), s("error", 200)], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
 };

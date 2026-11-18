@@ -16,6 +16,7 @@ import { exportReport, type ExportFormat } from "@/lib/report-export";
 import type { ReportData } from "@/domain/exports";
 import { Err, Field, Kpi, Note, day, fmtDay, money, rid, useAct, useQ } from "./icompta-kit";
 import { PlacementPro, Portfolio, ProjectPro, Reglages } from "./investissements-pro";
+import { Marches } from "./investissements-marches";
 
 type Alert = { level: "critical" | "warn" | "info"; text: string; item?: string; id?: string };
 const TONE = { critical: "text-bad", warn: "text-warn", info: "text-muted" } as const;
@@ -25,7 +26,7 @@ const Alerts = ({ list }: { list: Alert[] }) => <>{list.map((a, i) => <p key={i}
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v} %`);
 const months = (v: number | null | undefined) => (v === null || v === undefined ? "jamais" : `${v} mois`);
 
-type Tab = "ov" | "proj" | "sim" | "fin" | "suivi" | "plac" | "port" | "reg" | "rpro";
+type Tab = "ov" | "proj" | "sim" | "fin" | "suivi" | "mk" | "plac" | "port" | "reg" | "rpro";
 type PRow = { id: string; name: string; type: string; status: string; statusLabel: string; budget: number; spent: number; months: number | null; net: number | null; roiPct: number | null; paybackMonths: number | null; annualGain: number | null };
 type Folio = { pro: boolean; counts: { total: number; active: number; withCentral: number }; invested: number; avgRoiPct: number | null; annualGain: number | null; avgPaybackMonths: number | null; totals: { budget: number; net: number; roiPct: number | null }; byType: { type: string; budget: number }[]; projects: PRow[]; best: string | null; note: string;
   main: null | { id: string; name: string; budget: number; months: number; cumulative: number[]; scenarios: { name: string; label: string; set: boolean; growthPct?: number; sales?: number; net?: number; roiPct?: number | null; paybackMonths?: number | null }[]; pro: null | { rate: number | null; npv: number | null; irr: number | null; pi: number | null } } };
@@ -37,7 +38,7 @@ export function InvestPage() {
   const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const owner = s.role === "owner";
   const f = useQ<Folio>("inv.portfolio"); const pro = f.data?.pro === true; const [tab, setTab] = useState<Tab>("ov"); const [nw, setNw] = useState(false);
   const main: PillTab<Tab>[] = [{ key: "ov", label: "Vue d'ensemble", icon: LayoutGrid }, { key: "proj", label: "Projets d'investissement", icon: FolderKanban }, { key: "sim", label: "Simulations & projections", icon: LineIcon }, { key: "fin", label: "Plan de financement", icon: Landmark, locked: !pro }, { key: "suivi", label: "Suivi & rentabilité", icon: Activity }];
-  const extra: [Tab, string, boolean][] = [["plac", "Placements", false], ["port", "Portefeuille", true], ["reg", "Profil de risque", false], ["rpro", "Réglages Pro", true]];
+  const extra: [Tab, string, boolean][] = [["mk", "Marchés & connaissances", false], ["plac", "Placements", false], ["port", "Portefeuille", true], ["reg", "Profil de risque", false], ["rpro", "Réglages Pro", true]];
   return (
     <div className="flex flex-col gap-4">
       <ModuleHeader icon={Briefcase} title="IProj-Invest — Investissements & Projections" subtitle="Évaluez vos projets d'entreprise et simulez leur rentabilité à partir de vos propres hypothèses." actions={mgr ? <button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => setNw(true)}><Plus size={18} />Nouveau projet</button> : undefined} />
@@ -50,7 +51,7 @@ export function InvestPage() {
       {tab === "sim" && <Simulations q={f} />}
       {tab === "fin" && (pro ? <Financing q={f} /> : <LockedState feature="Plan de financement" plan="Pro" />)}
       {tab === "suivi" && <Suivi q={f} onTab={setTab} />}
-      {tab === "plac" && <Items kind="placement" mgr={mgr} />}{tab === "port" && <Portfolio owner={owner} />}{tab === "rpro" && <Reglages />}{tab === "reg" && <Profil owner={owner} />}
+      {tab === "mk" && <Marches />}{tab === "plac" && <Items kind="placement" mgr={mgr} />}{tab === "port" && <Portfolio owner={owner} />}{tab === "rpro" && <Reglages />}{tab === "reg" && <Profil owner={owner} />}
       {nw && <Sheet title="Nouveau projet" onClose={() => setNw(false)} back size="lg"><ProjectForm types={[...PROJECT_TYPES]} onDone={() => { setNw(false); setTab("proj"); }} /></Sheet>}
     </div>
   );

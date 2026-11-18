@@ -8,3 +8,4 @@ export class Store extends MemoryStore {
   }
 }
 export { handle };
+export { setMarketFetch } from "../functions/dmp-api/src/markets";

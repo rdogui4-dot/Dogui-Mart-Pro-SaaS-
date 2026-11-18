@@ -146,6 +146,8 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   md_reports: (t, d) => [owner(t), `label:${managerLabel(shopOf(d))}`],
   // Réglages de plateforme : aucune lecture client (clé serveur uniquement)
   platform_settings: () => [],
+  // Cache des données publiques de marché : lu et écrit par le serveur seulement
+  market_cache: () => [],
 };
 export const POLICY_TABLES = Object.keys(POLICY);
 

@@ -1,6 +1,8 @@
 const http = require("http"), fs = require("fs"), path = require("path");
 const { chromium } = require("playwright");
-const { Store, handle } = require("./.build/server.cjs");
+const { Store, handle, setMarketFetch } = require("./.build/server.cjs");
+// Aucune source de marché réelle n'est appelée pendant les tests navigateur (un scénario peut installer son faux réseau).
+setMarketFetch?.(() => Promise.reject(new Error("réseau coupé (tests)")));
 const ROOT = path.join(__dirname, ".build", "site"), PREFIX = "/Dogui-Mart-Pro-SaaS-/";
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json" };
 const T = "t1";

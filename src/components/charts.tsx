@@ -27,21 +27,21 @@ export function BarChart({ data, label, format = formatFcfa }: { data: { key: st
 
 /** Courbe de période (aire) interactive : glisser/toucher pour lire un jour. */
 /** w : largeur du repère (320 par défaut ; plus large = graphique en bandeau, moins haut à largeur égale). */
-export function LineChart({ data, label, w = 320 }: { data: { key: string; label: string; value: number; sub?: string }[]; label: string; w?: number }) {
-  const [sel, setSel] = useState<number | null>(null); const max = Math.max(1, ...data.map((d) => d.value)); const min = Math.min(0, ...data.map((d) => d.value)); const W = w, H = 120, P = 6; const fs = w > 320 ? 10 : 8; const step = data.length > 1 ? (W - P * 2) / (data.length - 1) : 0;
+export function LineChart({ data, label, w = 320, zero = true, format = formatFcfa }: { data: { key: string; label: string; value: number; sub?: string }[]; label: string; w?: number; zero?: boolean; format?: (n: number) => string }) {
+  const [sel, setSel] = useState<number | null>(null); const vals = data.map((d) => d.value); const lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.15 || Math.abs(hi) * 0.02 || 1; const max = zero ? Math.max(1, hi) : hi + pad; const min = zero ? Math.min(0, lo) : lo - pad; const W = w, H = 120, P = 6; const fs = w > 320 ? 10 : 8; const step = data.length > 1 ? (W - P * 2) / (data.length - 1) : 0;
   const pts = data.map((d, i) => [P + i * step, H - 4 - ((d.value - min) / (max - min)) * (H - 18)] as const); const base = H - 4 - ((0 - min) / (max - min)) * (H - 18); const path = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const cur = sel !== null ? data[sel] : undefined;
   const pick = (e: React.PointerEvent<SVGSVGElement>) => { const r = e.currentTarget.getBoundingClientRect(); const x = ((e.clientX - r.left) / r.width) * W; setSel(Math.max(0, Math.min(data.length - 1, Math.round((x - P) / (step || 1))))); };
   return (
     <div>
-      <div className="text-xs text-muted h-4" aria-live="polite">{cur ? `${cur.label} : ${formatFcfa(cur.value)}${cur.sub ? ` · ${cur.sub}` : ""}` : `${min < 0 ? `Min ${formatFcfa(min)} · ` : ""}Max ${formatFcfa(max)} · touchez le graphique`}</div>
+      <div className="text-xs text-muted h-4" aria-live="polite">{cur ? `${cur.label} : ${format(cur.value)}${cur.sub ? ` · ${cur.sub}` : ""}` : `${zero ? `${min < 0 ? `Min ${format(min)} · ` : ""}Max ${format(max)}` : `${format(lo)} – ${format(hi)}`} · touchez le graphique`}</div>
       <svg viewBox={`0 0 ${W} ${H + 16}`} className="w-full touch-none" role="img" aria-label={label} onPointerDown={pick} onPointerMove={(e) => e.buttons && pick(e)}>
-        <line x1={P} y1={H} x2={W - P} y2={H} stroke="currentColor" strokeOpacity={0.25} />{min < 0 && <line x1={P} y1={base} x2={W - P} y2={base} stroke="currentColor" strokeOpacity={0.35} strokeDasharray="3 3" />}
-        {data.length > 1 && <><path d={`${path} L${pts.at(-1)![0]},${min < 0 ? base : H} L${pts[0]![0]},${min < 0 ? base : H} Z`} fill={PALETTE[0]} fillOpacity={0.15} /><path d={path} fill="none" stroke={PALETTE[0]} strokeWidth={2} strokeLinejoin="round" /></>}
+        <line x1={P} y1={H} x2={W - P} y2={H} stroke="currentColor" strokeOpacity={0.25} />{zero && min < 0 && <line x1={P} y1={base} x2={W - P} y2={base} stroke="currentColor" strokeOpacity={0.35} strokeDasharray="3 3" />}
+        {data.length > 1 && <><path d={`${path} L${pts.at(-1)![0]},${zero && min < 0 ? base : H} L${pts[0]![0]},${zero && min < 0 ? base : H} Z`} fill={PALETTE[0]} fillOpacity={0.15} /><path d={path} fill="none" stroke={PALETTE[0]} strokeWidth={2} strokeLinejoin="round" /></>}
         {data.length === 1 && <circle cx={W / 2} cy={pts[0]![1]} r={4} fill={PALETTE[0]} />}
         {sel !== null && <><line x1={pts[sel]![0]} y1={0} x2={pts[sel]![0]} y2={H} stroke={PALETTE[0]} strokeOpacity={0.5} /><circle cx={pts[sel]![0]} cy={pts[sel]![1]} r={4} fill={PALETTE[0]} /></>}
         <text x={P} y={H + 12} fontSize={fs} fill="currentColor" fillOpacity={0.6}>{data[0]?.label}</text><text x={W - P} y={H + 12} textAnchor="end" fontSize={fs} fill="currentColor" fillOpacity={0.6}>{data.at(-1)?.label}</text>
-        <text x={W - P} y={10} textAnchor="end" fontSize={fs} fill="currentColor" fillOpacity={0.5}>{short(max)}</text>
+        <text x={W - P} y={10} textAnchor="end" fontSize={fs} fill="currentColor" fillOpacity={0.5}>{zero ? short(max) : format(hi)}</text>
       </svg>
     </div>
   );
