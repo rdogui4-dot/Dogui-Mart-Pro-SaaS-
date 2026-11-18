@@ -164,3 +164,28 @@ export async function report(store: Store, ctx: Ctx, b: { section?: string; scop
   return { title: "IProj-Invest Pro — analyse de portefeuille (simulation, non contractuelle)", generatedAt: new Date().toISOString(), tz: "UTC", period: { from: today(), to: today() }, scope: [b.scope === "all" ? "Toutes les boutiques" : String(shop?.name ?? "Boutique")], filters: {}, notes, sections };
 }
 void iso; void actualOf; void SCENARIOS;
+
+// ------------------------------------------------------------------ résumé du portefeuille (vue d'ensemble du kit)
+/** Agrégats des projets (scénario central saisi uniquement) et détail du projet principal. Gain annuel estimé = flux d'exploitation moyen par mois
+ *  du scénario central (hors investissement initial) × 12. VAN / TRI / indice de profitabilité : formule Pro et coût du capital défini seulement. */
+export async function overviewKit(store: Store, ctx: Ctx) {
+  await gate(store, ctx); const pro = await proOn(store, ctx); const rate = pro ? (await proCfg(store, ctx)).discountRatePct : null;
+  const projects = (await itemsAll(store, ctx)).filter((i) => i.kind === "project" && i.status !== "abandoned");
+  const rows = []; for (const it of projects) { const sc = await scenOf(store, ctx, it.id); const c = sc.find((s) => s.name === "central"); const a = c ? asA(c) : null; const m = a ? metrics(it.budget, a) : null; const spent = actualTotals(await actualsOf(store, ctx, it.id)).out;
+    rows.push({ id: it.id, name: it.name, type: String((it.data as { type?: string }).type ?? "Autre") || "Autre", status: it.status, statusLabel: PROJECT_STATUS[it.status], budget: it.budget, spent, months: a?.months ?? null, net: m?.net ?? null, roiPct: m?.roiPct ?? null, paybackMonths: m?.paybackMonths ?? null, annualGain: a && m ? Math.round(((m.net + it.budget) / a.months) * 12) : null, scenarios: sc, a }); }
+  const live = rows.filter((r) => ["approved", "in_progress"].includes(r.status)); const withC = rows.filter((r) => r.net !== null);
+  const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : null);
+  const byType = [...rows.reduce((acc, r) => acc.set(r.type, (acc.get(r.type) ?? 0) + r.budget), new Map<string, number>())].map(([type, budget]) => ({ type, budget })).sort((x, y) => y.budget - x.budget);
+  const main = [...withC].sort((x, y) => y.budget - x.budget)[0] ?? null;
+  let mainView = null as null | Record<string, unknown>;
+  if (main && main.a) { const flows = projectFlows(main.budget, main.a); const sales = (a: typeof main.a) => { let t = 0; for (let mm = 1; mm <= a!.months; mm++) t += mm <= a!.delayMonths ? 0 : Math.round(a!.monthlySales * (1 + a!.growthPct / 100) ** (mm - a!.delayMonths - 1)); return t; };
+    const totalIn = flows.slice(1).reduce((s, x) => s + Math.max(0, x), 0);
+    mainView = { id: main.id, name: main.name, budget: main.budget, months: main.a.months, cumulative: flows.reduce((acc: number[], f) => { acc.push((acc.at(-1) ?? 0) + f); return acc; }, []),
+      scenarios: SCENARIOS.map((n) => { const r = main.scenarios.find((s) => s.name === n); if (!r) return { name: n, label: SCENARIO_LABEL[n], set: false }; const a = asA(r); const m = metrics(main.budget, a); return { name: n, label: SCENARIO_LABEL[n], set: true, growthPct: a.growthPct, sales: sales(a), net: m.net, roiPct: m.roiPct, paybackMonths: m.paybackMonths }; }),
+      pro: pro ? { rate, npv: rate === null ? null : npv(flows, rate), irr: irr(flows).annualPct, pi: rate === null || main.budget <= 0 ? null : Math.round(((npv(flows, rate) + main.budget) / main.budget) * 100) / 100, totalIn } : null };
+  }
+  return { pro, counts: { total: rows.length, active: live.length, withCentral: withC.length }, invested: live.reduce((s, r) => s + r.budget, 0), avgRoiPct: avg(withC.map((r) => r.roiPct!).filter((x) => x !== null)), annualGain: withC.length ? withC.reduce((s, r) => s + (r.annualGain ?? 0), 0) : null, avgPaybackMonths: avg(withC.map((r) => r.paybackMonths).filter((x): x is number => x !== null)),
+    totals: { budget: rows.reduce((s, r) => s + r.budget, 0), net: withC.reduce((s, r) => s + r.net!, 0), roiPct: withC.length && withC.reduce((s, r) => s + r.budget, 0) > 0 ? Math.round((withC.reduce((s, r) => s + r.net!, 0) / withC.reduce((s, r) => s + r.budget, 0)) * 1000) / 10 : null },
+    byType, projects: rows.map(({ scenarios: _s, a: _a, ...r }) => r), main: mainView, best: [...withC].sort((x, y) => (y.roiPct ?? -1e9) - (x.roiPct ?? -1e9))[0]?.name ?? null,
+    note: "Projections établies uniquement à partir des hypothèses saisies (scénario central) : ce sont des simulations, pas des promesses de résultat." };
+}

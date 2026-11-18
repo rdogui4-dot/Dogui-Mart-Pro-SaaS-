@@ -26,7 +26,7 @@ const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 1
   const heads = async () => (await page.locator("thead th").allInnerTexts()).join("|");
   const rowGroups = async () => { const lists = await page.getByRole("tablist").evaluateAll((els) => els.map((e) => e.scrollWidth <= e.clientWidth + 1)); if (lists.some((x) => !x)) throw new Error("une rangée d'onglets défile horizontalement"); };
 
-  for (const [route, wait] of [["finance", "Trésorerie"], ["icompta", "Facturation"], ["investissements", "Synthèse"]]) for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]])
+  for (const [route, wait] of [["finance", "Trésorerie"], ["icompta", "Facturation"], ["investissements", "Vue d'ensemble"]]) for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]])
     await step(`${route} · ${label} (${w} px) : sans débordement, noms accessibles`, async () => { await open(route, w, hh, wait); await noOverflow(`${route} ${label}`); await unnamed(`${route} ${label}`); await page.screenshot({ path: path.join(OUT, `cf-${route}-${w}.png`) }); });
 
   await step("finance · onglets du kit (K11) et seconde ligne, les anciens onglets tous présents", async () => {
@@ -86,9 +86,9 @@ const day = (o = 0) => new Date(Date.now() + o * 864e5).toISOString().slice(0, 1
     const vis = await page.evaluate(() => [...document.querySelectorAll("nav, header, [role=tablist]")].filter((e) => getComputedStyle(e).display !== "none").length); await page.emulateMedia({ media: "screen" }); if (vis) throw new Error(vis + " élément(s) de navigation imprimé(s)");
   });
 
-  await step("investissements · onglets regroupés, projets en tableau et fiche en volet", async () => {
-    await open("investissements", 1280, 800, "Synthèse"); const t = (await txt()).toLowerCase(); for (const x of ["suivi", "portefeuille", "réglages", "synthèse", "projets", "placements", "profil de risque", "réglages pro"]) if (!t.includes(x)) throw new Error("manquant : " + x);
-    await tab("Projets"); await page.waitForSelector("table", { timeout: 8000 }); const hd = await heads(); for (const x of ["Projet", "Statut", "Budget", "Scénarios"]) if (!hd.includes(x)) throw new Error("colonne manquante : " + x);
+  await step("investissements · onglets du kit (K13), projets en tableau et fiche en volet", async () => {
+    await open("investissements", 1280, 800, "Vue d'ensemble"); const t = (await txt()).toLowerCase(); for (const x of ["vue d'ensemble", "projets d'investissement", "simulations & projections", "plan de financement", "suivi & rentabilité", "placements", "portefeuille", "profil de risque", "réglages pro"]) if (!t.includes(x)) throw new Error("manquant : " + x);
+    await tab("Projets d'investissement"); await page.waitForSelector("table", { timeout: 8000 }); const hd = await heads(); for (const x of ["Projet", "Statut", "Budget", "Scénarios"]) if (!hd.includes(x)) throw new Error("colonne manquante : " + x);
     await page.locator("tbody tr").first().click(); await page.waitForTimeout(900); const d = await page.getByRole("dialog").first().boundingBox(); if (!d || d.x < 1280 - 600) throw new Error("fiche non affichée en volet : " + JSON.stringify(d));
   });
   console.log("ERRORS", h.errors.filter((e) => !/WebSocket|Realtime|Failed to load resource/.test(e)), "\nBAD", h.bad); await h.close(); process.exit(0);

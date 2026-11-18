@@ -1,6 +1,11 @@
-/** IProj-Invest Business (interface) : synthèse, projets d'entreprise, placements déclarés, profil de risque. Outil d'analyse et de simulation, jamais un conseil. */
+/** IProj-Invest (interface, kit) : vue d'ensemble, projets, simulations, plan de financement (Pro), suivi & rentabilité ; placements, portefeuille, profil de risque, réglages Pro.
+ *  Outil d'analyse et de simulation, jamais un conseil : toutes les projections viennent des hypothèses saisies. */
 import { useState } from "react";
-import { GroupedTabs, groupTabs } from "@/components/GroupedTabs";
+import { Briefcase, CalendarClock, FolderKanban, Gauge, LayoutGrid, LineChart as LineIcon, Lock, Percent, Plus, TrendingUp, Wallet, Landmark, Activity } from "lucide-react";
+import { InsightCard, KpiRow, KpiTile, LockedState, ModuleHeader, Panel, PillTabs, StatusBadge, type Insight, type PillTab, type StatusTone } from "@/components/kit";
+import { Donut, LineChart } from "@/components/charts";
+import { formatFcfa } from "@/domain/money";
+import { metrics as projMetrics, PROJECT_TYPES } from "@/domain/invest";
 import { Disclaimer } from "@/components/ui";
 import { DataGrid } from "@/components/DataGrid";
 import { useMinWidth } from "@/lib/media";
@@ -20,26 +25,137 @@ const Alerts = ({ list }: { list: Alert[] }) => <>{list.map((a, i) => <p key={i}
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v} %`);
 const months = (v: number | null | undefined) => (v === null || v === undefined ? "jamais" : `${v} mois`);
 
-type Tab = "syn" | "proj" | "plac" | "port" | "rpro" | "reg";
+type Tab = "ov" | "proj" | "sim" | "fin" | "suivi" | "plac" | "port" | "reg" | "rpro";
+type PRow = { id: string; name: string; type: string; status: string; statusLabel: string; budget: number; spent: number; months: number | null; net: number | null; roiPct: number | null; paybackMonths: number | null; annualGain: number | null };
+type Folio = { pro: boolean; counts: { total: number; active: number; withCentral: number }; invested: number; avgRoiPct: number | null; annualGain: number | null; avgPaybackMonths: number | null; totals: { budget: number; net: number; roiPct: number | null }; byType: { type: string; budget: number }[]; projects: PRow[]; best: string | null; note: string;
+  main: null | { id: string; name: string; budget: number; months: number; cumulative: number[]; scenarios: { name: string; label: string; set: boolean; growthPct?: number; sales?: number; net?: number; roiPct?: number | null; paybackMonths?: number | null }[]; pro: null | { rate: number | null; npv: number | null; irr: number | null; pi: number | null } } };
+type Ov = { projects: { total: number; active: number; study: number; budget: number; spent: number }; placements: { total: number; active: number; invested: number }; alerts: Alert[]; profile: string | null; financing: { source: string; monthlyIn: number; monthlyOut: number; monthlyNet: number; note: string }; limits: string[] };
+const STONE: Record<string, StatusTone> = { study: "info", approved: "progress", in_progress: "progress", done: "ok", abandoned: "muted" };
+const fr = (n: number) => n.toLocaleString("fr-FR");
+
 export function InvestPage() {
-  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const [tab, setTab] = useState<Tab>("syn");
-  const tabs: [Tab, string][] = [["syn", "Synthèse"], ["proj", "Projets"], ["plac", "Placements"], ["port", "Portefeuille"], ["rpro", "Réglages Pro"], ["reg", "Profil de risque"]];
+  const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager"; const owner = s.role === "owner";
+  const f = useQ<Folio>("inv.portfolio"); const pro = f.data?.pro === true; const [tab, setTab] = useState<Tab>("ov"); const [nw, setNw] = useState(false);
+  const main: PillTab<Tab>[] = [{ key: "ov", label: "Vue d'ensemble", icon: LayoutGrid }, { key: "proj", label: "Projets d'investissement", icon: FolderKanban }, { key: "sim", label: "Simulations & projections", icon: LineIcon }, { key: "fin", label: "Plan de financement", icon: Landmark, locked: !pro }, { key: "suivi", label: "Suivi & rentabilité", icon: Activity }];
+  const extra: [Tab, string, boolean][] = [["plac", "Placements", false], ["port", "Portefeuille", true], ["reg", "Profil de risque", false], ["rpro", "Réglages Pro", true]];
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-lg font-semibold">Investissements</h1>
+      <ModuleHeader icon={Briefcase} title="IProj-Invest — Investissements & Projections" subtitle="Évaluez vos projets d'entreprise et simulez leur rentabilité à partir de vos propres hypothèses." actions={mgr ? <button className="btn-gold !py-2.5 inline-flex items-center gap-2" onClick={() => setNw(true)}><Plus size={18} />Nouveau projet</button> : undefined} />
+      <InvKpis q={f} />
+      <PillTabs idBase="inv" label="Sections Investissements" value={main.some((t) => t.key === tab) ? tab : ("" as Tab)} onChange={setTab} items={main} />
+      <div role="tablist" aria-label="Autres sections Investissements" className="scroll-x !gap-1.5 -mt-2 md:flex-wrap md:overflow-x-visible">{extra.map(([k, l, isPro]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className="chip !min-h-8 !py-1 !px-3 text-sm inline-flex items-center gap-1" onClick={() => setTab(k)}>{l}{isPro && !pro && <Lock size={12} aria-label="Réservé à une offre supérieure" />}</button>)}</div>
       <Disclaimer>Étude de vos projets d'entreprise et suivi de vos placements déclarés. Outil d'analyse et de simulation : ce n'est ni un conseil financier ni une promesse de rendement, et aucune opération n'est exécutée.</Disclaimer>
-      <GroupedTabs label="Sections Investissements" value={tab} onChange={setTab} groups={groupTabs<Tab>(tabs, [["Suivi", ["syn"]], ["Portefeuille", ["proj", "plac", "port"]], ["Réglages", ["reg", "rpro"]]])} />
-      {tab === "syn" && <Synthese onTab={setTab} />}{tab === "proj" && <Items kind="project" mgr={mgr} />}{tab === "plac" && <Items kind="placement" mgr={mgr} />}{tab === "port" && <Portfolio owner={s.role === "owner"} />}{tab === "rpro" && <Reglages />}{tab === "reg" && <Profil owner={s.role === "owner"} />}
+      {tab === "ov" && <InvOverview q={f} onTab={setTab} />}
+      {tab === "proj" && <Items kind="project" mgr={mgr} hideNew />}
+      {tab === "sim" && <Simulations q={f} />}
+      {tab === "fin" && (pro ? <Financing q={f} /> : <LockedState feature="Plan de financement" plan="Pro" />)}
+      {tab === "suivi" && <Suivi q={f} onTab={setTab} />}
+      {tab === "plac" && <Items kind="placement" mgr={mgr} />}{tab === "port" && <Portfolio owner={owner} />}{tab === "rpro" && <Reglages />}{tab === "reg" && <Profil owner={owner} />}
+      {nw && <Sheet title="Nouveau projet" onClose={() => setNw(false)} back size="lg"><ProjectForm types={[...PROJECT_TYPES]} onDone={() => { setNw(false); setTab("proj"); }} /></Sheet>}
     </div>
   );
 }
 
+type FQ = ReturnType<typeof useQ<Folio>>;
+const centralSub = (d?: Folio) => (d ? (d.counts.withCentral ? `${d.counts.withCentral} projet(s) avec scénario central` : "aucun scénario central saisi") : undefined);
+/** Indicateurs du kit : budgets réels des projets ; ROI, gain annuel et délai de retour calculés sur les seuls projets dont le scénario central est saisi. */
+function InvKpis({ q }: { q: FQ }) {
+  const d = q.data;
+  return <KpiRow cols={5}>
+    <KpiTile icon={Wallet} tint="blue" label="Investissements en cours" loading={q.isLoading} value={d ? formatFcfa(d.invested) : "—"} sub="budgets des projets approuvés ou lancés" />
+    <KpiTile icon={FolderKanban} tint="violet" label="Projets actifs" loading={q.isLoading} value={d ? d.counts.active : "—"} sub={d ? `sur ${d.counts.total} projet(s) suivi(s)` : undefined} />
+    <KpiTile icon={Percent} tint="green" label="ROI moyen (central)" loading={q.isLoading} value={d?.avgRoiPct == null ? "—" : `${fr(d.avgRoiPct)} %`} sub={centralSub(d)} />
+    <KpiTile icon={TrendingUp} tint="amber" label="Gain annuel estimé" loading={q.isLoading} value={d?.annualGain == null ? "—" : formatFcfa(d.annualGain)} sub={d?.annualGain == null ? centralSub(d) : "hors investissement initial"} />
+    <KpiTile icon={CalendarClock} tint="cyan" label="Délai moyen de retour" loading={q.isLoading} value={d?.avgPaybackMonths == null ? "—" : `${fr(d.avgPaybackMonths)} mois`} sub={d && d.avgPaybackMonths == null && d.counts.withCentral ? "non atteint sur la durée simulée" : centralSub(d)} />
+  </KpiRow>;
+}
+
+const projSeries = (cum: number[]) => cum.map((v, i) => ({ key: String(i), label: `M${i}`, value: v, sub: i === 0 ? "investissement initial" : "trésorerie cumulée" }));
+function ScenTable({ rows }: { rows: NonNullable<Folio["main"]>["scenarios"] }) {
+  return <div className="overflow-x-auto"><table className="w-full text-sm" aria-label="Comparaison des scénarios"><thead className="text-xs text-muted"><tr><th className="text-left py-1">Scénario</th><th className="text-right">Croissance</th><th className="text-right">Ventes cumulées</th><th className="text-right">Résultat net</th><th className="text-right">ROI</th><th className="text-right">Retour</th></tr></thead>
+    <tbody>{rows.map((r) => <tr key={r.name} className="border-t border-[var(--line)]"><td className="py-1.5 font-medium">{r.label}</td>{r.set ? <><td className="text-right tabular-nums">{r.growthPct} %/mois</td><td className="text-right tabular-nums">{formatFcfa(r.sales ?? 0)}</td><td className={`text-right tabular-nums ${(r.net ?? 0) < 0 ? "text-bad" : ""}`}>{formatFcfa(r.net ?? 0)}</td><td className="text-right tabular-nums">{pct(r.roiPct)}</td><td className="text-right tabular-nums">{months(r.paybackMonths)}</td></> : <td colSpan={5} className="text-right text-xs text-muted">non renseigné</td>}</tr>)}</tbody></table></div>;
+}
+
+function InvOverview({ q, onTab }: { q: FQ; onTab: (t: Tab) => void }) {
+  const o = useQ<Ov>("inv.overview"); const d = q.data; const O = o.data;
+  if (q.error || o.error) return <Err e={q.error ?? o.error} />;
+  const items: Insight[] = [];
+  if (d) { if (d.best && d.counts.withCentral > 1) { const b = d.projects.find((p) => p.name === d.best); items.push({ id: "best", tone: "ok", text: `Projet le plus rentable selon vos hypothèses centrales : ${d.best}${b?.roiPct != null ? ` (ROI ${fr(b.roiPct)} %)` : ""}.` }); }
+    const miss = d.projects.filter((p) => p.net === null); if (miss.length) items.push({ id: "miss", tone: "warn", text: `Scénario central manquant : ${miss.slice(0, 3).map((p) => p.name).join(", ")}${miss.length > 3 ? ` et ${miss.length - 3} autre(s)` : ""}. Sans lui, ces projets ne comptent pas dans les indicateurs.` });
+    const over = d.projects.filter((p) => p.spent > p.budget && p.budget > 0); if (over.length) items.push({ id: "over", tone: "warn", text: `Dépassement de budget (réel saisi) : ${over.map((p) => p.name).join(", ")}.` }); }
+  if (O) for (const [i, a] of O.alerts.slice(0, 4).entries()) items.push({ id: `a${i}`, tone: a.level === "info" ? "info" : "warn", text: `${a.item ? `${a.item} : ` : ""}${a.text}` });
+  const row = (l: string, v: string, tone = "") => <div className={`flex justify-between gap-2 rounded-lg px-2 py-1.5 text-sm ${tone}`}><span>{l}</span><b className="tabular-nums">{v}</b></div>;
+  const pr = d?.main?.pro;
+  return <div className="flex flex-col gap-4">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <Panel title={d?.main ? `Projection — ${d.main.name}` : "Projection du projet principal"} action={d?.main ? <span className="text-xs text-muted">scénario central · {d.main.months} mois</span> : undefined}>{d?.main ? <LineChart label={`Trésorerie cumulée projetée du projet ${d.main.name}`} w={380} data={projSeries(d.main.cumulative)} /> : <p className="text-sm text-muted">{q.isLoading ? "Chargement…" : "Aucun projet avec scénario central : renseignez les hypothèses d'un projet pour voir sa projection."}</p>}</Panel>
+      <Panel title="Indicateurs du portefeuille">{d ? <div className="flex flex-col gap-1">{row("Total investi (budgets suivis)", formatFcfa(d.totals.budget), "bg-subtle")}{row("Gain net cumulé projeté", d.counts.withCentral ? formatFcfa(d.totals.net) : "—", "bg-ok-bg/40")}{row("ROI global (central)", pct(d.totals.roiPct), "bg-subtle")}{row("Délai moyen de retour", d.avgPaybackMonths == null ? "—" : `${fr(d.avgPaybackMonths)} mois`, "bg-subtle")}<Note>Gain et ROI : projets à scénario central, sur la durée de chaque scénario.</Note></div> : <p className="text-sm text-muted">Chargement…</p>}</Panel>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <Panel title="Répartition par type">{d?.byType.length ? <Donut label="Budgets par type de projet" data={d.byType.map((t) => ({ key: t.type, label: t.type, value: t.budget }))} /> : <p className="text-sm text-muted">{q.isLoading ? "Chargement…" : "Aucun projet suivi."}</p>}</Panel>
+      <Panel title="Projets" action={d?.projects.length ? <button className="text-xs text-accent-text underline" onClick={() => onTab("proj")}>Tout voir</button> : undefined}>{d?.projects.length ? <div className="flex flex-col gap-1.5">{[...d.projects].sort((a, b) => b.budget - a.budget).slice(0, 5).map((p) => <div key={p.id} className="flex justify-between gap-2 text-sm border-t border-[var(--line)] pt-1.5 first:border-0 first:pt-0"><span className="min-w-0"><b className="block truncate">{p.name}</b><span className="text-xs text-muted">{p.type} · {formatFcfa(p.budget)}</span></span><span className="text-right shrink-0"><StatusBadge tone={STONE[p.status] ?? "muted"}>{p.statusLabel}</StatusBadge><span className="block text-xs text-muted">ROI {pct(p.roiPct)}</span></span></div>)}</div> : <p className="text-sm text-muted">{q.isLoading ? "Chargement…" : "Aucun projet : créez-en un avec « Nouveau projet »."}</p>}</Panel>
+      <Panel title="Analyse Pro" icon={Gauge}>{!d ? <p className="text-sm text-muted">Chargement…</p> : !d.pro ? <p className="text-sm text-muted inline-flex items-center gap-1"><Lock size={14} />VAN, TRI et indice de profitabilité : formule Pro.</p> : !d.main ? <p className="text-sm text-muted">Aucun projet avec scénario central.</p> : pr?.rate == null ? <p className="text-sm text-muted">Coût du capital non défini : le propriétaire le fixe dans « Réglages Pro ». Sans lui, la VAN et l'indice de profitabilité ne sont pas calculés.{pr?.irr != null ? ` TRI du projet principal : ${fr(pr.irr)} % par an.` : ""}</p> : <div className="flex flex-col gap-1">{row("VAN (" + fr(pr.rate) + " %)", formatFcfa(pr.npv ?? 0), (pr.npv ?? 0) < 0 ? "bg-bad-bg/40" : "bg-ok-bg/40")}{row("TRI annuel", pr.irr == null ? "non calculable" : `${fr(pr.irr)} %`, "bg-subtle")}{row("Indice de profitabilité", pr.pi == null ? "—" : fr(pr.pi), "bg-subtle")}<Note>Projet principal ({d.main.name}), scénario central.</Note></div>}</Panel>
+    </div>
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <Panel title={d?.main ? `Scénarios — ${d.main.name}` : "Scénarios du projet principal"}>{d?.main ? <ScenTable rows={d.main.scenarios} /> : <p className="text-sm text-muted">{q.isLoading ? "Chargement…" : "Aucun scénario à comparer."}</p>}</Panel>
+      <InsightCard module="IProj-Invest" loading={q.isLoading || o.isLoading} items={items} source="projets, scénarios saisis, réalisations constatées et alertes de la boutique" emptyText="Rien à signaler sur vos projets." />
+    </div>
+    {d && <Note>{d.note}</Note>}
+  </div>;
+}
+
+function ProjectPick({ q, value, onChange, filter }: { q: FQ; value: string; onChange: (v: string) => void; filter?: (p: PRow) => boolean }) {
+  const list = (q.data?.projects ?? []).filter(filter ?? (() => true));
+  return <Field label="Projet"><select className="input" aria-label="Projet analysé" value={value} onChange={(e) => onChange(e.target.value)}>{list.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.statusLabel}</option>)}</select></Field>;
+}
+const firstId = (q: FQ) => q.data?.main?.id ?? q.data?.projects[0]?.id ?? "";
+
+function Simulations({ q }: { q: FQ }) {
+  const [pick, setPick] = useState(""); const id = pick || firstId(q);
+  if (q.error) return <Err e={q.error} />; if (!q.data) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
+  if (!q.data.projects.length) return <p className="card text-sm text-muted">Aucun projet : créez un projet puis renseignez ses scénarios prudent, central et optimiste.</p>;
+  return <div className="flex flex-col gap-3"><ProjectPick q={q} value={id} onChange={setPick} />{id && <SimView key={id} id={id} />}</div>;
+}
+function SimView({ id }: { id: string }) {
+  const q = useQ<{ item: Project; canEdit: boolean }>("inv.item", { id }); const [scn, setScn] = useState<string | null>(null); const it = q.data?.item;
+  if (q.error) return <Err e={q.error} />; if (!it) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
+  const series = it.scenarios.filter((s2) => s2.set && s2.assumptions).map((s2) => ({ name: s2.name, label: s2.label, cum: projMetrics(it.budget, s2.assumptions as never).cumulative }));
+  const central = series.find((x) => x.name === "central") ?? series[0];
+  return <div className="flex flex-col gap-3">
+    <Panel title="Trésorerie cumulée projetée" action={central ? <span className="text-xs text-muted">scénario {central.label.toLowerCase()}</span> : undefined}>{central ? <LineChart label={`Trésorerie cumulée projetée, scénario ${central.label}`} w={380} data={projSeries(central.cum)} /> : <p className="text-sm text-muted">Aucun scénario renseigné pour ce projet.</p>}</Panel>
+    <Panel title="Scénarios et hypothèses">
+      <div className="flex flex-col gap-2">{it.scenarios.map((s2) => <div key={s2.name} className="rounded-xl border border-[var(--line)] p-3 text-sm flex flex-col gap-1"><div className="flex justify-between items-center"><b>{s2.label}</b>{q.data!.canEdit && <button className="btn-ghost" onClick={() => setScn(scn === s2.name ? null : s2.name)}>{s2.set ? "Modifier" : "Renseigner"}</button>}</div>
+        {s2.set && s2.metrics ? <><p className="text-xs text-muted">Ventes {money(s2.assumptions?.monthlySales)}/mois · croissance {s2.assumptions?.growthPct} %/mois · marge {s2.assumptions?.marginPct} % · coûts fixes {money(s2.assumptions?.fixedCosts)}/mois · {s2.assumptions?.months} mois</p><div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-xs"><span>Résultat net : <b className={s2.metrics.net < 0 ? "text-bad" : ""}>{money(s2.metrics.net)}</b></span><span>ROI : <b>{pct(s2.metrics.roiPct)}</b></span><span>Retour : <b>{months(s2.metrics.paybackMonths)}</b></span><span>Besoin max : <b>{money(s2.metrics.peakNeed)}</b></span></div></> : <p className="text-xs text-muted">Non renseigné.</p>}
+        {scn === s2.name && <ScenarioForm id={id} name={s2.name} cur={s2.assumptions} version={s2.version} onDone={() => setScn(null)} />}</div>)}</div>
+    </Panel>
+    {it.scenarios.find((x) => x.name === "central" && x.sensitivity) && <Panel title="Sensibilité du scénario central"><table className="w-full text-xs"><thead className="text-muted"><tr><th className="text-left">Variation</th><th className="text-right">Net</th><th className="text-right">ROI</th><th className="text-right">Retour</th></tr></thead><tbody>{it.scenarios.find((x) => x.name === "central")!.sensitivity!.rows.map((r, i) => <tr key={i} className="border-t border-[var(--line)]"><td>{r.variable} {r.change > 0 ? "+" : ""}{r.change} %</td><td className="text-right">{money(r.net)}</td><td className="text-right">{pct(r.roiPct)}</td><td className="text-right">{months(r.paybackMonths)}</td></tr>)}</tbody></table></Panel>}
+    <Note>Les courbes et indicateurs découlent uniquement des hypothèses saisies ; ils ne prédisent pas le résultat réel.</Note>
+  </div>;
+}
+
+function Financing({ q }: { q: FQ }) {
+  const [pick, setPick] = useState(""); const id = pick || firstId(q);
+  if (q.error) return <Err e={q.error} />; if (!q.data) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />;
+  if (!q.data.projects.length) return <p className="card text-sm text-muted">Aucun projet : le plan de financement (sources, tranches, échéancier) se construit projet par projet.</p>;
+  return <div className="flex flex-col gap-3"><ProjectPick q={q} value={id} onChange={setPick} />{id && <ProjectPro key={id} id={id} />}</div>;
+}
+
+function Suivi({ q, onTab }: { q: FQ; onTab: (t: Tab) => void }) {
+  const [sel, setSel] = useState<string | null>(null); const d = q.data;
+  return <div className="flex flex-col gap-3">
+    <Panel title="Budget et rentabilité par projet">{q.error ? <Err e={q.error} /> : !d ? <p className="text-sm text-muted">Chargement…</p> : !d.projects.length ? <p className="text-sm text-muted">Aucun projet suivi.</p> : <div className="overflow-x-auto"><table className="w-full text-sm" aria-label="Suivi des projets"><thead className="text-xs text-muted"><tr><th className="text-left py-1">Projet</th><th className="text-left">Statut</th><th className="text-right">Budget</th><th className="text-right">Décaissé (réel)</th><th className="text-right">Utilisé</th><th className="text-right">Net central</th><th className="text-right">ROI</th></tr></thead>
+      <tbody>{d.projects.map((p) => { const used = p.budget > 0 ? Math.round((p.spent / p.budget) * 100) : 0; return <tr key={p.id} className="border-t border-[var(--line)] cursor-pointer hover:bg-subtle" onClick={() => setSel(p.id)}><td className="py-1.5 font-medium">{p.name}</td><td><StatusBadge tone={STONE[p.status] ?? "muted"}>{p.statusLabel}</StatusBadge></td><td className="text-right tabular-nums">{formatFcfa(p.budget)}</td><td className="text-right tabular-nums">{formatFcfa(p.spent)}</td><td className={`text-right tabular-nums ${used > 100 ? "text-bad" : ""}`}>{used} %</td><td className={`text-right tabular-nums ${(p.net ?? 0) < 0 ? "text-bad" : ""}`}>{p.net === null ? "—" : formatFcfa(p.net)}</td><td className="text-right tabular-nums">{pct(p.roiPct)}</td></tr>; })}</tbody></table></div>}</Panel>
+    <Synthese onTab={onTab} />
+    {sel && <ProjectSheet id={sel} onClose={() => setSel(null)} />}
+  </div>;
+}
+
 function Synthese({ onTab }: { onTab: (t: Tab) => void }) {
-  const q = useQ<{ projects: { total: number; active: number; study: number; budget: number; spent: number }; placements: { total: number; active: number; invested: number }; alerts: Alert[]; profile: string | null; financing: { source: string; monthlyIn: number; monthlyOut: number; monthlyNet: number; note: string }; limits: string[] }>("inv.overview");
+  const q = useQ<Ov>("inv.overview");
   if (q.error) return <Err e={q.error} />; if (!q.data) return <div className="card h-24 animate-pulse bg-subtle" aria-busy="true" />; const d = q.data;
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2"><Kpi label="Projets en cours" value={d.projects.active} /><Kpi label="Projets en étude" value={d.projects.study} /><Kpi label="Budget engagé (approuvés)" value={money(d.projects.budget)} /><Kpi label="Décaissé (réel saisi)" value={money(d.projects.spent)} /><Kpi label="Placements actifs" value={d.placements.active} /><Kpi label="Capital placé (déclaré)" value={money(d.placements.invested)} /></div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2"><Kpi label="Projets en cours" value={d.projects.active} /><Kpi label="Projets en étude" value={d.projects.study} /><Kpi label="Budget engagé (approuvés)" value={money(d.projects.budget)} /><Kpi label="Décaissé (réel saisi)" value={money(d.projects.spent)} /><Kpi label="Placements actifs" value={d.placements.active} /><Kpi label="Capital placé (déclaré)" value={money(d.placements.invested)} /></div>
       <Alerts list={d.alerts} />{d.alerts.length === 0 && <p className="card text-sm text-muted">Aucune alerte.</p>}
       <div className="card text-sm flex flex-col gap-1"><b>Capacité observée</b><p className="text-xs text-muted">Source : {d.financing.source}</p><p>Entrées moyennes {money(d.financing.monthlyIn)}/mois · sorties {money(d.financing.monthlyOut)}/mois · solde <b className={d.financing.monthlyNet < 0 ? "text-bad" : ""}>{money(d.financing.monthlyNet)}</b>/mois</p><Note>{d.financing.note}</Note></div>
       {!d.profile && <button className="card text-left text-sm text-warn" onClick={() => onTab("reg")}>Profil de risque non défini : à renseigner (propriétaire).</button>}
@@ -48,11 +164,11 @@ function Synthese({ onTab }: { onTab: (t: Tab) => void }) {
 }
 
 type Row = { id: string; kind: string; name: string; status: string; statusLabel: string; budget: number; startOn: string; type?: string; spent?: number; central?: { net: number; roiPct: number | null; paybackMonths: number | null } | null; scenariosSet?: number; alerts: number; riskLabel?: string; endsOn?: string };
-function Items({ kind, mgr }: { kind: "project" | "placement"; mgr: boolean }) {
+function Items({ kind, mgr, hideNew }: { kind: "project" | "placement"; mgr: boolean; hideNew?: boolean }) {
   const wide = useMinWidth(1024); const q = useQ<{ items: Row[]; types: string[]; limits: string[] }>("inv.items", { kind }); const [open, setOpen] = useState(false); const [sel, setSel] = useState<string | null>(null);
   return (
     <div className="flex flex-col gap-3"><Err e={q.error} />
-      {mgr && <button className="btn self-start md:self-end" onClick={() => setOpen(!open)}>{open ? "Fermer" : kind === "project" ? "Nouveau projet" : "Nouveau placement"}</button>}
+      {mgr && !hideNew && <button className="btn self-start md:self-end" onClick={() => setOpen(!open)}>{open ? "Fermer" : kind === "project" ? "Nouveau projet" : "Nouveau placement"}</button>}
       {open && (kind === "project" ? <ProjectForm types={q.data?.types ?? []} onDone={() => setOpen(false)} /> : <PlacementForm onDone={() => setOpen(false)} />)}
       {q.data?.items.length === 0 && <p className="text-xs text-muted">Aucun {kind === "project" ? "projet" : "placement"} enregistré.</p>}
       {wide && q.data && q.data.items.length > 0 && <DataGrid label={kind === "project" ? "Projets" : "Placements"} rows={q.data.items} rowKey={(i) => i.id} onRow={(i) => setSel(i.id)} columns={kind === "project" ? [

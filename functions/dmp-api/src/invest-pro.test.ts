@@ -123,3 +123,18 @@ describe("IProj-Invest Pro — rapports et traçabilité", () => {
     expect(st.rows("acct_entries")).toHaveLength(0); expect(st.rows("cash_movements")).toHaveLength(0); expect(st.rows("journal_entries")).toHaveLength(0); expect(st.rows("audit_log").some((a) => a.action === "invest.pro.config")).toBe(true); expect(st.rows("audit_log").some((a) => a.action === "invest.tranche.create")).toBe(true);
   });
 });
+
+describe("IProj-Invest — résumé du portefeuille (vue d'ensemble)", () => {
+  it("agrège les seuls projets à scénario central, répartit par type, détaille le projet principal ; VAN/TRI seulement en Pro avec coût du capital", async () => {
+    let p = await ok(call("ger", "inv.portfolio")); expect(p.counts.total).toBe(0); expect(p.avgRoiPct).toBeNull(); expect(p.annualGain).toBeNull(); expect(p.main).toBeNull();
+    const big = await approved(); await project({ name: "Camion", budget: 2_000_000, type: "Véhicule" }); await project({ name: "Abandonné", budget: 9_000_000, type: "Autre" }).then((id) => ok(call("own", "inv.item.status", { id, status: "abandoned", reason: "Projet arrêté" })));
+    p = await ok(call("ger", "inv.portfolio")); expect(p.counts).toEqual({ total: 2, active: 1, withCentral: 1 }); expect(p.invested).toBe(5_000_000);
+    expect(p.byType).toEqual([{ type: "Nouveau magasin", budget: 5_000_000 }, { type: "Véhicule", budget: 2_000_000 }]);
+    const row = p.projects.find((r: any) => r.id === big); expect(p.avgRoiPct).toBe(row.roiPct); expect(p.annualGain).toBe(Math.round(((row.net + 5_000_000) / 24) * 12)); expect(p.projects.find((r: any) => r.name === "Camion").roiPct).toBeNull();
+    expect(p.main.id).toBe(big); expect(p.main.cumulative).toHaveLength(25); expect(p.main.cumulative[0]).toBe(-5_000_000); expect(p.main.scenarios.map((s: any) => s.set)).toEqual([true, true, true]); expect(p.main.scenarios[1].net).toBe(row.net);
+    expect(p.main.pro.rate).toBeNull(); expect(p.main.pro.npv).toBeNull();
+    await ok(call("own", "ip.config.save", { discountRatePct: 10 })); p = await ok(call("ger", "inv.portfolio")); expect(typeof p.main.pro.npv).toBe("number"); expect(p.main.pro.pi).toBeCloseTo((p.main.pro.npv + 5_000_000) / 5_000_000, 2);
+    setPlan("business"); p = await ok(call("ger", "inv.portfolio")); expect(p.pro).toBe(false); expect(p.main.pro).toBeNull(); setPlan("starter"); await err(call("ger", "inv.portfolio"), 402);
+    await err(call("cais", "inv.portfolio"), 403);
+  });
+});
