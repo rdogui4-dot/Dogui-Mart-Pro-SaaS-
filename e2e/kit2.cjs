@@ -29,16 +29,16 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("MASTER sans licence : aucune réponse simulée, bouton vers la licence", async () => {
     await open(); const m = page.getByRole("region", { name: "MASTER DOGUI" }); await m.waitFor({ timeout: 5000 }); await page.waitForTimeout(800);
     if (await m.getByRole("textbox").count()) throw new Error("zone de question sans licence"); const b = m.getByRole("button", { name: /essai gratuit|Voir la licence/ }); await b.click();
-    await page.getByRole("dialog", { name: "MASTER DOGUI" }).waitFor({ timeout: 5000 }); await page.keyboard.press("Escape");
+    await page.waitForURL(/\/master\?onglet=lic/, { timeout: 8000 }); await page.getByRole("tab", { name: "Licence", selected: true }).waitFor({ timeout: 5000 });
   });
   await step("MASTER avec essai actif : la question est préparée dans l'assistant (envoyée par l'utilisateur)", async () => {
     st.rows("shops").forEach((s) => { s.phone = "0701020304"; }); const r = await h.call("md.trial.start", {}, A); if (r.status >= 400) throw new Error("essai : " + JSON.stringify(r.body));
     await open(); const m = page.getByRole("region", { name: "MASTER DOGUI" }); await m.getByRole("textbox").waitFor({ timeout: 8000 });
     if (!/Essai|Licence active/.test(await m.innerText())) throw new Error("état de licence absent");
     await m.getByRole("textbox").fill("Quels articles dois-je réapprovisionner ?"); await m.getByRole("button", { name: "Préparer la question dans l'assistant" }).click();
-    const dlg = page.getByRole("dialog", { name: "MASTER DOGUI" }); await dlg.waitFor({ timeout: 5000 }); await page.waitForTimeout(1200);
-    const vals = await dlg.locator("textarea, input[type=text], input:not([type])").evaluateAll((els) => els.map((e) => e.value)); if (!vals.some((v) => /réapprovisionner/.test(v))) throw new Error("question non préparée : " + JSON.stringify(vals));
-    await page.screenshot({ path: path.join(OUT, "kit2-master-1280.png") }); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+    await page.waitForURL(/\/master\?onglet=chat/, { timeout: 8000 }); await page.getByRole("tab", { name: "Assistant", selected: true }).waitFor({ timeout: 5000 }); await page.waitForTimeout(1200);
+    const vals = await page.locator("main").locator("textarea, input[type=text], input:not([type])").evaluateAll((els) => els.map((e) => e.value)); if (!vals.some((v) => /réapprovisionner/.test(v))) throw new Error("question non préparée : " + JSON.stringify(vals));
+    await page.screenshot({ path: path.join(OUT, "kit2-master-1280.png") }); await open(); await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT, "kit2-dashboard-master-1280.png") });
   });
   for (const [w, theme] of [[1600, "light"], [820, "light"], [390, "light"], [1280, "dark"]]) await step(`${w} px ${theme} : aucun débordement horizontal (captures)`, async () => {

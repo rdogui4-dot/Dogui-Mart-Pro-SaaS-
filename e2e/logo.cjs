@@ -1,4 +1,4 @@
-/** Captures du nouveau logo (N1) : connexion, barre latérale, bouton et fenêtre MASTER, page de présentation, clair/sombre. Lancement : bash e2e/run.sh logo */
+/** Captures du nouveau logo (N1) : connexion, barre latérale, accès et page MASTER, page de présentation, clair/sombre. Lancement : bash e2e/run.sh logo */
 const path = require("path"), fs = require("fs");
 const { start } = require("./harness.cjs");
 const OUT = path.join(__dirname, "out"); fs.mkdirSync(OUT, { recursive: true });
@@ -12,7 +12,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!(await page.locator('img[src$="icon.svg"]').count())) throw new Error("symbole absent");
     if (w >= 768 && !(await page.getByText("MART PRO", { exact: true }).count())) throw new Error("mot-symbole absent");
     await page.screenshot({ path: path.join(OUT, `logo-accueil-${theme}-${w}.png`) });
-    await page.getByRole("button", { name: "MASTER DOGUI", exact: true }).first().click(); await page.waitForTimeout(900); await page.screenshot({ path: path.join(OUT, `logo-master-${theme}-${w}.png`) }); await page.keyboard.press("Escape");
+    await page.getByRole(w >= 768 ? "link" : "button", { name: "MASTER DOGUI", exact: true }).first().click(); await page.waitForURL(/\/master/, { timeout: 8000 }); await page.waitForTimeout(900); await page.screenshot({ path: path.join(OUT, `logo-master-${theme}-${w}.png`) });
   });
   await step("page de présentation : nouveau logo", async () => { await page.setViewportSize({ width: 1280, height: 800 }); await page.goto(h.url("presentation/")); await page.waitForTimeout(1200); const b = await broken(); if (b.length) throw new Error(b.join(", ")); await page.screenshot({ path: path.join(OUT, "logo-presentation-1280.png") }); });
   await step("manifeste : icônes accessibles", async () => { for (const f of ["icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png", "favicon.ico", "icon.svg", "master-icon.svg", "master-symbol.svg", "logo.png"]) { const r = await page.request.get(h.url(f)); if (r.status() !== 200 || (await r.body()).length < 200) throw new Error(f + " " + r.status()); } });

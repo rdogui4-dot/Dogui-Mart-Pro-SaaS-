@@ -28,9 +28,8 @@ const LABELS = ["Tableau de bord", "Caisse (Ventes)", "Articles & Catalogue", "S
     if ((await page.getByRole("tab", { name: "Abonnement", exact: true }).getAttribute("aria-selected")) !== "true") throw new Error("onglet abonnement non sélectionné");
     await nav().getByRole("link", { name: "Paramètres" }).click(); await page.waitForTimeout(800); if ((await nav().getByRole("link", { name: "Paramètres" }).getAttribute("aria-current")) !== "page") throw new Error("paramètres non actif");
   });
-  await step("MASTER DOGUI (barre latérale) ouvre la fenêtre sur place", async () => {
-    await open("pos"); await nav().getByRole("button", { name: "MASTER DOGUI" }).click(); await page.getByRole("dialog", { name: "MASTER DOGUI" }).waitFor({ timeout: 8000 });
-    if (!/\/pos/.test(page.url())) throw new Error("adresse changée"); await page.keyboard.press("Escape");
+  await step("MASTER DOGUI (barre latérale) ouvre la page MASTER", async () => {
+    await open("pos"); await nav().getByRole("link", { name: "MASTER DOGUI" }).click(); await page.waitForURL(/\/master/, { timeout: 8000 }); await page.getByRole("heading", { name: /MASTER DOGUI — Le cerveau intelligent/ }).waitFor({ timeout: 8000 });
   });
   await step("carte boutique et état réseau réels ; hors ligne signalé", async () => {
     await open("accueil"); const aside = page.getByRole("complementary", { name: "Espaces" });

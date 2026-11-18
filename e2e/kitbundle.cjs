@@ -20,7 +20,7 @@ const nb = (t) => t.replace(/[\s  ]/g, "");
     await page.getByLabel("Nom du bundle *").fill("Pack Cuisine Essentiel"); await page.getByLabel("Description (optionnelle)").fill("Un lot pratique pour la cuisine quotidienne : riz, huile, sucre, pâtes et tomate.");
     for (const q of ["Riz local", "Huile en Fête", "Sucre 1 kg", "Pâtes alimentaires", "Tomate concentrée"]) await addArt(q);
     const t = nb(await page.getByRole("table", { name: "Composition du bundle" }).innerText()); for (const x of ["2950FCFA", "1700FCFA", "600FCFA"]) if (!t.includes(x)) throw new Error("prix " + x);
-    if (!/Articles du bundle \(5 articles\)/.test(await page.getByRole("region", { name: "Articles du bundle" }).innerText())) throw new Error("compteur");
+    { const c = (await page.getByRole("region", { name: "Articles du bundle", exact: true }).locator("h3").innerText()).replace(/\s+/g, " "); if (!/Articles du bundle \(5 articles\)/.test(c)) throw new Error("compteur : " + c); }
     if (!(await recap()).includes("Totalsansremise6650FCFA")) throw new Error(await recap());
   });
   await step("remise 10 % → prix 5 985 F ; prix 6 000 F → remise 9,8 % et économie client 650 F (−9,8 %)", async () => {
@@ -29,7 +29,7 @@ const nb = (t) => t.replace(/[\s  ]/g, "");
     const r = await recap(); if (!r.includes("Économieclient650FCFA(−9,8%)")) throw new Error(r);
   });
   await step("bouton + sur le riz : quantité 2, sous-total 5 900 F, total 9 600 F ; − ramène à 1", async () => {
-    await page.getByRole("button", { name: "Augmenter la quantité de Riz local 5 kg" }).click(); if ((await page.getByLabel("Quantité de Riz local 5 kg").inputValue()) !== "2") throw new Error("quantité");
+    await page.getByRole("button", { name: "Augmenter la quantité de Riz local 5 kg" }).click(); if ((await page.getByLabel("Quantité de Riz local 5 kg", { exact: true }).inputValue()) !== "2") throw new Error("quantité");
     if (!nb(await page.getByRole("table", { name: "Composition du bundle" }).innerText()).includes("5900FCFA") || !(await recap()).includes("Totalsansremise9600FCFA")) throw new Error(await recap());
     await page.getByRole("button", { name: "Diminuer la quantité de Riz local 5 kg" }).click(); await page.screenshot({ path: path.join(OUT, "kitbundle-fenetre-1440.png"), fullPage: true });
   });
