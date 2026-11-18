@@ -1,5 +1,5 @@
 /** MASTER DOGUI — assistant (étape 5A, mode guidé sans fournisseur d'IA). Réponses calculées par le serveur ; conversations privées. */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -28,7 +28,8 @@ function AnswerView({ a, q }: { a: Answer; q: string }) {
   );
 }
 
-export function Assistant() {
+/** `initial` : question envoyée automatiquement à l'ouverture (actions rapides de la vue d'ensemble), une seule fois. */
+export function Assistant({ initial, onSent }: { initial?: { qid?: string; text?: string }; onSent?: () => void } = {}) {
   const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [chat, setChat] = useState<string | null>(null); const [text, setText] = useState(draftGet()); const [shop, setShop] = useState(""); const [days, setDays] = useState(7); const [err, setErr] = useState(""); const [more, setMore] = useState(false); const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => { const u = () => setOnline(true); const d = () => setOnline(false); addEventListener("online", u); addEventListener("offline", d); return () => { removeEventListener("online", u); removeEventListener("offline", d); }; }, []);
   const list = useQuery({ queryKey: ["md", "chat", s.tenantId], retry: 1, queryFn: () => api<L>(s, "md.chat.list", {}) });
@@ -36,6 +37,7 @@ export function Assistant() {
   const refresh = () => void qc.invalidateQueries({ queryKey: ["md", "chat"] });
   const ask = useMutation({ mutationFn: (p: { text?: string; qid?: string }) => api<{ chatId: string }>(s, "md.chat.ask", { ...p, chatId: chat ?? undefined, shopId: shop || list.data?.shops[0]?.id, days, requestKey: rk() }), onSuccess: (r, v) => { setErr(""); if (v.text !== undefined) { setText(""); draftSet(""); } setChat(r.chatId); refresh(); }, onError: (e) => setErr((e as Error).message) });
   const del = useMutation({ mutationFn: (id: string) => api(s, "md.chat.delete", { chatId: id }), onSuccess: () => { setChat(null); refresh(); }, onError: (e) => setErr((e as Error).message) });
+  const fired = useRef(false); useEffect(() => { if (!initial || fired.current || !list.data?.canAsk || ask.isPending) return; fired.current = true; ask.mutate(initial, { onSettled: () => onSent?.() }); }, [list.data, initial]); // eslint-disable-line react-hooks/exhaustive-deps
   if (list.error) return <p className="text-bad text-sm" role="alert">{(list.error as Error).message}</p>; if (!list.data) return <div className="card h-32 animate-pulse bg-subtle" aria-busy="true" />; const l = list.data;
   const send = (p: { text?: string; qid?: string }) => { if (!online) { if (p.text) draftSet(p.text); setErr("Hors connexion : votre question est conservée dans la zone de saisie ; envoyez-la au retour du réseau."); return; } ask.mutate(p); };
   const left = l.quota.limit - l.quota.used;

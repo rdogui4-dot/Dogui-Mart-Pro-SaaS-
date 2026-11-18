@@ -196,8 +196,10 @@ export async function finReport(store: Store, ctx: Ctx, b: { section?: string; f
 // ------------------------------------------------------------------ performance mensuelle (vue d'ensemble FinI)
 /** 6 mois calendaires (UTC) : chiffre d'affaires TTC, marge brute HT, dépenses validées, résultat. Le résultat d'un mois n'est donné que si le coût d'achat de toutes
  *  ses ventes est connu et qu'aucune dépense du mois n'est en attente (même règle que le rapport des dépenses). Mois en cours : panier moyen et charges par catégorie. */
-export async function finPerformance(store: Store, ctx: Ctx) {
-  await gate(store, ctx); const now = new Date(); const months: { month: string; from: string; to: string }[] = [];
+export async function finPerformance(store: Store, ctx: Ctx) { await gate(store, ctx); return perfData(store, ctx); }
+/** Calcul mensuel sans contrôle de droits (réutilisé par la vue d'ensemble MASTER DOGUI, qui a son propre contrôle). */
+export async function perfData(store: Store, ctx: Ctx) {
+  const now = new Date(); const months: { month: string; from: string; to: string }[] = [];
   for (let k = 5; k >= 0; k--) { const a = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - k, 1)); const b = new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + 1, 1)); months.push({ month: a.toISOString().slice(0, 7), from: a.toISOString(), to: b.toISOString() }); }
   const where = { tenantId: ctx.tenantId, shopId: ctx.shopId };
   const sales = (await store.scan("sales", { ...where, status: "paid" }, { range: { field: "soldAt", from: months[0]!.from, to: months[5]!.to }, maxRows: 100_000 })).rows;

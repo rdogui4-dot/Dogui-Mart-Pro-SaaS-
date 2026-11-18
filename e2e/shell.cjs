@@ -26,9 +26,9 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.keyboard.press("Enter"); await page.waitForURL(/icompta/, { timeout: 5000 });
     await page.keyboard.press("Control+k"); await page.getByLabel("Rechercher une page", { exact: true }).fill("zzzz"); await page.waitForTimeout(200); if (!/Aucune page accessible/.test(await page.locator("body").innerText())) throw new Error("état vide absent"); await page.keyboard.press("Escape");
   });
-  await step("recherche : bouton de l'en-tête (téléphone) et ouverture de MASTER DOGUI en fenêtre", async () => {
+  await step("recherche : bouton de l'en-tête (téléphone) et ouverture de la page MASTER DOGUI", async () => {
     await open("accueil", 390, 800); await page.getByRole("button", { name: /Rechercher une page/ }).click(); await page.getByLabel("Rechercher une page", { exact: true }).fill("master"); await page.keyboard.press("Enter"); await page.waitForTimeout(800);
-    if (!(await page.getByRole("dialog", { name: "MASTER DOGUI" }).count())) throw new Error("fenêtre MASTER non ouverte"); await page.keyboard.press("Escape");
+    await page.waitForURL(/\/master/, { timeout: 8000 }); await page.getByRole("heading", { name: /MASTER DOGUI — Le cerveau intelligent/ }).waitFor({ timeout: 8000 });
   });
   await step("aide : raccourcis réels, présentation, contact WhatsApp, version", async () => {
     await open("accueil"); await page.getByRole("button", { name: "Aide" }).click(); const dlg = page.getByRole("dialog", { name: "Aide" }); await dlg.waitFor({ timeout: 4000 }); const t = await dlg.innerText();

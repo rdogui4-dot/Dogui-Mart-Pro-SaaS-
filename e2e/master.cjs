@@ -1,4 +1,4 @@
-/** Tests navigateur de MASTER DOGUI : 5 onglets (Licence, Rapports, Profil, Recommandations, Assistant), exports PDF/Excel/CSV,
+/** Tests navigateur de MASTER DOGUI : 6 onglets (Vue d'ensemble, Licence, Rapports MASTER, Profil, Recommandations, Assistant), exports PDF/Excel/CSV,
  *  affichage téléphone (390 px) et tablette (1024 px) sans débordement horizontal, noms accessibles, hors ligne. Captures dans e2e/out/. */
 const fs = require("fs"), path = require("path");
 const { start } = require("./harness.cjs");
@@ -23,7 +23,7 @@ const step = async (name, fn) => { try { await fn(); results.push(["OK  ", name]
   await h.call("cash.open", { openingFloat: 5000 }, A); await h.call("checkout", { clientId: "vente-e2e-0001", lines: [{ productId: eau, qty: 4 }], payments: [{ method: "cash", amount: 2000 }] }, A); await h.call("cash.close", { counted: 7000 }, A);
 
   await step("Rapports : rapport de clôture listé, ouverture, export CSV / Excel / PDF (contenu vérifié)", async () => {
-    await page.goto(h.url("master")); await tab("Rapports"); await wait("Rapport de clôture"); await page.getByText("Rapport de clôture", { exact: false }).first().click(); await wait("Méthode et limites"); await shot("2-rapport-mobile");
+    await page.goto(h.url("master")); await tab("Rapports MASTER"); await wait("Rapport de clôture"); await page.getByText("Rapport de clôture", { exact: false }).first().click(); await wait("Méthode et limites"); await shot("2-rapport-mobile");
     await download("Exporter ce rapport en CSV", (b, n) => { const s = b.toString("utf8"); if (!n.endsWith(".csv") || b[0] !== 0xef || !s.includes("Ventes") || !s.includes("Méthodes et limites")) throw new Error("CSV invalide : " + n); });
     await download("Exporter ce rapport en Excel", (b, n) => { if (!n.endsWith(".xlsx") || String.fromCharCode(b[0], b[1]) !== "PK") throw new Error("Excel invalide : " + n); });
     await download("Exporter ce rapport en PDF", (b, n) => { if (!n.endsWith(".pdf") || b.slice(0, 4).toString() !== "%PDF") throw new Error("PDF invalide : " + n); });
@@ -51,8 +51,8 @@ const step = async (name, fn) => { try { await fn(); results.push(["OK  ", name]
   await step("Assistant : hors connexion, la question est conservée avec un message explicite (jamais perdue en silence)", async () => {
     await page.context().setOffline(true); await page.waitForTimeout(300); await page.getByLabel("Votre question").fill("Quelles sont mes ventes ce mois ?"); await page.getByRole("button", { name: "Envoyer" }).click(); await wait("Hors connexion"); const v = await page.getByLabel("Votre question").inputValue(); await page.context().setOffline(false); if (!v.includes("ventes ce mois")) throw new Error("question perdue hors ligne"); });
 
-  await step("Tablette (1024 px) : les 5 onglets s'affichent sans débordement ni élément sans nom", async () => {
-    await page.setViewportSize({ width: 1024, height: 768 }); for (const n of ["Licence", "Rapports", "Profil", "Recommandations", "Assistant"]) { await tab(n); await noOverflow(`tablette ${n}`); await unnamed(`tablette ${n}`); } await shot("6-assistant-tablette"); await page.setViewportSize({ width: 390, height: 800 }); });
+  await step("Tablette (1024 px) : les 6 onglets s'affichent sans débordement ni élément sans nom", async () => {
+    await page.setViewportSize({ width: 1024, height: 768 }); for (const n of ["Vue d'ensemble", "Licence", "Rapports MASTER", "Profil", "Recommandations", "Assistant"]) { await tab(n); await noOverflow(`tablette ${n}`); await unnamed(`tablette ${n}`); } await shot("6-assistant-tablette"); await page.setViewportSize({ width: 390, height: 800 }); });
 
   await step("Expiration : l'historique reste consultable, nouvelles questions et actualisations suspendues", async () => {
     const l = st.rows("md_licenses")[0]; l.status = "expired"; l.trialEndsAt = new Date(Date.now() - 864e5).toISOString(); l.paidUntil = l.trialEndsAt; await page.goto(h.url("master")); await tab("Assistant"); await wait("Licence MASTER DOGUI inactive"); const dis = await page.getByRole("group", { name: "Questions guidées" }).getByRole("button", { name: "Quelles sont mes ventes ?" }).isDisabled(); if (!dis) throw new Error("question guidée active sans licence");

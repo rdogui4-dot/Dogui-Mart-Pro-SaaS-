@@ -18,7 +18,7 @@ type Rem = { level: "soon" | "urgent" | "last" | "expired"; text: string };
 type V = { reminder: Rem | null; state: "none" | "trial" | "active" | "grace" | "expired"; phase: string; endsAt: string | null; daysLeft: number | null; canAnalyze: boolean; consultOnly: boolean; trialUsed: boolean; canStartTrial: boolean; isOwner: boolean; trialDays: number; billingStartsAt: string | null; nextDue: { at: string; amount: number; label: string } | null; prices: { first: number; firstMonths: number; renew: number }; consequence: string; history: { id: string; kind: string; count?: number; amount: number; from: string; to: string; at: string; note: string }[]; notes: string[] };
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const LABEL: Record<V["state"], [string, string]> = { none: ["Non démarrée", "text-muted"], trial: ["Essai gratuit en cours", "text-ok"], active: ["Licence active", "text-ok"], grace: ["Délai de grâce", "text-warn"], expired: ["Expirée — mode consultation", "text-warn"] };
-function Licence() {
+export function Licence() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient();
   const q = useQuery({ queryKey: ["md", "license", s.tenantId], retry: 1, queryFn: () => api<V>(s, "md.license", {}) }); const [err, setErr] = useState("");
   const start = useMutation({ mutationFn: () => api<V>(s, "md.trial.start", {}), onSuccess: () => { setErr(""); void qc.invalidateQueries({ queryKey: ["md"] }); }, onError: (e) => setErr((e as Error).message) });
@@ -79,7 +79,7 @@ export function ReportView({ r }: { r: Full }) {
   );
 }
 type Row = { id: string; type: string; businessDate: string; status: string; statusLabel: string; version: number; generatedAt: string; title: string; alerts: number; missing: number };
-function Rapports() {
+export function Rapports() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [sel, setSel] = useState<string | null>(null);
   const q = useQuery({ queryKey: ["md", "reports", s.shopId], retry: 1, queryFn: () => api<{ reports: Row[] }>(s, "md.reports", {}) }); const one = useQuery({ queryKey: ["md", "report", sel], enabled: !!sel, queryFn: () => api<Full>(s, "md.report", { id: sel }) });
   const regen = useMutation({ mutationFn: (r: Full) => (r.type === "opening" ? api<Full>(s, "md.opening", { regenerate: true }) : api<Full>(s, "md.closing", { sessionId: r.sessionId, regenerate: true })), onSuccess: () => void qc.invalidateQueries({ queryKey: ["md"] }) });
@@ -93,9 +93,9 @@ function Rapports() {
   );
 }
 /** Symbole cerveau MASTER DOGUI (monochrome, suit la couleur du texte : noir sur clair, blanc sur sombre). Décoratif : le nom est déjà écrit. */
-export function MasterSymbol({ size = 40 }: { size?: number }) {
+export function MasterSymbol({ size = 40, className = "text-main" }: { size?: number; className?: string }) {
   const url = `url(${import.meta.env.BASE_URL}master-symbol.svg)`;
-  return <span aria-hidden="true" className="inline-block shrink-0 bg-current text-main" style={{ width: size, height: size, WebkitMask: `${url} center / contain no-repeat`, mask: `${url} center / contain no-repeat` }} />;
+  return <span aria-hidden="true" className={`inline-block shrink-0 bg-current ${className}`} style={{ width: size, height: size, WebkitMask: `${url} center / contain no-repeat`, mask: `${url} center / contain no-repeat` }} />;
 }
 export function MasterBody({ tab, setTab }: { tab: MasterTab; setTab: (t: MasterTab) => void }) {
   const { session } = useSession(); const s = session!; const mgr = s.role === "owner" || s.role === "manager";

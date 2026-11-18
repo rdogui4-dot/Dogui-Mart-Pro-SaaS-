@@ -1,4 +1,4 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Bell, ChevronDown, Home, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, UserRound, WifiOff, type LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -12,7 +12,6 @@ import { LogoMark, MarkInline, Wordmark } from "./Logo";
 import { useMasterModal } from "@/lib/master-modal";
 import { ShopArt } from "./ShopArt";
 import { MasterModalCtx, type MasterTab } from "@/lib/master-modal";
-import { MasterWindow } from "@/routes/master";
 import { Breadcrumb, HelpButton, SearchButton } from "./Shell";
 import { usePersistedState } from "@/lib/prefs";
 import { can } from "@/lib/session";
@@ -28,9 +27,9 @@ function useWide() {
 }
 
 export function Layout() {
-  const [mOpen, setMOpen] = useState(false); const [mTab, setMTab] = useState<MasterTab>("lic");
-  const mctx = { open: (t?: MasterTab) => { if (t) setMTab(t); setMOpen(true); }, close: () => setMOpen(false), isOpen: mOpen };
-  return <MasterModalCtx.Provider value={mctx}><LayoutInner />{mOpen && <MasterWindow tab={mTab} setTab={setMTab} onClose={() => setMOpen(false)} />}</MasterModalCtx.Provider>;
+  const nav = useNavigate(); const path = useRouterState({ select: (st) => st.location.pathname });
+  const mctx = { open: (t?: MasterTab) => void nav({ to: "/master", search: { onglet: t ?? "ov" } as never }), close: () => void nav({ to: "/accueil" }), isOpen: path.endsWith("/master") };
+  return <MasterModalCtx.Provider value={mctx}><LayoutInner /></MasterModalCtx.Provider>;
 }
 
 function LayoutInner() {
@@ -78,7 +77,7 @@ function LayoutInner() {
         <SubscriptionBanner />
         <div className="px-4 md:px-6 pt-3 empty:hidden mx-auto w-full max-w-[96rem]"><VerifyBanner /></div>
         <main className="flex-1 overflow-y-auto p-4 md:px-6 pb-24 md:pb-6">
-          <div key={path + search} className="page-in mx-auto w-full max-w-[96rem]">
+          <div key={path + search.replace(/[?&](qid|q)=[^&]*/g, "")} className="page-in mx-auto w-full max-w-[96rem]">
         {sub.data?.entitlement.state === "locked" && !(session?.role === "owner" && path.startsWith("/reglages"))
           ? <div className="text-center py-10 flex flex-col gap-3 items-center"><h1 className="text-xl font-bold">Abonnement expiré</h1><p className="text-muted">L'accès à l'application est suspendu ; vos données sont conservées.{session?.role === "owner" ? " Renouvelez votre formule pour reprendre." : " Contactez le propriétaire du commerce."}</p>{session?.role === "owner" && <Link to="/reglages" className="btn">Renouveler mon abonnement</Link>}<button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button></div>
           : session?.shopId || (session?.role === "owner" && path.startsWith("/reglages")) ? <Outlet key={session.shopId} /> : session?.setupError ? <div className="text-center py-10 flex flex-col gap-3 items-center"><h1 className="text-xl font-bold">Votre commerce n'est pas encore prêt</h1><p className="text-muted">La première boutique n'a pas pu être créée : {session.setupError}. Si le service vient d'être mis en place, réessayez dans quelques minutes.</p><button className="btn" onClick={() => void refresh()}>Réessayer</button>{session.role === "owner" && <Link to="/reglages" className="btn-ghost">Ouvrir les réglages</Link>}<button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button></div> : <div className="text-center text-muted py-10 flex flex-col gap-3 items-center"><p>Aucune boutique ne vous est affectée. Contactez le propriétaire.</p><button className="btn-ghost" onClick={() => void logout()}>Se déconnecter</button></div>}
@@ -200,7 +199,7 @@ function ProfileMenu({ name, role, wide, onLogout }: { name: string; role: strin
 
 function MasterButton() {
   const m = useContext(MasterModalCtx);
-  return <button type="button" className="btn-ghost !py-1.5 !min-h-11 !min-w-11 !px-2.5 text-sm shrink-0 inline-flex items-center justify-center gap-2" aria-haspopup="dialog" aria-label="MASTER DOGUI" onClick={() => m.open()}><img src={`${import.meta.env.BASE_URL}master-icon.svg`} width={20} height={20} alt="" aria-hidden="true" className="shrink-0 rounded-[5px]" /><span className="md:hidden hidden min-[430px]:inline">MASTER</span><span className="hidden md:inline">MASTER DOGUI</span></button>;
+  return <button type="button" className="btn-ghost !py-1.5 !min-h-11 !min-w-11 !px-2.5 text-sm shrink-0 inline-flex items-center justify-center gap-2" aria-label="MASTER DOGUI" onClick={() => m.open()}><img src={`${import.meta.env.BASE_URL}master-icon.svg`} width={20} height={20} alt="" aria-hidden="true" className="shrink-0 rounded-[5px]" /><span className="md:hidden hidden min-[430px]:inline">MASTER</span><span className="hidden md:inline">MASTER DOGUI</span></button>;
 }
 
 /** Rappel non bloquant : adresse e-mail non confirmée (sert à récupérer le mot de passe). Aucune fonction n'est coupée. */

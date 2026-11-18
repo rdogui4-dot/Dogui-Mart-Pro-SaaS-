@@ -27,7 +27,7 @@ export const SPACES: Space[] = [
   { id: "piloter", label: "Piloter", icon: TrendingUp, hint: "Tableaux de bord et MASTER DOGUI", items: [
     { to: "/activite", label: "Tableau de bord", hint: "Ventes, marge, stock et alertes", perm: "reports" },
     { to: "/pilotage", label: "Pilotage Pro", hint: "Rentabilité, stocks, prévisions, exports", perm: "reports" },
-    { to: "/master", label: "MASTER DOGUI", hint: "Rapports, recommandations, assistant, licence", perm: "settings", modal: true },
+    { to: "/master", label: "MASTER DOGUI", hint: "Vue d'ensemble, assistant, recommandations, rapports, licence", perm: "settings" },
   ] },
   { id: "compta", label: "Comptabilité et finance", icon: BookOpen, hint: "Finance, ICompta, investissements", items: [
     { to: "/finance", label: "Finance", hint: "Comptes, flux, virements, rapprochement", perm: "accounting" },
@@ -65,7 +65,7 @@ export const KIT_MODULES: KitModule[] = [
   { id: "icompta", to: "/icompta", label: "ICompta", hint: "Écritures, grand livre, clôture", perm: "finance", also: ["/compta"], icon: Calculator },
   { id: "invest", to: "/investissements", label: "IProj-Invest", hint: "Projets, financements, scénarios", perm: "accounting", icon: Building2 },
   { id: "reports", to: "/pilotage", label: "Rapports & Analyses", hint: "Rentabilité, stocks, prévisions, exports", perm: "reports", icon: BarChart3 },
-  { id: "master", to: "/master", label: "MASTER DOGUI", hint: "Rapports, recommandations, assistant, licence", perm: "settings", modal: true, icon: Brain },
+  { id: "master", to: "/master", label: "MASTER DOGUI", hint: "Vue d'ensemble, assistant, recommandations, rapports, licence", perm: "settings", icon: Brain },
   { id: "promo", to: "/promotions", label: "Promotions & Offres", hint: "Remises, coupons, résultats", perm: "stock", icon: Megaphone },
   { id: "team", to: "/reglages", onglet: "equipe", label: "Équipe & Permissions", hint: "Membres, rôles, accès, journal", perm: "settings", icon: UserCog },
   { id: "settings", to: "/reglages", label: "Paramètres", hint: "Commerce, boutiques, règles, paiements", perm: "settings", icon: SettingsI },
