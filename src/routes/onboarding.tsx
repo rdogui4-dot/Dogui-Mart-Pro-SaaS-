@@ -9,7 +9,7 @@ import { compressImage } from "@/lib/articles";
 import { useSession } from "@/lib/session";
 import { Logo } from "@/components/Logo";
 import { Stepper } from "@/components/kit";
-import { COUNTRIES, DAYS, DESCRIPTION_MAX, LEGAL_FORMS, SECTORS, SHOP_TYPES, companyErrors, countryOf, decodeDays, encodeDays, shopErrors } from "@/domain/signup";
+import { COUNTRIES, DAYS, DESCRIPTION_MAX, LEGAL_FORMS, PROFILE_TYPES, type ProfileType, SECTORS, SHOP_TYPES, companyErrors, countryOf, decodeDays, encodeDays, shopErrors } from "@/domain/signup";
 import { MasterSymbol } from "./master";
 import type { Overview } from "./settings-general";
 
@@ -48,7 +48,7 @@ export function OnboardingPage() {
   const [ids, setIds] = useState<{ tenantId: string; shopId: string } | null>(s.needsTenant ? null : { tenantId: s.tenantId, shopId: s.shopId });
   const [teamId, setTeamId] = useState<string | null>(s.needsTenant ? null : s.tenantId);
   const ctx = () => ({ ...s, tenantId: ids?.tenantId ?? s.tenantId, shopId: ids?.shopId ?? s.shopId });
-  const [c, setC] = useState({ companyName: "", legalForm: "", legal: "", sector: "", country: "CI", city: "", address: "", phone: "+225 ", description: "" });
+  const [c, setC] = useState({ profileType: "individual" as ProfileType, companyName: "", legalForm: "", legal: "", sector: "", country: "CI", city: "", address: "", phone: "+225 ", description: "" });
   const [logo, setLogo] = useState<File | null>(null); const [logoMsg, setLogoMsg] = useState("");
   const logoUrl = useMemo(() => (logo ? URL.createObjectURL(logo) : ""), [logo]); useEffect(() => () => { if (logoUrl) URL.revokeObjectURL(logoUrl); }, [logoUrl]);
   const [sh, setSh] = useState({ name: "", type: "", address: "", city: "", phone: "", days: decodeDays("1111110"), from: "08:00", to: "20:00" });
@@ -68,7 +68,7 @@ export function OnboardingPage() {
       const id = teamId ?? (await teams.create({ teamId: ID.unique(), name: c.companyName.trim(), roles: ["owner"] })).$id; setTeamId(id);
       const init = await api<{ shopId: string }>({ ...s, tenantId: id }, "tenant.init", { name: c.companyName.trim() });
       const cx = { ...s, tenantId: id, shopId: init.shopId }; setIds({ tenantId: id, shopId: init.shopId });
-      await api(cx, "shop.save", { companyName: c.companyName.trim(), legalForm: c.legalForm, legal: c.legal.trim(), sector: c.sector, country: c.country, city: c.city.trim(), address: c.address.trim(), phone: c.phone.trim(), description: c.description.trim() });
+      await api(cx, "shop.save", { profileType: c.profileType, companyName: c.companyName.trim(), ...(c.profileType === "company" ? { legalForm: c.legalForm, legal: c.legal.trim() } : {}), sector: c.sector, country: c.country, city: c.city.trim(), address: c.address.trim(), phone: c.phone.trim(), description: c.description.trim() });
       if (logo) { try { await api(cx, "shop.logo", { data: await compressImage(logo) }); } catch (x) { setLogoMsg(`Logo non enregistré (${(x as Error).message}) : vous pourrez l'ajouter dans Paramètres.`); } }
       setSh((p) => ({ ...p, name: p.name || c.companyName.trim(), city: p.city || c.city.trim(), address: p.address || c.address.trim(), phone: p.phone || c.phone.trim() }));
       write(s.userId, "shop"); setStep("shop");
@@ -96,10 +96,16 @@ export function OnboardingPage() {
 
           {step === "company" && <form onSubmit={saveCompany} className="flex flex-col gap-4" noValidate>
             <div><h1 className="text-2xl font-extrabold inline-flex items-center gap-2"><Building2 size={24} aria-hidden="true" />Informations sur votre entreprise</h1><p className="text-sm text-soft">Ces informations seront utilisées sur vos documents, rapports et factures. Bonjour {s.name}, bienvenue !</p></div>
+            <fieldset className="flex flex-col gap-2"><legend className="text-sm text-soft mb-1">Vous êtes <Req /></legend>
+              <div role="radiogroup" aria-label="Type de compte" className="grid gap-2 sm:grid-cols-2">{PROFILE_TYPES.map((p) => (
+                <label key={p.id} className={`rounded-xl border p-3 flex gap-3 items-start cursor-pointer ${c.profileType === p.id ? "border-accent bg-accent-soft" : "border-line"}`}>
+                  <input type="radio" name="profileType" className="mt-1 size-4 accent-[var(--accent)]" checked={c.profileType === p.id} onChange={() => { setC({ ...c, profileType: p.id, ...(p.id === "individual" ? { legalForm: "", legal: "" } : {}) }); setErrs({}); }} />
+                  <span><b className="block">{p.label}</b><span className="text-xs text-soft">{p.help}</span></span></label>))}</div></fieldset>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Nom de l'entreprise" req err={errs.companyName}>{input(c.companyName, (v) => setC({ ...c, companyName: v }), { placeholder: "Ex. : DOGUI DISTRIBUTION", autoComplete: "organization", "aria-label": "Nom de l'entreprise" })}</Field>
-              <Field label="Forme juridique (facultatif)" err={errs.legalForm}><select className="input w-full" aria-label="Forme juridique" value={c.legalForm} onChange={(e) => setC({ ...c, legalForm: e.target.value })}><option value="">Non renseignée</option>{LEGAL_FORMS.map((x) => <option key={x}>{x}</option>)}</select></Field>
-              <Field label="Numéro RCCM / ID fiscal (facultatif)">{input(c.legal, (v) => setC({ ...c, legal: v }), { placeholder: "Ex. : CI-ABJ-2024-B-12345", maxLength: 120, "aria-label": "Numéro RCCM / ID fiscal" })}</Field>
+              <Field label={c.profileType === "company" ? "Nom de l'entreprise" : "Nom de votre activité"} req err={errs.companyName}>{input(c.companyName, (v) => setC({ ...c, companyName: v }), { placeholder: c.profileType === "company" ? "Ex. : DOGUI DISTRIBUTION SARL" : "Ex. : Boutique Awa", autoComplete: "organization", "aria-label": c.profileType === "company" ? "Nom de l'entreprise" : "Nom de votre activité" })}</Field>
+              {c.profileType === "company" && <>
+                <Field label="Forme juridique" req err={errs.legalForm}><select className="input w-full" aria-label="Forme juridique" value={c.legalForm} onChange={(e) => setC({ ...c, legalForm: e.target.value })}><option value="">Choisir…</option>{LEGAL_FORMS.map((x) => <option key={x}>{x}</option>)}</select></Field>
+                <Field label="Numéro RCCM / ID fiscal" req err={errs.legal}>{input(c.legal, (v) => setC({ ...c, legal: v }), { placeholder: "Ex. : CI-ABJ-2024-B-12345", maxLength: 120, "aria-label": "Numéro RCCM / ID fiscal" })}</Field></>}
               <Field label="Secteur d'activité" req err={errs.sector}><select className="input w-full" aria-label="Secteur d'activité" value={c.sector} onChange={(e) => setC({ ...c, sector: e.target.value })}><option value="">Choisir…</option>{SECTORS.map((x) => <option key={x}>{x}</option>)}</select></Field>
               <Field label="Pays" req err={errs.country}><select className="input w-full" aria-label="Pays" value={c.country} onChange={(e) => { const n = countryOf(e.target.value); setC({ ...c, country: e.target.value, city: "", phone: !c.phone.trim() || /^\+\d{1,3}\s?$/.test(c.phone.trim()) ? `${n?.dial ?? ""} ` : c.phone }); }}>{COUNTRIES.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}</select></Field>
               <Field label="Ville" req err={errs.city}>{input(c.city, (v) => setC({ ...c, city: v }), { list: "cities", placeholder: country?.cities[0] ?? "", autoComplete: "address-level2", "aria-label": "Ville" })}<datalist id="cities">{country?.cities.map((x) => <option key={x} value={x} />)}</datalist></Field>
@@ -109,7 +115,7 @@ export function OnboardingPage() {
             <Field label="Brève description de votre activité" err={errs.description}><textarea className="input w-full min-h-20" aria-label="Brève description de votre activité" maxLength={DESCRIPTION_MAX} placeholder="Ex. : Commerce de détail de produits alimentaires, cosmétiques et articles de maison…" value={c.description} onChange={(e) => setC({ ...c, description: e.target.value })} /><span className="text-xs text-muted self-end">{c.description.length} / {DESCRIPTION_MAX}</span></Field>
             <div className="flex items-center gap-3 rounded-xl border border-dashed border-line p-3">
               {logo ? <img src={logoUrl} alt="Aperçu du logo" className="size-14 rounded-lg object-contain bg-white border border-line" /> : <span className="size-14 rounded-lg bg-subtle grid place-items-center text-muted"><ImagePlus size={24} aria-hidden="true" /></span>}
-              <div className="flex-1 min-w-0 text-sm"><b>Logo de l'entreprise (facultatif)</b><p className="text-xs text-muted">PNG, JPG ou WebP ; réduit automatiquement (450 Ko maximum). Imprimé sur vos tickets et factures.</p></div>
+              <div className="flex-1 min-w-0 text-sm"><b>Logo (facultatif)</b><p className="text-xs text-muted">PNG, JPG ou WebP ; réduit automatiquement (450 Ko maximum). Imprimé sur vos tickets et factures.</p></div>
               <label className="btn-ghost !min-h-9 text-sm cursor-pointer">{logo ? "Changer" : "Ajouter le logo"}<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" aria-label="Ajouter le logo" onChange={(e) => { setLogo(e.target.files?.[0] ?? null); }} /></label>
               {logo && <button type="button" className="icon-btn" aria-label="Retirer le logo" onClick={() => setLogo(null)}><X size={16} /></button>}
             </div>

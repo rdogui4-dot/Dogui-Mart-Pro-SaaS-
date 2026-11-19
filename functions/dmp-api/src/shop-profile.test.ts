@@ -19,6 +19,12 @@ describe("assistant d'accueil : profil entreprise et boutique", () => {
     await ok(call("own", "shop.save", { legalForm: "SARL", legal: "CI-ABJ-2024-B-12345" })); expect(shop()).toMatchObject({ legalForm: "SARL", legal: "CI-ABJ-2024-B-12345" });
     await ok(call("own", "shop.save", { legalForm: "" })); expect(shop().legalForm).toBe("");
   });
+  it("type de compte : l'entreprise exige forme juridique et RCCM, le particulier n'en a pas", async () => {
+    expect((await call("own", "shop.save", { profileType: "company", companyName: "X SARL" })).status).toBe(400);
+    expect((await call("own", "shop.save", { profileType: "company", legalForm: "SARL" })).status).toBe(400);
+    await ok(call("own", "shop.save", { profileType: "company", legalForm: "SARL", legal: "CI-ABJ-2024-B-12345" })); expect(shop()).toMatchObject({ profileType: "company", legalForm: "SARL", legal: "CI-ABJ-2024-B-12345" });
+    await ok(call("own", "shop.save", { profileType: "individual", legalForm: "SARL" })); expect(shop()).toMatchObject({ profileType: "individual", legalForm: "" });
+  });
   it("refuse les valeurs inconnues (400) et le personnel non propriétaire (403)", async () => {
     for (const b of [{ country: "FR" }, { sector: "x" }, { shopType: "x" }, { openFrom: "20:00", openTo: "08:00" }, { openDays: "abc" }]) expect((await call("own", "shop.save", b)).status, JSON.stringify(b)).toBe(400);
     expect((await call("mgr", "shop.save", { sector: "Services" })).status).toBe(403);

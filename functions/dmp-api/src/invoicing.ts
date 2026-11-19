@@ -16,7 +16,7 @@ const parse = <T,>(s: unknown, fallback: T): T => { try { return JSON.parse(Stri
 const ymd = (iso: string) => iso.slice(0, 10).replace(/-/g, "");
 const TREASURY = { cash: ACCOUNTS.cash, wave: ACCOUNTS.wave, orange: ACCOUNTS.orange, card: ACCOUNTS.bank } as const;
 
-export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; address?: string; city?: string; phone?: string; legal?: string; companyName?: string; taxRegime?: string; promoTz?: string; legalForm?: string; sector?: string; country?: string; description?: string; shopType?: string; openDays?: string; openFrom?: string; openTo?: string; vatRatePct?: number; costMethod?: string; expiredPolicy?: string; minMarginPct?: number; cashRequired?: boolean; varianceTolerance?: number }) {
+export async function saveShop(store: Store, ctx: Ctx, b: { name?: string; address?: string; city?: string; phone?: string; legal?: string; companyName?: string; taxRegime?: string; promoTz?: string; profileType?: string; legalForm?: string; sector?: string; country?: string; description?: string; shopType?: string; openDays?: string; openFrom?: string; openTo?: string; vatRatePct?: number; costMethod?: string; expiredPolicy?: string; minMarginPct?: number; cashRequired?: boolean; varianceTolerance?: number }) {
   need(ctx, "owner");
   if (b.expiredPolicy !== undefined) { // vente des lots périmés : interdite par défaut ; la rendre possible est un choix du propriétaire (Pro), journalisé
     if (!isExpiredPolicy(b.expiredPolicy)) throw new HttpError(400, "Politique inconnue");

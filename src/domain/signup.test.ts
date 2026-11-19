@@ -15,14 +15,19 @@ describe("pays et fuseaux", () => {
     expect(countryOf("CI")!.tz).toBe("Africa/Abidjan"); expect(countryOf("XX")).toBeUndefined();
   });
 });
-describe("étape Entreprise : forme juridique et RCCM facultatifs", () => {
+describe("étape Entreprise : type de compte, forme juridique et RCCM", () => {
   const ok = { companyName: "Dogui Distribution", sector: "Commerce / Distribution", country: "CI", city: "Abidjan", address: "Cocody", phone: "+225 07 00 00 00 00" };
-  it("valide sans forme juridique ni RCCM", () => expect(companyErrors(ok)).toEqual({}));
+  it("particulier / commerçant : valide sans forme juridique ni RCCM", () => { expect(companyErrors(ok)).toEqual({}); expect(companyErrors({ ...ok, profileType: "individual" })).toEqual({}); });
+  it("entreprise : forme juridique et RCCM obligatoires", () => {
+    expect(Object.keys(companyErrors({ ...ok, profileType: "company" })).sort()).toEqual(["legal", "legalForm"]);
+    expect(companyErrors({ ...ok, profileType: "company", legalForm: "SARL", legal: "CI-ABJ-2024-B-1" })).toEqual({});
+    expect(companyErrors({ ...ok, profileType: "company", legalForm: "Truc", legal: "CI-ABJ" }).legalForm).toBeDefined();
+  });
   it("exige nom, secteur, pays, ville, adresse, téléphone", () => {
     expect(Object.keys(companyErrors({ ...ok, companyName: "", sector: "", country: "", city: "", address: "", phone: "12" })).sort()).toEqual(["address", "city", "companyName", "country", "phone", "sector"]);
   });
   it("refuse une forme inconnue et une description trop longue seulement si elles sont saisies", () => {
-    expect(companyErrors({ ...ok, legalForm: "Truc" }).legalForm).toBeDefined(); expect(companyErrors({ ...ok, description: "x".repeat(201) }).description).toBeDefined();
+    expect(companyErrors({ ...ok, profileType: "company", legalForm: "Truc", legal: "CI-ABJ-1" }).legalForm).toBeDefined(); expect(companyErrors({ ...ok, description: "x".repeat(201) }).description).toBeDefined();
     expect(companyErrors({ ...ok, legalForm: "SARL", legal: "CI-ABJ-2024-B-1" })).toEqual({});
   });
 });
@@ -46,6 +51,11 @@ describe("profil de boutique accepté par le serveur", () => {
       .toEqual({ country: "CI", promoTz: "Africa/Abidjan", sector: "Services", shopType: "Commerce de détail", legalForm: "", description: "Vente de riz", openDays: "1111110", openFrom: "08:00", openTo: "20:00" });
     expect(shopProfilePatch({ country: "SN", promoTz: "Africa/Abidjan" }).patch.promoTz).toBeUndefined(); // le fuseau fourni par l'appelant est conservé
     expect(shopProfilePatch({}).patch).toEqual({});
+  });
+  it("type de compte : entreprise exige forme juridique et RCCM ; particulier efface la forme juridique", () => {
+    expect(shopProfilePatch({ profileType: "company", legalForm: "SARL", legal: "CI-ABJ-2024-B-1" }).patch).toEqual({ profileType: "company", legalForm: "SARL" });
+    for (const b of [{ profileType: "company" }, { profileType: "company", legalForm: "SARL" }, { profileType: "company", legalForm: "SARL", legal: " " }, { profileType: "autre" }]) expect(shopProfilePatch(b).error, JSON.stringify(b)).toBeDefined();
+    expect(shopProfilePatch({ profileType: "individual", legalForm: "SARL" }).patch).toEqual({ profileType: "individual", legalForm: "" });
   });
   it("refuse les valeurs inconnues ou incohérentes", () => {
     for (const b of [{ country: "FR" }, { sector: "x" }, { shopType: "x" }, { legalForm: "Truc" }, { openDays: "11" }, { openFrom: "20:00", openTo: "08:00" }, { openFrom: "08:00" }, { description: "x".repeat(201) }]) expect(shopProfilePatch(b).error, JSON.stringify(b)).toBeDefined();

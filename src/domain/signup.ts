@@ -13,7 +13,11 @@ export const COUNTRIES = [
 export type CountryCode = (typeof COUNTRIES)[number]["code"];
 export const countryOf = (code: unknown) => COUNTRIES.find((c) => c.code === code);
 
-/** Facultatif (décision K20) : une entreprise informelle ou en cours de formalisation peut ne rien indiquer. */
+/** Type de compte choisi à l'inscription : un particulier ou commerçant n'a ni forme juridique ni RCCM à renseigner ; une entreprise doit indiquer les deux. */
+export const PROFILE_TYPES = [{ id: "individual", label: "Particulier / Commerçant", help: "Vous exercez en votre nom : aucune forme juridique ni RCCM à renseigner." }, { id: "company", label: "Entreprise", help: "Société ou entreprise immatriculée : forme juridique et RCCM obligatoires." }] as const;
+export type ProfileType = (typeof PROFILE_TYPES)[number]["id"];
+export const isProfileType = (v: unknown): v is ProfileType => v === "individual" || v === "company";
+/** Forme juridique : proposée aux seules entreprises. */
 export const LEGAL_FORMS = ["Entreprise individuelle", "SARL", "SARLU", "SA", "SAS", "Société en nom collectif", "Groupement / coopérative", "Association", "Autre"] as const;
 export const SECTORS = ["Commerce / Distribution", "Alimentation & boissons", "Pharmacie & santé", "Mode & beauté", "Électronique & téléphonie", "Quincaillerie & construction", "Restauration", "Services", "Agriculture & élevage", "Autre"] as const;
 export const SHOP_TYPES = ["Commerce de détail", "Commerce de gros", "Supermarché / supérette", "Restaurant / snack", "Pharmacie", "Boutique spécialisée", "Dépôt / entrepôt", "Autre"] as const;
@@ -40,8 +44,8 @@ export function hoursError(days: boolean[], from: string, to: string): string | 
   return from < to ? null : "L'heure de fermeture doit suivre l'heure d'ouverture";
 }
 
-export type CompanyIn = { companyName: string; country: string; city: string; address: string; phone: string; sector: string; legalForm?: string; legal?: string; description?: string };
-/** Étape Entreprise : seuls le nom, le secteur, le pays, la ville, l'adresse et le téléphone sont obligatoires (forme juridique et RCCM/ID fiscal facultatifs). */
+export type CompanyIn = { profileType?: ProfileType; companyName: string; country: string; city: string; address: string; phone: string; sector: string; legalForm?: string; legal?: string; description?: string };
+/** Étape Entreprise : nom, secteur, pays, ville, adresse et téléphone sont obligatoires ; forme juridique et RCCM/ID fiscal le sont seulement pour une entreprise (jamais demandés à un particulier ou commerçant). */
 export function companyErrors(c: CompanyIn): Record<string, string> {
   const e: Record<string, string> = {}; const t = (s?: string) => (s ?? "").trim();
   if (t(c.companyName).length < 2) e.companyName = "Nom de l'entreprise requis (2 caractères min.)";
@@ -50,7 +54,10 @@ export function companyErrors(c: CompanyIn): Record<string, string> {
   if (!t(c.city)) e.city = "Ville requise";
   if (!t(c.address)) e.address = "Adresse requise";
   if (!phoneOk(c.phone)) e.phone = "Téléphone invalide (8 à 15 chiffres)";
-  if (c.legalForm && !LEGAL_FORMS.includes(c.legalForm as never)) e.legalForm = "Forme juridique inconnue";
+  if (c.profileType === "company") {
+    if (!c.legalForm) e.legalForm = "Forme juridique requise pour une entreprise"; else if (!LEGAL_FORMS.includes(c.legalForm as never)) e.legalForm = "Forme juridique inconnue";
+    if (t(c.legal).length < 3) e.legal = "Numéro RCCM / ID fiscal requis pour une entreprise";
+  }
   if ((c.description ?? "").length > DESCRIPTION_MAX) e.description = `${DESCRIPTION_MAX} caractères maximum`;
   return e;
 }
@@ -74,7 +81,12 @@ export function shopErrors(s: ShopIn): Record<string, string> {
 export function shopProfilePatch(b: Record<string, unknown>): { patch: Record<string, unknown>; error?: string } {
   const patch: Record<string, unknown> = {}; const has = (k: string) => b[k] !== undefined;
   const bad = (error: string) => ({ patch: {}, error });
-  if (has("legalForm")) { const v = String(b.legalForm); if (v && !LEGAL_FORMS.includes(v as never)) return bad("Forme juridique inconnue"); patch.legalForm = v; }
+  if (has("profileType")) {
+    if (!isProfileType(b.profileType)) return bad("Type de compte inconnu"); patch.profileType = b.profileType;
+    if (b.profileType === "company") { const lf = String(b.legalForm ?? ""); if (!LEGAL_FORMS.includes(lf as never)) return bad("Forme juridique requise pour une entreprise"); if (String(b.legal ?? "").trim().length < 3) return bad("Numéro RCCM / ID fiscal requis pour une entreprise"); }
+    else patch.legalForm = ""; // un particulier ou commerçant n'a pas de forme juridique
+  }
+  if (has("legalForm") && patch.profileType !== "individual") { const v = String(b.legalForm); if (v && !LEGAL_FORMS.includes(v as never)) return bad("Forme juridique inconnue"); patch.legalForm = v; }
   if (has("sector")) { const v = String(b.sector); if (!SECTORS.includes(v as never)) return bad("Secteur d'activité inconnu"); patch.sector = v; }
   if (has("shopType")) { const v = String(b.shopType); if (!SHOP_TYPES.includes(v as never)) return bad("Type de boutique inconnu"); patch.shopType = v; }
   if (has("country")) { const c = countryOf(b.country); if (!c) return bad("Pays inconnu"); patch.country = c.code; if (!has("promoTz")) patch.promoTz = c.tz; }

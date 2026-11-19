@@ -10,9 +10,11 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   const shops = () => st.rows("shops").filter((r) => r.companyName || r.sector);
   const t = () => page.locator("main").innerText();
 
-  await step("compte sans commerce : l'assistant s'ouvre (étape Entreprise), forme juridique et RCCM marqués facultatifs", async () => {
+  await step("compte sans commerce : l'assistant s'ouvre (étape Entreprise) avec le choix Particulier / Commerçant ou Entreprise ; aucune forme juridique ni RCCM pour un particulier", async () => {
     await open(); await page.getByRole("heading", { name: "Informations sur votre entreprise" }).waitFor({ timeout: 15000 });
-    const f = await t(); if (!/Étape 2 sur 3/.test(f)) throw new Error("étape"); if (!/Forme juridique \(facultatif\)/.test(f) || !/RCCM \/ ID fiscal \(facultatif\)/.test(f)) throw new Error("facultatif absent");
+    const f = await t(); if (!/Étape 2 sur 3/.test(f)) throw new Error("étape"); const g = page.getByRole("radiogroup", { name: "Type de compte" });
+    if (!(await g.getByRole("radio", { name: /Particulier \/ Commerçant/ }).isChecked())) throw new Error("particulier non présélectionné"); if (!(await g.getByRole("radio", { name: /Entreprise/ }).count())) throw new Error("choix Entreprise");
+    if (await page.getByLabel("Forme juridique").count() || await page.getByLabel(/RCCM/).count()) throw new Error("champs juridiques affichés à un particulier");
     if (!/Pays/.test(f) || !/Secteur d'activité/.test(f)) throw new Error("champs");
     await page.screenshot({ path: path.join(OUT, "kit20b-entreprise-1440.png"), fullPage: true });
   });
@@ -22,15 +24,22 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (/forme juridique inconnue|RCCM requis/i.test(f)) throw new Error("champ facultatif exigé"); if (h.createdTeams?.length) throw new Error("équipe créée");
     if (st.rows("shops").some((r) => r.name === "Dogui Distribution")) throw new Error("boutique créée");
   });
-  await step("entreprise sans forme juridique ni RCCM : enregistrée (fuseau déduit du pays, logo envoyé), passage à la boutique", async () => {
-    await page.getByLabel("Nom de l'entreprise").fill("Dogui Distribution"); await page.getByLabel("Secteur d'activité").selectOption("Commerce / Distribution"); await page.getByLabel("Ville", { exact: true }).fill("Abidjan");
+  await step("entreprise : forme juridique et RCCM obligatoires (refus sans eux, rien n'est créé) ; retour à Particulier les masque", async () => {
+    await page.getByRole("radio", { name: /Entreprise/ }).check(); await page.getByLabel("Nom de l'entreprise").fill("Dogui Distribution"); await page.getByLabel("Secteur d'activité").selectOption("Commerce / Distribution"); await page.getByLabel("Ville", { exact: true }).fill("Abidjan");
+    await page.getByLabel("Adresse complète").fill("Cocody, Angré 7e Tranche"); await page.getByLabel("Téléphone de l'entreprise").fill("+225 07 00 00 00 00");
+    await page.getByRole("button", { name: /Continuer vers la boutique/ }).click(); await page.waitForTimeout(400); const f = await t();
+    if (!/Forme juridique requise pour une entreprise/.test(f) || !/Numéro RCCM \/ ID fiscal requis pour une entreprise/.test(f)) throw new Error("obligation non appliquée : " + f.slice(0, 200)); if (st.rows("shops").some((r) => r.companyName === "Dogui Distribution")) throw new Error("entreprise créée sans forme juridique ni RCCM");
+    await page.getByRole("radio", { name: /Particulier/ }).check(); if (await page.getByLabel("Forme juridique").count()) throw new Error("champs non masqués"); await page.getByRole("radio", { name: /Entreprise/ }).check();
+  });
+  await step("entreprise complète : enregistrée avec forme juridique et RCCM (fuseau déduit du pays, logo envoyé), passage à la boutique", async () => {
+    await page.getByLabel("Forme juridique").selectOption("SARL"); await page.getByLabel(/RCCM/).fill("CI-ABJ-2024-B-12345"); await page.getByLabel("Secteur d'activité").selectOption("Commerce / Distribution"); await page.getByLabel("Ville", { exact: true }).fill("Abidjan");
     await page.getByLabel("Adresse complète").fill("Cocody, Angré 7e Tranche"); await page.getByLabel("Téléphone de l'entreprise").fill("+225 07 00 00 00 00"); await page.getByLabel("Brève description de votre activité").fill("Vente de produits alimentaires");
     const b64 = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 200; c.height = 120; const x = c.getContext("2d"); x.fillStyle = "#c9a227"; x.fillRect(0, 0, 200, 120); for (let i = 0; i < 300; i++) { x.fillStyle = `hsl(${i},70%,50%)`; x.fillRect((i * 37) % 200, (i * 53) % 120, 3, 3); } return c.toDataURL("image/png").split(",")[1]; });
     await page.getByLabel("Ajouter le logo").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: Buffer.from(b64, "base64") });
     await page.getByRole("button", { name: /Continuer vers la boutique/ }).click(); await page.getByRole("heading", { name: "Créer votre première boutique" }).waitFor({ timeout: 15000 });
     const s = shops()[0]; if (!s) throw new Error("rien d'enregistré");
     if (s.companyName !== "Dogui Distribution" || s.sector !== "Commerce / Distribution" || s.country !== "CI" || s.promoTz !== "Africa/Abidjan") throw new Error(JSON.stringify(s));
-    if (s.legalForm) throw new Error("forme juridique non vide : " + s.legalForm); if (!s.logoFileId) throw new Error("logo non enregistré"); if (!/Étape 3 sur 3/.test(await t())) throw new Error("étape 3");
+    if (s.profileType !== "company" || s.legalForm !== "SARL" || s.legal !== "CI-ABJ-2024-B-12345") throw new Error("type/forme/RCCM : " + JSON.stringify(s)); if (!s.logoFileId) throw new Error("logo non enregistré"); if (!/Étape 3 sur 3/.test(await t())) throw new Error("étape 3");
     if (!(await page.getByLabel("Nom de la boutique").inputValue())) throw new Error("nom non prérempli");
   });
   await step("reprise : rechargement de la page à l'étape Boutique → l'assistant reprend à la boutique, sans recréer le commerce", async () => {
@@ -58,5 +67,15 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (await page.getByRole("heading", { name: "Configuration terminée !" }).count()) throw new Error("assistant encore affiché"); if (!(await page.getByRole("link", { name: /Tableau de bord/ }).first().count())) throw new Error("espace non chargé");
     await page.reload(); await page.waitForTimeout(2000); if (await page.getByRole("heading", { name: /Informations sur votre entreprise|Créer votre première boutique|Configuration terminée/ }).count()) throw new Error("assistant revenu");
   });
-  console.log("ERRORS", h.errors.filter((e) => !/WebSocket|Realtime|Failed to load resource/.test(e)), "\nBAD", h.bad); await h.close(); process.exit(0);
+  await h.close();
+  { const g = await start({ plan: "business", noTeam: true, expect: [] }); const pg = g.page;
+    await step("particulier / commerçant : inscription sans forme juridique ni RCCM, enregistré comme « individual » avec forme juridique vide", async () => {
+      await pg.setViewportSize({ width: 1440, height: 1000 }); await pg.goto(g.url("accueil")); await pg.getByRole("heading", { name: "Informations sur votre entreprise" }).waitFor({ timeout: 15000 });
+      await pg.getByLabel("Nom de votre activité").fill("Boutique Awa"); await pg.getByLabel("Secteur d'activité").selectOption("Alimentation & boissons"); await pg.getByLabel("Ville", { exact: true }).fill("Dakar"); await pg.getByLabel("Pays").selectOption("SN");
+      await pg.getByLabel("Adresse complète").fill("Médina"); await pg.getByLabel("Téléphone de l'entreprise").fill("+221 77 000 00 00");
+      await pg.getByRole("button", { name: /Continuer vers la boutique/ }).click(); await pg.getByRole("heading", { name: "Créer votre première boutique" }).waitFor({ timeout: 15000 });
+      const r = g.st.rows("shops").find((x) => x.companyName === "Boutique Awa"); if (!r || r.profileType !== "individual" || r.legalForm || r.country !== "SN" || r.promoTz !== "Africa/Dakar") throw new Error(JSON.stringify(r));
+    });
+    await g.close(); }
+  console.log("ERRORS", h.errors.filter((e) => !/WebSocket|Realtime|Failed to load resource/.test(e)), "\nBAD", h.bad); process.exit(0);
 })();
