@@ -14,7 +14,8 @@ import { consumeVerifyReturn } from "@/lib/verify";
 import { ErrorPage, ForbiddenPage, NotFoundPage, SpacePage } from "@/routes/shell-pages";
 import { AuthPage } from "@/routes/auth";
 import { InvitationPage, isInvitationPath } from "@/routes/invitation";
-import { CreateTenantPage } from "@/routes/tenant-setup";
+import { LegalPage, legalDocAt } from "@/routes/legal";
+import { OnboardingPage, onboardingPending } from "@/routes/onboarding";
 import { HomePage, PlusPage } from "@/routes/home";
 
 
@@ -62,10 +63,10 @@ function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNod
   const { session, loading } = useSession();
   if (loading) return <p className="p-6 text-muted">Chargement…</p>;
   if (!session) return <AuthPage />;
-  if (session.needsTenant) return <CreateTenantPage />;
+  if (session.needsTenant || onboardingPending(session.userId)) return <OnboardingPage />;
   return perm === null || can(session, perm) ? <>{children}</> : <ForbiddenPage />;
 }
-const root = createRootRoute({ component: () => (isInvitationPath() ? <InvitationPage /> : <Guard perm={null}><Layout /></Guard>), notFoundComponent: NotFoundPage, errorComponent: ({ error }) => <ErrorPage error={error} /> });
+const root = createRootRoute({ component: () => (isInvitationPath() ? <InvitationPage /> : legalDocAt(window.location.pathname) ? <LegalPage doc={legalDocAt(window.location.pathname)!} /> : <Guard perm={null}><Layout /></Guard>), notFoundComponent: NotFoundPage, errorComponent: ({ error }) => <ErrorPage error={error} /> });
 const r = (path: string, perm: Perm | null, C: ComponentType) =>
   createRoute({ getParentRoute: () => root, path, component: () => <Guard perm={perm}><Suspense fallback={<div className="card h-24 animate-pulse bg-subtle" aria-busy="true" aria-label="Chargement" />}><C /></Suspense></Guard> });
 const tree = root.addChildren([

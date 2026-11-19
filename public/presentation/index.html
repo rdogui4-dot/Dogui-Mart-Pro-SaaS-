@@ -68,6 +68,12 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
 .js [data-reveal]{opacity:0;transform:translateY(16px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);transition-delay:calc(var(--i,0)*60ms)}
 .js [data-reveal].in{opacity:1;transform:none}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.js [data-reveal]{opacity:1;transform:none;transition:none}}
+.hero .eyebrow{display:inline-block;margin:0 0 .8rem;padding:.25rem .8rem;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font-weight:600;font-size:.9rem}
+.hero h1 .hl{color:#b8860b}.hero p.tag{font-size:1.35rem;font-weight:600;color:var(--accent-text);margin:0 0 1rem}
+.chips{list-style:none;margin:1.25rem 0 0;padding:0;display:flex;flex-wrap:wrap;gap:.5rem}.chips li{background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:.35rem .9rem;font-size:.9rem;color:var(--soft)}
+.trust{list-style:none;margin:0;padding:0;display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))}.trust li{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:.9rem 1rem;color:var(--soft);font-size:.92rem}.trust b{display:block;color:var(--main)}
+.shots{display:grid;gap:1.25rem;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))}.shots figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}.shots img{display:block;width:100%;height:auto}.shots figcaption{padding:.8rem 1rem;color:var(--soft);font-size:.92rem}.shots figcaption b{display:block;color:var(--main)}
+@media(max-width:759px){nav.links .btn.ghost{display:none}}
 </style>
 <script>document.documentElement.className+=" js"</script>
 <noscript><style>.js [data-reveal]{opacity:1!important;transform:none!important}</style></noscript>
@@ -76,8 +82,8 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
 <header class="top"><div class="wrap">
   <a class="brand" href="./" aria-label="Dogui Mart Pro"><img src="../icon.svg" alt="" width="32" height="32"><span><b>DOGUI</b> <span style="font-weight:300">MART PRO</span></span></a>
   <nav class="links" aria-label="Sections">
-    <a class="anchor" href="#fonctions">Fonctions</a><a class="anchor" href="#offres">Offres</a><a class="anchor" href="#master">MASTER DOGUI</a><a class="anchor" href="#questions">Questions</a><a class="anchor" href="#contact">Contact</a>
-    <a class="btn" href="../">Se connecter</a>
+    <a class="anchor" href="./">Accueil</a><a class="anchor" href="#fonctions">Fonctionnalités</a><a class="anchor" href="#offres">Tarifs</a><a class="anchor" href="#master">MASTER DOGUI</a><a class="anchor" href="#contact">Contact</a>
+    <a class="btn ghost" href="../">Se connecter</a><a class="btn" href="../?inscription=1">S'inscrire</a>
   </nav>
 </div></header>
 
@@ -85,9 +91,12 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
 <div class="wrap">
   <div class="hero">
     <div class="neural" data-state="static" aria-hidden="true"><svg class="neural-static" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false"><g class="nl"><line x1="341" y1="87" x2="438" y2="45"/><line x1="341" y1="87" x2="256" y2="56"/><line x1="341" y1="87" x2="416" y2="35"/><line x1="341" y1="87" x2="236" y2="33"/><line x1="341" y1="87" x2="316" y2="137"/><line x1="341" y1="87" x2="259" y2="51"/><line x1="414" y1="343" x2="384" y2="308"/><line x1="414" y1="343" x2="325" y2="296"/><line x1="414" y1="343" x2="317" y2="278"/><line x1="59" y1="47" x2="136" y2="124"/><line x1="558" y1="58" x2="580" y2="78"/><line x1="384" y1="308" x2="306" y2="224"/><line x1="384" y1="308" x2="325" y2="296"/><line x1="384" y1="308" x2="331" y2="248"/><line x1="384" y1="308" x2="317" y2="278"/><line x1="69" y1="269" x2="98" y2="232"/><line x1="69" y1="269" x2="70" y2="299"/><line x1="69" y1="269" x2="73" y2="305"/><line x1="69" y1="269" x2="157" y2="286"/><line x1="69" y1="269" x2="130" y2="302"/><line x1="69" y1="269" x2="109" y2="290"/><line x1="69" y1="269" x2="74" y2="298"/><line x1="69" y1="269" x2="71" y2="326"/><line x1="229" y1="29" x2="256" y2="56"/><line x1="229" y1="29" x2="236" y2="33"/><line x1="229" y1="29" x2="195" y2="62"/><line x1="229" y1="29" x2="259" y2="51"/><line x1="98" y1="232" x2="70" y2="299"/><line x1="98" y1="232" x2="136" y2="124"/><line x1="98" y1="232" x2="73" y2="305"/><line x1="98" y1="232" x2="157" y2="286"/><line x1="98" y1="232" x2="130" y2="302"/><line x1="98" y1="232" x2="202" y2="200"/><line x1="98" y1="232" x2="109" y2="290"/><line x1="98" y1="232" x2="74" y2="298"/><line x1="98" y1="232" x2="71" y2="326"/><line x1="438" y1="45" x2="416" y2="35"/><line x1="256" y1="56" x2="236" y2="33"/><line x1="256" y1="56" x2="195" y2="62"/><line x1="256" y1="56" x2="316" y2="137"/><line x1="256" y1="56" x2="259" y2="51"/><line x1="574" y1="227" x2="554" y2="228"/><line x1="574" y1="227" x2="474" y2="195"/><line x1="70" y1="299" x2="73" y2="305"/><line x1="70" y1="299" x2="157" y2="286"/><line x1="70" y1="299" x2="130" y2="302"/><line x1="70" y1="299" x2="109" y2="290"/><line x1="70" y1="299" x2="74" y2="298"/><line x1="70" y1="299" x2="71" y2="326"/><line x1="136" y1="124" x2="195" y2="62"/><line x1="136" y1="124" x2="202" y2="200"/><line x1="73" y1="305" x2="157" y2="286"/><line x1="73" y1="305" x2="130" y2="302"/><line x1="73" y1="305" x2="109" y2="290"/><line x1="73" y1="305" x2="74" y2="298"/><line x1="73" y1="305" x2="71" y2="326"/><line x1="236" y1="33" x2="195" y2="62"/><line x1="236" y1="33" x2="259" y2="51"/><line x1="306" y1="224" x2="325" y2="296"/><line x1="306" y1="224" x2="202" y2="200"/><line x1="306" y1="224" x2="220" y2="264"/><line x1="306" y1="224" x2="331" y2="248"/><line x1="306" y1="224" x2="316" y2="137"/><line x1="306" y1="224" x2="317" y2="278"/><line x1="157" y1="286" x2="130" y2="302"/><line x1="157" y1="286" x2="202" y2="200"/><line x1="157" y1="286" x2="109" y2="290"/><line x1="157" y1="286" x2="74" y2="298"/><line x1="157" y1="286" x2="71" y2="326"/><line x1="157" y1="286" x2="220" y2="264"/><line x1="157" y1="286" x2="194" y2="367"/><line x1="130" y1="302" x2="109" y2="290"/><line x1="130" y1="302" x2="74" y2="298"/><line x1="130" y1="302" x2="71" y2="326"/><line x1="130" y1="302" x2="220" y2="264"/><line x1="130" y1="302" x2="194" y2="367"/><line x1="325" y1="296" x2="220" y2="264"/><line x1="325" y1="296" x2="331" y2="248"/><line x1="325" y1="296" x2="317" y2="278"/><line x1="195" y1="62" x2="259" y2="51"/><line x1="202" y1="200" x2="220" y2="264"/><line x1="109" y1="290" x2="74" y2="298"/><line x1="109" y1="290" x2="71" y2="326"/><line x1="109" y1="290" x2="220" y2="264"/><line x1="109" y1="290" x2="194" y2="367"/><line x1="74" y1="298" x2="71" y2="326"/><line x1="220" y1="264" x2="331" y2="248"/><line x1="220" y1="264" x2="194" y2="367"/><line x1="220" y1="264" x2="317" y2="278"/><line x1="554" y1="228" x2="474" y2="195"/><line x1="331" y1="248" x2="316" y2="137"/><line x1="331" y1="248" x2="317" y2="278"/><line x1="316" y1="137" x2="259" y2="51"/></g><g class="nn"><circle cx="341" cy="87" r="3.2"/><circle cx="414" cy="343" r="2.2"/><circle cx="59" cy="47" r="2.2"/><circle cx="558" cy="58" r="2.2"/><circle cx="384" cy="308" r="2.2"/><circle cx="69" cy="269" r="3.2"/><circle cx="229" cy="29" r="2.2"/><circle cx="98" cy="232" r="2.2"/><circle cx="438" cy="45" r="2.2"/><circle cx="256" cy="56" r="2.2"/><circle cx="574" cy="227" r="3.2"/><circle cx="70" cy="299" r="2.2"/><circle cx="136" cy="124" r="2.2"/><circle cx="73" cy="305" r="2.2"/><circle cx="416" cy="35" r="2.2"/><circle cx="236" cy="33" r="3.2"/><circle cx="580" cy="78" r="2.2"/><circle cx="306" cy="224" r="2.2"/><circle cx="157" cy="286" r="2.2"/><circle cx="130" cy="302" r="2.2"/><circle cx="325" cy="296" r="3.2"/><circle cx="195" cy="62" r="2.2"/><circle cx="202" cy="200" r="2.2"/><circle cx="109" cy="290" r="2.2"/><circle cx="74" cy="298" r="2.2"/><circle cx="71" cy="326" r="3.2"/><circle cx="220" cy="264" r="2.2"/><circle cx="554" cy="228" r="2.2"/><circle cx="331" cy="248" r="2.2"/><circle cx="474" cy="195" r="2.2"/><circle cx="316" cy="137" r="3.2"/><circle cx="194" cy="367" r="2.2"/><circle cx="259" cy="51" r="2.2"/><circle cx="317" cy="278" r="2.2"/></g></svg></div>
-    <h1>Votre commerce, de la caisse à la comptabilité.</h1>
+    <p class="eyebrow">Votre partenaire de gestion</p>
+    <h1>Gérez. Analysez. <span class="hl">Décidez.</span></h1>
+    <p class="tag">avec MASTER DOGUI, votre conseiller de gestion.</p>
     <p class="lead">Dogui Mart Pro réunit la caisse, le stock, les achats, les clients, les tableaux de bord et la comptabilité dans une application qui s'installe sur le téléphone et continue de vendre quand le réseau coupe. Tous les montants sont en FCFA.</p>
-    <div class="cta"><a class="btn" href="../">Créer mon commerce</a><a class="btn ghost" href="#offres">Voir les offres</a></div>
+    <div class="cta"><a class="btn" href="../?inscription=1">Créer mon compte gratuitement</a><a class="btn ghost" href="#offres">Voir les offres</a></div>
+    <ul class="chips" aria-label="Modules"><li>Gestion commerciale</li><li>Gestion des stocks</li><li>Rapports &amp; analyses</li><li>Comptabilité &amp; finance</li><li>CRM clients</li><li>Investissement &amp; projection</li></ul>
     <ul class="facts">
       <li><b>Avec ou sans connexion</b>Les ventes faites hors ligne sont mises en attente puis envoyées au retour du réseau.</li>
       <li><b>Plusieurs boutiques</b>Une entreprise, plusieurs boutiques, des droits par personne.</li>
@@ -95,6 +104,23 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
     </ul>
   </div>
 </div>
+
+<div class="wrap"><ul class="trust" aria-label="Garanties">
+  <li><b>Hébergement Appwrite</b>Données hébergées à Francfort (Allemagne), accès par rôle vérifié côté serveur.</li>
+  <li><b>Un commerce, des données isolées</b>Chaque commerce ne voit que ses propres données.</li>
+  <li><b>Fonctionne hors connexion</b>Les ventes continuent quand le réseau coupe.</li>
+  <li><b>Support par WhatsApp</b>Une question ? Écrivez-nous.</li>
+</ul></div>
+
+<div class="wrap" id="apercus"><section>
+  <h2>L'application en images</h2>
+  <p class="sub">Aperçus de l'interface avec des données d'exemple.</p>
+  <div class="shots">
+    <figure><img src="img/caisse.jpg" width="1200" height="675" loading="lazy" alt="Écran de caisse : catalogue d'articles, panier de vente et paiement"><figcaption><b>Caisse</b>Encaissement rapide, paiements mixtes, tickets.</figcaption></figure>
+    <figure><img src="img/assistant.jpg" width="1200" height="675" loading="lazy" alt="Assistant MASTER DOGUI : réponse avec indicateurs, sources et limites"><figcaption><b>MASTER DOGUI</b>Analyses calculées sur vos données, avec leurs sources et leurs limites.</figcaption></figure>
+    <figure><img src="img/equipe.jpg" width="1200" height="675" loading="lazy" alt="Équipe et permissions : membres, rôles et matrice des droits"><figcaption><b>Équipe &amp; permissions</b>Rôles, accès par module, invitations par lien.</figcaption></figure>
+  </div>
+</section></div>
 
 <div class="wrap" id="fonctions"><section>
   <h2>Ce que vous pouvez gérer</h2>
@@ -142,7 +168,7 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
   <details><summary>Comment installer l'application ?</summary><p>Ouvrez l'application dans le navigateur de votre téléphone puis utilisez « Ajouter à l'écran d'accueil ». Aucun magasin d'applications n'est nécessaire.</p></details>
   <details><summary>Que deviennent mes données si je change de formule ?</summary><p>Elles sont conservées. Les fonctions d'une formule supérieure sont verrouillées, et vos données restent consultables.</p></details>
   <details><summary>Qui peut voir quoi dans mon commerce ?</summary><p>Le gérant principal définit, pour chaque personne, les modules accessibles et les boutiques concernées.</p></details>
-  <details><summary>Où sont mes données ?</summary><p>Elles sont stockées sur un service d'hébergement de données (Appwrite). Les conditions d'utilisation et la politique de confidentialité seront publiées ici dès qu'elles auront été validées.</p></details>
+  <details><summary>Où sont mes données ?</summary><p>Elles sont stockées sur un service d'hébergement de données (Appwrite). Consultez nos <a href="../conditions">Conditions d'utilisation</a> et notre <a href="../confidentialite">Politique de confidentialité</a>.</p></details>
 </section></div>
 <div class="wrap" id="contact"><section>
   <h2>Une question avant de commencer ?</h2>
@@ -151,7 +177,7 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
 </section></div>
 </main>
 
-<footer><div class="wrap">© Dogui Mart Pro · <a href="../">Ouvrir l'application</a></div></footer>
+<footer><div class="wrap">© Dogui Mart Pro · <a href="../">Ouvrir l'application</a> · <a href="../conditions">Conditions d'utilisation</a> · <a href="../confidentialite">Politique de confidentialité</a> · <a href="https://wa.me/2250544165418" rel="noopener">Contact WhatsApp</a></div></footer>
 
 <script>
 (function(){

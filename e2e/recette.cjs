@@ -8,7 +8,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   // ---- 1. Authentification (visiteur non connecté)
   { const h = await start({ plan: "pro", anonymous: true, expect: ["tenant.init"] }); const { page } = h;
     await step("connexion : écran affiché au visiteur, champs étiquetés, mot de passe affichable", async () => {
-      await page.setViewportSize({ width: 390, height: 800 }); await page.goto(h.url("accueil")); await page.waitForSelector("text=Connexion", { timeout: 15000 });
+      await page.setViewportSize({ width: 390, height: 800 }); await page.goto(h.url("accueil")); await page.waitForSelector("text=Se connecter", { timeout: 15000 });
       const pw = page.getByLabel("Mot de passe", { exact: true }); if ((await pw.getAttribute("type")) !== "password") throw new Error("mot de passe en clair par défaut");
       await page.getByRole("button", { name: "Afficher le mot de passe" }).click(); if ((await pw.getAttribute("type")) !== "text") throw new Error("affichage impossible"); await page.getByRole("button", { name: "Masquer le mot de passe" }).click();
       await page.screenshot({ path: path.join(OUT, "rc-connexion-390.png") });
@@ -24,8 +24,8 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
       if (!/Si un compte existe/.test(await page.locator("body").innerText())) throw new Error("réponse non neutre"); await page.getByRole("button", { name: "Retour à la connexion" }).click();
     });
     await step("inscription : champs étiquetés (boutique, nom, e-mail, mot de passe ≥ 8)", async () => {
-      await page.getByRole("button", { name: "Nouveau commerçant ?" }).click(); for (const l of ["Nom de votre boutique", "Votre nom", "Adresse e-mail"]) if (!(await page.getByLabel(l).count())) throw new Error("champ absent : " + l);
-      if ((await page.getByLabel("Mot de passe", { exact: true }).getAttribute("minlength")) !== "8") throw new Error("règle de longueur absente"); await page.getByRole("button", { name: "J'ai déjà un compte" }).click();
+      await page.getByRole("button", { name: /Créer un compte/ }).click(); for (const l of ["Nom complet", "Adresse e-mail"]) if (!(await page.getByLabel(l).count())) throw new Error("champ absent : " + l);
+      if ((await page.getByLabel("Mot de passe", { exact: true }).getAttribute("minlength")) !== "8") throw new Error("règle de longueur absente"); await page.getByRole("button", { name: /Se connecter/ }).last().click();
     });
     await step("connexion réussie : accès à l'espace", async () => {
       await page.getByLabel(/E-mail ou identifiant/).fill("awa@exemple.sn"); await page.getByLabel("Mot de passe", { exact: true }).fill("motdepasse1"); await page.getByRole("button", { name: "Se connecter" }).click();

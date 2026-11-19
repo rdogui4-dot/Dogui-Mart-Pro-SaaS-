@@ -50,7 +50,7 @@ async function start(opts = {}) {
   await new Promise((r) => server.listen(0, r));
   const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, deviceScaleFactor: 1, permissions: ["camera"] }); const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message)); page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text().slice(0, 200)); });
-  const origin = `http://localhost:${server.address().port}`; let offline = false; let anon = !!opts.anonymous;
+  const createdTeams = []; const origin = `http://localhost:${server.address().port}`; let offline = false; let anon = !!opts.anonymous;
   await page.route("https://fra.cloud.appwrite.io/**", async (route) => {
     if (offline) return route.abort("internetdisconnected");
     const req = route.request(); const url = new URL(req.url()); const p = url.pathname;
@@ -63,7 +63,9 @@ async function start(opts = {}) {
     if (p.endsWith("/account/recovery")) return json({ $id: "rec" }, 201);
     if (p.endsWith("/account") && anon) return json({ message: "User (role: guests) missing scope (account)", code: 401, type: "general_unauthorized_scope" }, 401);
     if (p.endsWith("/account")) return json({ $id: "u1", name: "Dogui", email: "x@y.sn", emailVerification: true });
-    if (p.endsWith("/teams")) return json({ total: 1, teams: [{ $id: T, name: "DOGUI MART" }] });
+    // opts.noTeam : compte sans commerce (assistant d'accueil) ; la création d'une équipe donne la propriété à l'utilisateur, comme Appwrite.
+    if (p.endsWith("/teams") && req.method() === "POST") { const b = JSON.parse(req.postData() ?? "{}"); await st.grant(b.teamId, "u1", ["owner"], []); createdTeams.push({ $id: b.teamId, name: b.name }); return json({ $id: b.teamId, name: b.name }, 201); }
+    if (p.endsWith("/teams")) return opts.noTeam ? json({ total: createdTeams.length, teams: createdTeams }) : json({ total: 1, teams: [{ $id: T, name: "DOGUI MART" }] });
     if (p.includes("/memberships")) return json({ total: 1, memberships: [{ userId: "u1", roles: ["owner"] }] });
     if (p.includes("/executions")) {
       const sent = JSON.parse(JSON.parse(req.postData() ?? "{}").body ?? "{}"); const r = await handle(st, "u1", sent, { admins: opts.admin ? ["u1"] : [] }); calls.push([sent.action, r.status, r.status >= 400 ? r.body.error : ""]);
