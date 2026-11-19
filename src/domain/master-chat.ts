@@ -84,3 +84,27 @@ export function checkWrite(w: Written, a: Answer): { ok: boolean; reason: string
   const text = [w.conclusion, ...w.observations].join(" \n "); if (/https?:|www\.|[<>]/i.test(text)) return { ok: false, reason: "lien ou balise dans la rédaction" };
   const g = groundedCheck(text, allowedNumbers(a)); return g.ok ? { ok: true, reason: "" } : { ok: false, reason: `nombre non vérifié : ${g.unknown.slice(0, 3).join(", ")}` };
 }
+
+/** Périodes de l'assistant : 1, 7, 30 jours glissants, ou mois calendaire (-1 = mois en cours, -2 = mois précédent), dans le fuseau de la boutique. */
+export const MONTH_CURRENT = -1, MONTH_PREVIOUS = -2;
+export const PERIOD_CODES = [1, 7, 30, MONTH_CURRENT, MONTH_PREVIOUS] as const;
+export const isPeriodCode = (n: number) => (PERIOD_CODES as readonly number[]).includes(n);
+const MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const addD = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+const firstOf = (day: string) => `${day.slice(0, 7)}-01`;
+const lastOfPrevMonth = (day: string) => addD(firstOf(day), -1);
+/** Fenêtre de la période et période de comparaison. Mois en cours : du 1er à aujourd'hui, comparé aux mêmes jours du mois précédent (borné à sa fin).
+ *  Mois précédent : mois complet, comparé au mois complet d'avant. Jours glissants : période précédente de même durée. */
+export function periodWindow(today: string, code: number): { from: string; to: string; pfrom: string; pto: string; label: string } {
+  if (code === MONTH_CURRENT) {
+    const from = firstOf(today); const n = Number(today.slice(8, 10)); const pfrom = firstOf(lastOfPrevMonth(today)); const pend = lastOfPrevMonth(today);
+    const pto = addD(pfrom, n - 1) > pend ? pend : addD(pfrom, n - 1);
+    return { from, to: today, pfrom, pto, label: `mois en cours (${MONTHS[Number(today.slice(5, 7)) - 1]} ${today.slice(0, 4)})` };
+  }
+  if (code === MONTH_PREVIOUS) {
+    const to = lastOfPrevMonth(today); const from = firstOf(to); const pto = lastOfPrevMonth(from); const pfrom = firstOf(pto);
+    return { from, to, pfrom, pto, label: `${MONTHS[Number(from.slice(5, 7)) - 1]} ${from.slice(0, 4)}` };
+  }
+  const d = (PERIOD_CODES as readonly number[]).includes(code) && code > 0 ? code : 7; const from = addD(today, -(d - 1));
+  return { from, to: today, pfrom: addD(from, -d), pto: addD(from, -1), label: d === 1 ? "aujourd'hui" : `${d} derniers jours` };
+}

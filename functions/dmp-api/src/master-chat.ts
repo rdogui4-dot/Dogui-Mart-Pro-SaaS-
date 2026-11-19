@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { marginOf, type MarginLine } from "../../../src/domain/master-report";
 import { addDays, boundsOf, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
-import { AI_QIDS, PROMPT_VERSION, CLASSIFY_SYSTEM, GUIDED, LIMITS, WRITE_SYSTEM, checkWrite, classifyInput, cleanQuestion, dayKey, matchQuestion, parseClassify, parseWrite, retentionCutoff, writeInput, type Answer } from "../../../src/domain/master-chat";
+import { isPeriodCode, periodWindow, AI_QIDS, PROMPT_VERSION, CLASSIFY_SYSTEM, GUIDED, LIMITS, WRITE_SYSTEM, checkWrite, classifyInput, cleanQuestion, dayKey, matchQuestion, parseClassify, parseWrite, retentionCutoff, writeInput, type Answer } from "../../../src/domain/master-chat";
 import { AiError, aiConfig, aiStatus, geminiJson, type AiConfig } from "./ai-gemini";
 import { MIN, iso, parse } from "./crm";
 import { roleKind } from "./fin-rules";
@@ -38,7 +38,9 @@ const METHOD: Record<string, string> = { cash: "Espèces", mobile: "Mobile money
 
 export type Env = { store: Store; ctx: Ctx; shop: Row; days: number };
 const base = (qid: string, title: string): Answer => ({ qid, title, conclusion: "", period: null, scope: "", facts: [], sources: [], method: "", observations: [], limits: [], confidence: "high", recommendations: [] });
-const window = (e: Env) => { const tz = tzOf(e.shop); const to = todayIn(new Date(), tz); const from = addDays(to, -(e.days - 1)); const b = boundsOf(from, to, tz); const pf = addDays(from, -e.days); const pb = boundsOf(pf, addDays(from, -1), tz); return { from, to, b, pb, label: e.days === 1 ? "aujourd'hui" : `${e.days} derniers jours` }; };
+/** Montant d'une ligne de vente : celui enregistré, sinon prix unitaire × quantité (même règle que la caisse) ; jamais NaN. */
+const lineAmount = (l: { amount?: unknown; unitPrice?: unknown; qty?: unknown }) => { const a = Number(l.amount); if (Number.isFinite(a)) return a; const v = Math.round(Number(l.unitPrice) * Number(l.qty)); return Number.isFinite(v) ? v : 0; };
+const window = (e: Env) => { const tz = tzOf(e.shop); const w = periodWindow(todayIn(new Date(), tz), e.days); const b = boundsOf(w.from, w.to, tz); const pb = boundsOf(w.pfrom, w.pto, tz); return { from: w.from, to: w.to, b, pb, label: w.label }; };
 const salesIn = async (e: Env, b: { gte: string; lt: string }) => (await e.store.scan("sales", { ...MIN({ ...e.ctx, shopId: e.shop.$id }), status: "paid" }, { range: { field: "soldAt", from: b.gte, to: b.lt }, maxRows: 20_000 })).rows.filter((x) => iso(x.soldAt) >= b.gte && iso(x.soldAt) < b.lt);
 
 async function toolSales(e: Env): Promise<Answer> {
@@ -49,13 +51,13 @@ async function toolSales(e: Env): Promise<Answer> {
   a.conclusion = cur.length ? `${cur.length} vente(s) pour ${fcfa(total)} (${w.label}).` : `Aucune vente encaissée (${w.label}).`;
   a.facts = [{ label: "Nombre de ventes", value: cur.length }, { label: "Total des ventes (FCFA)", value: total }, { label: "Remboursements (FCFA)", value: rets }, ...Object.entries(by).map(([m, x]) => ({ label: `${METHOD[m] ?? m} (FCFA)`, value: x })), { label: "Période précédente (FCFA)", value: ptotal }];
   a.observations = v === null ? ["Pas de ventes sur la période précédente : aucune variation calculable."] : [`Variation par rapport à la période précédente : ${v > 0 ? "+" : ""}${v} %.`];
-  const ml: MarginLine[] = cur.flatMap((s) => parse<{ qty: number; amount: number; unitCost?: number }[]>(s.lines, []).map((l) => ({ qty: Number(l.qty), amount: Number(l.amount), cost: l.unitCost !== undefined && Number(l.unitCost) > 0 ? Number(l.unitCost) : null }))); const mg = marginOf(ml);
+  const ml: MarginLine[] = cur.flatMap((s) => parse<{ qty: number; amount?: number; unitPrice?: number; unitCost?: number }[]>(s.lines, []).map((l) => ({ qty: Number(l.qty), amount: lineAmount(l), cost: l.unitCost !== undefined && Number(l.unitCost) > 0 ? Number(l.unitCost) : null }))); const mg = marginOf(ml);
   if (mg.reliable) { a.facts.push({ label: "Marge brute (FCFA)", value: mg.margin! }, { label: "Taux de marge (%)", value: mg.marginPct ?? 0 }); a.observations.push(`Marge brute : ${fcfa(mg.margin!)} (${mg.marginPct} % du montant des lignes vendues), calculée sur le coût figé à la vente.`); } else if (ml.length) a.observations.push(`Marge brute non calculée : ${mg.unknownLines} ligne(s) vendue(s) sans coût figé à la vente.`);
   a.limits = ["Les remboursements sont indiqués séparément, non déduits du total ni de la marge.", "La marge brute = montant des lignes vendues − coût figé à la vente ; elle n'est calculée que si toutes les lignes ont un coût figé (coût inconnu ou vente antérieure à son enregistrement : non calculée)."]; a.confidence = "high"; return a;
 }
 async function toolTop(e: Env): Promise<Answer> {
   const w = window(e); const a = base("top", "Produits les plus vendus"); const cur = await salesIn(e, w.b); const agg = new Map<string, { qty: number; amount: number; cost: number; unknown: number }>();
-  for (const s of cur) for (const l of parse<{ productId: string; qty: number; amount: number; unitCost?: number }[]>(s.lines, [])) { const x = agg.get(l.productId) ?? { qty: 0, amount: 0, cost: 0, unknown: 0 }; x.qty += Number(l.qty); x.amount += Number(l.amount); if (l.unitCost !== undefined && Number(l.unitCost) > 0) x.cost += Math.round(Number(l.qty) * Number(l.unitCost)); else x.unknown++; agg.set(l.productId, x); }
+  for (const s of cur) for (const l of parse<{ productId: string; qty: number; amount?: number; unitPrice?: number; unitCost?: number }[]>(s.lines, [])) { const x = agg.get(l.productId) ?? { qty: 0, amount: 0, cost: 0, unknown: 0 }; x.qty += Number(l.qty); x.amount += lineAmount(l); if (l.unitCost !== undefined && Number(l.unitCost) > 0) x.cost += Math.round(Number(l.qty) * Number(l.unitCost)); else x.unknown++; agg.set(l.productId, x); }
   const names = new Map((await e.store.scan("products", MIN({ ...e.ctx, shopId: e.shop.$id }), { maxRows: 20_000 })).rows.map((p) => [p.$id, String(p.name)] as [string, string])); const top = [...agg].sort((x, y) => y[1].amount - x[1].amount).slice(0, 5);
   a.period = { from: w.from, to: w.to, label: w.label }; a.scope = String(e.shop.name); a.sources = [{ module: "Caisse / Articles", detail: "lignes des ventes encaissées" }]; a.method = "Cumul par article des montants vendus sur la période, classement décroissant (5 premiers).";
   a.conclusion = top.length ? `Article le plus vendu : ${names.get(top[0]![0]) ?? "article supprimé"} (${fcfa(top[0]![1].amount)}).` : `Aucune vente sur la période (${w.label}).`;
@@ -246,7 +248,7 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
   const prevU = await store.get("md_msgs", uid); if (prevU) { if (prevU.tenantId !== ctx.tenantId || prevU.userId !== ctx.userId) throw new HttpError(404, "Introuvable"); const prevA = await store.get("md_msgs", aid); return { chatId: String(prevU.chatId), user: view(prevU), assistant: prevA ? view(prevA) : null, duplicate: true }; }
   await userGuard(store, ctx);
   let text: string; let qid = ""; let days = 7;
-  if (b.qid) { const g = GUIDED.find((x) => x.id === b.qid); if (!g) throw new HttpError(400, "Question inconnue"); qid = g.id; text = g.label; const d = Number(b.days ?? 7); days = [1, 7, 30].includes(d) ? d : 7; }
+  if (b.qid) { const g = GUIDED.find((x) => x.id === b.qid); if (!g) throw new HttpError(400, "Question inconnue"); qid = g.id; text = g.label; const d = Number(b.days ?? 7); days = isPeriodCode(d) ? d : 7; }
   else { const c = cleanQuestion(b.text); if (!c.ok) throw new HttpError(400, c.error); text = c.text; const m = matchQuestion(text); if (m.kind === "match") { qid = m.id; days = m.days; } }
   const m = qid || b.qid ? null : matchQuestion(text); let answer: Answer; let claim = ""; let mode = "guided"; const tok = { in: 0, out: 0 }; const notes: string[] = [];
   const chatId = b.chatId ? String((await mine(store, ctx, b.chatId)).$id) : `ch${sha(`${ctx.tenantId}|${ctx.userId}|${rk}|c`).slice(0, 28)}`; const t = nowIso();

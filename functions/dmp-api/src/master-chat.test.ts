@@ -38,6 +38,17 @@ describe("MASTER DOGUI — assistant (socle guidé, jeu de référence)", () => 
     await st.create("sale_returns", "r1", T, { tenantId: T, shopId: A, status: "done", amount: 500, at: new Date(Date.now() - 864e5).toISOString() }); await sale("sB", B, 99999, [], 1);
     const r = await ask("own", { qid: "sales", shopId: A, days: 7 }); const f = facts(r.assistant.answer); expect(f["Nombre de ventes"]).toBe(2); expect(f["Total des ventes (FCFA)"]).toBe(6000); expect(f["Remboursements (FCFA)"]).toBe(500); expect(f["Espèces (FCFA)"]).toBe(4500); expect(f["Mobile money (FCFA)"]).toBe(1500); expect(f["Période précédente (FCFA)"]).toBe(3000); expect(r.assistant.answer.observations[0]).toContain("+100 %"); expect(r.assistant.answer.scope).toBe("Dakar"); expect(r.assistant.answer.limits.join(" ")).toContain("marge"); expect(JSON.stringify(r)).not.toContain("99999");
   });
+  it("ligne de vente sans montant enregistré : prix × quantité, jamais NaN (même règle que la caisse)", async () => {
+    await lic(); await sale("s1", A, 2000, [{ productId: "p1", qty: 2, unitPrice: 1000, unitCost: 600 }], 0);
+    const a = (await ask("own", { qid: "sales", shopId: A, days: 7 })).assistant.answer; const f = facts(a);
+    expect(f["Marge brute (FCFA)"]).toBe(800); expect(f["Taux de marge (%)"]).toBe(40); expect(JSON.stringify(a)).not.toContain("NaN");
+  });
+  it("périodes au mois (K19) : mois en cours et mois précédent acceptés et datés ; code inconnu → 7 jours", async () => {
+    await lic(); await sale("s1", A, 4500, [], 0);
+    const cur = (await ask("own", { qid: "sales", shopId: A, days: -1 })).assistant.answer; expect(cur.period.label).toMatch(/^mois en cours/); expect(cur.period.from.slice(8)).toBe("01");
+    const prev = (await ask("own", { qid: "sales", shopId: A, days: -2 })).assistant.answer; expect(prev.period.from.slice(8)).toBe("01"); expect(prev.period.to < cur.period.from).toBe(true);
+    const bad = (await ask("own", { qid: "sales", shopId: A, days: 99 })).assistant.answer; expect(bad.period.label).toBe("7 derniers jours");
+  });
   it("marge brute sur coût figé : chiffres exacts quand toutes les lignes ont un coût figé ; sinon « non calculée » avec le nombre de lignes concernées (jamais estimée)", async () => {
     await lic(); const p = await mk("Eau", 100); await sale("s1", A, 4500, [{ productId: p, qty: 9, amount: 4500, unitCost: 300 }], 1); await sale("s2", A, 1500, [{ productId: p, qty: 3, amount: 1500, unitCost: 300 }], 2);
     let a = (await ask("own", { qid: "sales", shopId: A, days: 7 })).assistant.answer; let f = facts(a); expect(f["Marge brute (FCFA)"]).toBe(2400); expect(f["Taux de marge (%)"]).toBe(40); expect(a.observations.join(" ")).toContain("coût figé"); expect(a.limits.join(" ")).not.toContain("n'est pas enregistré");
