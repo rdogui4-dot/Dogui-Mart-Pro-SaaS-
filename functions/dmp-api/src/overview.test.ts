@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "./memory-store";
 import { handle } from "./main";
 
@@ -117,6 +117,9 @@ describe("stock, achats et alertes (événements réels uniquement)", () => {
 });
 
 describe("comparaisons, clients actifs et courbes (K21)", () => {
+  // Heure figée à 15 h UTC : « hier plus tard dans la journée » (+5 h) ne dépend plus de l'heure d'exécution du test.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-06-10T15:00:00Z")); });
+  afterEach(() => { vi.useRealTimers(); });
   const sale = (id: string, total: number, soldAt: string, customerId?: string) => st.create("sales", id, T, { tenantId: T, shopId: A, number: id, total, vat: 0, status: "paid", soldAt, payments: JSON.stringify([{ method: "cash", amount: total }]), lines: JSON.stringify([{ productId: eau, name: "Eau", qty: 1, unitPrice: total, amount: total }]), clientId: id, ...(customerId ? { customerId } : {}) });
   const daysAgo = (d: number, h = 0) => new Date(Date.now() - d * 864e5 - h * 3_600_000).toISOString();
   it("aucun écart tant que la période de référence est vide ; courbes de 7 jours, 30 jours et mois en cours fournies", async () => {
