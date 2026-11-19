@@ -11,8 +11,11 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("en-tête, 5 indicateurs (1 boutique, modules 9 / 10 en Business), onglets du kit, vue Général par défaut", async () => {
     await open(); if (!/\b1\b/.test(await kpi("Boutiques configurées"))) throw new Error(await kpi("Boutiques configurées")); if (!/9\s*\/\s*10/.test(await kpi("Modules ouverts"))) throw new Error(await kpi("Modules ouverts"));
     if (!/\d+\s*\/\s*12/.test(await kpi("Paramétrage complet"))) throw new Error(await kpi("Paramétrage complet"));
-    for (const t of ["Général", "Boutique", "Règles de gestion", "Boutiques", "Paiements", "Journal d'activité", "Mon profil", "Équipe & accès", "Abonnement"]) if (!(await page.getByRole("tab", { name: t, exact: true }).count())) throw new Error("onglet " + t);
+    for (const t of ["Général", "Point de vente", "Règles de gestion", "Boutiques", "Paiements", "Journal d'activité", "Mon profil"]) if (!(await page.getByRole("tab", { name: t, exact: true }).count())) throw new Error("onglet " + t);
     if ((await page.getByRole("tab", { name: "Général" }).getAttribute("aria-selected")) !== "true") throw new Error("vue par défaut");
+    if (await page.getByRole("tab", { name: "Équipe & accès", exact: true }).count() || await page.getByRole("tab", { name: "Abonnement", exact: true }).count()) throw new Error("onglets Équipe / Abonnement répétés sur ordinateur (le menu latéral les porte)");
+    await page.setViewportSize({ width: 390, height: 900 }); await page.waitForTimeout(300); for (const t of ["Équipe & accès", "Abonnement"]) if (!(await page.getByRole("tab", { name: t, exact: true }).count())) throw new Error("onglet téléphone " + t); await page.setViewportSize({ width: 1440, height: 1000 });
+    if ((await page.getByRole("tab", { name: "Boutique", exact: true }).count()) || !(await page.getByRole("tab", { name: "Boutiques", exact: true }).count())) throw new Error("« Boutique » répété dans les onglets");
   });
   await step("entreprise : raison sociale et régime fiscal enregistrés ; la liste MASTER les coche", async () => {
     await page.getByLabel("Raison sociale").fill("Dogui Distribution SARL"); await page.getByLabel("Régime fiscal").fill("Réel simplifié");

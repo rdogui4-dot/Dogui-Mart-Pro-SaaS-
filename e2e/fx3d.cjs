@@ -88,7 +88,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("reglages")); await page.waitForTimeout(1000);
     await page.getByRole("tab", { name: "Règles de gestion" }).click(); await page.waitForTimeout(30);
     const an = await page.evaluate(() => [...document.querySelectorAll(".d3-settings > *")].flatMap((e) => e.getAnimations().map((a) => a.animationName)).join(",")); if (!/d3-unfold-y/.test(an)) throw new Error("cartes sans dépliage : " + an);
-    await page.getByRole("tab", { name: "Boutique", exact: true }).click(); await page.waitForTimeout(500); await page.getByLabel("Ville").fill("Dakar"); await page.locator("form").getByRole("button", { name: "Enregistrer" }).click();
+    await page.getByRole("tab", { name: "Point de vente", exact: true }).click(); await page.waitForTimeout(500); await page.getByLabel("Ville").fill("Dakar"); await page.locator("form").getByRole("button", { name: "Enregistrer" }).click();
     const saved = page.locator(".d3-saved"); await saved.waitFor({ timeout: 6000 }); if (!/Enregistré/.test(await saved.innerText())) throw new Error("confirmation"); await page.waitForTimeout(400);
     if ((await saved.evaluate((e) => getComputedStyle(e).transform)) !== "none") throw new Error("transform résiduel"); await page.screenshot({ path: path.join(OUT, "fx-reglages-1280.png") });
   });

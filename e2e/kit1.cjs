@@ -22,10 +22,10 @@ const LABELS = ["Tableau de bord", "Caisse (Ventes)", "Articles & Catalogue", "S
   });
   await step("Équipe & Permissions et Abonnement & Facturation ouvrent le bon onglet des réglages", async () => {
     await open("accueil"); await nav().getByRole("link", { name: "Équipe & Permissions" }).click(); await page.waitForURL(/onglet=equipe/, { timeout: 5000 }); await page.waitForTimeout(800);
-    if ((await page.getByRole("tab", { name: "Équipe & accès" }).getAttribute("aria-selected")) !== "true") throw new Error("onglet équipe non sélectionné");
+    if (!(await page.getByRole("heading", { name: "Équipe & Permissions" }).count())) throw new Error("page équipe non affichée"); if (await page.getByRole("tab", { name: "Règles de gestion" }).count()) throw new Error("onglets des paramètres répétés sur la page Équipe");
     if ((await nav().getByRole("link", { name: "Équipe & Permissions" }).getAttribute("aria-current")) !== "page") throw new Error("module équipe non actif");
     await nav().getByRole("link", { name: "Abonnement & Facturation" }).click(); await page.waitForURL(/onglet=abonnement/, { timeout: 5000 }); await page.waitForTimeout(800);
-    if ((await page.getByRole("tab", { name: "Abonnement", exact: true }).getAttribute("aria-selected")) !== "true") throw new Error("onglet abonnement non sélectionné");
+    if (!(await page.getByRole("heading", { name: "Abonnement & Facturation" }).count())) throw new Error("page abonnement non affichée"); if (await page.getByRole("tab", { name: "Règles de gestion" }).count()) throw new Error("onglets des paramètres répétés sur la page Abonnement");
     await nav().getByRole("link", { name: "Paramètres" }).click(); await page.waitForTimeout(800); if ((await nav().getByRole("link", { name: "Paramètres" }).getAttribute("aria-current")) !== "page") throw new Error("paramètres non actif");
   });
   await step("MASTER DOGUI (barre latérale) ouvre la page MASTER", async () => {

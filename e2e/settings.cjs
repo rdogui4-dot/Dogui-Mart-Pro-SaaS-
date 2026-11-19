@@ -13,10 +13,10 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
 
   for (const [w, hh, label] of [[390, 800, "téléphone"], [820, 1000, "tablette"], [1280, 800, "ordinateur"]]) await step(`${label} (${w} px) : sans débordement, noms accessibles`, async () => { await open(w, hh); await noOverflow(label); await unnamed(label); await page.screenshot({ path: path.join(OUT, `st-${w}.png`) }); });
   await step("onglets du kit et seconde ligne, tous les anciens onglets présents", async () => {
-    await open(); for (const x of ["Général", "Boutique", "Règles de gestion", "Boutiques", "Paiements", "Journal d'activité", "Mon profil", "Équipe & accès", "Abonnement"]) if (!(await page.getByRole("tab", { name: x, exact: true }).count())) throw new Error("manquant : " + x);
+    await open(); for (const x of ["Général", "Point de vente", "Règles de gestion", "Boutiques", "Paiements", "Journal d'activité", "Mon profil"]) if (!(await page.getByRole("tab", { name: x, exact: true }).count())) throw new Error("manquant : " + x);
   });
   await step("boutique : libellés visibles, enregistrement confirmé en vert (statut)", async () => {
-    await open(); await tab("Boutique"); await page.getByLabel("Nom commercial").fill("Dogui Plateau"); await page.getByLabel("Ville").fill("Dakar"); await page.locator("form").getByRole("button", { name: "Enregistrer" }).click(); await page.waitForTimeout(900);
+    await open(); await tab("Point de vente"); await page.getByLabel("Nom commercial").fill("Dogui Plateau"); await page.getByLabel("Ville").fill("Dakar"); await page.locator("form").getByRole("button", { name: "Enregistrer" }).click(); await page.waitForTimeout(900);
     if (!st.rows("shops").some((x) => x.name === "Dogui Plateau" && x.city === "Dakar")) throw new Error("non enregistré"); const ok = page.getByRole("status").filter({ hasText: "Enregistré" }); if (!(await ok.count())) throw new Error("confirmation absente");
     if (!(await ok.first().evaluate((e) => e.className.includes("text-ok")))) throw new Error("succès pas en vert");
   });

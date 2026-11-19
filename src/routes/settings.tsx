@@ -25,7 +25,7 @@ function FxPrefCard() {
 }
 
 type STab = "general" | "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
-const MAIN_SET: PillTab<STab>[] = [{ key: "general", label: "Général", icon: SettingsIcon }, { key: "shop", label: "Boutique", icon: Store }, { key: "rules", label: "Règles de gestion", icon: Scale }, { key: "shops", label: "Boutiques", icon: Building2 }, { key: "payments", label: "Paiements", icon: CreditCard }, { key: "activity", label: "Journal d'activité", icon: ScrollText }];
+const MAIN_SET: PillTab<STab>[] = [{ key: "general", label: "Général", icon: SettingsIcon }, { key: "shop", label: "Point de vente", icon: Store }, { key: "rules", label: "Règles de gestion", icon: Scale }, { key: "shops", label: "Boutiques", icon: Building2 }, { key: "payments", label: "Paiements", icon: CreditCard }, { key: "activity", label: "Journal d'activité", icon: ScrollText }];
 /** Message après enregistrement : succès en vert (statut), erreur en rouge (alerte). */
 const Msg = ({ text }: { text: string }) => (!text ? null : /^(Enregistr|Méthode enregistr|Politique enregistr|Marge minimale enregistr|Lien retiré)/.test(text) ? <p className="d3-saved text-sm text-ok font-medium self-start rounded-lg bg-ok-bg px-3 py-1.5" role="status">✓ {text}</p> : <p className="text-sm text-bad" role="alert">{text}</p>);
 
@@ -85,9 +85,13 @@ export function SettingsPage() {
     <div className="flex flex-col gap-3">
       <ModuleHeader icon={tab === "staff" ? UserCog : tab === "subscription" ? CreditCard : SettingsIcon} title={tab === "staff" ? "Équipe & Permissions" : tab === "subscription" ? "Abonnement & Facturation" : "Paramètres généraux"} subtitle={tab === "staff" ? "Gérez les membres, les rôles et les accès de votre espace DOGUI MART PRO." : tab === "subscription" ? "Votre formule, vos paiements et vos échéances." : "Configurez et personnalisez DOGUI MART PRO selon vos besoins."} />
       {can(s, "settings") && <>
-        {tab !== "staff" && tab !== "subscription" && <SettingsKpis />}
-        <PillTabs idBase="set" label="Sections des paramètres" value={MAIN_SET.some((t) => t.key === tab) ? tab : ("" as STab)} onChange={setTab} items={MAIN_SET} />
-        <div role="tablist" aria-label="Autres sections" className="scroll-x !gap-1.5 -mt-1 md:flex-wrap md:overflow-x-visible">{([["profile", "Mon profil"], ["staff", "Équipe & accès"], ["subscription", "Abonnement"], ...(me.data?.admin ? [["platform", "Plateforme"]] : [])] as [STab, string][]).map(([k, l]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className="chip !min-h-8 !py-1 !px-3 text-sm" onClick={() => setTab(k)}>{l}</button>)}</div>
+        {tab !== "staff" && tab !== "subscription" && <>
+          <SettingsKpis />
+          <PillTabs idBase="set" label="Sections des paramètres" value={MAIN_SET.some((t) => t.key === tab) ? tab : ("" as STab)} onChange={setTab} items={MAIN_SET} />
+          {/* Équipe et Abonnement ont leur propre entrée dans le menu : leurs onglets ne sont proposés ici que sur téléphone (pas de menu latéral). */}
+          <div role="tablist" aria-label="Autres sections" className="scroll-x !gap-1.5 -mt-1 md:flex-wrap md:overflow-x-visible">{([["profile", "Mon profil", ""], ["staff", "Équipe & accès", "md:hidden"], ["subscription", "Abonnement", "md:hidden"], ...(me.data?.admin ? [["platform", "Plateforme", ""]] : [])] as [STab, string, string][]).map(([k, l, c]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className={`chip !min-h-8 !py-1 !px-3 text-sm ${c}`} onClick={() => setTab(k)}>{l}</button>)}</div>
+        </>}
+        {(tab === "staff" || tab === "subscription") && <button type="button" className="md:hidden self-start text-sm text-accent-text underline" onClick={() => setTab("general")}>← Retour aux paramètres</button>}
       </>}
       <div key={tab} className="d3-settings flex flex-col gap-3">
       {tab === "general" && can(s, "settings") && <GeneralSection onTab={(t) => setTab(t as STab)} />}

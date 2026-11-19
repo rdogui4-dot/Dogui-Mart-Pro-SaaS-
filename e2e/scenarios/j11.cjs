@@ -9,6 +9,6 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.getByRole("tab", { name: "Équipe & accès" }).click(); await page.waitForTimeout(800); const t = await txt(); console.log("  ", t.slice(0, 260));
     const ph = await page.locator("main input, main select").evaluateAll((e) => e.map((x) => x.placeholder || x.getAttribute("aria-label") || x.tagName)); console.log("  ", JSON.stringify(ph));
   });
-  await step("abonnement: affichage des formules", async () => { await page.getByRole("tab", { name: "Abonnement" }).click(); await page.waitForTimeout(1200); const t = await txt(); if (!/Pro/.test(t)) throw new Error(t.slice(0, 200)); console.log("  ", t.slice(0, 260)); });
+  await step("abonnement: affichage des formules", async () => { await page.goto(h.url("reglages?onglet=abonnement")); await page.waitForTimeout(1500); const t = await txt(); if (!/Pro/.test(t)) throw new Error(t.slice(0, 200)); console.log("  ", t.slice(0, 260)); });
   console.log("ERRORS", h.errors, "\nBAD", h.bad); await h.close();
 })();
