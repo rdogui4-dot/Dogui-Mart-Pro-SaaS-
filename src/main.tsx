@@ -79,7 +79,13 @@ const tree = root.addChildren([
 const router = createRouter({ routeTree: tree, basepath: routerBasepath(import.meta.env.BASE_URL) });
 declare module "@tanstack/react-router" { interface Register { router: typeof router } }
 
-if ("serviceWorker" in navigator && import.meta.env.PROD) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  // Une nouvelle version du service worker prend la main : on recharge une fois pour afficher l'application à jour (pas à la toute première installation).
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
+  void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).then((reg) => reg.update().catch(() => undefined)).catch(() => undefined);
+}
 // Préchargement discret des pages de comptoir (caisse, stock, ventes) : le service worker les met en cache pour le hors-ligne.
 if (import.meta.env.PROD) window.addEventListener("load", () => setTimeout(() => { if (navigator.onLine) for (const p of [import("@/routes/pos"), import("@/routes/stock"), import("@/routes/caisse"), import("@/routes/ventes")]) void p.catch(() => undefined); }, 4000), { once: true });
 void consumeVerifyReturn().finally(() => createRoot(document.getElementById("root")!).render(
