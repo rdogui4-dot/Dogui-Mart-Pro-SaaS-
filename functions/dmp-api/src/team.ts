@@ -44,16 +44,16 @@ export async function createShop(store: Store, ctx: Ctx, b: { name: string; addr
 }
 
 /** Boutiques du commerce parmi `ids` ; lève si l'une n'existe pas. */
-async function ownShops(store: Store, ctx: Ctx, ids: unknown): Promise<string[]> {
+export async function ownShops(store: Store, ctx: Ctx, ids: unknown): Promise<string[]> {
   const list = Array.isArray(ids) ? [...new Set(ids.map(String))] : [];
   if (!list.length) throw new HttpError(400, "Au moins une boutique est requise");
   for (const id of list) { const s = await store.get("shops", id); if (!s || s.tenantId !== ctx.tenantId) throw new HttpError(404, "Boutique introuvable"); }
   return list;
 }
 const validPassword = (p: unknown): string => { const s = String(p ?? ""); if (s.length < 8) throw new HttpError(400, "Mot de passe : 8 caractères minimum"); if (s.length > 128) throw new HttpError(400, "Mot de passe trop long"); return s; };
-const validRole = (r: unknown): StaffRole => { if (!isStaffRole(r)) throw new HttpError(400, `Rôle invalide (attendu : ${STAFF_ROLES.join(", ")})`); return r; };
+export const validRole = (r: unknown): StaffRole => { if (!isStaffRole(r)) throw new HttpError(400, `Rôle invalide (attendu : ${STAFF_ROLES.join(", ")})`); return r; };
 /** Accès demandés par le propriétaire, ou préréglage du rôle à défaut. */
-const accessOf = (role: StaffRole, access: unknown): Module[] => {
+export const accessOf = (role: StaffRole, access: unknown): Module[] => {
   if (access === undefined) return [...ROLE_PRESETS[role].modules];
   const p = parseModules(access); if (!p.ok) throw new HttpError(400, p.error); return p.modules;
 };
@@ -61,22 +61,29 @@ const accessOf = (role: StaffRole, access: unknown): Module[] => {
 /** Création d'un compte employé par le propriétaire : identifiant (ou e-mail) + mot de passe initial. Rollback si une étape échoue. */
 export async function createStaff(store: Store, ctx: Ctx, b: { name: string; username?: string; email?: string; password: string; role: string; access?: unknown; shopIds: string[] }) {
   need(ctx, "owner");
-  const name = String(b.name ?? "").trim().slice(0, 100); if (!name) throw new HttpError(400, "Nom requis");
-  const role = validRole(b.role); const password = validPassword(b.password); const modules = accessOf(role, b.access);
+  const role = validRole(b.role); const modules = accessOf(role, b.access);
   const shopIds = await ownShops(store, ctx, b.shopIds);
+  return createStaffAccount(store, ctx.tenantId, ctx.userId, { ...b, role, modules, shopIds });
+}
+
+/** Création effective d'un compte employé (création directe par le propriétaire ou acceptation d'une invitation) : rôle, accès et boutiques déjà validés.
+ *  Rollback si une étape échoue. */
+export async function createStaffAccount(store: Store, tenantId: string, actorId: string, b: { name: string; username?: string; email?: string; password: string; role: StaffRole; modules: Module[]; shopIds: string[] }, via = "staff.create") {
+  const name = String(b.name ?? "").trim().slice(0, 100); if (!name) throw new HttpError(400, "Nom requis");
+  const { role, modules, shopIds } = b; const password = validPassword(b.password);
   let email: string, username = "";
   if (b.email) { email = String(b.email).trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.endsWith(`@${STAFF_EMAIL_DOMAIN}`)) throw new HttpError(400, "E-mail invalide"); }
   else { username = String(b.username ?? "").trim().toLowerCase(); if (!/^[a-z0-9._-]{3,24}$/.test(username)) throw new HttpError(400, "Identifiant : 3 à 24 caractères (lettres, chiffres, . _ -)"); email = `${username}@${STAFF_EMAIL_DOMAIN}`; }
-  await assertQuota(store, ctx.tenantId, "users");
+  await assertQuota(store, tenantId, "users");
   const userId = newId();
   await store.createUser({ userId, email, password, name }); // 409 si déjà pris
   try {
     await store.setLabels(userId, labelsFor(role, modules, shopIds, true)); // droits de lecture par boutique et par accès
-    await store.addMember(ctx.tenantId, userId, [role], name);
-    try { await store.create("staff", userId, ctx.tenantId, { tenantId: ctx.tenantId, userId, name, username, email: username ? "" : email, role, access: JSON.stringify(modules), shopIds: JSON.stringify(shopIds), active: true }); }
-    catch (e) { await store.removeMember(ctx.tenantId, userId).catch(() => {}); throw e; }
+    await store.addMember(tenantId, userId, [role], name);
+    try { await store.create("staff", userId, tenantId, { tenantId, userId, name, username, email: username ? "" : email, role, access: JSON.stringify(modules), shopIds: JSON.stringify(shopIds), active: true }); }
+    catch (e) { await store.removeMember(tenantId, userId).catch(() => {}); throw e; }
   } catch (e) { await store.deleteUser(userId).catch(() => {}); throw e; }
-  await store.create("audit_log", `${userId}_a`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: shopIds[0]!, userId: ctx.userId, action: "staff.create", detail: `${name} (${role} : ${modules.join(", ")})` });
+  await store.create("audit_log", `${userId}_a`, tenantId, { tenantId, shopId: shopIds[0]!, userId: actorId, action: via, detail: `${name} (${role} : ${modules.join(", ")})` });
   return { userId, login: username || email };
 }
 

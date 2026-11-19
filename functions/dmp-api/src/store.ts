@@ -34,6 +34,8 @@ export interface Store {
   setLabels(userId: string, labels: string[]): Promise<void>;
   setUserActive(userId: string, active: boolean): Promise<void>;
   setPassword(userId: string, password: string): Promise<void>;
+  /** Sécurité d'un compte lue dans l'annuaire : dernière ouverture de session, sessions ouvertes ces dernières 24 h, double authentification activée. */
+  userSecurity(userId: string): Promise<UserSecurity>;
   addMember(tenantId: string, userId: string, roles: string[], name: string): Promise<void>;
   setMemberRoles(tenantId: string, userId: string, roles: string[]): Promise<void>;
   removeMember(tenantId: string, userId: string): Promise<void>;
@@ -42,6 +44,7 @@ export interface Store {
 export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean; /** Accès effectifs (le propriétaire les a tous) : calculés par handle(), jamais fournis par le client. */ modules?: Module[] };
 import { MODULES, MODULE_LABEL, type Module } from "../../../src/domain/access";
 export type Role = "owner" | "manager" | "cashier";
+export type UserSecurity = { lastLogin: string | null; sessions24h: number; mfa: boolean };
 export const roleOf = (roles: string[]): Role => (roles.includes("owner") ? "owner" : roles.includes("manager") ? "manager" : "cashier");
 export const need = (ctx: Ctx, min: Role) => {
   const rank = { cashier: 0, manager: 1, owner: 2 } as const;

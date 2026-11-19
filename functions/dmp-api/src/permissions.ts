@@ -130,6 +130,8 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   shops: (t, _d, id) => [owner(t), `label:${staffLabel(id)}`],
   // Fiche employé : le propriétaire, et l'employé lui-même
   staff: (t, d) => [owner(t), `user:${String(d.userId ?? "")}`],
+  // Invitations : lues par le serveur seulement (le propriétaire passe par staff.invite.list) ; aucune lecture directe, même du propriétaire.
+  staff_invites: () => [],
   // Abonnement : propriétaire seulement
   subscriptions: (t) => [owner(t)],
   subscription_payments: (t) => [owner(t)],

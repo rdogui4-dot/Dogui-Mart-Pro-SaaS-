@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getShop } from "@/lib/data";
 import { can, useSession } from "@/lib/session";
-import { ShopsSection, StaffSection } from "./team";
+import { ShopsSection } from "./team";
+import { StaffSection } from "./team-page";
 import { PlatformSection, SubscriptionSection, useSubscription } from "./subscription";
 import { parseDeepLink } from "@/domain/redirects";
 import { DEFAULT_PLANS } from "@/domain/subscriptions";
@@ -82,7 +83,7 @@ export function SettingsPage() {
   }
   return (
     <div className="flex flex-col gap-3">
-      <ModuleHeader icon={tab === "staff" ? UserCog : tab === "subscription" ? CreditCard : SettingsIcon} title={tab === "staff" ? "Équipe & Permissions" : tab === "subscription" ? "Abonnement & Facturation" : "Paramètres généraux"} subtitle={tab === "staff" ? "Membres, rôles, accès et boutiques autorisées." : tab === "subscription" ? "Votre formule, vos paiements et vos échéances." : "Configurez et personnalisez DOGUI MART PRO selon vos besoins."} />
+      <ModuleHeader icon={tab === "staff" ? UserCog : tab === "subscription" ? CreditCard : SettingsIcon} title={tab === "staff" ? "Équipe & Permissions" : tab === "subscription" ? "Abonnement & Facturation" : "Paramètres généraux"} subtitle={tab === "staff" ? "Gérez les membres, les rôles et les accès de votre espace DOGUI MART PRO." : tab === "subscription" ? "Votre formule, vos paiements et vos échéances." : "Configurez et personnalisez DOGUI MART PRO selon vos besoins."} />
       {can(s, "settings") && <>
         {tab !== "staff" && tab !== "subscription" && <SettingsKpis />}
         <PillTabs idBase="set" label="Sections des paramètres" value={MAIN_SET.some((t) => t.key === tab) ? tab : ("" as STab)} onChange={setTab} items={MAIN_SET} />

@@ -3,7 +3,9 @@ import { ACTIONS, LOCK_EXEMPT, TENANT_LEVEL } from "./handlers";
 import { assertWritable } from "./subscriptions";
 import { appwriteStore } from "./appwrite-store";
 import { HttpError, roleOf, type Ctx, type Store } from "./store";
-import { MODULES, modulesFor } from "../../../src/domain/access";
+import { MODULES, READ_ONLY_ROLES, modulesFor, type StaffRole } from "../../../src/domain/access";
+import { PUBLIC_ACTIONS } from "./invites";
+import { READ_ACTIONS, READ_ONLY_MESSAGE } from "./viewer";
 
 type Req = { method: string; headers: Record<string, string>; bodyJson?: any };
 type Res = { json(body: unknown, status?: number): unknown };
@@ -11,8 +13,13 @@ type Res = { json(body: unknown, status?: number): unknown };
 /** Point d'entrée testable : authentifie l'appelant (membre confirmé du tenant) puis route l'action. */
 export async function handle(store: Store, userId: string | undefined, body: any, env: { admins?: string[] } = {}): Promise<{ status: number; body: unknown }> {
   try {
-    if (!userId) throw new HttpError(401, "Connexion requise");
     const { action, tenantId, shopId, payload } = body ?? {};
+    // Actions publiques (acceptation d'une invitation) : aucune appartenance, la preuve est le jeton à usage unique.
+    if (typeof action === "string" && PUBLIC_ACTIONS.has(action) && Object.hasOwn(ACTIONS, action)) {
+      const pub = (ACTIONS as Record<string, (s: Store, c: Ctx, p: any) => Promise<unknown>>)[action]!;
+      return { status: 200, body: { ok: true, data: await pub(store, { userId: userId ?? "", tenantId: "", shopId: "", roles: [], admin: false }, payload ?? {}) } };
+    }
+    if (!userId) throw new HttpError(401, "Connexion requise");
     // Seules les actions déclarées existent : « constructor », « toString », « __proto__ »… viendraient du prototype de l'objet et exposeraient l'état interne du serveur.
     if (typeof action !== "string" || !Object.hasOwn(ACTIONS, action)) throw new HttpError(400, "Action inconnue");
     const fn = (ACTIONS as Record<string, (s: Store, c: Ctx, p: any) => Promise<unknown>>)[action]!;
@@ -33,6 +40,9 @@ export async function handle(store: Store, userId: string | undefined, body: any
       const active = !!staff && staff.tenantId === tenantId && staff.active !== false;
       ids = active ? (() => { try { const v = JSON.parse(String(staff!.shopIds || "[]")); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } })() : []; // fiche illisible : aucune boutique plutôt qu'une erreur 500
       ctx.modules = active ? modulesFor(staff!.role ?? m.roles[0], staff!.access) : [];
+      // Consultant : refus par défaut de toute action qui n'est pas de la consultation (le rôle de la fiche ET celui du commerce sont vérifiés).
+      const role = String(staff?.role ?? m.roles[0] ?? "");
+      if ((READ_ONLY_ROLES.includes(role as StaffRole) || m.roles.some((r) => READ_ONLY_ROLES.includes(r as StaffRole))) && !READ_ACTIONS.has(action)) throw new HttpError(403, READ_ONLY_MESSAGE);
     }
     if (!tenantLevel) {
       // La boutique doit exister dans CE commerce, et l'employé doit y être affecté (le propriétaire a accès à toutes).

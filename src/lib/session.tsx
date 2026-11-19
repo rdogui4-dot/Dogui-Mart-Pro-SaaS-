@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { useQueryClient } from "@tanstack/react-query";
 import { DATABASE_ID, Query, account, tables, teams } from "./appwrite";
 import { api } from "./api";
-import { MODULES, modulesFor, type Module, type StaffRole } from "@/domain/access";
+import { MODULES, isStaffRole, modulesFor, type Module, type StaffRole } from "@/domain/access";
 import { clearCache, restoreCache, startPersist } from "./persist";
 
 export type Role = "owner" | StaffRole;
@@ -54,7 +54,7 @@ async function loadOnline(): Promise<Session | null> {
     if (!team) return { userId: me.$id, name: me.name, tenantId: "", shopId: "", role: "owner", shops: [], modules: [...MODULES], needsTenant: true };
     const m = await teams.listMemberships({ teamId: team.$id });
     const mine = m.memberships.find((x) => x.userId === me.$id);
-    let role = (mine?.roles.includes("owner") ? "owner" : (mine?.roles.find((r) => r === "manager" || r === "cashier" || r === "stockkeeper" || r === "accountant") ?? "cashier")) as Role;
+    let role = (mine?.roles.includes("owner") ? "owner" : (mine?.roles.find((r) => isStaffRole(r)) ?? "cashier")) as Role;
     let modules: Module[] = [...MODULES];
     let shops = await listShops(team.$id);
     let setupError: string | undefined;
@@ -68,7 +68,7 @@ async function loadOnline(): Promise<Session | null> {
       let ids: string[] = []; modules = [];
       try {
         const st = (await tables.getRow({ databaseId: DATABASE_ID, tableId: "staff", rowId: me.$id })) as unknown as { shopIds?: string; active?: boolean; role?: string; access?: string };
-        if (st.active !== false) { ids = JSON.parse(st.shopIds ?? "[]"); role = (st.role === "manager" || st.role === "cashier" || st.role === "stockkeeper" || st.role === "accountant" ? st.role : role) as Role; modules = modulesFor(role, st.access); }
+        if (st.active !== false) { ids = JSON.parse(st.shopIds ?? "[]"); role = (isStaffRole(st.role) ? st.role : role) as Role; modules = modulesFor(role, st.access); }
       } catch (e) { if ((e as { code?: number })?.code !== 404) throw e; /* pas de fiche (404) : aucun accès ; toute autre erreur (réseau…) remonte et ramène à la session en cache */ }
       shops = shops.filter((s) => ids.includes(s.id));
     }

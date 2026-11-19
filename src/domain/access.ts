@@ -16,14 +16,17 @@ export const MODULE_HELP: Record<Module, string> = {
   reports: "Rapports de ventes, marges, stock valorisé (boutiques affectées).",
 };
 
-export const STAFF_ROLES = ["manager", "cashier", "stockkeeper", "accountant"] as const;
+export const STAFF_ROLES = ["manager", "cashier", "stockkeeper", "accountant", "viewer"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
 export const ROLE_PRESETS: Record<StaffRole, { label: string; description: string; modules: Module[] }> = {
   manager: { label: "Gérant", description: "Gère le commerce au quotidien : tous les modules, remises et plafonds de crédit. Ne gère ni l'équipe, ni les boutiques, ni l'abonnement.", modules: [...MODULES] },
   cashier: { label: "Caissier", description: "Tient la caisse et les fiches clients.", modules: ["pos", "customers"] },
   stockkeeper: { label: "Magasinier", description: "Gère le stock, les fournisseurs et les réceptions.", modules: ["stock", "purchases"] },
   accountant: { label: "Comptable", description: "Factures, comptabilité et rapports.", modules: ["invoices", "accounting", "reports"] },
+  viewer: { label: "Consultant", description: "Consultation seule : voit les modules accordés, ne peut rien créer, modifier ni supprimer (vérifié par le serveur).", modules: ["reports", "accounting"] },
 };
+/** Rôle en lecture seule : le serveur n'accepte de lui que les actions de consultation (liste fermée). */
+export const READ_ONLY_ROLES: readonly StaffRole[] = ["viewer"];
 export const isStaffRole = (r: unknown): r is StaffRole => (STAFF_ROLES as readonly unknown[]).includes(r);
 export const isModule = (m: unknown): m is Module => (MODULES as readonly unknown[]).includes(m);
 

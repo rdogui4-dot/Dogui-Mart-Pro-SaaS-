@@ -13,6 +13,7 @@ import { Layout } from "@/components/Layout";
 import { consumeVerifyReturn } from "@/lib/verify";
 import { ErrorPage, ForbiddenPage, NotFoundPage, SpacePage } from "@/routes/shell-pages";
 import { AuthPage } from "@/routes/auth";
+import { InvitationPage, isInvitationPath } from "@/routes/invitation";
 import { CreateTenantPage } from "@/routes/tenant-setup";
 import { HomePage, PlusPage } from "@/routes/home";
 
@@ -64,7 +65,7 @@ function Guard({ perm, children }: { perm: Perm | null; children: React.ReactNod
   if (session.needsTenant) return <CreateTenantPage />;
   return perm === null || can(session, perm) ? <>{children}</> : <ForbiddenPage />;
 }
-const root = createRootRoute({ component: () => <Guard perm={null}><Layout /></Guard>, notFoundComponent: NotFoundPage, errorComponent: ({ error }) => <ErrorPage error={error} /> });
+const root = createRootRoute({ component: () => (isInvitationPath() ? <InvitationPage /> : <Guard perm={null}><Layout /></Guard>), notFoundComponent: NotFoundPage, errorComponent: ({ error }) => <ErrorPage error={error} /> });
 const r = (path: string, perm: Perm | null, C: ComponentType) =>
   createRoute({ getParentRoute: () => root, path, component: () => <Guard perm={perm}><Suspense fallback={<div className="card h-24 animate-pulse bg-subtle" aria-busy="true" aria-label="Chargement" />}><C /></Suspense></Guard> });
 const tree = root.addChildren([

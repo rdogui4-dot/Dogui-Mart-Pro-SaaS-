@@ -69,6 +69,9 @@ export class MemoryStore implements Store {
   }
   async setUserActive(userId: string, active: boolean) { const u = this.users.get(userId); if (u) u.active = active; }
   async setPassword(userId: string, password: string) { const u = this.users.get(userId); if (u) u.password = password; }
+  /** Sécurité simulée par compte (tests) ; défaut : jamais connecté, sans double authentification. */
+  security = new Map<string, { lastLogin: string | null; sessions24h: number; mfa: boolean }>();
+  async userSecurity(userId: string) { return this.security.get(userId) ?? { lastLogin: null, sessions24h: 0, mfa: false }; }
   failAddMember = false;
   async addMember(tenantId: string, userId: string, roles: string[]) { if (this.failAddMember) throw new Error("boom"); this.members.set(`${tenantId}:${userId}`, roles); }
   async setMemberRoles(tenantId: string, userId: string, roles: string[]) { this.members.set(`${tenantId}:${userId}`, roles); }

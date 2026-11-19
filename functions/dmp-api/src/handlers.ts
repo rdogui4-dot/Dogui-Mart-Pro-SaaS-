@@ -1,6 +1,8 @@
 import { preorderRun, preorderSet, preorderStatus } from "./preorder";
 import { aiUsage as meUsage, evalRun as meEval } from "./master-eval";
 import { activityList } from "./activity";
+import { inviteAccept, inviteCreate, inviteList, invitePeek, inviteRenew, inviteRevoke } from "./invites";
+import { teamOverview } from "./team-overview";
 import { chatAsk as chAsk, chatDelete as chDelete, chatGet as chGet, chatList as chList } from "./master-chat";
 import { recoCfgSave as rcCfgSave, recoDecide as rcDecide, recoGenerate as rcGenerate, recoList as rcList } from "./master-reco";
 import { profileConfirm as mpConfirm, profileDelete as mpDelete, profileGet as mpGet, profileSet as mpSet } from "./master-profile";
@@ -217,7 +219,7 @@ export async function paymentLinkStatus(store: Store, ctx: Ctx, b: { linkId: str
 }
 
 /** Actions qui ne dépendent d'aucune boutique particulière (le shopId du contexte est alors vide). */
-export const TENANT_LEVEL = new Set(["md.license", "md.chat.ask", "md.chat.list", "md.chat.get", "md.chat.delete", "md.reco.generate", "md.reco.list", "md.reco.decide", "md.reco.cfg.save", "md.profile", "md.profile.set", "md.profile.confirm", "md.profile.delete", "md.trial.start", "md.pay.request", "md.pay.list", "report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "subscription.receipt", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword"]);
+export const TENANT_LEVEL = new Set(["md.license", "md.chat.ask", "md.chat.list", "md.chat.get", "md.chat.delete", "md.reco.generate", "md.reco.list", "md.reco.decide", "md.reco.cfg.save", "md.profile", "md.profile.set", "md.profile.confirm", "md.profile.delete", "md.trial.start", "md.pay.request", "md.pay.list", "report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "subscription.receipt", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword", "team.overview", "staff.invite.create", "staff.invite.list", "staff.invite.renew", "staff.invite.revoke"]);
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
@@ -226,7 +228,7 @@ export const ACTIONS = {
   "payment_link.create": createPaymentLink, "payment_link.confirm": confirmPaymentLink,
   "po.create": createPo, "po.cancel": cancelPo, "po.receive": receivePo, "invoice.supplier.create": invoicePo, "invoice.supplier.pay": payInvoice,
   "shop.save": saveShop, "invoice.customer.fromSale": invoiceFromSale, "invoice.customer.create": createFreeInvoice, "invoice.customer.pay": payCustomerInvoice,
-  "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "stock.transfer": transferStock,
+  "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "team.overview": teamOverview, "staff.invite.create": inviteCreate, "staff.invite.list": inviteList, "staff.invite.renew": inviteRenew, "staff.invite.revoke": inviteRevoke, "invite.peek": invitePeek, "invite.accept": inviteAccept, "stock.transfer": transferStock,
   "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof, "subscription.receipt": subscriptionReceipt,
   "platform.me": platformMe, "platform.subscription.lifetime": platformLifetime, "platform.renewals.list": platformRenewals, "platform.renewals.markReminded": platformMarkReminded, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
   "report.consolidated": consolidatedReport,

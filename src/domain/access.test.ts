@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MODULES, ROLE_PRESETS, STAFF_ROLES, isCustomAccess, modulesFor, parseModules, sameModules } from "./access";
 
 describe("accès par module", () => {
-  it("7 modules, 4 rôles, et chaque préréglage n'utilise que des modules connus", () => {
-    expect(MODULES).toHaveLength(7); expect(STAFF_ROLES).toEqual(["manager", "cashier", "stockkeeper", "accountant"]);
+  it("7 modules, 5 rôles, et chaque préréglage n'utilise que des modules connus", () => {
+    expect(MODULES).toHaveLength(7); expect(STAFF_ROLES).toEqual(["manager", "cashier", "stockkeeper", "accountant", "viewer"]);
     for (const r of STAFF_ROLES) for (const m of ROLE_PRESETS[r].modules) expect(MODULES).toContain(m);
   });
   it("le gérant a tout ; caissier, magasinier et comptable ont chacun leur périmètre", () => {

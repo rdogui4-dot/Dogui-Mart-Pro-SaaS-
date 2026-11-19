@@ -75,6 +75,7 @@ function LayoutInner() {
           {session && <ProfileMenu name={session.name} role={session.role} wide={wide} onLogout={() => void logout()} />}
         </header>
         <SubscriptionBanner />
+        {session?.role === "viewer" && <div role="status" className="text-sm py-1.5 px-3 text-center bg-info-bg text-info">Compte Consultant : consultation seule. Les créations, modifications et suppressions sont refusées par le serveur.</div>}
         <div className="px-4 md:px-6 pt-3 empty:hidden mx-auto w-full max-w-[96rem]"><VerifyBanner /></div>
         <main className="flex-1 overflow-y-auto p-4 md:px-6 pb-24 md:pb-6">
           <div key={path + search.replace(/[?&](qid|q)=[^&]*/g, "")} className="page-in mx-auto w-full max-w-[96rem]">
@@ -176,7 +177,7 @@ function AlertsBell({ plan }: { plan?: string }) {
   );
 }
 
-const ROLE_LABEL: Record<string, string> = { owner: "Propriétaire", manager: "Gérant", cashier: "Caissier", stockkeeper: "Magasinier", accountant: "Comptable" };
+const ROLE_LABEL: Record<string, string> = { owner: "Propriétaire", manager: "Gérant", cashier: "Caissier", stockkeeper: "Magasinier", accountant: "Comptable", viewer: "Consultant" };
 /** Profil : initiales, nom et rôle réels ; mon profil, déconnexion. */
 function ProfileMenu({ name, role, wide, onLogout }: { name: string; role: string; wide: boolean; onLogout: () => void }) {
   const pop = usePopover(); const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";

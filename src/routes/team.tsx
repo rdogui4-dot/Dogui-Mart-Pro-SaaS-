@@ -39,22 +39,7 @@ export function ShopsSection() {
   );
 }
 
-export function StaffSection() {
-  const { session } = useSession(); const s = session!;
-  const qc = useQueryClient();
-  const staff = useQuery({ queryKey: ["staff"], queryFn: () => listTenant<StaffRow>("staff", s, 200) });
-  const refresh = () => void qc.invalidateQueries({ queryKey: ["staff"] });
-  return (
-    <>
-      <div className="card flex justify-between items-center"><span><b>{s.name}</b><br /><span className="text-xs text-muted">Propriétaire · tous les accès, boutiques, équipe et abonnement</span></span><span className="text-xs text-accent-text">Gérant principal</span></div>
-      <NewStaff onDone={refresh} />
-      {(staff.data ?? []).map((m) => <StaffCard key={m.$id} m={m} onChange={refresh} />)}
-      {staff.data?.length === 0 && <p className="text-center text-muted py-4">Aucun employé pour le moment.</p>}
-    </>
-  );
-}
-
-function ShopChecks({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+export function ShopChecks({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const { session } = useSession();
   return (
     <div className="flex flex-wrap gap-2">
@@ -68,7 +53,7 @@ function ShopChecks({ value, onChange }: { value: string[]; onChange: (v: string
 }
 
 /** Rôle (préréglage) + accès par module : le propriétaire peut partir d'un rôle puis cocher/décocher les modules. */
-function AccessPicker({ role, modules, onChange }: { role: StaffRole; modules: Module[]; onChange: (role: StaffRole, modules: Module[]) => void }) {
+export function AccessPicker({ role, modules, onChange }: { role: StaffRole; modules: Module[]; onChange: (role: StaffRole, modules: Module[]) => void }) {
   const custom = isCustomAccess(role, modules);
   return (
     <div className="flex flex-col gap-2">
@@ -89,7 +74,7 @@ function AccessPicker({ role, modules, onChange }: { role: StaffRole; modules: M
   );
 }
 
-function NewStaff({ onDone }: { onDone: () => void }) {
+export function NewStaff({ onDone }: { onDone: () => void }) {
   const { session } = useSession(); const s = session!;
   const [f, setF] = useState({ name: "", username: "", password: "", role: "cashier" as StaffRole });
   const [modules, setModules] = useState<Module[]>(modulesFor("cashier"));
@@ -114,29 +99,3 @@ function NewStaff({ onDone }: { onDone: () => void }) {
   );
 }
 
-function StaffCard({ m, onChange }: { m: Row<StaffRow>; onChange: () => void }) {
-  const { session } = useSession(); const s = session!;
-  const [edit, setEdit] = useState(false); const [role, setRole] = useState<StaffRole>(m.role); const [shopIds, setShopIds] = useState(ids(m.shopIds)); const [modules, setModules] = useState<Module[]>(modulesFor(m.role, m.access));
-  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  const run = async (fn: () => Promise<unknown>, after?: () => void) => { setBusy(true); setErr(""); try { await fn(); after?.(); onChange(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); } };
-  const shopNames = ids(m.shopIds).map((id) => s.shops.find((x) => x.id === id)?.name ?? "?").join(", ");
-  return (
-    <div className={`card flex flex-col gap-2 ${m.active === false ? "opacity-60" : ""}`}>
-      <div className="flex justify-between"><b>{m.name}</b><span className="text-sm text-muted">{ROLE_PRESETS[m.role]?.label ?? m.role}{isCustomAccess(m.role, modulesFor(m.role, m.access)) && " (personnalisé)"}{m.active === false && " · désactivé"}</span></div>
-      <div className="text-sm text-muted">Connexion : {m.username || m.email} · {shopNames || "aucune boutique"}<br />Accès : {modulesFor(m.role, m.access).map((x) => MODULE_LABEL[x]).join(", ")}</div>
-      {edit && (
-        <div className="flex flex-col gap-2 border-t border-line pt-2">
-          <AccessPicker role={role} modules={modules} onChange={(r, mm) => { setRole(r); setModules(mm); }} />
-          <ShopChecks value={shopIds} onChange={setShopIds} />
-          <button className="btn" disabled={busy || !shopIds.length || !modules.length} onClick={() => void run(() => api(s, "staff.update", { userId: m.userId, role, shopIds, access: modules }), () => setEdit(false))}>Enregistrer</button>
-        </div>
-      )}
-      <div className="flex gap-2 flex-wrap">
-        <button className="btn-ghost !py-2" onClick={() => setEdit(!edit)}>{edit ? "Fermer" : "Rôle, accès & boutiques"}</button>
-        <button className="btn-ghost !py-2" disabled={busy} onClick={() => { const p = prompt(`Nouveau mot de passe pour ${m.name} (8 caractères min.)`); if (p) void run(() => api(s, "staff.resetPassword", { userId: m.userId, password: p })); }}>Mot de passe</button>
-        <button className="btn-ghost !py-2" disabled={busy} onClick={() => confirm(m.active === false ? `Réactiver ${m.name} ?` : `Désactiver ${m.name} ? Il ne pourra plus se connecter.`) && void run(() => api(s, "staff.update", { userId: m.userId, active: m.active === false }))}>{m.active === false ? "Réactiver" : "Désactiver"}</button>
-      </div>
-      {err && <p className="text-bad text-sm">{err}</p>}
-    </div>
-  );
-}

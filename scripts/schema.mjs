@@ -117,6 +117,8 @@ export const TABLES = {
   // Liens de paiement Wave/Orange Business (le QR est dessiné côté client depuis `url`).
   payment_links: { cols: [...base, s("provider", 16, true), i("amount", true), s("reference", 40, true), t("url", true), s("status", 16, true), s("saleId", 64), s("txRef", 64), d("expiresAt"), s("createdBy", 64), s("confirmedBy", 64)], idx: [["tenant_tx", ["tenantId", "txRef"]], ["shop", ["tenantId", "shopId"]]] },
   // Fiche employé (le rôle fait foi dans l'appartenance à la Team ; ici : boutiques affectées et statut).
+  // Invitations d'équipe (K18) : seule l'empreinte du jeton est stockée ; lien à usage unique, 7 jours.
+  staff_invites: { cols: [s("tenantId", 64, true), s("tokenHash", 64, true), s("name", 100, true), s("role", 16, true), t("access"), t("shopIds"), s("expiresAt", 40, true), s("status", 12, true), s("createdBy", 64), s("acceptedUserId", 64), s("acceptedAt", 40)], idx: [["tenant", ["tenantId"]], ["token", ["tokenHash"]]] },
   staff: { cols: [s("tenantId", 64, true), s("userId", 64, true), s("name", 100, true), s("username", 32), s("email", 160), s("role", 16, true), t("shopIds"), t("access"), b("active"), t("posRights"), t("expenseRights")], idx: [["tenant", ["tenantId"]]] },
   transfers: { cols: [...base, s("toShopId", 64, true), s("number", 32), t("lines"), s("userId", 64), s("status", 10), s("flow", 8), d("shippedAt"), s("shippedBy", 64), d("receivedAt"), s("receivedBy", 64), d("closedAt"), s("closedBy", 64), s("closeNote", 200), d("dueAt"), t("history")], idx: [["shop", ["tenantId", "shopId"]], ["to", ["toShopId"]]] },
   // Abonnement du commerce : identifiant de ligne = tenantId. Les limites viennent du catalogue de formules (modifiable par la plateforme).

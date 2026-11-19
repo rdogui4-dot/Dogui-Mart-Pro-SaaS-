@@ -79,6 +79,11 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
     async setLabels(userId, labels) { await users.updateLabels({ userId, labels }); },
     async setUserActive(userId, active) { await users.updateStatus({ userId, status: active }); },
     async setPassword(userId, password) { await users.updatePassword({ userId, password }); },
+    async userSecurity(userId) {
+      const [u, ss] = await Promise.all([users.get({ userId }), users.listSessions({ userId })]);
+      const times = ss.sessions.map((x) => x.$createdAt).sort(); const since = Date.now() - 864e5;
+      return { lastLogin: times.at(-1) ?? null, sessions24h: times.filter((t) => new Date(t).getTime() >= since).length, mfa: !!u.mfa };
+    },
     // Création serveur avec userId : le membre est ajouté et actif immédiatement (pas d'e-mail d'invitation).
     async addMember(tenantId, userId, roles, name) { await teams.createMembership({ teamId: tenantId, roles, userId, name }); },
     async setMemberRoles(tenantId, userId, roles) {
