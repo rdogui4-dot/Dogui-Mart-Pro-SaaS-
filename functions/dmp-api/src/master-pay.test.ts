@@ -27,6 +27,9 @@ describe("MASTER DOGUI — webhook de paiement", () => {
   it("jeton absent, faux, désactivé : 404 sans information ; corps trop gros ou illisible : refusé", async () => {
     expect((await hook(evt(), "x")).status).toBe(404); await configure(); expect((await hook(evt(), "")).status).toBe(404); expect((await hook(evt(), TOKEN + "0")).status).toBe(404); expect((await hook("x".repeat(25_000))).status).toBe(413); expect((await hook("pas du json")).status).toBe(400); await ok(adm("platform.master.hook.save", { enabled: false })); expect((await hook(evt())).status).toBe(404); expect(st.rows("md_events")).toHaveLength(0);
   });
+  it("liens Selar par défaut : sans lien configuré par la plateforme, la demande renvoie les liens annuel et mensuel", async () => {
+    const a = await ok(call("own", "md.pay.request", { kind: "first" }, "", T)); expect(a.link).toBe("https://selar.com/il7v2a1w53");
+  });
   it("sans paramétrage complet : tout part en examen, brut conservé pour calibrer, aucune activation", async () => {
     await ok(adm("platform.master.hook.save", { mapping: { ref: "data.id" } })); TOKEN = (await ok(adm("platform.master.hook.rotate"))).token; await ok(adm("platform.master.hook.save", { enabled: true })); const r = await hook(evt()); expect(r.body).toMatchObject({ ok: true, status: "review" }); const e = (await ok(adm("platform.master.events", { status: "review" }))).events[0]; expect(e.raw).toContain("charge.success"); expect(e.note).toContain("incomplet"); expect(st.rows("md_licenses").every((l) => !l.paidUntil)).toBe(true);
   });

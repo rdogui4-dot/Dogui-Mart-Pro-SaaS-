@@ -1,4 +1,4 @@
-import { CalendarClock, Check, CreditCard, Download, FileText, Layers, Receipt, ShieldCheck, Sparkles, Wallet } from "lucide-react";
+import { CalendarClock, Check, CreditCard, Download, ExternalLink, FileText, Layers, Minus, Receipt, ShieldCheck, Sparkles, Wallet } from "lucide-react";
 import { ErrorState, InsightCard, LoadingState, Panel, PillTabs, StatusBadge, type PillTab } from "@/components/kit";
 import { subscriptionInsights, perMonth, type Receipt as ReceiptData } from "@/domain/subscription-kit";
 import { PLATFORM_MODULES, modulesFor } from "@/domain/settings-kit";
@@ -10,6 +10,7 @@ import { useSession } from "@/lib/session";
 import { formatFcfa } from "@/domain/money";
 import { PERIODS, PERIOD_DAYS, PERIOD_LABEL, TRIAL, priceFor, type Entitlement, type Period, type Plan, type PlanId } from "@/domain/subscriptions";
 import { selarOptionLabel } from "@/domain/selar";
+import { MASTER, MASTER_LINKS } from "@/domain/master";
 import { bannerMessage, stateLabel, whatsappNumber, type ReminderLevel } from "@/domain/reminders";
 
 export type SubInfo = {
@@ -91,7 +92,7 @@ export function SubscriptionSection({ initial }: { initial?: { plan: PlanId; per
           </li>))}</ul>}
         <p className="text-xs text-muted mt-2">Une demande « À payer » est réglée sur Selar ; ensuite, saisissez la référence de commande depuis « Mon abonnement » (même formule et même durée) pour la faire valider.</p>
       </Panel>}
-      {tab === "compare" && <Compare data={data} period={period} setPeriod={setPeriod} />}
+      {tab === "compare" && <Compare data={data} period={period} setPeriod={setPeriod} owner={owner} onPay={setPay} />}
       {pay && <PayModal plan={pay} period={period} onClose={() => { setPay(null); refresh(); }} />}
     </>
   );
@@ -202,23 +203,69 @@ function ReceiptList({ rows, empty, compact }: { rows: SubInfo["payments"]; empt
   </>;
 }
 
-function Compare({ data, period, setPeriod }: { data: SubInfo; period: Period; setPeriod: (p: Period) => void }) {
+function Compare({ data, period, setPeriod, owner, onPay }: { data: SubInfo; period: Period; setPeriod: (p: Period) => void; owner: boolean; onPay: (p: Plan) => void }) {
   const e = data.entitlement;
-  const rows: [string, (p: Plan) => string][] = [
-    [`Prix (${PER_LABEL[period]})`, (p) => formatFcfa(priceFor(p, period, 1))],
-    ["Prix ramené au mois", (p) => { const v = perMonth(p, period); return v === null ? "—" : formatFcfa(Math.round(v)); }],
-    ["Boutiques", (p) => lim(p.limits.maxShops)], ["Utilisateurs", (p) => lim(p.limits.maxUsers)], ["Produits", (p) => lim(p.limits.maxProducts)],
-    ...PLATFORM_MODULES.map((m) => [m.label, (p: Plan) => (modulesFor(p.id).list.find((x) => x.key === m.key)!.active ? "Inclus" : "—")] as [string, (p: Plan) => string]),
+  type Cell = { text: string; yes?: boolean };
+  const groups: { title: string; rows: [string, (p: Plan) => Cell][] }[] = [
+    { title: "Tarifs", rows: [
+      [`Prix (${PER_LABEL[period]})`, (p) => ({ text: formatFcfa(priceFor(p, period, 1)) })],
+      ["Prix ramené au mois", (p) => { const v = perMonth(p, period); return { text: v === null ? "—" : formatFcfa(Math.round(v)) }; }],
+    ] },
+    { title: "Limites", rows: [
+      ["Boutiques", (p) => ({ text: lim(p.limits.maxShops) })], ["Utilisateurs", (p) => ({ text: lim(p.limits.maxUsers) })], ["Produits", (p) => ({ text: lim(p.limits.maxProducts) })],
+    ] },
+    { title: "Modules", rows: PLATFORM_MODULES.map((m) => [m.label, (p: Plan) => { const on = modulesFor(p.id).list.find((x) => x.key === m.key)!.active; return on ? { text: "Inclus", yes: true } : { text: "Non inclus" }; }] as [string, (p: Plan) => Cell]) },
   ];
+  const cta = (p: Plan) => {
+    const current = !e.lifetime && p.id === e.plan.id;
+    if (!owner) return <p className="text-xs text-muted">Le changement de formule est réservé au propriétaire.</p>;
+    if (!data.available[p.id]) return <button type="button" className="btn-ghost w-full text-sm" disabled>Paiement bientôt disponible</button>;
+    return <button type="button" className={current ? "btn-ghost w-full text-sm" : "btn w-full text-sm"} onClick={() => onPay(p)}>{current ? "Renouveler" : `Choisir ${p.name}`}</button>;
+  };
   return (
-    <Panel title="Comparer les offres" icon={Layers}>
-      <DurationTabs period={period} setPeriod={setPeriod} />
-      <div className="overflow-x-auto mt-3"><table className="w-full text-sm min-w-[32rem]">
-        <thead><tr className="text-left border-b border-line"><th scope="col" className="py-2 pr-2 font-semibold">Caractéristique</th>{data.plans.map((p) => <th key={p.id} scope="col" className="py-2 px-2 font-semibold">{p.name}{!e.lifetime && p.id === e.plan.id && <span className="block text-xs font-normal text-accent-text">Formule actuelle</span>}</th>)}</tr></thead>
-        <tbody>{rows.map(([label, f]) => <tr key={label} className="border-b border-line/60"><th scope="row" className="py-1.5 pr-2 font-normal text-soft">{label}</th>{data.plans.map((p) => <td key={p.id} className="py-1.5 px-2">{f(p)}</td>)}</tr>)}</tbody>
-      </table></div>
-      <p className="text-xs text-muted mt-2">Tarifs fixés par la plateforme. {MODULE_NOTE}</p>
-    </Panel>
+    <div className="flex flex-col gap-4">
+      <Panel title="Comparer les offres" icon={Layers}>
+        <DurationTabs period={period} setPeriod={setPeriod} />
+        <div className="overflow-x-auto mt-3"><table className="w-full text-sm min-w-[34rem] border-separate border-spacing-0">
+          <thead><tr>
+            <th scope="col" className="sticky left-0 bg-[var(--surface)] text-left py-3 pr-3 align-bottom font-semibold">Caractéristique</th>
+            {data.plans.map((p) => { const current = !e.lifetime && p.id === e.plan.id; return (
+              <th key={p.id} scope="col" className={`py-3 px-3 align-top text-left font-normal rounded-t-xl ${current ? "bg-[var(--accent-soft,rgba(0,0,0,.04))] border-t-2 border-x border-[var(--gold)]" : ""}`}>
+                <span className="block text-base font-bold">{p.name}</span>
+                <span className="block text-lg font-extrabold">{formatFcfa(priceFor(p, period, 1))}<span className="text-xs font-normal text-muted"> / {PER_LABEL[period]}</span></span>
+                {current ? <span className="inline-block mt-0.5 mb-2"><StatusBadge tone="ok">Formule actuelle</StatusBadge></span> : <span className="block h-1" />}
+                <span className="block mt-1">{cta(p)}</span>
+              </th>); })}
+          </tr></thead>
+          {groups.map((g) => <tbody key={g.title}>
+            <tr><th scope="colgroup" colSpan={data.plans.length + 1} className="sticky left-0 text-left text-xs uppercase tracking-wider text-muted pt-4 pb-1">{g.title}</th></tr>
+            {g.rows.map(([label, f]) => <tr key={label}>
+              <th scope="row" className="sticky left-0 bg-[var(--surface)] py-2 pr-3 text-left font-normal text-soft border-b border-line/60">{label}</th>
+              {data.plans.map((p) => { const c = f(p); const current = !e.lifetime && p.id === e.plan.id; return <td key={p.id} className={`py-2 px-3 border-b border-line/60 ${current ? "bg-[var(--accent-soft,rgba(0,0,0,.04))] border-x border-x-[var(--gold)]" : ""}`}>
+                {g.title === "Modules" ? (c.yes ? <span className="inline-flex items-center gap-1 text-ok"><Check size={16} aria-hidden="true" />{c.text}</span> : <span className="inline-flex items-center gap-1 text-muted"><Minus size={16} aria-hidden="true" />{c.text}</span>) : c.text}</td>; })}
+            </tr>)}
+          </tbody>)}
+        </table></div>
+        <p className="text-xs text-muted mt-2">Tarifs fixés par la plateforme. {MODULE_NOTE} Si vous passez à une formule inférieure, vos données sont conservées.</p>
+      </Panel>
+      <MasterOffer />
+    </div>
+  );
+}
+
+/** Licence MASTER DOGUI : produit séparé de la formule, payé sur Selar (annuel = première période de 12 mois ; mensuel = renouvellement). */
+export function MasterOffer({ className = "" }: { className?: string }) {
+  return (
+    <section aria-label="MASTER DOGUI" className={`card flex flex-col gap-3 ${className}`}>
+      <div><h3 className="text-lg font-bold">MASTER DOGUI</h3><p className="text-sm text-soft">Rapports de clôture, recommandations expliquées et assistant de questions, sur vos données réelles. Licence indépendante de la formule, avec {MASTER.trialDays} jours d'essai gratuit, une seule fois.</p></div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-line p-3 flex flex-col gap-1"><b>Annuel</b><span className="text-2xl font-extrabold">{formatFcfa(MASTER.firstPrice)}</span><span className="text-xs text-muted">Première période de {MASTER.firstMonths} mois, réglée en une fois</span>
+          <a className="btn-gold mt-2 text-sm" href={MASTER_LINKS.first} target="_blank" rel="noreferrer noopener">Payer la licence annuelle <ExternalLink size={14} aria-hidden="true" /></a></div>
+        <div className="rounded-xl border border-line p-3 flex flex-col gap-1"><b>Mensuel</b><span className="text-2xl font-extrabold">{formatFcfa(MASTER.renewPrice)}<span className="text-xs font-normal text-muted"> / mois</span></span><span className="text-xs text-muted">Renouvellement, après la première période</span>
+          <a className="btn-ghost mt-2 text-sm inline-flex items-center justify-center gap-2" href={MASTER_LINKS.month} target="_blank" rel="noreferrer noopener">Payer un mois <ExternalLink size={14} aria-hidden="true" /></a></div>
+      </div>
+      <p className="text-xs text-muted">Payez avec l'e-mail de votre compte : l'activation est confirmée après vérification du paiement dans Selar.</p>
+    </section>
   );
 }
 

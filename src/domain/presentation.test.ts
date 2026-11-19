@@ -1,3 +1,4 @@
+import { MASTER_LINKS } from "./master";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PLANS } from "./subscriptions";
@@ -8,6 +9,10 @@ const text = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;| | /g, " ").replac
 const fmt = (n: number) => n.toLocaleString("fr-FR").replace(/[  ]/g, " ");
 
 describe("page publique /presentation/", () => {
+  it("MASTER DOGUI : liens de paiement annuel et mensuel, et un bouton par formule", () => {
+    expect(html).toContain(`href="${MASTER_LINKS.first}"`); expect(html).toContain(`href="${MASTER_LINKS.month}"`);
+    for (const p of DEFAULT_PLANS) expect(html).toContain(`Commencer avec ${p.name}`);
+  });
   for (const p of DEFAULT_PLANS) {
     it(`${p.name} : prix mensuel et limites identiques à la configuration`, () => {
       expect(text).toContain(`${fmt(p.prices.month)} FCFA`);

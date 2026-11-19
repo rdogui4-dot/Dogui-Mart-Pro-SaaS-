@@ -42,7 +42,7 @@ section p.sub{color:var(--muted);margin:0 0 1.5rem;max-width:44rem}
 .card h3{margin:0 0 .35rem;font-size:1.05rem}.card p{margin:0;color:var(--soft);font-size:.95rem}
 .plans{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))}
 .plan .price{font-size:1.7rem;font-weight:700;margin:.25rem 0}.plan .price small{font-size:.9rem;font-weight:400;color:var(--muted)}
-.plan ul{margin:.5rem 0 0;padding-left:1.1rem;color:var(--soft);font-size:.95rem}
+.plan{display:flex;flex-direction:column}.plan .btn{margin-top:auto;align-self:stretch}.plan ul{margin:.5rem 0 1rem;padding-left:1.1rem;color:var(--soft);font-size:.95rem}
 .note{color:var(--muted);font-size:.9rem;margin-top:1rem;max-width:46rem}
 .master{background:var(--accent-soft);border:1px solid var(--line);border-radius:12px;padding:1.25rem}
 details{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:.8rem 1rem;margin-bottom:.6rem}
@@ -140,11 +140,11 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
   <p class="sub">Prix par mois en FCFA. D'autres durées (jour, semaine, trimestre, année) sont proposées dans l'application.</p>
   <div class="plans">
     <div class="card plan" data-reveal style="--i:0"><h3>Starter</h3><div class="price">7 500 FCFA <small>/ mois</small></div>
-      <ul><li>1 boutique</li><li>2 utilisateurs</li><li>200 articles</li></ul></div>
+      <ul><li>1 boutique</li><li>2 utilisateurs</li><li>200 articles</li></ul><a class="btn" href="../?inscription=1">Commencer avec Starter</a></div>
     <div class="card plan" data-reveal style="--i:1"><h3>Business</h3><div class="price">15 000 FCFA <small>/ mois</small></div>
-      <ul><li>3 boutiques</li><li>10 utilisateurs</li><li>2 000 articles</li><li>Caisse intelligente, achats, CRM, finance, comptabilité</li></ul></div>
+      <ul><li>3 boutiques</li><li>10 utilisateurs</li><li>2 000 articles</li><li>Caisse intelligente, achats, CRM, finance, comptabilité</li></ul><a class="btn" href="../?inscription=1">Commencer avec Business</a></div>
     <div class="card plan" data-reveal style="--i:2"><h3>Pro</h3><div class="price">40 000 FCFA <small>/ mois</small></div>
-      <ul><li>20 boutiques</li><li>100 utilisateurs</li><li>Articles sans limite</li><li>Variantes, lots, séries, analyses avancées, exports</li></ul></div>
+      <ul><li>20 boutiques</li><li>100 utilisateurs</li><li>Articles sans limite</li><li>Variantes, lots, séries, analyses avancées, exports</li></ul><a class="btn" href="../?inscription=1">Commencer avec Pro</a></div>
   </div>
   <p class="note">Ces tarifs sont ceux par défaut. Les tarifs en vigueur et les moyens de paiement s'affichent dans l'application (Réglages, Abonnement). Si vous passez à une formule inférieure, vos données sont conservées.</p>
 </section></div>
@@ -159,6 +159,8 @@ footer{border-top:1px solid var(--line);padding:1.5rem 0 2.5rem;color:var(--mute
       <li>Les chiffres affichés sont calculés par l'application à partir de vos ventes, de votre stock et de vos dépenses ; chaque réponse indique ses sources.</li>
       <li>À l'expiration, vos rapports et conversations restent consultables.</li>
     </ul>
+    <div class="cta"><a class="btn" href="https://selar.com/il7v2a1w53" target="_blank" rel="noopener noreferrer">Licence annuelle — 15 000 FCFA</a><a class="btn ghost" href="https://selar.com/9969pz0845" target="_blank" rel="noopener noreferrer">Renouvellement mensuel — 2 500 FCFA</a></div>
+    <p class="note">Payez avec l'e-mail de votre compte. L'essai gratuit de 14 jours se démarre depuis l'application, sans paiement.</p>
   </div>
 </section></div>
 

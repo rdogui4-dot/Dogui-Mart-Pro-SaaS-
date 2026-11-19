@@ -2,7 +2,7 @@
  *  Le format de la notification n'est pas présumé (voir src/domain/master-pay.ts). Aucune activation automatique sans paramétrage complet ET correspondance exacte (e-mail, montant, demande unique). */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { EMPTY_MAPPING, canAutoActivate, expectedAmount, mappingComplete, parseEvent, refOf, type HookMapping } from "../../../src/domain/master-pay";
-import { MASTER } from "../../../src/domain/master";
+import { MASTER, MASTER_LINKS } from "../../../src/domain/master";
 import { roleKind } from "./fin-rules";
 import { applyActivation } from "./master";
 import { HttpError, type Ctx, type Row, type Store } from "./store";
@@ -68,7 +68,7 @@ export async function payRequest(store: Store, ctx: Ctx, b: { kind?: string; cou
   const email = String(b.payerEmail ?? "").trim().toLowerCase() || (await ownerMail(store, ctx.tenantId)); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, "E-mail du payeur invalide : saisissez l'e-mail que vous utiliserez lors du paiement");
   for (const r of await store.list("md_payments", { tenantId: ctx.tenantId, status: "awaiting" }, 20)) await store.update("md_payments", r.$id, { status: "cancelled" });
   const id = newId(); const amount = expectedAmount(b.kind, count, MASTER.firstPrice, MASTER.renewPrice); await store.create("md_payments", id, ctx.tenantId, { tenantId: ctx.tenantId, kind: b.kind, count, amount, payerEmail: email, status: "awaiting", reference: refOf(id), createdBy: ctx.userId });
-  await audit(store, ctx.userId, ctx.tenantId, "master.pay.request", `${b.kind} ×${count} ${amount} FCFA payeur ${email.replace(/(.).*(@.*)/, "$1***$2")}`); const cfg = await cfgOf(store); const link = (b.kind === "first" ? cfg.links.first : cfg.links.month) || "";
+  await audit(store, ctx.userId, ctx.tenantId, "master.pay.request", `${b.kind} ×${count} ${amount} FCFA payeur ${email.replace(/(.).*(@.*)/, "$1***$2")}`); const cfg = await cfgOf(store); const link = (b.kind === "first" ? cfg.links.first || MASTER_LINKS.first : cfg.links.month || MASTER_LINKS.month);
   return { id, reference: refOf(id), kind: b.kind, count, amount, payerEmail: email, link, automatic: cfg.enabled && mappingComplete(cfg.mapping), note: cfg.enabled && mappingComplete(cfg.mapping) ? "Payez avec l'e-mail indiqué et le montant exact : l'activation est automatique dès confirmation du prestataire." : "Payez avec l'e-mail indiqué et le montant exact : l'équipe confirme et active après vérification." };
 }
 export async function payList(store: Store, ctx: Ctx) { if (roleKind(ctx) === "other") throw new HttpError(403, "Réservé au propriétaire et aux gérants"); const rows = await store.list("md_payments", { tenantId: ctx.tenantId }, 20); return { requests: rows.map(reqOf).sort((a, c) => c.at.localeCompare(a.at)).slice(0, 10) }; }

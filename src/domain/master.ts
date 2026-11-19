@@ -2,6 +2,9 @@
  *  Essai de 14 jours sans paiement, une seule fois ; première période de 12 mois à 15 000 FCFA (règlement unique, après l'essai) ; ensuite 2 500 FCFA par mois ; à l'expiration : mode consultation.
  *  Les tarifs sont ceux du cahier des charges v1.1 ; modalités de règlement et délai de grâce : à confirmer par la direction (voir GRACE_DAYS). */
 export const MASTER = { trialDays: 14, firstPrice: 15_000, firstMonths: 12, renewPrice: 2_500, graceDays: 0, maxMonths: 12 } as const;
+/** Liens de paiement Selar de la licence MASTER DOGUI : « first » = première période de 12 mois (annuel), « month » = renouvellement mensuel.
+ *  Valeurs par défaut ; la plateforme peut les remplacer (Réglages plateforme) sans republier l'application. */
+export const MASTER_LINKS = { first: "https://selar.com/il7v2a1w53", month: "https://selar.com/9969pz0845" } as const;
 export type Lic = { trialStartedAt?: string; trialEndsAt?: string; firstPaidAt?: string; paidUntil?: string };
 export type MState = "none" | "trial" | "active" | "grace" | "expired";
 export type Phase = "none" | "trial" | "first" | "renewal";

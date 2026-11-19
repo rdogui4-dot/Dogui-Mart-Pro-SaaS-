@@ -46,6 +46,14 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await aboTab("Paiements").click(); const p = await reg("Mes paiements").innerText(); if (!/Validé/.test(p) || !/À payer/.test(p)) throw new Error(p);
     await aboTab("Comparer les offres").click(); const c = await reg("Comparer les offres").innerText(); if (!/Prix ramené au mois/.test(c) || !/Rapports & Analyses/.test(c) || !/Inclus/.test(c)) throw new Error(c);
   });
+  await step("comparer les offres : bouton par formule (actuelle : Renouveler), paiement ouvert, offre MASTER DOGUI avec liens annuel et mensuel", async () => {
+    await aboTab("Comparer les offres").click(); const r = reg("Comparer les offres");
+    if (!(await r.getByRole("button", { name: "Renouveler" }).count()) || !(await r.getByRole("button", { name: "Choisir Pro" }).count()) || !(await r.getByRole("button", { name: "Choisir Starter" }).count())) throw new Error("boutons par formule");
+    const m = reg("MASTER DOGUI"); const hrefs = await m.locator("a").evaluateAll((a) => a.map((x) => x.href));
+    if (!hrefs.includes("https://selar.com/il7v2a1w53") || !hrefs.includes("https://selar.com/9969pz0845")) throw new Error(hrefs.join(","));
+    if (!/15\s000/.test(await m.innerText()) || !/2\s500/.test(await m.innerText())) throw new Error("prix MASTER");
+    await page.screenshot({ path: path.join(OUT, "kit17-comparer-1440.png"), fullPage: true }); await r.getByRole("button", { name: "Choisir Pro" }).click(); await page.getByText(/Formule Pro/).first().waitFor({ timeout: 8000 }); await page.getByRole("button", { name: "Fermer" }).last().click();
+  });
   for (const [w, theme] of [[1600, "light"], [1280, "light"], [820, "light"], [390, "light"], [1280, "dark"]]) await step(`${w} px ${theme} : aucun débordement (captures)`, async () => {
     await page.setViewportSize({ width: 1280, height: 900 }); await page.goto(h.url("accueil")); await page.evaluate((t) => localStorage.setItem("dmp-theme", t), theme); await open(w, 900);
     const o = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o > 1) throw new Error("débordement " + o); await page.screenshot({ path: path.join(OUT, `kit17-${theme}-${w}.png`), fullPage: true });
