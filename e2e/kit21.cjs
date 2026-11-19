@@ -8,7 +8,7 @@ const ago = (d, h = 0) => new Date(Date.now() - d * 864e5 - h * 3600e3).toISOStr
 (async () => {
   const h = await start({ plan: "business", expect: [] }); const { page, st } = h; const A = h.shop; const T = st.rows("shops")[0].tenantId;
   let n = 0; const sale = (total, soldAt, customerId) => st.create("sales", `s-k21-${++n}-xxxx`, T, { tenantId: T, shopId: A, number: `V-${n}`, total, vat: 0, status: "paid", soldAt, payments: JSON.stringify([{ method: "cash", amount: total }]), lines: JSON.stringify([{ productId: "p1", name: "Riz 25 kg", qty: 1, unitPrice: total, amount: total }]), clientId: `s-k21-${n}-xxxx`, ...(customerId ? { customerId } : {}) });
-  await sale(6000, ago(0, 0.1), "c1"); await sale(4000, ago(1, 0.2), "c1"); await sale(9000, ago(1, -5)); await sale(3000, ago(3), "c2"); await sale(2000, ago(40), "c3"); await sale(2000, ago(10)); await sale(2000, ago(11));
+  await sale(6000, ago(0, 0.1), "c1"); await sale(4000, ago(1, 0.2), "c1"); await sale(9000, ago(1, -0.05)); await sale(3000, ago(3), "c2"); await sale(2000, ago(40), "c3"); await sale(2000, ago(10)); await sale(2000, ago(11));
   const open = async (w = 1440, hh = 1000) => { await page.setViewportSize({ width: w, height: hh }); await page.goto(h.url("activite")); await page.getByRole("region", { name: "Indicateurs", exact: true }).waitFor({ timeout: 15000 }); await page.waitForTimeout(800); };
   const kpi = () => page.getByRole("region", { name: "Indicateurs", exact: true }).innerText();
 
