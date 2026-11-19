@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SERIAL_TRANSITIONS, allocateFefo, expiryState, normalizeDate, normalizeLotNo, normalizeSerial, parseSerials, stockEffect, warrantyEnd } from "./tracking";
+import { SERIAL_TRANSITIONS, allocateFefo, expiryState, normalizeDate, normalizeLotNo, normalizeSerial, parseSerialEntries, parseSerials, serialRemaining, serialSeq, stockEffect, takeFromSerials, warrantyEnd, wholeSerialsFor } from "./tracking";
 
 const today = "2026-11-10";
 describe("péremption", () => {
@@ -42,5 +42,25 @@ describe("saisies", () => {
   it("transitions de statut et effet sur le stock", () => {
     expect(SERIAL_TRANSITIONS.available).toEqual(["defective"]); expect(SERIAL_TRANSITIONS.defective).toEqual([]); expect(SERIAL_TRANSITIONS.sold).toContain("returned");
     expect(stockEffect("returned", "available")).toBe(1); expect(stockEffect("available", "defective")).toBe(-1); expect(stockEffect("sold", "returned")).toBe(0); expect(stockEffect("returned", "defective")).toBe(0);
+  });
+});
+
+describe("numéros de série à quantité", () => {
+  it("saisie « NUMERO:quantité » ; sans quantité, la quantité par défaut (1 = comportement historique)", () => {
+    expect(parseSerialEntries("sn-001:24, SN-002\nSN-003:5")).toEqual([{ serial: "SN-001", qty: 24 }, { serial: "SN-002", qty: 1 }, { serial: "SN-003", qty: 5 }]);
+    expect(parseSerialEntries("SN-001 SN-002", 12)).toEqual([{ serial: "SN-001", qty: 12 }, { serial: "SN-002", qty: 12 }]);
+    expect(() => parseSerialEntries("SN-001:0")).toThrow(/Quantité/); expect(() => parseSerialEntries("SN-001:2, SN-001:3")).toThrow(/double/); expect(() => parseSerialEntries("SN-001", 0)).toThrow(/Quantité/);
+  });
+  it("quantité restante : numéro disponible sans quantité = 1 ; vendu = 0 ; compteur de prélèvements (ancien « cycle » en repli)", () => {
+    expect(serialRemaining({ status: "available" })).toBe(1); expect(serialRemaining({ status: "available", qty: 19 })).toBe(19); expect(serialRemaining({ status: "sold", qty: 3 })).toBe(0); expect(serialRemaining({ status: "available", qty: 0 })).toBe(0);
+    expect(serialSeq({ cycle: 2 })).toBe(2); expect(serialSeq({ seq: 5, cycle: 2 })).toBe(5); expect(serialSeq(null)).toBe(0);
+  });
+  it("prélèvement dans l'ordre : un numéro peut être entamé, refus si le total est insuffisant", () => {
+    const pool = [{ serial: "A", remaining: 3 }, { serial: "B", remaining: 10 }, { serial: "C", remaining: 1 }];
+    expect(takeFromSerials(pool, 5)).toEqual([{ serial: "A", take: 3 }, { serial: "B", take: 2 }]); expect(takeFromSerials(pool, 14)).toEqual([{ serial: "A", take: 3 }, { serial: "B", take: 10 }, { serial: "C", take: 1 }]); expect(takeFromSerials(pool, 15)).toBeNull();
+  });
+  it("transfert : numéros pris en entier, quantité exacte ou refus", () => {
+    const pool = [{ serial: "A", remaining: 3 }, { serial: "B", remaining: 10 }];
+    expect(wholeSerialsFor(pool, 13)).toEqual([{ serial: "A", take: 3 }, { serial: "B", take: 10 }]); expect(wholeSerialsFor(pool, 3)).toEqual([{ serial: "A", take: 3 }]); expect(wholeSerialsFor(pool, 5)).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import type { Session } from "./session";
 /** Ce que le caissier a saisi. Les prix, le stock et la comptabilité sont recalculés par le serveur. */
 export type PendingSale = {
   clientId: string; soldAt: string; customerId?: string; redeemPoints?: number; couponCode?: string;
-  lines: { productId: string; qty: number | string; unit?: string; variantId?: string; serials?: string[]; discountPct?: number }[];
+  lines: { productId: string; qty: number | string; unit?: string; variantId?: string; serials?: string[]; serialQtys?: number[]; discountPct?: number }[];
   payments: (Payment & { linkId?: string; reference?: string })[]; approvals?: { discount?: string; margin?: string };
   session: Session;
   error?: string; // refus définitif du serveur (stock, plafond…) : à traiter par un humain

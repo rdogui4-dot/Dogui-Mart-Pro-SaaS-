@@ -217,7 +217,7 @@ describe("reprise d'une vente de bundle interrompue", () => {
     await ok(call("own", "checkout", body)); const before = st.rows("stock_moves").length;
     // coupure simulée : la vente reste « pending » et une partie des mouvements d'écriture a disparu
     const sale = st.rows("sales")[0]!; sale.status = "pending"; const sm = st.rows("stock_moves").filter((m) => m.kind === "sale" && !m.serial); for (const m of sm.slice(0, 2)) await st.remove("stock_moves", String(m.$id));
-    for (const r of st.rows("article_serials")) { r.status = "available"; delete r.saleId; } // la mise à jour « vendu » n'avait pas eu lieu
+    for (const r of st.rows("article_serials")) { r.status = "available"; r.qty = 1; r.seq = 0; delete r.saleId; } // la mise à jour « vendu » n'avait pas eu lieu
     await ok(call("own", "checkout", body)); expect(st.rows("stock_moves")).toHaveLength(before); expect(st.rows("sales")).toHaveLength(1); expect(st.rows("article_serials").filter((r) => r.status === "sold")).toHaveLength(2);
     expect(await stockFor(st, yaourt, 0)).toBe(1); expect(await stockFor(st, jus, 0)).toBe(18); expect(await stockFor(st, tel, 0)).toBe(0); expect(st.rows("sales")[0]!.status).toBe("paid");
   });

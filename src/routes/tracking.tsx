@@ -10,10 +10,10 @@ import { Scanner } from "@/components/Scanner";
 import { Confirm, Sheet } from "@/components/ui";
 import { formatFcfa } from "@/domain/money";
 import { formatQty, fromScaled, scaleOf } from "@/domain/quantity";
-import { EXPIRY_WARN_DAYS, SERIAL_TRANSITIONS, daysUntil, expiryState, parseSerials, serialStatusLabel, type SerialStatus } from "@/domain/tracking";
+import { EXPIRY_WARN_DAYS, SERIAL_TRANSITIONS, daysUntil, expiryState, parseSerialEntries, serialRemaining, serialStatusLabel, type SerialStatus } from "@/domain/tracking";
 
 export type LotRow = Row<{ productId: string; variantId?: string; lotNo: string; expiresAt?: string | null; manufacturedAt?: string | null; receivedAt?: string; status?: string; unitCost?: number; supplierId?: string }>;
-export type SerialRow = Row<{ productId: string; variantId?: string; serial: string; status: string; receivedAt?: string; soldAt?: string; saleRef?: string; warrantyMonths?: number; warrantyUntil?: string | null; unitCost?: number }>;
+export type SerialRow = Row<{ productId: string; variantId?: string; serial: string; status: string; receivedAt?: string; soldAt?: string; saleRef?: string; warrantyMonths?: number; warrantyUntil?: string | null; unitCost?: number; qty?: number | null; initialQty?: number | null }>;
 export const todayStr = () => new Date().toISOString().slice(0, 10);
 
 /** Lots d'un article avec leur stock (somme des mouvements portant ce lot). */
@@ -108,22 +108,24 @@ export function SerialsSheet({ a, canManage, onClose, onChanged }: { a: ArticleR
   const { session } = useSession(); const s = session!;
   const q = useQuery({ queryKey: ["serials", a.$id], queryFn: () => list<SerialRow>("article_serials", s, [Query.equal("productId", a.$id)], 500) });
   const [find, setFind] = useState(""); const [adding, setAdding] = useState(false); const [scan, setScan] = useState(false); const [err, setErr] = useState("");
-  const [txt, setTxt] = useState(""); const [months, setMonths] = useState("12"); const [cost, setCost] = useState(""); const reqId = useRef(crypto.randomUUID());
+  const [txt, setTxt] = useState(""); const [perNumber, setPerNumber] = useState("1"); const [months, setMonths] = useState("12"); const [cost, setCost] = useState(""); const reqId = useRef(crypto.randomUUID());
   const [ask, setAsk] = useState<null | { r: SerialRow; to: SerialStatus }>(null);
   const refresh = () => { void q.refetch(); onChanged(); };
-  let parsed: string[] = []; let parseErr = ""; try { parsed = txt.trim() ? parseSerials(txt) : []; } catch (e) { parseErr = (e as Error).message; }
+  let parsed: { serial: string; qty: number }[] = []; let parseErr = ""; try { parsed = txt.trim() ? parseSerialEntries(txt, Number(perNumber) || 1) : []; } catch (e) { parseErr = (e as Error).message; }
+  const units = parsed.reduce((t, x) => t + x.qty, 0);
   const add = useMutation({
-    mutationFn: () => api<{ count: number }>(s, "serial.add", { requestId: reqId.current, productId: a.$id, serials: txt, warrantyMonths: months || 0, ...(cost ? { unitCost: cost.replace(/\s/g, "") } : {}) }),
-    onSuccess: () => { setAdding(false); setTxt(""); setErr(""); reqId.current = crypto.randomUUID(); refresh(); },
+    mutationFn: () => api<{ count: number }>(s, "serial.add", { requestId: reqId.current, productId: a.$id, serials: txt, quantity: Number(perNumber) || 1, warrantyMonths: months || 0, ...(cost ? { unitCost: cost.replace(/\s/g, "") } : {}) }),
+    onSuccess: () => { setAdding(false); setTxt(""); setPerNumber("1"); setErr(""); reqId.current = crypto.randomUUID(); refresh(); },
     onError: (e) => setErr((e as Error).message),
   });
   const setStatus = useMutation({ mutationFn: (v: { r: SerialRow; to: SerialStatus }) => api(s, "serial.status", { id: v.r.$id, status: v.to }), onSuccess: () => { setAsk(null); setErr(""); refresh(); }, onError: (e) => { setAsk(null); setErr((e as Error).message); } });
   const rows = (q.data ?? []).filter((r) => !find.trim() || r.serial.includes(find.trim().toUpperCase())).sort((x, y) => x.serial.localeCompare(y.serial));
+  const units_available = (rs: SerialRow[]) => rs.reduce((t, r) => t + serialRemaining(r), 0);
   const count = (st: string) => (q.data ?? []).filter((r) => r.status === st).length;
   const today = todayStr();
   return (
     <Sheet title={`Numéros de série · ${a.name}`} onClose={onClose} back>
-      <p className="text-sm text-muted">{count("available")} disponible(s) · {count("sold")} vendu(s) · {count("warranty") + count("returned") + count("defective")} autre(s).</p>
+      <p className="text-sm text-muted">{units_available(q.data ?? [])} unité(s) disponible(s) · {count("sold")} numéro(s) vendu(s) · {count("warranty") + count("returned") + count("defective")} autre(s).</p>
       <input aria-label="Rechercher un numéro" className="input" placeholder="Rechercher un numéro" value={find} onChange={(e) => setFind(e.target.value)} />
       {canManage && <button className="btn flex items-center justify-center gap-2" onClick={() => setAdding(true)}><Plus size={18} />Ajouter des numéros</button>}
       {err && <p className="text-bad text-sm" role="alert">{err}</p>}
@@ -133,7 +135,7 @@ export function SerialsSheet({ a, canManage, onClose, onChanged }: { a: ArticleR
         const under = r.warrantyUntil ? String(r.warrantyUntil).slice(0, 10) >= today : false;
         return (
           <div key={r.$id} className="card flex flex-col gap-1">
-            <div className="flex justify-between gap-2"><b className="truncate">{r.serial}</b><span className={`text-sm ${r.status === "available" ? "text-ok" : r.status === "defective" ? "text-bad" : "text-muted"}`}>{serialStatusLabel(r.status)}</span></div>
+            <div className="flex justify-between gap-2"><b className="truncate">{r.serial}</b><span className={`text-sm ${r.status === "available" ? "text-ok" : r.status === "defective" ? "text-bad" : "text-muted"}`}>{Number(r.initialQty ?? 1) > 1 && <b className="mr-1">{serialRemaining(r)} / {r.initialQty}</b>}{serialStatusLabel(r.status)}</span></div>
             <div className="text-xs text-muted">{r.saleRef ? `Vente ${r.saleRef}` : "En stock"}{r.warrantyUntil ? ` · garantie ${under ? "jusqu'au" : "expirée le"} ${String(r.warrantyUntil).slice(0, 10)}` : r.warrantyMonths ? ` · garantie ${r.warrantyMonths} mois` : ""}</div>
             {canManage && next.length > 0 && <div className="flex gap-2 flex-wrap text-sm pt-1">{next.map((to) => <button key={to} className="btn-ghost !py-2" onClick={() => setAsk({ r, to })}>{serialStatusLabel(to)}</button>)}</div>}
           </div>
@@ -144,7 +146,8 @@ export function SerialsSheet({ a, canManage, onClose, onChanged }: { a: ArticleR
         <div className="fixed inset-0 z-50 bg-[var(--overlay)] flex items-end justify-center p-4"><form className="card w-full max-w-sm flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
           <b>Ajouter des numéros de série</b>
           <div className="flex gap-2"><textarea aria-label="Un numéro par ligne (ou séparés par espace / virgule)" className="input flex-1" rows={4} placeholder="Un numéro par ligne (ou séparés par espace / virgule)" value={txt} onChange={(e) => setTxt(e.target.value)} /><button type="button" className="btn-ghost self-start" aria-label="Scanner" onClick={() => setScan(true)}><ScanLine size={20} /></button></div>
-          <p className={`text-xs ${parseErr ? "text-bad" : "text-muted"}`}>{parseErr || `${parsed.length} numéro(s) reconnu(s).`}</p>
+          <p className={`text-xs ${parseErr ? "text-bad" : "text-muted"}`}>{parseErr || `${parsed.length} numéro(s) reconnu(s) · ${units} unité(s) au total. Quantité d'un numéro précis : NUMERO:24.`}</p>
+          <input className="input" inputMode="numeric" aria-label="Quantité par numéro" placeholder="Quantité par numéro (1 = une seule unité)" value={perNumber} onChange={(e) => setPerNumber(e.target.value.replace(/\D/g, ""))} />
           <div className="grid grid-cols-2 gap-2"><input className="input" inputMode="numeric" aria-label="Garantie (mois)" placeholder="Garantie (mois)" value={months} onChange={(e) => setMonths(e.target.value)} /><input aria-label="Coût unitaire" className="input" inputMode="numeric" placeholder="Coût unitaire" value={cost} onChange={(e) => setCost(e.target.value)} /></div>
           {err && <p className="text-bad text-sm" role="alert">{err}</p>}
           <div className="flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={() => { setAdding(false); setErr(""); }}>Annuler</button><button className="btn flex-1" disabled={add.isPending || !parsed.length || !!parseErr}>Enregistrer</button></div>

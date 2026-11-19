@@ -8,6 +8,7 @@ import { boundsOf, addDays, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { needFeature } from "./articles";
 import { releaseUsage } from "./promotions";
+import { serialRemaining, serialSeq } from "../../../src/domain/tracking";
 import { serialRowId } from "./tracking";
 import { openSessionOf, sessionRequired } from "./cashier";
 import { approvalNeeded, claimApproval, hasRight, ledgerOp, newVoucherOps, receiptCode, voucherByCode, voucherCodeFor } from "./pos-pro";
@@ -21,12 +22,12 @@ const parse = <T,>(s: unknown, fb: T): T => { try { const v = JSON.parse(String(
 const iso = (v: unknown): string => { const t = Date.parse(String(v)); return Number.isNaN(t) ? "" : new Date(t).toISOString(); };
 const isManager = (ctx: Ctx) => { const r = roleOf(ctx.roles); return r === "owner" || r === "manager"; };
 const METHODS = ["cash", "wave", "orange", "card", "credit", "voucher"] as const;
-type SaleLine = { productId: string; variantId?: string; name: string; qty: number; unitPrice: number; discountPct?: number; amount?: number; unitCost?: number; unit?: string; unitQty?: number; components?: unknown[]; serials?: string[]; lots?: unknown[] };
-type Alloc = { lots?: { lotId: string; qty: number }[]; serials?: string[] };
+type SaleLine = { productId: string; variantId?: string; name: string; qty: number; unitPrice: number; discountPct?: number; amount?: number; unitCost?: number; unit?: string; unitQty?: number; components?: unknown[]; serials?: string[]; serialQtys?: number[]; lots?: unknown[] };
+type Alloc = { lots?: { lotId: string; qty: number }[]; serials?: string[]; serialQtys?: number[] };
 export type Condition = "resellable" | "damaged";
 /** Ligne d'un retour : quantité, montant, état du produit rendu et affectation exacte (lots, numéros de série, composants de pack) figée à la création — la reprise après coupure rejoue exactement les mêmes écritures. */
 type RetLine = { index: number; qty: number; amount: number; condition?: Condition } & Alloc & { comps?: ({ k: number; productId: string; variantId?: string; qty: number } & Alloc)[] };
-type SoldLine = Omit<SaleLine, "components" | "lots"> & { lots?: { lotId: string; lotNo?: string; qty: number }[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; lots?: { lotId: string; qty: number }[]; serials?: string[] }[] };
+type SoldLine = Omit<SaleLine, "components" | "lots"> & { lots?: { lotId: string; lotNo?: string; qty: number }[]; components?: { productId: string; variantId?: string; name: string; qty: number; perBundle: number; lots?: { lotId: string; qty: number }[]; serials?: string[]; serialQtys?: number[] }[] };
 const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 /** Quantités déjà retournées, par lot, numéro de série et composant (retours non échoués). */
 function returnedOf(returns: Row[]) {
@@ -48,13 +49,13 @@ function backLots(sold: { lotId: string; qty: number }[], done: (lotId: string) 
 const audit = (store: Store, ctx: Ctx, action: string, detail: string) => store.create("audit_log", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, userId: ctx.userId, action, detail: detail.slice(0, 1000) });
 
 /** Ce qui reste remboursable sur chaque ligne d'une vente (quantités et montants, après les retours déjà enregistrés). Les montants viennent de la VENTE (prix et remises figés) : jamais du client. */
-export function refundable(sale: Row, returns: Row[]): { lines: { index: number; name: string; qty: number; remainingQty: number; net: number; remainingNet: number; blocked: string; kind: string; remainingSerials: string[] }[]; remainingTotal: number } {
+export function refundable(sale: Row, returns: Row[]): { lines: { index: number; name: string; qty: number; remainingQty: number; net: number; remainingNet: number; blocked: string; kind: string; remainingSerials: string[]; serialQtys: Record<string, number> }[]; remainingTotal: number } {
   const lines = parse<SoldLine[]>(sale.lines, []); const nets = lines.map((l) => lineTotal({ productId: l.productId, name: l.name, unitPrice: l.unitPrice, qty: l.qty, discountPct: l.discountPct, amount: l.amount }));
   const sum = nets.reduce((a, b) => a + b, 0); const ratio = sum > 0 ? Math.min(1, Number(sale.total) / sum) : 1; // points de fidélité utilisés : la vente est moins chère que la somme des lignes
   const got = new Map<number, { qty: number; net: number }>(); for (const r of returns) if (r.status !== "failed") for (const x of parse<RetLine[]>(r.lines, [])) { const a = got.get(x.index) ?? { qty: 0, net: 0 }; a.qty += x.qty; a.net += x.amount; got.set(x.index, a); }
   const out = lines.map((l, i) => { const net = Math.round(nets[i]! * ratio); const g = got.get(i) ?? { qty: 0, net: 0 };
-    const done = returnedOf(returns); const remainingSerials = (l.serials ?? []).filter((sn) => !done.serials.has(`${i}|${sn}`));
-    return { index: i, name: l.name, qty: l.qty, remainingQty: Math.round((l.qty - g.qty) * 1e6) / 1e6, net, remainingNet: net - g.net, blocked: "", kind: l.components?.length ? "bundle" : l.serials?.length ? "serial" : l.lots?.length ? "lot" : "simple", remainingSerials }; });
+    const done = returnedOf(returns); const remainingSerials = (l.serials ?? []).filter((sn) => !done.serials.has(`${i}|${sn}`)); const serialQtys = Object.fromEntries((l.serials ?? []).map((sn, k) => [sn, l.serialQtys?.[k] ?? 1]));
+    return { index: i, name: l.name, qty: l.qty, remainingQty: Math.round((l.qty - g.qty) * 1e6) / 1e6, net, remainingNet: net - g.net, blocked: "", kind: l.components?.length ? "bundle" : l.serials?.length ? "serial" : l.lots?.length ? "lot" : "simple", remainingSerials, serialQtys }; });
   return { lines: out, remainingTotal: out.reduce((a, l) => a + l.remainingNet, 0) };
 }
 
@@ -90,13 +91,19 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
     if (!asked.length) throw new HttpError(400, "Choisissez au moins une ligne à rembourser"); const seen = new Set<number>();
     for (const a of asked) {
       const l = rf.lines[a.index]; if (!l || seen.has(a.index)) throw new HttpError(400, "Ligne de vente invalide"); seen.add(a.index); if (l.blocked) throw new HttpError(409, `${l.name} : ${l.blocked}`);
+      const slx = lines[a.index] as SoldLine | undefined; if (slx?.serials?.length && a.serials?.length) a.qty = a.serials.reduce((t, sn) => t + (slx.serialQtys?.[slx.serials!.indexOf(sn)] ?? 1), 0); // un numéro à quantité se retourne en entier : la quantité est la somme de ce qui a été prélevé sur chaque numéro
       const p = await store.get("products", lines[a.index]!.productId); const sc = scaleOf(p); if (!(a.qty > 0) || scaledInt(a.qty, sc) > scaledInt(l.remainingQty, sc)) throw new HttpError(400, `${l.name} : quantité à rembourser invalide (reste ${l.remainingQty})`);
       const full = scaledInt(a.qty, sc) === scaledInt(l.remainingQty, sc); const amt = full ? l.remainingNet : Math.round(l.net * a.qty / l.qty);
       const sl = lines[a.index] as SoldLine; const alloc: Omit<RetLine, "index" | "qty" | "amount" | "condition"> = {};
-      if (sl.serials?.length) { const pick = a.serials ?? l.remainingSerials.slice(0, a.qty); if (pick.length !== a.qty || pick.some((x) => !l.remainingSerials.includes(x))) throw new HttpError(400, `${l.name} : choisissez ${a.qty} numéro(s) de série parmi ceux vendus et non encore retournés`); alloc.serials = pick; }
+      if (sl.serials?.length) {
+        const takeOf = (sn: string) => sl.serialQtys?.[sl.serials!.indexOf(sn)] ?? 1;
+        const pick = a.serials ?? (() => { const out: string[] = []; let sum = 0; for (const sn of l.remainingSerials) { if (sum >= a.qty) break; out.push(sn); sum += takeOf(sn); } return out; })();
+        if (pick.reduce((t, sn) => t + takeOf(sn), 0) !== a.qty || pick.some((x) => !l.remainingSerials.includes(x))) throw new HttpError(400, `${l.name} : choisissez des numéros de série vendus et non encore retournés, dont les quantités totalisent ${a.qty} (un numéro se retourne en entier)`);
+        alloc.serials = pick; alloc.serialQtys = pick.map(takeOf);
+      }
       else if (sl.lots?.length) alloc.lots = backLots(sl.lots, (lotId) => done.lots.get(`${a.index}|${lotId}`) ?? 0, a.qty);
       else if (sl.components?.length) { alloc.comps = []; for (const [k, c] of sl.components.entries()) { const cq = r6(c.perBundle * a.qty); const base = { k, productId: c.productId, ...(c.variantId ? { variantId: c.variantId } : {}), qty: cq };
-        if (c.serials?.length) { const free = c.serials.filter((sn) => !done.serials.has(`${a.index}|${k}|${sn}`)); if (free.length < cq) throw new HttpError(409, `${l.name} : numéros de série du composant ${c.name} déjà retournés`); alloc.comps.push({ ...base, serials: free.slice(0, cq) }); }
+        if (c.serials?.length) { const ctake = (sn: string) => c.serialQtys?.[c.serials!.indexOf(sn)] ?? 1; const free = c.serials.filter((sn) => !done.serials.has(`${a.index}|${k}|${sn}`)); const pick: string[] = []; let sum = 0; for (const sn of free) { if (sum >= cq) break; pick.push(sn); sum += ctake(sn); } if (sum !== cq) throw new HttpError(409, `${l.name} : numéros de série du composant ${c.name} déjà retournés, ou quantité non réalisable (un numéro se retourne en entier)`); alloc.comps.push({ ...base, serials: pick, serialQtys: pick.map(ctake) }); }
         else if (c.lots?.length) alloc.comps.push({ ...base, lots: backLots(c.lots, (lotId) => done.comp.get(`${a.index}|${k}|${lotId}`) ?? 0, cq) }); else alloc.comps.push(base); } }
       chosen.push({ index: a.index, qty: a.qty, amount: Math.min(amt, l.remainingNet), condition: a.condition, ...alloc });
     }
@@ -131,19 +138,25 @@ export async function refundSale(store: Store, ctx: Ctx, b: Input) {
   const base = rid.slice(0, 26); const number = String(sale.number); const at = String(row!.at);
   for (const c of chosen) { // retour en stock (traçable) ; produit abîmé : sortie en perte immédiate, du même lot / numéro
     const l = lines[c.index]! as SoldLine; const damaged = c.condition === "damaged"; const note = damaged ? "retour abîmé : sorti en perte" : "retour revendable";
-    const mv = async (id: string, data: { productId: string; variantId?: string; qty: number; lotId?: string; serial?: string }, scale: number) => {
+    const mv = async (id: string, data: { productId: string; variantId?: string; qty: number; lotId?: string; serial?: string; take?: number }, scale: number) => {
       const common = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: data.productId, ...(data.variantId ? { variantId: data.variantId } : {}), ...(data.lotId ? { lotId: data.lotId } : {}), ...(data.serial ? { serial: data.serial } : {}), refId: `retour-${number}`, userId: ctx.userId };
-      await store.create("stock_moves", `${id}`, ctx.tenantId, { ...common, qty: data.serial ? 1 : scaledInt(data.qty, scale), kind: "return", note });
-      if (damaged) await store.create("stock_moves", `${id.replace(/_s(\d)/, "_d$1").replace(/_c(\d)/, "_e$1")}`, ctx.tenantId, { ...common, qty: data.serial ? 1 : scaledInt(data.qty, scale), kind: "loss", note: `perte sur retour ${number}` });
+      await store.create("stock_moves", `${id}`, ctx.tenantId, { ...common, qty: data.serial ? (data.take ?? 1) : scaledInt(data.qty, scale), kind: "return", note });
+      if (damaged) await store.create("stock_moves", `${id.replace(/_s(\d)/, "_d$1").replace(/_c(\d)/, "_e$1")}`, ctx.tenantId, { ...common, qty: data.serial ? (data.take ?? 1) : scaledInt(data.qty, scale), kind: "loss", note: `perte sur retour ${number}` });
     };
-    const serialBack = async (productId: string, sn: string) => { const rid0 = serialRowId(productId, sn); const row0 = await store.get("article_serials", rid0); if (!row0 || row0.status === (damaged ? "defective" : "available")) return;
-      await store.update("article_serials", rid0, damaged ? { status: "defective", saleId: "", saleRef: "", cycle: Number(row0.cycle ?? 0) + 1 } : { status: "available", saleId: "", saleRef: "", warrantyUntil: null, cycle: Number(row0.cycle ?? 0) + 1 }); };
+    // Retour d'un numéro : une unité (numéro d'avant) revient en entier ; un numéro à quantité récupère la quantité rendue. Chaque opération est repérée (`ops`) pour ne jamais être appliquée deux fois à la reprise.
+    const serialBack = async (productId: string, sn: string, take: number, opId: string) => { const rid0 = serialRowId(productId, sn); const row0 = await store.get("article_serials", rid0); if (!row0) return;
+      if (Number(row0.initialQty ?? 1) > 1) {
+        const ops = String(row0.ops ?? "").split(",").filter(Boolean); if (ops.includes(opId)) return; const ops2 = [...ops, opId].slice(-5).join(",").slice(-250);
+        await store.update("article_serials", rid0, damaged ? { ops: ops2, seq: serialSeq(row0) + 1 } : { qty: serialRemaining(row0) + take, status: "available", saleId: "", saleRef: "", warrantyUntil: null, cycle: Number(row0.cycle ?? 0) + 1, seq: serialSeq(row0) + 1, ops: ops2 }); // abîmé : les unités rendues sont perdues, le restant du numéro ne change pas
+        return; }
+      if (row0.status === (damaged ? "defective" : "available")) return;
+      await store.update("article_serials", rid0, damaged ? { status: "defective", saleId: "", saleRef: "", cycle: Number(row0.cycle ?? 0) + 1, seq: serialSeq(row0) + 1 } : { status: "available", qty: 1, saleId: "", saleRef: "", warrantyUntil: null, cycle: Number(row0.cycle ?? 0) + 1, seq: serialSeq(row0) + 1 }); };
     if (c.comps?.length) { for (const cp of c.comps) { const sc = scaleOf(await store.get("products", cp.productId));
-        if (cp.serials?.length) for (const [m, sn] of cp.serials.entries()) { await mv(`${base}_c${c.index}_${cp.k}_${m}`, { productId: cp.productId, variantId: cp.variantId, qty: 1, serial: sn }, sc); await serialBack(cp.productId, sn); }
+        if (cp.serials?.length) for (const [m, sn] of cp.serials.entries()) { const take = cp.serialQtys?.[m] ?? 1; await mv(`${base}_c${c.index}_${cp.k}_${m}`, { productId: cp.productId, variantId: cp.variantId, qty: take, take, serial: sn }, sc); await serialBack(cp.productId, sn, take, `${number}|${c.index}|${cp.k}|${m}`); }
         else if (cp.lots?.length) for (const [m, a] of cp.lots.entries()) await mv(`${base}_c${c.index}_${cp.k}_${m}`, { productId: cp.productId, variantId: cp.variantId, qty: a.qty, lotId: a.lotId }, sc);
         else await mv(`${base}_c${c.index}_${cp.k}`, { productId: cp.productId, variantId: cp.variantId, qty: cp.qty }, sc); } continue; }
     const p = await store.get("products", l.productId); const sc = scaleOf(p);
-    if (c.serials?.length) { for (const [m, sn] of c.serials.entries()) { await mv(`${base}_s${c.index}_${m}`, { productId: l.productId, variantId: l.variantId, qty: 1, serial: sn }, sc); await serialBack(l.productId, sn); } continue; }
+    if (c.serials?.length) { for (const [m, sn] of c.serials.entries()) { const take = c.serialQtys?.[m] ?? 1; await mv(`${base}_s${c.index}_${m}`, { productId: l.productId, variantId: l.variantId, qty: take, take, serial: sn }, sc); await serialBack(l.productId, sn, take, `${number}|${c.index}|${m}`); } continue; }
     if (c.lots?.length) { for (const [m, a] of c.lots.entries()) await mv(`${base}_s${c.index}_${m}`, { productId: l.productId, variantId: l.variantId, qty: a.qty, lotId: a.lotId }, sc); continue; }
     await mv(`${base}_s${c.index}`, { productId: l.productId, variantId: l.variantId, qty: c.qty }, sc);
   }

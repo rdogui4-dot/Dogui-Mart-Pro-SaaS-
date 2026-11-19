@@ -78,6 +78,38 @@ export function parseSerials(input: unknown): string[] {
   return out;
 }
 export const MAX_SERIALS_PER_OP = 200;
+/** Quantité maximale portée par un même numéro de série. */
+export const MAX_SERIAL_QTY = 1_000_000;
+export type SerialEntry = { serial: string; qty: number };
+/** Quantité d'unités qu'un numéro porte : « NUMERO:24 » = 24 unités ; sans quantité, `defaultQty` (1 : une seule unité, comportement historique). */
+export function parseSerialEntries(input: unknown, defaultQty = 1): SerialEntry[] {
+  const parts = (Array.isArray(input) ? input.map(String) : String(input ?? "").split(/[\n,;\s]+/)).map((x) => x.trim()).filter(Boolean);
+  const out: SerialEntry[] = []; const seen = new Set<string>();
+  for (const raw of parts) {
+    const m = /^(.*?):(\d+)$/.exec(raw); const serial = normalizeSerial(m ? m[1] : raw); const qty = m ? Number(m[2]) : defaultQty;
+    if (!Number.isInteger(qty) || qty < 1 || qty > MAX_SERIAL_QTY) throw new Error(`Quantité du numéro ${serial} : entier de 1 à ${MAX_SERIAL_QTY.toLocaleString("fr-FR")}`);
+    if (seen.has(serial)) throw new Error(`Numéro de série en double : ${serial}`); seen.add(serial); out.push({ serial, qty });
+  }
+  return out;
+}
+/** Total d'unités d'une saisie de numéros (« A:24 B » = 25) ; -1 si la saisie est invalide. */
+export function serialUnitsOf(input: unknown): number { try { return parseSerialEntries(input).reduce((t, e) => t + e.qty, 0); } catch { return -1; } }
+/** Quantité restante d'un numéro : seul un numéro « disponible » en porte ; une ligne sans quantité (numéros d'avant) vaut 1 unité. */
+export const serialRemaining = (row: object): number => { const r = row as { status?: unknown; qty?: unknown }; return String(r.status ?? "available") === "available" ? Math.max(0, Math.floor(Number(r.qty ?? 1) || 0)) : 0; };
+/** Compteur de prélèvements d'un numéro (sert à réserver chaque prélèvement une seule fois). Les anciens numéros utilisent leur « cycle ». */
+export const serialSeq = (row: object | null | undefined): number => { const r = row as { seq?: unknown; cycle?: unknown } | null | undefined; return Number(r?.seq ?? r?.cycle ?? 0) || 0; };
+/** Prélève `qty` unités dans l'ordre du pool (numéros les plus anciens d'abord) ; chaque numéro peut être entamé. `null` si le total disponible est insuffisant. */
+export function takeFromSerials(pool: { serial: string; remaining: number }[], qty: number): { serial: string; take: number }[] | null {
+  const out: { serial: string; take: number }[] = []; let left = qty;
+  for (const r of pool) { if (left <= 0) break; if (r.remaining <= 0) continue; const take = Math.min(r.remaining, left); out.push({ serial: r.serial, take }); left -= take; }
+  return left > 0 ? null : out;
+}
+/** Un transfert déplace des numéros en entier : choisit, dans l'ordre, les numéros dont le restant fait EXACTEMENT `qty` ; `null` si ce n'est pas réalisable. */
+export function wholeSerialsFor(pool: { serial: string; remaining: number }[], qty: number): { serial: string; take: number }[] | null {
+  const out: { serial: string; take: number }[] = []; let sum = 0;
+  for (const r of pool) { if (sum >= qty) break; if (r.remaining <= 0) continue; out.push({ serial: r.serial, take: r.remaining }); sum += r.remaining; }
+  return sum === qty ? out : null;
+}
 /** Fin de garantie à partir de la date de vente (mois calendaires, borné au dernier jour du mois). */
 export function warrantyEnd(soldAtIso: string, months: number): string {
   const d = new Date(soldAtIso); const day = d.getUTCDate();

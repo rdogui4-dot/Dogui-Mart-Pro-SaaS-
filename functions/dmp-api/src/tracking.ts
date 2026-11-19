@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { MAX_AMOUNT } from "../../../src/domain/articles";
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
-import { MAX_SERIALS_PER_OP, SERIAL_TRANSITIONS, isExpiredPolicy, normalizeDate, normalizeLotNo, parseSerials, stockEffect, trackingOf, type ExpiredPolicy, type SerialStatus } from "../../../src/domain/tracking";
+import { MAX_SERIALS_PER_OP, SERIAL_TRANSITIONS, isExpiredPolicy, normalizeDate, normalizeLotNo, parseSerialEntries, serialRemaining, serialSeq, stockEffect, trackingOf, type ExpiredPolicy, type SerialEntry, type SerialStatus } from "../../../src/domain/tracking";
 import { needFeature } from "./articles";
 import { HttpError, needModule, type Ctx, type Row, type Store } from "./store";
 
@@ -153,7 +153,7 @@ export async function writeOffLot(store: Store, ctx: Ctx, b: { lotId: string; qt
 export async function assertSerialsFree(store: Store, ctx: Ctx, p: Row, serials: string[], entryRef: string) {
   for (const sn of serials) { const cur = await store.get("article_serials", serialRowId(p.$id, sn)); if (cur && (!mine(ctx, cur) || cur.entryRef !== entryRef)) throw new HttpError(409, `Numéro de série déjà enregistré : ${sn}`); }
 }
-export async function createSerials(store: Store, ctx: Ctx, p: Row, variantId: string, serials: string[], opts: { entryRef: string; supplierId?: string; unitCost?: number; warrantyMonths?: number; moveBase: string; kind?: "adjust" | "purchase"; refId: string }) {
+export async function createSerials(store: Store, ctx: Ctx, p: Row, variantId: string, serials: string[], opts: { qtys?: number[];  entryRef: string; supplierId?: string; unitCost?: number; warrantyMonths?: number; moveBase: string; kind?: "adjust" | "purchase"; refId: string }) {
   const rows: { id: string; serial: string }[] = []; let fresh = 0;
   for (const sn of serials) {
     const id = serialRowId(p.$id, sn); const cur = await store.get("article_serials", id);
@@ -163,25 +163,28 @@ export async function createSerials(store: Store, ctx: Ctx, p: Row, variantId: s
   }
   const now = new Date().toISOString();
   for (const [i, r] of rows.entries()) {
-    await store.create("article_serials", r.id, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, variantId, serial: r.serial, status: "available", receivedAt: now, supplierId: opts.supplierId ?? "", unitCost: opts.unitCost ?? Number(p.cost ?? 0), warrantyMonths: opts.warrantyMonths ?? 0, saleId: "", saleRef: "", cycle: 0, entryRef: opts.entryRef });
-    await store.create("stock_moves", `${opts.moveBase}_${i}`.slice(0, 36), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, ...(variantId ? { variantId } : {}), serial: r.serial, qty: 1, kind: opts.kind ?? "adjust", refId: opts.refId, userId: ctx.userId });
+    const q = opts.qtys?.[i] ?? 1;
+    await store.create("article_serials", r.id, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, variantId, serial: r.serial, status: "available", qty: q, initialQty: q, seq: 0, receivedAt: now, supplierId: opts.supplierId ?? "", unitCost: opts.unitCost ?? Number(p.cost ?? 0), warrantyMonths: opts.warrantyMonths ?? 0, saleId: "", saleRef: "", cycle: 0, entryRef: opts.entryRef });
+    await store.create("stock_moves", `${opts.moveBase}_${i}`.slice(0, 36), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: p.$id, ...(variantId ? { variantId } : {}), serial: r.serial, qty: q, kind: opts.kind ?? "adjust", refId: opts.refId, userId: ctx.userId });
   }
   return fresh;
 }
 
-export type SerialAddInput = { productId: string; variantId?: string; serials: unknown; supplierId?: string; unitCost?: unknown; warrantyMonths?: unknown; requestId?: string };
+export type SerialAddInput = { productId: string; variantId?: string; serials: unknown; quantity?: unknown; supplierId?: string; unitCost?: unknown; warrantyMonths?: unknown; requestId?: string };
 export async function addSerials(store: Store, ctx: Ctx, b: SerialAddInput) {
   needModule(ctx, "stock"); await needFeature(store, ctx, "serials");
   const { p, vid } = await loadTracked(store, ctx, b.productId, b.variantId, "serial");
-  let list: string[]; try { list = parseSerials(b.serials); } catch (e) { throw new HttpError(400, (e as Error).message); }
+  let defaultQty = 1; if (b.quantity !== undefined && b.quantity !== null && String(b.quantity).trim() !== "") { defaultQty = Number(String(b.quantity).replace(",", ".")); if (!Number.isInteger(defaultQty) || defaultQty < 1) throw new HttpError(400, "Quantité par numéro : entier d'au moins 1"); }
+  let entries: SerialEntry[]; try { entries = parseSerialEntries(b.serials, defaultQty); } catch (e) { throw new HttpError(400, (e as Error).message); }
+  const list = entries.map((e) => e.serial);
   if (!list.length) throw new HttpError(400, "Saisissez au moins un numéro de série");
   if (list.length > MAX_SERIALS_PER_OP) throw new HttpError(400, `${MAX_SERIALS_PER_OP} numéros au maximum par saisie`);
   if (b.supplierId) { const s = await store.get("suppliers", b.supplierId); if (!mine(ctx, s)) throw new HttpError(404, "Fournisseur introuvable dans cette boutique"); }
   const months = num(b.warrantyMonths, "Garantie", 120);
   const entryRef = `e${b.requestId ? String(b.requestId).replace(/[^A-Za-z0-9]/g, "").slice(0, 28) : newId()}`;
-  const fresh = await createSerials(store, ctx, p, vid, list, { entryRef, supplierId: b.supplierId, unitCost: num(b.unitCost, "Coût"), warrantyMonths: months, moveBase: `${entryRef.slice(0, 20)}_in`, refId: "serial-entry" });
-  if (fresh) await audit(store, ctx, "serial.add", `${p.name} +${list.length} (${list.slice(0, 5).join(", ")}${list.length > 5 ? "…" : ""})`);
-  return { count: list.length };
+  const fresh = await createSerials(store, ctx, p, vid, list, { qtys: entries.map((e) => e.qty), entryRef, supplierId: b.supplierId, unitCost: num(b.unitCost, "Coût"), warrantyMonths: months, moveBase: `${entryRef.slice(0, 20)}_in`, refId: "serial-entry" });
+  if (fresh) await audit(store, ctx, "serial.add", `${p.name} +${list.length} numéro(s), ${entries.reduce((a, e) => a + e.qty, 0)} unité(s) (${list.slice(0, 5).join(", ")}${list.length > 5 ? "…" : ""})`);
+  return { count: list.length, units: entries.reduce((a, e) => a + e.qty, 0) };
 }
 
 /** Changement de statut d'un numéro de série (retour client, garantie, défectueux). La vente se fait uniquement par l'encaissement. */
@@ -190,10 +193,13 @@ export async function setSerialStatus(store: Store, ctx: Ctx, b: { id: string; s
   const sr = await store.get("article_serials", b.id); if (!mine(ctx, sr)) throw new HttpError(404, "Numéro de série introuvable");
   const from = String(sr.status) as SerialStatus, to = String(b.status) as SerialStatus;
   if (!(SERIAL_TRANSITIONS[from] ?? []).includes(to)) throw new HttpError(409, `Passage de « ${from} » à « ${to} » impossible`);
-  const eff = stockEffect(from, to); const patch: Record<string, unknown> = { status: to };
-  if (to === "available") { patch.saleId = ""; patch.saleRef = ""; patch.soldAt = null; patch.warrantyUntil = null; patch.cycle = Number(sr.cycle ?? 0) + 1; }
+  const multi = Number(sr.initialQty ?? 1) > 1; // numéro à quantité : seule la mise « défectueux » du restant est possible ici ; un retour client passe par la vente (quantité exacte)
+  if (multi && !(from === "available" && to === "defective")) throw new HttpError(409, "Numéro à quantité : les retours se font depuis la vente (retour client) ; ici, seul le restant peut être déclaré défectueux");
+  const eff = stockEffect(from, to); const patch: Record<string, unknown> = { status: to }; const units = multi ? serialRemaining(sr) : 1;
+  if (to === "available") { patch.saleId = ""; patch.saleRef = ""; patch.soldAt = null; patch.warrantyUntil = null; patch.cycle = Number(sr.cycle ?? 0) + 1; patch.seq = serialSeq(sr) + 1; if (!multi) patch.qty = 1; }
+  if (from === "available" && to !== "available") patch.seq = serialSeq(sr) + 1;
   await store.update("article_serials", sr.$id, patch);
-  if (eff !== 0) await store.create("stock_moves", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: String(sr.productId), ...(sr.variantId ? { variantId: String(sr.variantId) } : {}), serial: String(sr.serial), qty: 1, kind: eff > 0 ? "adjust" : "loss", refId: eff > 0 ? "retour-série" : "série-défectueuse", userId: ctx.userId });
+  if (eff !== 0) await store.create("stock_moves", newId(), ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: String(sr.productId), ...(sr.variantId ? { variantId: String(sr.variantId) } : {}), serial: String(sr.serial), qty: units, kind: eff > 0 ? "adjust" : "loss", refId: eff > 0 ? "retour-série" : "série-défectueuse", userId: ctx.userId });
   await audit(store, ctx, "serial.status", `${sr.serial} ${from} → ${to}`);
   return { id: sr.$id, status: to };
 }

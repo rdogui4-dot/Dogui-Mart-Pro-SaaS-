@@ -4,7 +4,7 @@ import { Query } from "@/lib/appwrite";
 import { api } from "@/lib/api";
 import { list, saveEntity, type Product, type Row, type Supplier, type VariantRow } from "@/lib/data";
 import { lineKey } from "@/domain/variants";
-import { parseSerials, trackingOf } from "@/domain/tracking";
+import { serialUnitsOf, trackingOf } from "@/domain/tracking";
 import { planAllows } from "@/domain/features";
 import { useSubscription } from "./subscription";
 import type { LinkRow } from "./costing";
@@ -148,7 +148,7 @@ function PoCard({ po, supplier, onChange }: { po: Row<Po>; supplier: string; onC
             <label key={lineKey(l)} className="flex items-center justify-between gap-2 text-sm">{l.name} (reste {toReceive(l)})
               <input className="input !w-20 !py-2" inputMode="decimal" value={qty[lineKey(l)] ?? ""} onChange={(e) => setQty({ ...qty, [lineKey(l)]: e.target.value })} /></label>
           ))}
-          {ls.filter((l) => toReceive(l) > 0 && Number((qty[lineKey(l)] ?? "").replace(",", ".")) > 0 && modeOf(l.productId)).map((l) => { const k = lineKey(l); const t = trOf(k); const mode = modeOf(l.productId); let n = 0; try { n = t.serials.trim() ? parseSerials(t.serials).length : 0; } catch { n = -1; }
+          {ls.filter((l) => toReceive(l) > 0 && Number((qty[lineKey(l)] ?? "").replace(",", ".")) > 0 && modeOf(l.productId)).map((l) => { const k = lineKey(l); const t = trOf(k); const mode = modeOf(l.productId); let n = 0; n = t.serials.trim() ? serialUnitsOf(t.serials) : 0;
             return mode === "lot" ? (
               <div key={`t${k}`} className="flex flex-col gap-1 rounded-xl border border-line p-2 text-sm"><b>Lots reçus · {l.name}</b>
                 {t.lots.map((r, i) => <div key={i} className="grid grid-cols-[1fr_4rem_7.5rem] gap-1"><input className="input !px-2 !py-2" placeholder="N° de lot" aria-label="N° de lot" value={r.lotNo} onChange={(e) => setTr({ ...tr, [k]: { ...t, lots: t.lots.map((x, j) => (j === i ? { ...x, lotNo: e.target.value } : x)) } })} />

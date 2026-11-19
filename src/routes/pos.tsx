@@ -22,7 +22,7 @@ import { onSyncResult, queueSale, syncPending, type SyncResult } from "@/lib/off
 import { FavStar, SimPanel, SuggestStrip, useDensity, useFavorites, useShortcuts, type ApprovalKind, type Sim, type Suggest } from "@/components/PosPro";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
-import { trackingOf } from "@/domain/tracking";
+import { serialRemaining, trackingOf } from "@/domain/tracking";
 import { Scanner } from "@/components/Scanner";
 import { QrPay } from "@/components/QrPay";
 import { receiptModel, type ReceiptSale } from "@/domain/documents";
@@ -32,7 +32,7 @@ import { isVirtualBundle } from "@/domain/bundles";
 
 /** Ligne du panier : quantité de base (pour le prix et le stock) + unité vendue si un conditionnement est choisi. */
 type Preview = { total: number; discountTotal: number; promotions: { promoId: string; name: string; code?: string; discount: number }[]; decisions?: { promoId: string; name: string; outcome: "applied" | "refused"; message: string; reason: string }[]; notes?: string[]; pro?: boolean; coupon?: { ok: boolean; code: string; message: string; applied: boolean }; lines: { amount: number; baseAmount?: number; promo?: { name: string; code?: string; discount: number }; promos?: { name: string; discount: number }[] }[] };
-type PosLine = CartLine & { key: string; scale: number; basePrice: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; serials?: string[] };
+type PosLine = CartLine & { key: string; scale: number; basePrice: number; unit?: string; unitQty?: number; factor?: number; variantId?: string; serials?: string[]; snQty?: Record<string, number> };
 const keyOf = (productId: string, unit?: string, variantId?: string) => `${productId}|${unit ?? ""}|${variantId ?? ""}`;
 const plus = (a: number, b: number, scale: number) => fromScaled(scaledInt(a, scale) + scaledInt(b, scale), scale);
 
@@ -76,10 +76,11 @@ export function PosPage() {
   /** Article simple (entier, sans conditionnement) : ajout direct ; sinon on demande la quantité et l'unité. */
   const add = (p: Product & { $id: string }, v?: VariantRow) => { if (p.hasVariants && !v) { setPickVar(p); return; } if (trackingOf(p) === "serial" && cart.some((l) => l.serials && l.productId === p.$id && (l.variantId ?? "") === (v?.$id ?? ""))) { setMsg("Cet article est saisi par numéro de série : scannez l'étiquette de chaque unité (ou retirez la ligne pour une attribution automatique)."); return; } if (scaleOf(p) > 0 || unitsOf(p.$id).length) { setPick({ p, v }); return; } try { addLine(p, 1, "", v); } catch (e) { setMsg((e as Error).message); } };
   /** Article à numéro de série : une ligne par article/variante, quantité = nombre de numéros saisis ; le serveur vérifie qu'ils existent et sont disponibles. */
-  function addSerials(p: Product & { $id: string }, v: VariantRow | undefined, list: string[]) {
+  function addSerials(p: Product & { $id: string }, v: VariantRow | undefined, list: string[], remaining = 1) {
     const key = `${keyOf(p.$id, "", v?.$id)}|serial`;
-    setCart((c) => { c = c.filter((l) => !(l.productId === p.$id && (l.variantId ?? "") === (v?.$id ?? "") && !l.serials)); const ex = c.find((l) => l.key === key); const all = [...new Set([...(ex?.serials ?? []), ...list])];
-      const line: PosLine = { key, productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: v ? v.price : p.price, basePrice: v ? v.price : p.price, qty: all.length, scale: 0, serials: all, ...(v ? { variantId: v.$id } : {}) };
+    setCart((c) => { c = c.filter((l) => !(l.productId === p.$id && (l.variantId ?? "") === (v?.$id ?? "") && !l.serials)); const ex = c.find((l) => l.key === key); const all = [...new Set([...(ex?.serials ?? []), ...list])]; const snQty: Record<string, number> = { ...(ex?.snQty ?? {}) };
+      for (const sn of list) snQty[sn] = remaining > 1 ? Math.min(remaining, (snQty[sn] ?? 0) + 1) : 1; // un numéro à quantité : chaque scan ajoute une unité, dans la limite de ce qui reste
+      const line: PosLine = { key, productId: p.$id, name: v ? `${p.name} — ${v.label}` : p.name, unitPrice: v ? v.price : p.price, basePrice: v ? v.price : p.price, qty: all.reduce((t, sn) => t + (snQty[sn] ?? 1), 0), scale: 0, serials: all, snQty, ...(v ? { variantId: v.$id } : {}) };
       return ex ? c.map((l) => (l.key === key ? line : l)) : [...c, line]; });
   }
   const step = (key: string, d: 1 | -1) => setCart((c) => c.flatMap((l) => {
@@ -91,11 +92,13 @@ export function PosPage() {
   /** Code scanné = numéro de série d'une unité précise (étiquette collée sur l'appareil) : cette unité est ajoutée au panier. */
   async function bySerial(code: string) {
     try {
-      const r = await list<{ productId: string; variantId?: string; serial: string; status: string }>("article_serials", s, [Query.equal("serial", code.trim().toUpperCase())], 5);
+      const r = await list<{ productId: string; variantId?: string; serial: string; status: string; qty?: number | null }>("article_serials", s, [Query.equal("serial", code.trim().toUpperCase())], 5);
       const hit = r[0]; const p = hit && products.data?.find((x) => x.$id === hit.productId);
       if (!hit || !p) return setMsg(`Code inconnu : ${code}`);
-      if (hit.status !== "available") return setMsg(`Numéro de série ${hit.serial} indisponible (${hit.status === "sold" ? "déjà vendu" : hit.status})`);
-      addSerials(p as Product & { $id: string }, variantsQ.data?.find((v) => v.$id === hit.variantId), [hit.serial]);
+      if (hit.status !== "available" || serialRemaining(hit) <= 0) return setMsg(`Numéro de série ${hit.serial} indisponible (${hit.status === "sold" ? "déjà vendu" : hit.status})`);
+      const remaining = serialRemaining(hit); const inCart = cart.find((l) => l.serials?.includes(hit.serial))?.snQty?.[hit.serial] ?? 0;
+      if (remaining > 1 && inCart >= remaining) return setMsg(`Numéro ${hit.serial} : les ${remaining} unités restantes sont déjà dans le panier`);
+      addSerials(p as Product & { $id: string }, variantsQ.data?.find((v) => v.$id === hit.variantId), [hit.serial], remaining);
     } catch { setMsg(`Code inconnu : ${code}`); }
   }
   const byCode = (code: string) => {
@@ -118,7 +121,7 @@ export function PosPage() {
   const priced = pricedAt(new Date().toISOString());
   // Promotions (Business) : le SERVEUR calcule remises et total (aperçu = même calcul qu'une vraie vente, rien n'est écrit) ; hors ligne, elles sont appliquées à la synchronisation.
   const promoOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotions"); 
-  const apiLines = cart.map((l) => ({ productId: l.productId, ...((manager || pro) && (l.discountPct ?? 0) > 0 ? { discountPct: l.discountPct } : {}), ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.serials ? { qty: l.serials.length, serials: l.serials } : l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) }));
+  const apiLines = cart.map((l) => ({ productId: l.productId, ...((manager || pro) && (l.discountPct ?? 0) > 0 ? { discountPct: l.discountPct } : {}), ...(l.variantId ? { variantId: l.variantId } : {}), ...(l.serials ? { qty: l.qty, serials: l.serials, serialQtys: l.serials.map((sn) => l.snQty?.[sn] ?? 1) } : l.unit ? { qty: l.unitQty!, unit: l.unit } : { qty: l.qty }) }));
   const proOn = planAllows(useSubscription().data?.entitlement.plan.id, "promotionsPro"); const pro = planAllows(useSubscription().data?.entitlement.plan.id, "smartPosPro");
   const [approvals, setApprovals] = useState<Partial<Record<ApprovalKind, string>>>({}); const [asked, setAsked] = useState<Partial<Record<ApprovalKind, string>>>({}); const [askBusy, setAskBusy] = useState(false);
   const cartSig = JSON.stringify(apiLines) + customerId + coupon; useEffect(() => { setApprovals({}); setAsked({}); }, [cartSig]); // une approbation ne vaut que pour CE panier
@@ -228,7 +231,7 @@ export function PosPage() {
           {priced.map((l, i) => (
             <div key={l.key} className="d3-line-in flex flex-wrap items-center justify-end gap-2 border-b border-line pb-2 last:border-0"><Thumb id={products.data?.find((x) => x.$id === l.productId)?.imageFileId} size={40} className="shrink-0" />
               <span className="flex-1 min-w-[11rem]"><span className="block font-semibold leading-tight">{l.name}</span><span className="text-xs text-muted">{l.unit ? `${formatQty(l.unitQty!)} ${unitLabel(l.unit).toLowerCase()} = ${formatQty(l.qty)} · ` : ""}{pv?.lines[i]?.promo ? <><s className="text-muted">{formatFcfa(pv.lines[i]!.baseAmount ?? 0)}</s> <b className="text-ok">−{formatFcfa(pv.lines[i]!.promo!.discount)} → {formatFcfa(pv.lines[i]!.amount)}</b></> : formatFcfa(l.amount)}{pv?.lines[i]?.promo && <span className="block text-ok">Promotion : {pv.lines[i]!.promo!.name}{pv.lines[i]!.promo!.code ? ` (${pv.lines[i]!.promo!.code})` : ""}</span>}{l.source !== "base" && <b className="ml-1 text-ok">· {l.source === "promo" ? "Promo" : l.source === "category" ? `Tarif ${categoryLabel(customer?.category).toLowerCase()}` : "Prix par quantité"}</b>}</span></span>
-              {l.serials ? <><span className="text-xs text-muted max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.join(", ")}</span><button className="btn-ghost icon-btn" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
+              {l.serials ? <><span className="text-xs text-muted max-w-[8rem] truncate" title={l.serials.join(", ")}>N° {l.serials.map((sn) => ((l.snQty?.[sn] ?? 1) > 1 ? `${sn} ×${l.snQty![sn]}` : sn)).join(", ")}</span><button className="btn-ghost icon-btn" aria-label="Retirer" onClick={() => setCart((c) => c.filter((x) => x.key !== l.key))}><Minus size={16} /></button></> : <>
               <span className="flex items-center gap-1 shrink-0"><button className="btn-ghost icon-btn" aria-label="Moins" onClick={() => step(l.key, -1)}><Minus size={16} /></button>
               <span className="min-w-8 text-center">{formatQty(l.unit ? l.unitQty! : l.qty)}</span>
               <button className="btn-ghost icon-btn" aria-label="Plus" onClick={() => step(l.key, 1)}><Plus size={16} /></button>{(manager || pro) && <input className="input !w-14 !py-1 !px-1 text-center text-xs" inputMode="numeric" aria-label={`Remise ${l.name} (%)`} placeholder="%" value={l.discountPct ? String(l.discountPct) : ""} onChange={(e) => { const v = Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0); setCart((c) => c.map((x) => (x.key === l.key ? { ...x, discountPct: v } : x))); }} />}</span></>}

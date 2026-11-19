@@ -11,7 +11,7 @@ import { needFeature } from "./articles";
 import { entitlementOf } from "./subscriptions";
 import { linkId } from "./costing";
 import { assertSerialsFree, checkLot, createSerials, ensureLot, normalizeLotParts, type LotPart } from "./tracking";
-import { parseSerials, trackingOf } from "../../../src/domain/tracking";
+import { parseSerialEntries, trackingOf } from "../../../src/domain/tracking";
 import { lineKey } from "../../../src/domain/variants";
 import { HttpError, type Ctx, type Row, type Store, needModule } from "./store";
 
@@ -81,14 +81,15 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
   for (const w of wanted) scales.set(w.productId, scaleOf(await store.get("products", w.productId)));
   // Articles suivis : une réception précise les lots (numéro, quantité, péremption) ou les numéros de série reçus. Tout est validé AVANT la moindre écriture.
   const entryRef = `p${rid.slice(0, 28)}`;
-  const tracked = new Map<string, { p: Row; mode: "lot" | "serial"; parts?: LotPart[]; serials?: string[] }>();
+  const tracked = new Map<string, { p: Row; mode: "lot" | "serial"; parts?: LotPart[]; serials?: string[]; qtys?: number[] }>();
   for (const w of wanted) {
     const p = await store.get("products", w.productId); if (!p) continue; /* produit hors commande : refusé plus bas par la validation des quantités */ const mode = trackingOf(p); if (!mode) continue;
     if (mode === "lot") tracked.set(lineKey(w), { p, mode, parts: normalizeLotParts(w.lots, w.qty, scales.get(w.productId) ?? 0) });
     else {
-      let serials: string[]; try { serials = parseSerials(w.serials); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
-      if (!Number.isInteger(w.qty) || serials.length !== w.qty) throw new HttpError(400, `${p.name} : indiquez exactement ${w.qty} numéro(s) de série`);
-      tracked.set(lineKey(w), { p, mode, serials });
+      let entries: { serial: string; qty: number }[]; try { entries = parseSerialEntries(w.serials); } catch (e) { throw new HttpError(400, `${p.name} : ${(e as Error).message}`); }
+      const units = entries.reduce((a, e) => a + e.qty, 0); // un numéro porte 1 unité, ou « NUMERO:24 » = 24 unités : le total doit égaler la quantité reçue
+      if (!Number.isInteger(w.qty) || units !== w.qty) throw new HttpError(400, `${p.name} : les numéros de série doivent totaliser exactement ${w.qty} unité(s) (saisi : ${units})`);
+      tracked.set(lineKey(w), { p, mode, serials: entries.map((e) => e.serial), qtys: entries.map((e) => e.qty) });
     }
   }
   const landedByKey = new Map<string, number>();
@@ -134,7 +135,7 @@ export async function receivePo(store: Store, ctx: Ctx, b: { poId: string; recei
     const common = { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: w.productId, ...(w.variantId ? { variantId: w.variantId } : {}), kind: "purchase", refId: String(po.number), userId: ctx.userId };
     if (t?.mode === "lot") { // un mouvement par lot reçu ; le coût du lot est le coût de revient de la réception
       for (const [j, part] of t.parts!.entries()) { const lot = await ensureLot(store, ctx, t.p, vid, part, { supplierId: String(po.supplierId), unitCost: landedByKey.get(lineKey(w)) }); await store.create("stock_moves", `${base}_m${i}_${j}`, ctx.tenantId, { ...common, lotId: lot.$id, qty: scaledInt(part.qty, scale) }); }
-    } else if (t?.mode === "serial") await createSerials(store, ctx, t.p, vid, t.serials!, { entryRef, supplierId: String(po.supplierId), unitCost: landedByKey.get(lineKey(w)), moveBase: `${base}_s${i}`, kind: "purchase", refId: String(po.number) });
+    } else if (t?.mode === "serial") await createSerials(store, ctx, t.p, vid, t.serials!, { qtys: t.qtys, entryRef, supplierId: String(po.supplierId), unitCost: landedByKey.get(lineKey(w)), moveBase: `${base}_s${i}`, kind: "purchase", refId: String(po.number) });
     else await store.create("stock_moves", `${base}_m${i}`, ctx.tenantId, { ...common, qty: scaledInt(w.qty, scale) });
   }
   return { status: poStatus(lines), duplicate };

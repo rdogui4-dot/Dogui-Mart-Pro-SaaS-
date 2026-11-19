@@ -1,6 +1,6 @@
 import { fromScaled, qtyFor, scaleOf, scaledInt } from "../../../src/domain/quantity";
 import { lineKey } from "../../../src/domain/variants";
-import { allocateFefo, parseSerials, trackingOf } from "../../../src/domain/tracking";
+import { allocateFefo, parseSerials, serialRemaining, serialSeq, trackingOf, wholeSerialsFor } from "../../../src/domain/tracking";
 import { planAllows } from "../../../src/domain/features";
 import { checkLot, ensureLot, expiredPolicyOf, lotsWithStock, serialRowId } from "./tracking";
 import { refuseBundle } from "./bundles";
@@ -130,7 +130,7 @@ export const allowedIn = (ctx: Ctx, shopId: string): boolean => ctx.shopIds === 
  *  Articles suivis : lots prélevés en FEFO (recréés à l'identique dans la boutique de destination, avec leur péremption et leur coût) ; numéros de série
  *  transférés un à un (« transféré » à l'origine, « disponible » à destination), au choix de l'utilisateur ou automatiquement (les plus anciens).
  *  Un transfert avec articles suivis enregistre d'abord son plan (fiche « pending », lots et numéros figés) : une coupure se reprend sans rien doubler. */
-type TLine = { productId: string; variantId?: string; qty: number | string; serials?: unknown; lots?: { lotId: string; lotNo: string; expiresAt?: string; manufacturedAt?: string; unitCost: number; supplierId: string; qty: number }[]; name?: string };
+type TLine = { productId: string; variantId?: string; qty: number | string; serials?: unknown; serialQtys?: number[]; lots?: { lotId: string; lotNo: string; expiresAt?: string; manufacturedAt?: string; unitCost: number; supplierId: string; qty: number }[]; name?: string };
 export async function transferStock(store: Store, ctx: Ctx, b: { transferId: string; toShopId: string; lines: TLine[] }) {
   needModule(ctx, "stock");
   const tid = safeId(b.transferId); if (tid.length < 8) throw new HttpError(400, "transferId invalide");
@@ -148,7 +148,7 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
   const resumed = !!pending || !!(await store.get("stock_moves", `${base}_o0`));
   const number = pending ? String(pending.number) : `TR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${tid.slice(0, 6).toUpperCase()}`;
   const today = new Date().toISOString().slice(0, 10); let policy: Awaited<ReturnType<typeof expiredPolicyOf>> | undefined; let trackedOk: boolean | undefined;
-  const seen = new Set<string>(); const items: { src: any; variant: any; qty: number; lots?: TLine["lots"]; serials?: string[] }[] = [];
+  const seen = new Set<string>(); const items: { src: any; variant: any; qty: number; lots?: TLine["lots"]; serials?: string[]; serialQtys?: number[] }[] = [];
   for (const l of inputLines) {
     if (seen.has(lineKey(l))) throw new HttpError(400, "Produit en double"); seen.add(lineKey(l));
     const src = await store.get("products", l.productId);
@@ -172,23 +172,28 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
       }
     } else if (mode === "serial") {
       if (!Number.isInteger(qty) || qty < 1) throw new HttpError(400, `${src.name} : quantité entière requise`);
-      if (pending) item.serials = (l.serials as string[]) ?? [];
+      if (pending) { item.serials = (l.serials as string[]) ?? []; item.serialQtys = Array.isArray(l.serialQtys) ? l.serialQtys.map(Number) : item.serials.map(() => 1); }
       else {
         let given: string[] | null = null;
         if (l.serials !== undefined && l.serials !== null && !(Array.isArray(l.serials) && !l.serials.length) && String(l.serials).trim() !== "") { try { given = parseSerials(l.serials); } catch (e) { throw new HttpError(400, `${src.name} : ${(e as Error).message}`); } }
         const vid = variant?.$id ?? "";
-        if (given) {
-          if (given.length !== qty) throw new HttpError(400, `${src.name} : indiquez exactement ${qty} numéro${qty > 1 ? "s" : ""} de série`);
+        if (given) { // un numéro se transfère en entier : la quantité est la somme de ce qui reste sur chaque numéro choisi
+          const rows: any[] = [];
           for (const sn of given) {
             const r = await store.get("article_serials", serialRowId(src.$id, sn));
             if (!r || r.tenantId !== ctx.tenantId || r.shopId !== ctx.shopId || String(r.variantId ?? "") !== vid) throw new HttpError(404, `Numéro de série inconnu : ${sn}`);
             if (r.status !== "available") throw new HttpError(409, `Numéro de série indisponible : ${sn} (${r.status})`);
+            rows.push(r);
           }
-          item.serials = given;
+          const takes = rows.map((r) => serialRemaining(r)); const total = takes.reduce((a, t) => a + t, 0);
+          if (total !== qty) throw new HttpError(400, takes.every((t) => t === 1) ? `${src.name} : indiquez exactement ${qty} numéro${qty > 1 ? "s" : ""} de série` : `${src.name} : les numéros choisis totalisent ${total} unité${total > 1 ? "s" : ""} (un numéro se transfère en entier) — quantité demandée : ${qty}`);
+          item.serials = given; item.serialQtys = takes;
         } else {
-          const pool = (await store.scan("article_serials", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, status: "available" }, { maxRows: 5000 })).rows.filter((r) => String(r.variantId ?? "") === vid).sort((a, c) => String(a.receivedAt ?? "").localeCompare(String(c.receivedAt ?? "")) || String(a.serial).localeCompare(String(c.serial)));
-          if (pool.length < qty) throw new HttpError(409, `Stock insuffisant : ${src.name}${variant ? ` — ${variant.label}` : ""} (${pool.length} unité${pool.length > 1 ? "s" : ""} disponible${pool.length > 1 ? "s" : ""})`);
-          item.serials = pool.slice(0, qty).map((r) => String(r.serial));
+          const pool = (await store.scan("article_serials", { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: src.$id, status: "available" }, { maxRows: 5000 })).rows.filter((r) => String(r.variantId ?? "") === vid).sort((a, c) => String(a.receivedAt ?? "").localeCompare(String(c.receivedAt ?? "")) || String(a.serial).localeCompare(String(c.serial))).map((r) => ({ serial: String(r.serial), remaining: serialRemaining(r) }));
+          const have = pool.reduce((a, r) => a + r.remaining, 0);
+          if (have < qty) throw new HttpError(409, `Stock insuffisant : ${src.name}${variant ? ` — ${variant.label}` : ""} (${have} unité${have > 1 ? "s" : ""} disponible${have > 1 ? "s" : ""})`);
+          const whole = wholeSerialsFor(pool, qty); if (!whole) throw new HttpError(409, `${src.name} : quantité non réalisable — un numéro se transfère en entier (restants : ${pool.filter((r) => r.remaining > 0).slice(0, 8).map((r) => `${r.serial} = ${r.remaining}`).join(", ")}${pool.length > 8 ? "…" : ""}). Choisissez les numéros à transférer.`);
+          item.serials = whole.map((x) => x.serial); item.serialQtys = whole.map((x) => x.take);
         }
       }
     } else if (!resumed) { const have = variant ? fromScaled(await stockScaledVariant(store, variant.$id), scaleOf(src)) : await stockFor(store, src.$id, scaleOf(src)); if (have < qty) throw new HttpError(409, `Stock insuffisant : ${src.name}${variant ? ` — ${variant.label}` : ""} (${have})`); }
@@ -216,14 +221,14 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
       for (const sn of it.serials ?? []) { const cur = await store.get("article_serials", serialRowId(r.targetId, sn)); if (cur && cur.status !== "transferred") throw new HttpError(409, `Numéro de série déjà enregistré dans la boutique de destination : ${sn}`); }
     }
   }
-  const planLines = () => items.map((x) => ({ productId: x.src.$id, ...(x.variant ? { variantId: x.variant.$id } : {}), name: x.variant ? `${x.src.name} — ${x.variant.label}` : x.src.name, qty: x.qty, ...(x.lots ? { lots: x.lots } : {}), ...(x.serials ? { serials: x.serials } : {}) }));
+  const planLines = () => items.map((x) => ({ productId: x.src.$id, ...(x.variant ? { variantId: x.variant.$id } : {}), name: x.variant ? `${x.src.name} — ${x.variant.label}` : x.src.name, qty: x.qty, ...(x.lots ? { lots: x.lots } : {}), ...(x.serials ? { serials: x.serials, serialQtys: x.serialQtys } : {}) }));
   if (tracked && !pending) await store.create("transfers", tid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, toShopId: b.toShopId, number, lines: JSON.stringify(planLines()), userId: ctx.userId, status: "pending" });
   // Numéros de série : chaque sortie « réserve » son numéro par un mouvement à identifiant unique (numéro + cycle) ; conflit → tout est annulé et le plan retiré.
   if (tracked) {
     const claimed: string[] = [];
     for (const it of items) for (const sn of it.serials ?? []) {
-      const rid = serialRowId(it.src.$id, sn); const cur = await store.get("article_serials", rid); const cid = `${rid}_${Number(cur?.cycle ?? 0)}`.slice(0, 36);
-      const ok = await store.create("stock_moves", cid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: it.src.$id, ...(it.variant ? { variantId: it.variant.$id } : {}), serial: sn, qty: 1, kind: "transfer_out", refId: number, userId: ctx.userId });
+      const rid = serialRowId(it.src.$id, sn); const cur = await store.get("article_serials", rid); const cid = `${rid}_${serialSeq(cur)}`.slice(0, 36);
+      const ok = await store.create("stock_moves", cid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: ctx.shopId, productId: it.src.$id, ...(it.variant ? { variantId: it.variant.$id } : {}), serial: sn, qty: it.serialQtys?.[it.serials!.indexOf(sn)] ?? 1, kind: "transfer_out", refId: number, userId: ctx.userId });
       if (ok) claimed.push(cid);
       else if ((await store.get("stock_moves", cid))?.refId !== number) { for (const c of claimed) await store.remove("stock_moves", c); if (!pending) await store.remove("transfers", tid); throw new HttpError(409, `Numéro de série déjà vendu ou transféré : ${sn}`); }
     }
@@ -254,11 +259,11 @@ export async function transferStock(store: Store, ctx: Ctx, b: { transferId: str
     if (it.serials) {
       for (const [k, sn] of it.serials.entries()) {
         const srid = serialRowId(src.$id, sn); const srow = await store.get("article_serials", srid); const trid = serialRowId(targetId, sn); const cur = await store.get("article_serials", trid);
-        const info = { unitCost: Number(srow?.unitCost ?? 0), warrantyMonths: Number(srow?.warrantyMonths ?? 0), supplierId: String(srow?.supplierId ?? "") };
-        if (!cur) await store.create("article_serials", trid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...vfield(targetVariantId), serial: sn, status: "available", receivedAt: new Date().toISOString(), ...info, saleId: "", saleRef: "", cycle: 0, entryRef: number });
-        else if (cur.entryRef !== number) await store.update("article_serials", trid, { status: "available", saleId: "", saleRef: "", soldAt: null, warrantyUntil: null, cycle: Number(cur.cycle ?? 0) + 1, entryRef: number, ...info }); // numéro revenu dans une boutique où il avait déjà été
-        await store.create("stock_moves", `${base}_i${i}_${k}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...vfield(targetVariantId), serial: sn, qty: 1, kind: "transfer_in", refId: number, userId: ctx.userId });
-        if (srow && srow.status !== "transferred") await store.update("article_serials", srid, { status: "transferred" });
+        const take = it.serialQtys?.[k] ?? 1; const info = { unitCost: Number(srow?.unitCost ?? 0), warrantyMonths: Number(srow?.warrantyMonths ?? 0), supplierId: String(srow?.supplierId ?? "") };
+        if (!cur) await store.create("article_serials", trid, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...vfield(targetVariantId), serial: sn, status: "available", qty: take, initialQty: take, seq: 0, receivedAt: new Date().toISOString(), ...info, saleId: "", saleRef: "", cycle: 0, entryRef: number });
+        else if (cur.entryRef !== number) await store.update("article_serials", trid, { status: "available", qty: take, initialQty: take, seq: serialSeq(cur) + 1, saleId: "", saleRef: "", soldAt: null, warrantyUntil: null, cycle: Number(cur.cycle ?? 0) + 1, entryRef: number, ...info }); // numéro revenu dans une boutique où il avait déjà été
+        await store.create("stock_moves", `${base}_i${i}_${k}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: b.toShopId, productId: targetId, ...vfield(targetVariantId), serial: sn, qty: take, kind: "transfer_in", refId: number, userId: ctx.userId });
+        if (srow && srow.status !== "transferred") await store.update("article_serials", srid, { status: "transferred", qty: 0, seq: serialSeq(srow) + 1 });
       }
       continue;
     }
