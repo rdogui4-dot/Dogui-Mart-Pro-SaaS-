@@ -221,6 +221,27 @@ export async function receiptCancel(store: Store, ctx: Ctx, b: { id?: string; re
   await gate(store, ctx); const r = await store.get("purchase_receipts", String(b.id ?? "")); if (!mine(ctx, r)) throw new HttpError(404, "Réception introuvable"); if (r.status !== "draft") throw new HttpError(409, "Seul un brouillon de réception s'annule : une réception validée a déjà créé son stock"); const why = oneLine(b.reason, 200); if (why.length < 3) throw new HttpError(400, "Motif obligatoire (3 caractères au moins)");
   await store.batch([{ kind: "update", table: "purchase_receipts", id: r.$id, data: { status: "cancelled", cancelReason: why } }, ev(ctx, "receipt", r.$id, "cancel", { reason: why }), aud(ctx, "receipt.cancel", `${r.number} ${why}`)]); return { id: r.$id, status: "cancelled" };
 }
+/** Correction d'une réception VALIDÉE : seules les mentions du document (n° de bon de livraison, date de réception, notes). Les quantités ont créé le stock : elles ne se modifient jamais ici
+ *  (en moins : retour fournisseur ; en plus : nouvelle réception). Droit « gérant », motif obligatoire, avant/après conservés dans l'historique et le journal. Un brouillon se modifie directement (receiptSave). */
+export async function receiptAmend(store: Store, ctx: Ctx, b: { id?: string; reason?: string; deliveryNote?: string; receivedOn?: string; notes?: unknown; confirmDuplicate?: boolean }) {
+  await gate(store, ctx); need(ctx, "manager"); const r = await store.get("purchase_receipts", String(b.id ?? "")); if (!mine(ctx, r)) throw new HttpError(404, "Réception introuvable");
+  if (r.status === "draft") throw new HttpError(409, "Un brouillon de réception se modifie directement, sans motif"); if (r.status !== "validated") throw new HttpError(409, "Réception annulée : elle ne se modifie plus");
+  const why = oneLine(b.reason, 200); if (why.length < 5) throw new HttpError(400, "Motif de modification obligatoire (5 caractères au moins)");
+  const t = await today(store, ctx); const data: Record<string, unknown> = {}; const before: Record<string, unknown> = {}, after: Record<string, unknown> = {};
+  if (b.deliveryNote !== undefined) {
+    const note = oneLine(b.deliveryNote, 64); if (!note) throw new HttpError(400, "Numéro de bon de livraison obligatoire");
+    if (note !== String(r.deliveryNote ?? "")) {
+      const others = (await store.scan("purchase_receipts", { tenantId: ctx.tenantId, shopId: ctx.shopId, supplierId: String(r.supplierId) }, { maxRows: 3000 })).rows.filter((x) => x.status !== "cancelled" && x.$id !== r.$id && normRef(x.deliveryNote) === normRef(note));
+      if (others.length && !b.confirmDuplicate) throw new HttpError(409, `DOUBLE_BL : le bon de livraison « ${note} » a déjà servi pour ${others[0]!.number}. Confirmez si c'est une livraison distincte.`);
+      before.deliveryNote = String(r.deliveryNote ?? ""); after.deliveryNote = note; data.deliveryNote = note;
+    }
+  }
+  if (b.receivedOn !== undefined && b.receivedOn !== day10(r.receivedOn)) { if (!isDay(b.receivedOn) || b.receivedOn > t) throw new HttpError(400, "Date de réception invalide (pas dans le futur)"); before.receivedOn = day10(r.receivedOn); after.receivedOn = b.receivedOn; data.receivedOn = `${b.receivedOn}T12:00:00.000Z`; }
+  if (b.notes !== undefined) { const n = longText(b.notes, 2000); if (n !== String(r.notes ?? "")) { before.notes = String(r.notes ?? ""); after.notes = n; data.notes = n; } }
+  if (!Object.keys(after).length) throw new HttpError(400, "Aucune modification");
+  await store.batch([{ kind: "update", table: "purchase_receipts", id: r.$id, data }, ev(ctx, "receipt", r.$id, "amend", { reason: why, before, after }), aud(ctx, "receipt.amend", `${r.number} ${why}`)]);
+  return { id: r.$id, number: String(r.number), changed: Object.keys(after) };
+}
 export async function receiptList(store: Store, ctx: Ctx, b: { poId?: string; supplierId?: string; status?: string; from?: string; to?: string } = {}) {
   await gate(store, ctx); const pos = new Map((await store.scan("purchase_orders", { tenantId: ctx.tenantId, shopId: ctx.shopId }, { maxRows: 10_000 })).rows.map((p) => [p.$id, p])); const sup = new Map((await store.scan("suppliers", { tenantId: ctx.tenantId, shopId: ctx.shopId }, { maxRows: 3000 })).rows.map((r) => [r.$id, String(r.name)])); const names = await nameMap(store, ctx);
   const rows = (await store.scan("purchase_receipts", { tenantId: ctx.tenantId, shopId: ctx.shopId }, { maxRows: 10_000 })).rows.filter((r) => (!b.poId || r.poId === b.poId) && (!b.supplierId || r.supplierId === b.supplierId) && (!b.status || r.status === b.status) && (!b.from || day10(r.receivedOn) >= b.from) && (!b.to || day10(r.receivedOn) <= b.to));

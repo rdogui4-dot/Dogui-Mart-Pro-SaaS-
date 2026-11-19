@@ -1,32 +1,34 @@
 import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Info, RotateCcw, AlertTriangle, Boxes, ClipboardList, Lock, Plus, Receipt, RefreshCw, ScanLine, Tags, WifiOff, FileBarChart, ShoppingCart, Coins, Package, ShoppingBasket, Truck, UserPlus, BarChart3, ChevronRight, ArrowDownToLine, PackagePlus, PieChart, Trophy, Activity, LineChart as LineIcon, Send, type LucideIcon } from "lucide-react";
+import { Info, Users, RotateCcw, AlertTriangle, Boxes, ClipboardList, Lock, Plus, Receipt, RefreshCw, ScanLine, Tags, WifiOff, FileBarChart, ShoppingCart, Coins, Package, ShoppingBasket, Truck, UserPlus, BarChart3, ChevronRight, ArrowDownToLine, PackagePlus, PieChart, Trophy, Activity, LineChart as LineIcon, Send, type LucideIcon } from "lucide-react";
 import { useMasterModal } from "@/lib/master-modal";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
 import { Sheet } from "@/components/ui";
-import { BarChart, Donut, HBars, LineChart } from "@/components/charts";
+import { BarChart, Donut, HBars, LineChart, MultiLine } from "@/components/charts";
 import { hasWebGL, tiltHandlers, useFxLevel } from "@/lib/fx3d";
 import { lazy, Suspense, useMemo } from "react";
 const Chart3D = lazy(() => import("@/components/Chart3D"));
 import { planAllows } from "@/domain/features";
 import { formatFcfa } from "@/domain/money";
 import { PRESETS, type PresetId } from "@/domain/overview";
+import type { TrendRange } from "@/domain/overview-compare";
 import { useSubscription } from "./subscription";
 
 type Daily = { date: string; revenue: number; count: number };
 type Margin = { known: boolean; amount: number | null; pct: number | null; linesWithoutCost: number; coveragePct: number; indicative: number };
 type Overview = {
   tz: string; asOf: string; today: string; scope: { shopId: string; shops: { id: string; name: string }[]; many: boolean }; period: { preset: PresetId; label: string; from: string; to: string; days: number };
-  kpis: { today: { revenue: number; count: number }; month: { from: string; to: string; revenue: number; count: number }; period: { count: number; revenue: number; avgBasket: number; encaisse: number; credit: number; purchases: number; margin: Margin; refunds: { amount: number; count: number } };
+  kpis: { compare: { today: { prevRevenue: number; deltaPct: number | null }; month: { prevFrom: string; prevTo: string; prevRevenue: number; deltaPct: number | null }; basket: { prevFrom: string; prevTo: string; prevAvg: number; deltaPct: number | null }; period: { deltaPct: number | null } } | null; customers: { active30: number; prev30: number | null; deltaPct: number | null; note: string }; today: { revenue: number; count: number }; month: { from: string; to: string; revenue: number; count: number }; period: { count: number; revenue: number; avgBasket: number; encaisse: number; credit: number; purchases: number; margin: Margin; refunds: { amount: number; count: number } };
     stock: { articles: number; value: number | null; methodLabel: string; partial: boolean; low: number | null; out: number | null } };
-  charts: { last7: Daily[]; series: Daily[]; byMethod: { method: string; amount: number }[]; top: { key: string; name: string; qty: number; revenue: number }[]; byCategory: { category: string; revenue: number; qty: number }[]; byShop: { id: string; name: string; revenue: number; count: number }[] };
+  charts: { trend: Record<TrendRange, { current: Daily[]; previous: { date: string; revenue: number }[]; currentSpan: { from: string; to: string }; previousSpan: { from: string; to: string } | null }>; last7: Daily[]; series: Daily[]; byMethod: { method: string; amount: number }[]; top: { key: string; name: string; qty: number; revenue: number }[]; byCategory: { category: string; revenue: number; qty: number }[]; byShop: { id: string; name: string; revenue: number; count: number }[] };
   activity: { sales: { id: string; number: string; total: number; at: string; shop: string; methods: string[]; lines: { name: string; qty: number; amount: number }[] }[]; purchases: { id: string; number: string; supplier: string; total: number; status: string; at: string }[];
     moves: { id: string; name: string; label: string; qty: number; at: string; shop: string }[]; created: { id: string; name: string; price: number; at: string }[]; important: { id: string; name: string; label: string; qty: number; at: string }[] };
   alerts: { id: string; type: string; severity: "critical" | "warning" | "info"; label: string; detail: string; count: number; link: string }[]; truncated: { sales: boolean }; notes: string[];
 };
 const METHOD: Record<string, string> = { cash: "Espèces", wave: "Wave", orange: "Orange Money", card: "Carte", credit: "À crédit" };
+const TREND_LABEL: Record<TrendRange, string> = { "7": "7 derniers jours", "30": "30 derniers jours", month: "mois en cours" };
 const PO: Record<string, string> = { ordered: "Commandé", partial: "Partiel", received: "Reçu", cancelled: "Annulé" };
 const dt = (iso: string, tz: string) => new Date(iso).toLocaleString("fr-FR", { timeZone: tz, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const dd = (day: string) => `${day.slice(8)}/${day.slice(5, 7)}`;
@@ -35,11 +37,11 @@ const TONE = { critical: "border-bad/40 text-bad", warning: "border-warn/40 text
 function Skeleton() { return <div className="grid grid-cols-2 gap-2" aria-busy="true" aria-label="Chargement">{Array.from({ length: 8 }, (_, i) => <div key={i} className="card h-20 animate-pulse bg-subtle" />)}</div>; }
 const TINT = { green: "bg-[var(--tint-green-bg)] text-[var(--tint-green)]", blue: "bg-[var(--tint-blue-bg)] text-[var(--tint-blue)]", amber: "bg-[var(--tint-amber-bg)] text-[var(--tint-amber)]", violet: "bg-[var(--tint-violet-bg)] text-[var(--tint-violet)]", cyan: "bg-[var(--tint-cyan-bg)] text-[var(--tint-cyan)]", rose: "bg-[var(--tint-rose-bg)] text-[var(--tint-rose)]" } as const;
 type TintK = keyof typeof TINT;
-function Kpi({ label, value, sub, to, tone, def, i = 0, icon, tint = "blue" }: { label: string; value: string; sub: string; to?: string; tone?: string; def?: string; i?: number; icon?: LucideIcon; tint?: TintK }) {
+function Kpi({ label, value, sub, to, tone, def, i = 0, icon, tint = "blue", delta, vs }: { label: string; value: string; sub: string; to?: string; tone?: string; def?: string; i?: number; icon?: LucideIcon; tint?: TintK; /** écart réel en % ; absent si la période de comparaison est nulle */ delta?: number | null; vs?: string }) {
   const [flip, setFlip] = useState(false);
   const front = <span className="flex items-center gap-3 min-w-0">
     {icon && <span aria-hidden="true" className={`shrink-0 size-11 rounded-full flex items-center justify-center ${TINT[tint]}`}>{(() => { const I = icon; return <I size={22} />; })()}</span>}
-    <span className="min-w-0 flex flex-col"><span className="text-muted text-[0.8125rem] leading-4 pr-8">{label}</span><span className={`font-bold ${icon ? "text-xl" : "text-lg"} leading-tight text-brand whitespace-nowrap ${tone ?? ""}`}>{value}</span><span className="text-xs text-muted leading-snug">{sub}</span></span></span>;
+    <span className="min-w-0 flex flex-col"><span className="text-muted text-[0.8125rem] leading-4 pr-8">{label}</span><span className={`font-bold ${icon ? "text-xl" : "text-lg"} leading-tight text-brand whitespace-nowrap ${tone ?? ""}`}>{value}</span><span className="text-xs text-muted leading-snug">{sub}</span>{delta != null && <span className={`text-xs font-semibold inline-flex items-center gap-0.5 ${delta >= 0 ? "text-ok" : "text-bad"}`} aria-label={`${delta >= 0 ? "Hausse" : "Baisse"} de ${Math.abs(delta).toLocaleString("fr-FR")} % ${vs ?? ""}`}>{delta >= 0 ? "▲" : "▼"} {delta >= 0 ? "+" : ""}{delta.toLocaleString("fr-FR")} % <span className="font-normal text-muted">{vs}</span></span>}</span></span>;
   return (
     <div className="d3-flip d3-in relative h-full" style={{ ["--i" as string]: i }} data-flipped={flip} {...tiltHandlers(3)}>
       <div className="d3-flip-inner h-full">
@@ -131,6 +133,7 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
       <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Chiffre d'affaires, marge, stock, graphiques et alertes sur vos données réelles.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>
   );
   const proOn = planAllows(sub.data?.entitlement.plan.id, "proDashboard"); const d = q.data; const tz = d?.tz ?? "UTC"; const offline = typeof navigator !== "undefined" && !navigator.onLine; const k = d?.kpis; const per = k?.period;
+  const [trendRange, setTrendRange] = useState<TrendRange>("30"); const trend = d?.charts.trend?.[trendRange];
   const periodTxt = d ? (d.period.from === d.period.to ? dd(d.period.from) : `${dd(d.period.from)} → ${dd(d.period.to)}`) : "";
   const sale = d?.activity.sales.find((x) => x.id === open);
   return (
@@ -148,15 +151,17 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
       {d && k && per && <>
         {d.truncated.sales && <div className="card text-sm text-warn flex gap-2"><AlertTriangle size={16} />Volume de ventes très élevé : certaines ventes de la période n'ont pas été lues, les totaux peuvent être partiels.</div>}
         <section aria-label="Indicateurs" className={`grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 ${q.isFetching ? "opacity-70" : ""}`}>
-          <Kpi icon={ShoppingCart} tint="green" i={0} def={d.notes[0]} label="CA du jour" value={formatFcfa(k.today.revenue)} sub={`${dd(d.today)} · ventes terminées TTC`} />
-          <Kpi icon={Coins} tint="blue" i={1} def={d.notes[0]} label="CA du mois" value={formatFcfa(k.month.revenue)} sub={`${dd(k.month.from)} → ${dd(k.month.to)} · ventes terminées TTC`} />
-          <Kpi icon={Package} tint="amber" label="Articles actifs" value={String(k.stock.articles)} sub="À l'instant · non archivés" to="/articles" />
-          <Kpi icon={ShoppingBasket} tint="violet" i={3} label="Panier moyen" value={formatFcfa(per.avgBasket)} sub={`${periodTxt} · CA ÷ ventes`} />
+          <Kpi icon={ShoppingCart} tint="green" i={0} def={d.notes[0]} label="CA du jour" value={formatFcfa(k.today.revenue)} sub={`${dd(d.today)} · ventes terminées TTC`} delta={k.compare?.today.deltaPct} vs="vs hier à la même heure" />
+          <Kpi icon={Coins} tint="blue" i={1} def={d.notes[0]} label="CA du mois" value={formatFcfa(k.month.revenue)} sub={`${dd(k.month.from)} → ${dd(k.month.to)} · ventes terminées TTC`} delta={k.compare?.month.deltaPct} vs={k.compare ? `vs ${dd(k.compare.month.prevFrom)} → ${dd(k.compare.month.prevTo)}` : undefined} />
+          <Kpi icon={Users} tint="amber" i={2} def={k.customers.note} label="Clients actifs" value={String(k.customers.active30)} sub="30 derniers jours · avec fiche client" to={can(s, "customers") ? "/crm" : undefined} delta={k.customers.deltaPct} vs="vs 30 jours précédents" />
+          <Kpi icon={ShoppingBasket} tint="violet" i={3} label="Panier moyen" value={formatFcfa(per.avgBasket)} sub={`${periodTxt} · CA ÷ ventes`} delta={k.compare?.basket.deltaPct} vs={k.compare ? `vs ${dd(k.compare.basket.prevFrom)} → ${dd(k.compare.basket.prevTo)}` : undefined} />
         </section>
         <div className="grid xl:grid-cols-3 gap-4 items-start">
           <section aria-label="Évolution des ventes" className="card flex flex-col gap-2 xl:col-span-2 min-w-0">
-            <div className="flex items-start gap-2"><LineIcon size={22} className="text-accent shrink-0 mt-0.5" aria-hidden="true" /><div><h2 className="font-bold text-brand">Évolution des ventes</h2><p className="text-xs text-muted">Chiffre d'affaires · {d.period.label} ({periodTxt})</p></div></div>
-            {per.count ? <LineChart w={wideChart ? 760 : 320} label="Chiffre d'affaires de la période" data={d.charts.series.map((x) => ({ key: x.date, label: dd(x.date), value: x.revenue, sub: `${x.count} vente(s)` }))} /> : <p className="text-sm text-muted py-6 text-center">Aucune vente sur la période.</p>}
+            <div className="flex items-start gap-2 flex-wrap"><LineIcon size={22} className="text-accent shrink-0 mt-0.5" aria-hidden="true" /><div className="min-w-0 flex-1"><h2 className="font-bold text-brand">Évolution des ventes</h2><p className="text-xs text-muted">Chiffre d'affaires TTC · {TREND_LABEL[trendRange]}{trend ? ` (${dd(trend.currentSpan.from)} → ${dd(trend.currentSpan.to)})` : ""}{trend?.previousSpan ? ` · en pointillé : ${dd(trend.previousSpan.from)} → ${dd(trend.previousSpan.to)}` : ""}</p></div>
+              <div role="group" aria-label="Période de la courbe" className="flex gap-1">{(Object.keys(TREND_LABEL) as TrendRange[]).map((r) => <button key={r} type="button" className="chip !min-h-8 !py-1 !px-3 text-sm" aria-pressed={trendRange === r} onClick={() => setTrendRange(r)}>{r === "7" ? "7 jours" : r === "30" ? "30 jours" : "Mois en cours"}</button>)}</div></div>
+            {trend && trend.current.some((x) => x.count > 0) ? <MultiLine w={wideChart ? 760 : 320} label="Chiffre d'affaires de la période, comparé à la période précédente" labels={trend.current.map((x) => dd(x.date))}
+              series={[{ name: "Période", values: trend.current.map((x) => x.revenue) }, ...(trend.previousSpan && trend.previous.some((x) => x.revenue > 0) ? [{ name: "Période précédente", values: trend.current.map((_, i) => trend.previous[i]?.revenue ?? null), dashed: true }] : [])]} /> : <p className="text-sm text-muted py-6 text-center">Aucune vente sur cette période.</p>}
           </section>
           {!embedded && <DashMaster />}
         </div>
@@ -170,6 +175,7 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
         <section aria-label="Raccourcis" className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">{QUICK.filter((x) => can(s, x.p) && (!x.pro || proOn)).map(({ to, l, h, i: I, t }) => <Link key={l} to={to} className="card d3-card !p-3.5 flex items-center gap-3 hover:bg-subtle"><span aria-hidden="true" className={`size-11 shrink-0 rounded-full flex items-center justify-center ${TINT[t]}`}><I size={22} /></span><span className="min-w-0 flex-1"><b className="block text-sm">{l}</b><span className="text-xs text-muted">{h}</span></span><ChevronRight size={18} className="text-muted shrink-0" aria-hidden="true" /></Link>)}</section>
         <section aria-label="Indicateurs détaillés" className="flex flex-col gap-2"><h2 className="font-bold text-brand">Indicateurs détaillés</h2>
           <div className="grid grid-cols-1 min-[480px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <Kpi i={2} label="Articles actifs" value={String(k.stock.articles)} sub="À l'instant · non archivés" to="/articles" />
           <Kpi i={2} label="Ventes réalisées" value={String(per.count)} sub={`${periodTxt} · tickets terminés`} />
           <Kpi i={4} def={d.notes[1]} label="Encaissé" value={formatFcfa(per.encaisse)} sub={`${periodTxt} · hors crédit, monnaie exclue`} />
           <Kpi i={5} def={d.notes[2]} label="Remboursements" value={formatFcfa(per.refunds.amount)} sub={`${periodTxt} · ${per.refunds.count} opération(s) · CA net ${formatFcfa(per.revenue - per.refunds.amount)}`} tone={per.refunds.amount ? "text-warn" : ""} />

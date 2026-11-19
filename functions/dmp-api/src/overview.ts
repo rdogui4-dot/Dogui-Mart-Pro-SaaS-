@@ -1,6 +1,7 @@
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { methodLabel } from "../../../src/domain/costing";
 import { addDays, boundsOf, monthStart, resolvePeriod, summarize, todayIn, type SaleIn } from "../../../src/domain/overview";
+import { activeCustomers, pctDelta, prevMonthSpan, previousSpan, trendSpans, type TrendRange } from "../../../src/domain/overview-compare";
 import { needFeature } from "./articles";
 import { stockSnapshot } from "./stock-snapshot";
 import { HttpError, roleOf, needModule, type Ctx, type Row, type Store } from "./store";
@@ -9,7 +10,7 @@ const parse = <T,>(s: unknown, fb: T): T => { try { const v = JSON.parse(String(
 const MAX_SALES = 20_000, MAX_MOVES = 100_000, DAY = 864e5, STUCK_MS = 10 * 60_000;
 const at = (r: Row): string => String(r.$createdAt ?? r.createdOn ?? "");
 const iso = (v: unknown): string => { const t = Date.parse(String(v)); return Number.isNaN(t) ? "" : new Date(t).toISOString(); };
-const toSale = (r: Row): SaleIn & { shopId: string } => ({ id: r.$id, number: String(r.number ?? ""), total: Number(r.total), vat: Number(r.vat ?? 0), soldAt: iso(r.soldAt), status: String(r.status), payments: parse(r.payments, []), lines: parse(r.lines, []), shopId: String(r.shopId) });
+const toSale = (r: Row): SaleIn & { shopId: string; customerId?: string } => ({ id: r.$id, number: String(r.number ?? ""), total: Number(r.total), vat: Number(r.vat ?? 0), soldAt: iso(r.soldAt), status: String(r.status), payments: parse(r.payments, []), lines: parse(r.lines, []), shopId: String(r.shopId), customerId: r.customerId ? String(r.customerId) : undefined });
 const MOVE_LABEL: Record<string, string> = { sale: "Vente", purchase: "Réception d'achat", adjust: "Ajustement", loss: "Perte", transfer_in: "Transfert reçu", transfer_out: "Transfert envoyé", assembly_in: "Assemblage (entrée)", assembly_out: "Assemblage (sortie)" };
 
 /** Tableau de bord de l'activité (Business) : indicateurs réels de la boutique choisie (ou de toutes vos boutiques), jours en heure de l'entreprise.
@@ -23,9 +24,9 @@ export async function businessDashboard(store: Store, ctx: Ctx, b: { preset?: st
   if (!target.length) throw new HttpError(403, "Boutique non accessible");
   const home = all.find((s) => s.$id === ctx.shopId.slice(0, 36)) ?? target[0]!; const tz = home.promoTz && isTimezone(String(home.promoTz)) ? String(home.promoTz) : DEFAULT_TIMEZONE;
   const today = todayIn(now, tz); const mFrom = monthStart(today); const p = resolvePeriod(b.preset ?? "last30", today, { from: b.from, to: b.to }); if (!p.ok) throw new HttpError(400, p.error); const period = p.period;
-  const winFrom = [period.from, mFrom, addDays(today, -6)].sort()[0]!; const winTo = [period.to, today].sort().at(-1)!; const win = boundsOf(winFrom, winTo, tz);
+  const pmSpan = prevMonthSpan(today); const ppSpan = previousSpan(period); const winFrom = [period.from, mFrom, addDays(today, -6), addDays(today, -59), pmSpan.from, ppSpan.from].sort()[0]!; const winTo = [period.to, today].sort().at(-1)!; const win = boundsOf(winFrom, winTo, tz);
   const pb = boundsOf(period.from, period.to, tz); const since30 = new Date(now.getTime() - 30 * DAY).toISOString(); const since7 = new Date(now.getTime() - 7 * DAY).toISOString();
-  const rows: (SaleIn & { shopId: string })[] = []; const catOf = new Map<string, string>(); const nameOf = new Map<string, string>();
+  const rows: (SaleIn & { shopId: string; customerId?: string })[] = []; const catOf = new Map<string, string>(); const nameOf = new Map<string, string>();
   let refunds = 0, refundCount = 0, purchases = 0, truncSales = false, partialStock = false, stockValue: number | null = 0, articles = 0, noPrice: string[] = [];
   const out: { name: string; qty: number }[] = [], low: { name: string; qty: number; min: number }[] = []; const recentPurchases: Record<string, unknown>[] = [], recentMoves: Record<string, unknown>[] = [], created: Record<string, unknown>[] = [], important: Record<string, unknown>[] = [];
   const stuck: Row[] = []; const pending: Row[] = [];
@@ -55,6 +56,13 @@ export async function businessDashboard(store: Store, ctx: Ctx, b: { preset?: st
   }
   const per = summarize(rows, period, tz, (id) => catOf.get(id) ?? "");
   const day = summarize(rows, { from: today, to: today }, tz); const month = summarize(rows, { from: mFrom, to: today }, tz); const wk = summarize(rows, { from: addDays(today, -6), to: today }, tz);
+  // Comparaisons (kit écran 08) : jamais d'écart si la lecture des ventes est incomplète ou si la période de référence est nulle. « Hier » est pris jusqu'à la même heure.
+  const yest = addDays(today, -1); const yRows = rows.filter((r) => Date.parse(r.soldAt) <= now.getTime() - DAY); const yDay = summarize(yRows, { from: yest, to: yest }, tz); const pMonth = summarize(rows, pmSpan, tz); const pPer = summarize(rows, ppSpan, tz);
+  const compare = truncSales ? null : { today: { prevDate: yest, prevRevenue: yDay.revenue, deltaPct: pctDelta(day.revenue, yDay.revenue) }, month: { prevFrom: pmSpan.from, prevTo: pmSpan.to, prevRevenue: pMonth.revenue, deltaPct: pctDelta(month.revenue, pMonth.revenue) },
+    basket: { prevFrom: ppSpan.from, prevTo: ppSpan.to, prevAvg: pPer.avgBasket, deltaPct: pPer.count ? pctDelta(per.avgBasket, pPer.avgBasket) : null }, period: { prevFrom: ppSpan.from, prevTo: ppSpan.to, prevRevenue: pPer.revenue, deltaPct: pctDelta(per.revenue, pPer.revenue) } };
+  const c30 = { from: addDays(today, -29), to: today }, p30 = { from: addDays(today, -59), to: addDays(today, -30) }; const nowActive = activeCustomers(rows, tz, c30), prevActive = activeCustomers(rows, tz, p30);
+  const customers = { active30: nowActive, prev30: truncSales ? null : prevActive, deltaPct: truncSales ? null : pctDelta(nowActive, prevActive), span: c30, note: "Clients distincts ayant une vente terminée rattachée à leur fiche sur 30 jours ; les ventes au comptoir sans fiche client ne sont pas comptées." };
+  const trend = Object.fromEntries((["7", "30", "month"] as TrendRange[]).map((r) => { const t = trendSpans(r, today); return [r, { currentSpan: t.cur, previousSpan: truncSales ? null : t.prev, current: summarize(rows, t.cur, tz).daily, previous: truncSales ? [] : summarize(rows, t.prev, tz).daily.map((x) => ({ date: x.date, revenue: x.revenue })) }]; }));
   const recentSales = rows.filter((s) => s.status === "paid").sort((a, c) => c.soldAt.localeCompare(a.soldAt)).slice(0, 10).map((s) => ({ id: s.id, number: s.number, total: s.total, at: s.soldAt, shop: all.find((x) => x.$id === s.shopId)?.name ? String(all.find((x) => x.$id === s.shopId)!.name) : s.shopId, methods: [...new Set(s.payments.map((x) => x.method))], lines: s.lines.slice(0, 20).map((l) => ({ name: l.name, qty: l.qty, amount: l.amount ?? Math.round(l.unitPrice * l.qty) })) }));
   const byShop = target.length > 1 ? target.map((s) => { const r = summarize(rows.filter((x) => x.shopId === s.$id), period, tz); return { id: String(s.$id), name: String(s.name ?? s.$id), revenue: r.revenue, count: r.count }; }) : [];
   const top = <T,>(list: T[], key: (x: T) => number, n = 10) => [...list].sort((a, c) => key(c) - key(a)).slice(0, n);
@@ -71,9 +79,10 @@ export async function businessDashboard(store: Store, ctx: Ctx, b: { preset?: st
     kpis: {
       today: { from: today, to: today, revenue: day.revenue, count: day.count }, month: { from: mFrom, to: today, revenue: month.revenue, count: month.count },
       period: { count: per.count, revenue: per.revenue, avgBasket: per.avgBasket, encaisse: per.encaisse, credit: per.credit, vat: per.vat, purchases, margin: per.margin, refunds: { amount: refunds, count: refundCount } },
+      compare, customers,
       stock: { articles, value: stockValue, method: costMethod, methodLabel: methodLabel(costMethod), partial: partialStock, low: partialStock ? null : low.length, out: partialStock ? null : out.length },
     },
-    charts: { last7: wk.daily, series: per.daily, byMethod: Object.entries(per.byMethod).map(([method, amount]) => ({ method, amount })).sort((a, c) => c.amount - a.amount), top: per.top, byCategory: per.byCategory, byShop },
+    charts: { trend, last7: wk.daily, series: per.daily, byMethod: Object.entries(per.byMethod).map(([method, amount]) => ({ method, amount })).sort((a, c) => c.amount - a.amount), top: per.top, byCategory: per.byCategory, byShop },
     activity: { sales: recentSales, purchases: top(recentPurchases, (x) => Date.parse(String(x.at)) || 0, 5), moves: top(recentMoves, (x) => Date.parse(String(x.at)) || 0, 10), created: top(created, (x) => Date.parse(String(x.at)) || 0, 5), important: top(important, (x) => Date.parse(String(x.at)) || 0, 10) },
     alerts, truncated: { sales: truncSales },
     notes: ["Chiffre d'affaires = ventes terminées (TTC) ; une vente non finalisée n'est jamais comptée.", "Encaissé = paiements reçus hors crédit ; « à crédit » = vendu mais pas encore payé ; la monnaie rendue n'est pas un encaissement.", "Annulation complète : la vente est exclue du chiffre d'affaires. Remboursement partiel : la vente reste comptée et le montant remboursé (opérations tracées) est affiché séparément ; il se déduit du CA net.", "Les dépenses hors achats ne sont pas saisies dans l'application : seuls les achats enregistrés (compte 601, HT) sont affichés.", "La marge n'est calculée que si toutes les lignes vendues ont un coût de revient connu.", "Les écarts d'inventaire sont appliqués immédiatement au stock (aucun écart « en attente ») : ils figurent dans les opérations importantes."],

@@ -10,9 +10,9 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   for (let d = 0; d < 8; d++) await h.call("checkout", { clientId: "k" + d + Math.random().toString(36).slice(2, 9), lines: [{ productId: eau, qty: d + 2 }, { productId: jus, qty: 1 }, ...(d % 2 ? [{ productId: the, qty: 1 }] : [])], payments: [{ method: "cash", amount: (d + 2) * 500 + 1000 + (d % 2 ? 800 : 0) }], soldAt: new Date(Date.now() - d * 864e5).toISOString() }, A);
   const open = async (w = 1280, hh = 900) => { await page.setViewportSize({ width: w, height: hh }); await page.goto(h.url("activite")); await page.waitForSelector("text=CA du jour", { timeout: 15000 }); await page.waitForTimeout(1500); };
 
-  await step("indicateurs : 4 cartes à pastille (CA du jour, CA du mois, articles actifs, panier moyen), valeurs réelles", async () => {
+  await step("indicateurs : 4 cartes à pastille (CA du jour, CA du mois, clients actifs, panier moyen), valeurs réelles", async () => {
     await open(); const ind = page.getByRole("region", { name: "Indicateurs", exact: true });
-    const t = await ind.innerText(); for (const x of ["CA du jour", "CA du mois", "Articles actifs", "Panier moyen"]) if (!t.includes(x)) throw new Error("absent : " + x);
+    const t = await ind.innerText(); for (const x of ["CA du jour", "CA du mois", "Clients actifs", "Panier moyen"]) if (!t.includes(x)) throw new Error("absent : " + x);
     if (!/CA du jour\s+2\s?000 FCFA/.test(t)) throw new Error("CA du jour : " + t.slice(0, 200)); if ((await ind.locator(".d3-flip").count()) !== 4) throw new Error("nombre de cartes");
   });
   await step("évolution des ventes, répartition par mode de paiement, top 5 classé, activités récentes", async () => {

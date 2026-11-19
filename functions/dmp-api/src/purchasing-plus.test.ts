@@ -439,3 +439,38 @@ describe("réclamations et avoirs fournisseur", () => {
     expect((await ok(call("own", "fin.accounts"))).accounts[0].balance).toBe(10_800); const r2 = await ok(call("own", "credit.refund", { id, amount: 200, method: "card", requestKey: k() })); expect(r2.treasuryWarning).toBeUndefined(); expect((await ok(call("own", "fin.accounts"))).accounts[0].balance).toBe(11_000);
   });
 });
+
+describe("modification d'un bon de réception (K21)", () => {
+  const lines = (a: number) => [{ productId: P1, accepted: a }];
+  it("brouillon : quantités, bon de livraison, date et notes se modifient librement, sans stock créé ; autre commande refusée", async () => {
+    const po = await validatedPo(); const r = await ok(rec(po, lines(4), { deliveryNote: "BL-001" }));
+    await ok(call("ger", "purch.receipt.save", { id: r.id, poId: po, deliveryNote: "BL-002", receivedOn: day(-1), notes: "corrigé", lines: [{ productId: P1, accepted: 6, damaged: 1 }] }));
+    const g = await ok(call("ger", "purch.receipt.get", { id: r.id })); expect(g).toMatchObject({ status: "draft", deliveryNote: "BL-002", receivedOn: day(-1), notes: "corrigé" }); expect(g.lines[0]).toMatchObject({ accepted: 6, damaged: 1 }); expect(g.events.some((e: any) => e.kind === "update")).toBe(true);
+    expect(await stockFor(st, "p1")).toBe(10); // aucun stock créé tant que le brouillon n'est pas validé
+    const po2 = await validatedPo(); await err(call("ger", "purch.receipt.save", { id: r.id, poId: po2, deliveryNote: "BL-002", lines: lines(1) }), 404);
+    await err(call("ger", "purch.receipt.save", { id: r.id, poId: po, deliveryNote: "BL-002", lines: lines(99) }), 409, "dépasse le restant");
+  });
+  it("réception validée : le contenu et les quantités ne se modifient plus par l'enregistrement normal", async () => {
+    const po = await validatedPo(); const id = await recOk(po, lines(4));
+    await err(call("ger", "purch.receipt.save", { id, poId: po, deliveryNote: "BL-X", lines: lines(5) }), 409, "validée ne se modifie plus");
+  });
+  it("correction d'une réception validée : gérant, motif obligatoire, bon de livraison / date / notes seulement ; stock et commande inchangés ; avant/après tracés", async () => {
+    const po = await validatedPo(); const id = await recOk(po, lines(4), { deliveryNote: "BL-OLD", notes: "RAS" }); const stock = await stockFor(st, "p1"); const before = await ok(call("ger", "purch.po.get", { id: po }));
+    await err(call("stk", "purch.receipt.amend", { id, reason: "Erreur de saisie", deliveryNote: "BL-NEW" }), 403);
+    await err(call("ger", "purch.receipt.amend", { id, deliveryNote: "BL-NEW" }), 400, "Motif");
+    await err(call("ger", "purch.receipt.amend", { id, reason: "Erreur de saisie" }), 400, "Aucune modification");
+    await err(call("ger", "purch.receipt.amend", { id, reason: "Erreur de saisie", receivedOn: day(2) }), 400, "futur");
+    const r = await ok(call("ger", "purch.receipt.amend", { id, reason: "Numéro de BL mal saisi", deliveryNote: "BL-NEW", receivedOn: day(-2), notes: "Livraison du matin" })); expect(r.changed.sort()).toEqual(["deliveryNote", "notes", "receivedOn"]);
+    const g = await ok(call("ger", "purch.receipt.get", { id })); expect(g).toMatchObject({ status: "validated", deliveryNote: "BL-NEW", receivedOn: day(-2), notes: "Livraison du matin" }); expect(g.lines[0].accepted).toBe(4);
+    const ev = g.events.find((e: any) => JSON.stringify(e).includes("Numéro de BL mal saisi")); expect(ev).toBeTruthy(); expect(JSON.stringify(ev)).toContain("BL-OLD"); expect(JSON.stringify(ev)).toContain("BL-NEW");
+    expect(await stockFor(st, "p1")).toBe(stock); const after = await ok(call("ger", "purch.po.get", { id: po })); expect(after.state).toBe(before.state); expect(st.rows("audit_log").some((a) => a.action === "receipt.amend")).toBe(true); expect(balanced()).toBe(true);
+  });
+  it("correction : doublon de bon de livraison signalé (confirmation possible) ; brouillon, annulée et autre boutique refusés", async () => {
+    const po = await validatedPo(); const a = await recOk(po, lines(2), { deliveryNote: "BL-A" }); const b = await recOk(po, lines(2), { deliveryNote: "BL-B" });
+    await err(call("ger", "purch.receipt.amend", { id: b, reason: "BL identique au premier", deliveryNote: "bl-a" }), 409, "DOUBLE_BL");
+    await ok(call("ger", "purch.receipt.amend", { id: b, reason: "Livraison distincte confirmée", deliveryNote: "BL-A", confirmDuplicate: true }));
+    const d = await ok(rec(po, lines(1), { deliveryNote: "BL-D" })); await err(call("ger", "purch.receipt.amend", { id: d.id, reason: "Brouillon à corriger", notes: "x" }), 409, "directement");
+    await ok(call("ger", "purch.receipt.cancel", { id: d.id, reason: "Doublon" })); await err(call("ger", "purch.receipt.amend", { id: d.id, reason: "Réception annulée", notes: "x" }), 409, "annulée");
+    await err(call("gerB", "purch.receipt.amend", { id: a, reason: "Autre boutique", notes: "x" }, B), 404);
+  });
+});

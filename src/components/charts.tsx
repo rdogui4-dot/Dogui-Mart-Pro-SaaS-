@@ -82,7 +82,7 @@ export function MultiLine({ labels, series, label, w = 380, format = formatFcfa 
       {series.map((s, si) => { const c = s.color ?? PALETTE[si % PALETTE.length]; const segs: string[] = []; let cur = ""; s.values.forEach((v, i) => { if (v === null) { if (cur) segs.push(cur); cur = ""; } else cur += `${cur ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; }); if (cur) segs.push(cur);
         return <g key={s.name}>{segs.map((d, k) => <path key={k} d={d} fill="none" stroke={c} strokeWidth={2} strokeDasharray={s.dashed ? "5 4" : undefined} strokeLinejoin="round" />)}{s.values.map((v, i) => (v === null ? null : <circle key={i} cx={x(i)} cy={y(v)} r={sel === i ? 4 : 2.5} fill={c} />))}</g>; })}
       {sel !== null && <line x1={x(sel)} y1={4} x2={x(sel)} y2={H - 6} stroke="currentColor" strokeOpacity={0.3} />}
-      {labels.map((l, i) => (labels.length <= 8 || i % Math.ceil(labels.length / 8) === 0 || i === labels.length - 1 ? <text key={i} x={x(i)} y={H + 10} fontSize={fs} textAnchor={i === 0 ? "start" : i === labels.length - 1 ? "end" : "middle"} fill="currentColor" fillOpacity={0.6}>{l}</text> : null))}
+      {labels.map((l, i) => { const every = Math.ceil(labels.length / 8), last = labels.length - 1; return (labels.length <= 8 || (i % every === 0 && last - i >= Math.ceil(every / 2)) || i === last ? <text key={i} x={x(i)} y={H + 10} fontSize={fs} textAnchor={i === 0 ? "start" : i === last ? "end" : "middle"} fill="currentColor" fillOpacity={0.6}>{l}</text> : null); })}
     </svg>
   </div>;
 }

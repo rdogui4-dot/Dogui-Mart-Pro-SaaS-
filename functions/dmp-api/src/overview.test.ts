@@ -115,3 +115,32 @@ describe("stock, achats et alertes (événements réels uniquement)", () => {
     expect(all.scope.many).toBe(true);
   });
 });
+
+describe("comparaisons, clients actifs et courbes (K21)", () => {
+  const sale = (id: string, total: number, soldAt: string, customerId?: string) => st.create("sales", id, T, { tenantId: T, shopId: A, number: id, total, vat: 0, status: "paid", soldAt, payments: JSON.stringify([{ method: "cash", amount: total }]), lines: JSON.stringify([{ productId: eau, name: "Eau", qty: 1, unitPrice: total, amount: total }]), clientId: id, ...(customerId ? { customerId } : {}) });
+  const daysAgo = (d: number, h = 0) => new Date(Date.now() - d * 864e5 - h * 3_600_000).toISOString();
+  it("aucun écart tant que la période de référence est vide ; courbes de 7 jours, 30 jours et mois en cours fournies", async () => {
+    await sale("s-now-0001", 5000, daysAgo(0, 0.1));
+    const d = await dash({ preset: "today" });
+    expect(d.kpis.compare.today.deltaPct).toBeNull(); expect(d.kpis.compare.today.prevRevenue).toBe(0);
+    expect(Object.keys(d.charts.trend).sort()).toEqual(["30", "7", "month"]); expect(d.charts.trend["7"].current).toHaveLength(7); expect(d.charts.trend["30"].current).toHaveLength(30); expect(d.charts.trend["7"].previous).toHaveLength(7);
+    expect(d.charts.trend.month.current.at(-1).revenue).toBe(5000);
+  });
+  it("CA du jour comparé à hier à la même heure ; période comparée à la période précédente de même durée ; panier moyen", async () => {
+    await sale("s-now-0001", 6000, daysAgo(0, 0.1)); await sale("s-yes-0001", 4000, daysAgo(1, 0.2)); await sale("s-yes-0002", 9000, daysAgo(1, -5)); // hier mais plus tard dans la journée : exclue de la comparaison à heure égale
+    await sale("s-p7-0001", 2000, daysAgo(10)); await sale("s-p7-0002", 2000, daysAgo(11));
+    const d = await dash({ preset: "last7" }); const c = d.kpis.compare;
+    expect(c.today.prevRevenue).toBe(4000); expect(c.today.deltaPct).toBe(50);
+    expect(c.period.prevRevenue).toBe(4000); expect(c.basket.prevAvg).toBe(2000); expect(c.basket.deltaPct).toBe(c.basket.prevAvg > 0 ? Math.round(((d.kpis.period.avgBasket - 2000) / 2000) * 1000) / 10 : null);
+    expect(d.kpis.compare.period.deltaPct).toBe(Math.round(((d.kpis.period.revenue - 4000) / 4000) * 1000) / 10);
+  });
+  it("clients actifs : clients distincts sur 30 jours avec fiche ; ventes au comptoir exclues ; comparaison aux 30 jours précédents", async () => {
+    await sale("s-c1-0001", 1000, daysAgo(2), "client0001"); await sale("s-c1-0002", 1000, daysAgo(3), "client0001"); await sale("s-c2-0001", 1000, daysAgo(5), "client0002"); await sale("s-cp-0001", 1000, daysAgo(4));
+    await sale("s-old-0001", 1000, daysAgo(40), "client0003");
+    const d = await dash({ preset: "today" }); expect(d.kpis.customers.active30).toBe(2); expect(d.kpis.customers.prev30).toBe(1); expect(d.kpis.customers.deltaPct).toBe(100); expect(d.kpis.customers.note).toContain("comptoir");
+  });
+  it("isolation : les ventes d'un autre commerce ne comptent ni dans les écarts ni dans les clients", async () => {
+    await st.create("sales", "other-0001", T2, { tenantId: T2, shopId: X, number: "O1", total: 99999, vat: 0, status: "paid", soldAt: daysAgo(1, 0.2), payments: "[]", lines: "[]", clientId: "other-0001", customerId: "clientX001" });
+    const d = await dash({ preset: "today" }); expect(d.kpis.compare.today.prevRevenue).toBe(0); expect(d.kpis.customers.active30).toBe(0);
+  });
+});
