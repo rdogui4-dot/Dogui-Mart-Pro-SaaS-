@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Ban, Plus, ScanLine, Trash2, Undo2 } from "lucide-react";
-import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
+import { Query } from "@/lib/appwrite";
+import { dataSource } from "@/lib/backend";
 import { api } from "@/lib/api";
 import { list, type Row } from "@/lib/data";
 import type { ArticleRow } from "@/lib/articles";
@@ -25,7 +26,7 @@ export function useLots(productId: string) {
       const lots = await list<LotRow>("article_lots", s, [Query.equal("productId", productId)], 500);
       const by = new Map<string, number>(); let cursor: string | undefined;
       for (;;) {
-        const page = (await tables.listRows({ databaseId: DATABASE_ID, tableId: "stock_moves", queries: [Query.equal("tenantId", s.tenantId), Query.equal("shopId", s.shopId), Query.equal("productId", productId), Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row<{ lotId?: string; qty: number; kind: string }>[];
+        const page = (await dataSource().listRows("stock_moves", [Query.equal("tenantId", s.tenantId), Query.equal("shopId", s.shopId), Query.equal("productId", productId), Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])])).rows as unknown as Row<{ lotId?: string; qty: number; kind: string }>[];
         for (const m of page) if (m.lotId) { const d = m.kind === "adjust" ? Number(m.qty) : (["sale", "loss", "transfer_out"].includes(m.kind) ? -1 : 1) * Math.abs(Number(m.qty)); by.set(m.lotId, (by.get(m.lotId) ?? 0) + d); }
         if (page.length < 100) break; cursor = page[page.length - 1]!.$id;
       }
@@ -170,7 +171,7 @@ export function useExpiryAlerts(enabled: boolean) {
       for (const id of new Set(lots.map((l) => l.productId))) {
         let cursor: string | undefined;
         for (;;) {
-          const page = (await tables.listRows({ databaseId: DATABASE_ID, tableId: "stock_moves", queries: [Query.equal("tenantId", s.tenantId), Query.equal("shopId", s.shopId), Query.equal("productId", id), Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row<{ lotId?: string; qty: number; kind: string }>[];
+          const page = (await dataSource().listRows("stock_moves", [Query.equal("tenantId", s.tenantId), Query.equal("shopId", s.shopId), Query.equal("productId", id), Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])])).rows as unknown as Row<{ lotId?: string; qty: number; kind: string }>[];
           for (const m of page) if (m.lotId) { const d = m.kind === "adjust" ? Number(m.qty) : (["sale", "loss", "transfer_out"].includes(m.kind) ? -1 : 1) * Math.abs(Number(m.qty)); by.set(m.lotId, (by.get(m.lotId) ?? 0) + d); }
           if (page.length < 100) break; cursor = page[page.length - 1]!.$id;
         }

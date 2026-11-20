@@ -2,7 +2,8 @@ import { useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Pencil, Plus, Star, Trash2, TrendingDown, TrendingUp } from "lucide-react";
 import { api } from "@/lib/api";
-import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
+import { Query } from "@/lib/appwrite";
+import { dataSource } from "@/lib/backend";
 import type { ArticleRow } from "@/lib/articles";
 import { can, useSession } from "@/lib/session";
 import { list, type Row, type Supplier, type VariantRow } from "@/lib/data";
@@ -14,7 +15,7 @@ import { formatQty } from "@/domain/quantity";
 
 export type LinkRow = Row<{ productId: string; variantId?: string; supplierId: string; supplierRef?: string; price: number; leadDays?: number; minQty?: number; feePct?: number; lastPrice?: number; lastPurchaseAt?: string; status?: string }>;
 export type CostEventRow = Row<{ productId: string; variantId?: string; supplierId?: string; kind: string; unitCost?: number; landedCost?: number; qty?: number; costBefore?: number; costAfter?: number; method?: string; ref?: string }>;
-const q = (table: string, productId: string, limit: number) => tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [Query.equal("productId", productId), ...(table === "article_cost_events" ? [Query.orderDesc("$createdAt")] : []), Query.limit(limit)] });
+const q = (table: string, productId: string, limit: number) => dataSource().listRows(table, [Query.equal("productId", productId), ...(table === "article_cost_events" ? [Query.orderDesc("$createdAt")] : []), Query.limit(limit)]);
 export const useLinks = (productId: string) => useQuery({ queryKey: ["links", productId], queryFn: async () => (await q("article_suppliers", productId, 100)).rows as unknown as LinkRow[] });
 export const useCostEvents = (productId: string) => useQuery({ queryKey: ["cost-events", productId], queryFn: async () => (await q("article_cost_events", productId, 50)).rows as unknown as CostEventRow[] });
 const dateFr = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "");

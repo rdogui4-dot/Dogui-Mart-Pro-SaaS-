@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { DATABASE_ID, Query, account, tables, teams } from "./appwrite";
+import { Query, account, teams } from "./appwrite";
+import { dataSource } from "./backend";
 import { api } from "./api";
 import { MODULES, isStaffRole, modulesFor, type Module, type StaffRole } from "@/domain/access";
 import { clearCache, restoreCache, startPersist } from "./persist";
@@ -28,7 +29,7 @@ const remembered = (userId: string): string | null => { try { return localStorag
 const remember = (userId: string, id: string) => { try { localStorage.setItem(KEY(userId), id); } catch { /* navigation privée : on s'en passe */ } };
 
 async function listShops(tenantId: string): Promise<ShopInfo[]> {
-  const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: "shops", queries: [Query.equal("tenantId", tenantId), Query.limit(50)] });
+  const r = await dataSource().listRows("shops", [Query.equal("tenantId", tenantId), Query.limit(50)]);
   return r.rows.map((x) => ({ id: x.$id, name: String((x as unknown as { name?: string }).name ?? x.$id) }));
 }
 
@@ -67,7 +68,7 @@ async function loadOnline(): Promise<Session | null> {
     if (role !== "owner") { // un employé ne voit que les boutiques qui lui sont affectées
       let ids: string[] = []; modules = [];
       try {
-        const st = (await tables.getRow({ databaseId: DATABASE_ID, tableId: "staff", rowId: me.$id })) as unknown as { shopIds?: string; active?: boolean; role?: string; access?: string };
+        const st = (await dataSource().getRow("staff", me.$id)) as unknown as { shopIds?: string; active?: boolean; role?: string; access?: string };
         if (st.active !== false) { ids = JSON.parse(st.shopIds ?? "[]"); role = (isStaffRole(st.role) ? st.role : role) as Role; modules = modulesFor(role, st.access); }
       } catch (e) { if ((e as { code?: number })?.code !== 404) throw e; /* pas de fiche (404) : aucun accès ; toute autre erreur (réseau…) remonte et ramène à la session en cache */ }
       shops = shops.filter((s) => ids.includes(s.id));

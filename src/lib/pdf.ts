@@ -16,8 +16,7 @@ const logoCache = new Map<string, Logo | null>();
 async function logoDataUrl(fileId: string): Promise<Logo | null> {
   if (logoCache.has(fileId)) return logoCache.get(fileId)!;
   try {
-    const env = import.meta.env; let fallback = ""; try { fallback = localStorage.getItem("cookieFallback") ?? ""; } catch { /* navigation privée */ }
-    const r = await fetch(`${env.VITE_APPWRITE_ENDPOINT}/storage/buckets/articles/files/${fileId}/view`, { headers: { "X-Appwrite-Project": String(env.VITE_APPWRITE_PROJECT_ID), "X-Fallback-Cookies": fallback }, credentials: "include" });
+    const { backend } = await import("./backend"); const r = await backend().files.fetch(fileId, "view"); // chargé à la demande : la fabrication de PDF n'a pas besoin du SDK serveur
     if (!r.ok) throw new Error(String(r.status)); const bmp = await createImageBitmap(await r.blob()); const max = 400; const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
     const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
     const v = { url: c.toDataURL("image/png"), ratio: c.width / Math.max(1, c.height) }; logoCache.set(fileId, v); return v;

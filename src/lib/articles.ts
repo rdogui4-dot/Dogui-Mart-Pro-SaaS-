@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { DATABASE_ID, Query, tables } from "./appwrite";
+import { Query } from "./appwrite";
+import { backend, dataSource } from "./backend";
 import type { Session } from "./session";
 import type { Row } from "./data";
 
@@ -27,12 +28,12 @@ export function articleQueries(s: Session, f: Filters, cursor?: string): string[
   ];
 }
 export async function fetchArticles(s: Session, f: Filters, cursor?: string): Promise<{ rows: ArticleRow[]; next?: string; total: number }> {
-  const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: "products", queries: articleQueries(s, f, cursor) });
+  const r = await dataSource().listRows("products", articleQueries(s, f, cursor));
   const rows = r.rows as unknown as ArticleRow[];
   return { rows, total: r.total, next: rows.length === PAGE_SIZE ? rows[rows.length - 1]!.$id : undefined };
 }
 export async function fetchPriceHistory(s: Session, productId: string): Promise<PriceHistoryRow[]> {
-  const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: "price_history", queries: [Query.equal("productId", productId), Query.orderDesc("$createdAt"), Query.limit(50)] });
+  const r = await dataSource().listRows("price_history", [Query.equal("productId", productId), Query.orderDesc("$createdAt"), Query.limit(50)]);
   void s; return r.rows as unknown as PriceHistoryRow[];
 }
 
@@ -62,11 +63,9 @@ export function useArticleImage(fileId?: string, size = 200): string | null {
     if (!key || !fileId) { setUrl(null); return; }
     const hit = cache.get(key); if (hit) { setUrl(hit); return; }
     let live = true;
-    const env = import.meta.env; let fallback = ""; try { fallback = localStorage.getItem("cookieFallback") ?? ""; } catch { /* navigation privée */ }
-    const base = `${env.VITE_APPWRITE_ENDPOINT}/storage/buckets/articles/files/${fileId}`; const init: RequestInit = { headers: { "X-Appwrite-Project": String(env.VITE_APPWRITE_PROJECT_ID), "X-Fallback-Cookies": fallback }, credentials: "include" };
     // L'aperçu redimensionné (transformations d'image) n'est pas disponible sur toutes les formules Appwrite : à défaut, on affiche le fichier d'origine (déjà compressé à l'enregistrement).
-    fetch(`${base}/preview?width=${size}&height=${size}&output=webp`, init)
-      .then((r) => (r.ok ? r : fetch(`${base}/view`, init)))
+    backend().files.fetch(fileId, "preview", size)
+      .then((r) => (r.ok ? r : backend().files.fetch(fileId, "view")))
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
       .then((b) => { const u = URL.createObjectURL(b); cache.set(key, u); if (live) setUrl(u); })
       .catch(() => { if (live) setUrl(null); });

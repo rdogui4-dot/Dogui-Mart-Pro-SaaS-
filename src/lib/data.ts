@@ -1,4 +1,5 @@
-import { DATABASE_ID, Query, tables } from "./appwrite";
+import { Query } from "./appwrite";
+import { dataSource } from "./backend";
 import type { Shop } from "@/domain/documents";
 import { api } from "./api";
 import { delta } from "@/domain/stock";
@@ -18,7 +19,7 @@ export async function list<T>(table: string, s: Session, extra: string[] = [], l
   // Une page Appwrite est plafonnée (100 lignes) : au-delà, on pagine par curseur au lieu de tronquer la liste sans le dire.
   const rows: Row<T>[] = []; let cursor: string | undefined;
   while (rows.length < limit) {
-    const page = (await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [...scope(s), Query.limit(Math.min(100, limit - rows.length)), Query.orderDesc("$createdAt"), ...extra, ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row<T>[];
+    const page = (await dataSource().listRows(table, [...scope(s), Query.limit(Math.min(100, limit - rows.length)), Query.orderDesc("$createdAt"), ...extra, ...(cursor ? [Query.cursorAfter(cursor)] : [])])).rows as unknown as Row<T>[];
     if (!page.length) break;
     rows.push(...page); cursor = page[page.length - 1]!.$id;
     if (limit <= 100 || page.length < Math.min(100, limit - rows.length + page.length)) break; // dernière page
@@ -33,7 +34,7 @@ export const saveEntity = (s: Session, table: "products" | "customers" | "suppli
 export async function listAll<T>(table: string, s: Session, maxRows = 200_000): Promise<Row<T>[]> {
   const rows: Row<T>[] = []; let cursor: string | undefined;
   for (;;) {
-    const page = (await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [...scope(s), Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row<T>[];
+    const page = (await dataSource().listRows(table, [...scope(s), Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])])).rows as unknown as Row<T>[];
     if (!page.length || rows.length + page.length > maxRows) return rows.concat(page.slice(0, Math.max(0, maxRows - rows.length)));
     rows.push(...page); cursor = page[page.length - 1]!.$id;
   }
@@ -62,13 +63,13 @@ export async function stockLevels(s: Session): Promise<Map<string, number>> {
 
 /** Fiche boutique (en-tête des documents). Absente tant que le propriétaire ne l'a pas renseignée. */
 export async function getShop(s: Session): Promise<Shop | null> {
-  try { return (await tables.getRow({ databaseId: DATABASE_ID, tableId: "shops", rowId: s.shopId.slice(0, 36) })) as unknown as Shop; }
+  try { return (await dataSource().getRow("shops", s.shopId.slice(0, 36))) as unknown as Shop; }
   catch { return null; }
 }
 
 /** Tables propres au commerce entier (boutiques, employés) : pas de filtre par boutique. */
 export async function listTenant<T>(table: string, s: Session, limit = 100): Promise<Row<T>[]> {
-  const r = await tables.listRows({ databaseId: DATABASE_ID, tableId: table, queries: [Query.equal("tenantId", s.tenantId), Query.limit(limit)] });
+  const r = await dataSource().listRows(table, [Query.equal("tenantId", s.tenantId), Query.limit(limit)]);
   return r.rows as unknown as Row<T>[];
 }
 

@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { AlertTriangle, BarChart3, ChevronDown, Coins, Download, Eye, FileText, Filter, LayoutGrid, Lock, Package, Percent, RefreshCw, RotateCw, ShoppingCart, TrendingDown, TrendingUp, Users, WifiOff, Zap } from "lucide-react";
 import { InsightCard, KpiRow, KpiTile, ModuleHeader, Panel, PillTabs, type Insight, type PillTab } from "@/components/kit";
 import { api } from "@/lib/api";
-import { client } from "@/lib/appwrite";
+import { backend } from "@/lib/backend";
 import { useSession } from "@/lib/session";
 import { Sheet } from "@/components/ui";
 import { BarChart, Donut, HBars, LineChart, MultiLine, PALETTE } from "@/components/charts";
@@ -77,8 +77,8 @@ export function PilotagePage() {
   const k = useQuery({ queryKey: ["pro-dash", s.shopId, { space: "kit", ...base }], enabled: allowed && ready, placeholderData: keepPreviousData, staleTime: 60_000, retry: 1, queryFn: () => api<Any>(s, "dashboard.pro", { space: "kit", ...base }) });
   const opts = useQuery({ queryKey: ["pro-options", s.shopId], enabled: allowed && showF, staleTime: 5 * 60_000, queryFn: () => api<Any>(s, "dashboard.options", { shopId: "all" }) });
   // Temps réel : une vente ou un mouvement enregistré invalide les indicateurs (aucun chiffre n'est modifié côté client).
-  useEffect(() => { if (!allowed) return; let un: (() => void) | undefined; let timer: ReturnType<typeof setTimeout> | undefined; const db = import.meta.env.VITE_APPWRITE_DATABASE_ID || "dmp";
-    try { un = client.subscribe([`databases.${db}.tables.sales.rows`, `databases.${db}.tables.stock_moves.rows`, `databases.${db}.tables.purchase_orders.rows`], () => { clearTimeout(timer); timer = setTimeout(() => void qc.invalidateQueries({ queryKey: ["pro-dash"] }), 1500); }) as unknown as () => void; setLive(true); } catch { setLive(false); }
+  useEffect(() => { if (!allowed) return; let un: (() => void) | undefined; let timer: ReturnType<typeof setTimeout> | undefined; const db = backend().databaseId;
+    try { un = backend().realtime.subscribe([`databases.${db}.tables.sales.rows`, `databases.${db}.tables.stock_moves.rows`, `databases.${db}.tables.purchase_orders.rows`], () => { clearTimeout(timer); timer = setTimeout(() => void qc.invalidateQueries({ queryKey: ["pro-dash"] }), 1500); }); setLive(true); } catch { setLive(false); }
     return () => { clearTimeout(timer); try { un?.(); } catch { /* déjà fermé */ } }; }, [allowed, qc]);
   if (!allowed) return (
     <div className="flex flex-col gap-3"><ModuleHeader icon={BarChart3} title="Rapports & Analyses" subtitle="Mesurez, comprenez et optimisez la performance de votre activité." /><div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Pro</span><span className="text-muted">Performance commerciale, rentabilité, stocks, achats, magasins, clients, prévisions et rapports exportables. Votre tableau de bord de l'accueil reste disponible.</span><button className="btn !py-2 self-start" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=pro`)}>Passer à Pro</button></div></div>

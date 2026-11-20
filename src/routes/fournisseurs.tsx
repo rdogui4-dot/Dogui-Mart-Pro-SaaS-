@@ -1,3 +1,4 @@
+import { backend } from "@/lib/backend";
 import { serialUnitsOf } from "@/domain/tracking";
 import { useState, type ReactNode } from "react";
 import { DataGrid, StatusPill } from "@/components/DataGrid";
@@ -45,8 +46,7 @@ const MLAB: Record<string, string> = { cash: "Espèces", card: "Banque / carte /
 const toB64 = (f: File) => new Promise<string>((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] ?? ""); r.onerror = () => ko(new Error("Lecture du fichier impossible")); r.readAsDataURL(f); });
 async function prepare(f: File): Promise<string> { if (f.type === "application/pdf") { if (f.size > 1_800_000) throw new Error("PDF trop lourd (1,8 Mo maximum)"); return toB64(f); } return compressImage(f); }
 async function openDoc(d: Doc) {
-  const env = import.meta.env; let fb = ""; try { fb = localStorage.getItem("cookieFallback") ?? ""; } catch { /* navigation privée */ }
-  const res = await fetch(`${env.VITE_APPWRITE_ENDPOINT}/storage/buckets/articles/files/${d.fileId}/view`, { headers: { "X-Appwrite-Project": String(env.VITE_APPWRITE_PROJECT_ID), "X-Fallback-Cookies": fb }, credentials: "include" }); if (!res.ok) throw new Error("Document indisponible");
+  const res = await backend().files.fetch(d.fileId, "view"); if (!res.ok) throw new Error("Document indisponible");
   const url = URL.createObjectURL(await res.blob()); window.open(url, "_blank", "noopener"); setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 const Field = ({ label, children }: { label: string; children: ReactNode }) => <label className="text-xs text-muted flex flex-col gap-1">{label}{children}</label>;

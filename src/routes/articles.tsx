@@ -3,7 +3,8 @@ import { CatalogTabs } from "@/components/CatalogTabs";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Camera, Grid2x2, Image as ImageIcon, List, Lock, Pencil, Plus, ScanLine, Search, Trash2, Undo2, X } from "lucide-react";
 import { api } from "@/lib/api";
-import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
+import { Query } from "@/lib/appwrite";
+import { dataSource } from "@/lib/backend";
 import { list, qtyOf, variantQty, type Supplier, type UnitRow, type VariantRow } from "@/lib/data";
 import { VariantsSheet } from "./variants";
 import { ClaimsBlock } from "./reclamations";
@@ -167,7 +168,7 @@ function Catalogue() {
       {profitOpen && <ProfitSheet onClose={() => setProfitOpen(false)} />}
 
       {detail && <ArticleDetail autoOpen={autoOpen} a={rows.find((r) => r.$id === detail.$id) ?? detail} qty={qtyOf(levels, detail)} pro={pro} variants={variants.filter((v) => v.productId === detail.$id)} levels={levels} onClose={() => { setDetail(null); setAutoOpen(false); }} onEdit={() => { setForm(detail); setDetail(null); }} onChanged={refresh} />}
-      {form && <ArticleForm onCreated={async (id) => { try { const r = (await tables.getRow({ databaseId: DATABASE_ID, tableId: "products", rowId: id })) as unknown as ArticleRow; setAutoOpen(true); setDetail(r); } catch { /* la fiche reste accessible depuis la liste */ } }} initial={form === "new" ? null : form} pro={pro} qty={form === "new" ? 0 : qtyOf(levels, form)} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
+      {form && <ArticleForm onCreated={async (id) => { try { const r = (await dataSource().getRow("products", id)) as unknown as ArticleRow; setAutoOpen(true); setDetail(r); } catch { /* la fiche reste accessible depuis la liste */ } }} initial={form === "new" ? null : form} pro={pro} qty={form === "new" ? 0 : qtyOf(levels, form)} onClose={() => setForm(null)} onSaved={() => { refresh(); }} />}
       {scan && <Scanner onCode={(c) => { setQInput(c); setScan(false); }} onClose={() => setScan(false)} />}
     </div>
   );
@@ -213,7 +214,7 @@ function MovementsBlock({ productId }: { productId: string }) {
 }
 function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdit, onChanged }: { autoOpen?: boolean; a: ArticleRow; qty: number; pro: boolean; variants: VariantRow[]; levels?: Map<string, number>; onClose: () => void; onEdit: () => void; onChanged: () => void }) {
   const { session } = useSession(); const s = session!;
-  const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await tables.getRow({ databaseId: DATABASE_ID, tableId: "suppliers", rowId: a.supplierId! })) as unknown as Supplier });
+  const sup = useQuery({ queryKey: ["supplier", a.supplierId], enabled: !!a.supplierId && can(s, "purchases"), queryFn: async () => (await dataSource().getRow("suppliers", a.supplierId!)) as unknown as Supplier });
   const hist = useQuery({ queryKey: ["price-history", a.$id], queryFn: () => fetchPriceHistory(s, a.$id) });
   const [ask, setAsk] = useState<null | "archive" | "restore" | "delete" | "count">(null); const [counted, setCounted] = useState(""); const [err, setErr] = useState(""); const [unitsOpen, setUnitsOpen] = useState(false); const [varsOpen, setVarsOpen] = useState(false); const [priceOpen, setPriceOpen] = useState(false); const [supOpen, setSupOpen] = useState(false); const [lotsOpen, setLotsOpen] = useState(false); const [serOpen, setSerOpen] = useState(false);
   const mode = trackingOf(a); useEffect(() => { if (autoOpen && mode === "lot") setLotsOpen(true); if (autoOpen && mode === "serial") setSerOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -222,7 +223,7 @@ function ArticleDetail({ autoOpen, a, qty, pro, variants, levels, onClose, onEdi
   const proPricing = planAllows(useSubscription().data?.entitlement.plan.id, "tieredPricing"); const rules = useRules(a.$id);
   const proVariants = planAllows(useSubscription().data?.entitlement.plan.id, "variants");
   const live = variants.filter((v) => !v.archived); const prices = live.map((v) => v.price);
-  const units = useQuery({ queryKey: ["units", a.$id], queryFn: async () => ((await tables.listRows({ databaseId: DATABASE_ID, tableId: "article_units", queries: [Query.equal("productId", a.$id), Query.equal("active", true), Query.limit(20)] })).rows as unknown as UnitRow[]) });
+  const units = useQuery({ queryKey: ["units", a.$id], queryFn: async () => ((await dataSource().listRows("article_units", [Query.equal("productId", a.$id), Query.equal("active", true), Query.limit(20)])).rows as unknown as UnitRow[]) });
   const m = marginOf(a.price, a.cost ?? 0); const loss = sellsAtLoss(a.price, a.cost ?? 0);
   const act = useMutation({
     mutationFn: async (kind: "archive" | "restore" | "delete" | "count") => {

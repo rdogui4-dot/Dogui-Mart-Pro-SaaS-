@@ -2,7 +2,8 @@ import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
-import { DATABASE_ID, Query, tables } from "@/lib/appwrite";
+import { Query } from "@/lib/appwrite";
+import { dataSource } from "@/lib/backend";
 import type { ArticleRow } from "@/lib/articles";
 import type { RuleRow, UnitRow, VariantRow } from "@/lib/data";
 import { useSession } from "@/lib/session";
@@ -14,7 +15,7 @@ import { formatQty } from "@/domain/quantity";
 
 export const useRules = (productId: string) => useQuery({
   queryKey: ["rules", productId],
-  queryFn: async () => (await tables.listRows({ databaseId: DATABASE_ID, tableId: "article_price_rules", queries: [Query.equal("productId", productId), Query.limit(100)] })).rows as unknown as RuleRow[],
+  queryFn: async () => (await dataSource().listRows("article_price_rules", [Query.equal("productId", productId), Query.limit(100)])).rows as unknown as RuleRow[],
 });
 const dateFr = (iso?: string) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
 const toLocalInput = (iso?: string) => { if (!iso) return ""; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); };

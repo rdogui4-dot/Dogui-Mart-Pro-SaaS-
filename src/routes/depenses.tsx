@@ -1,3 +1,4 @@
+import { backend } from "@/lib/backend";
 import { useState } from "react";
 import { DataGrid, StatusPill } from "@/components/DataGrid";
 import { useMinWidth } from "@/lib/media";
@@ -32,8 +33,7 @@ const TONE: Record<string, string> = { committed: "text-warn", partial: "text-wa
 const EVENT: Record<string, string> = { create: "Enregistrée", approve: "Validée", reject: "Rejetée", cancel: "Annulée", update: "Modifiée", receipt: "Justificatif ajouté (ancien système)", code_viewed: "Code consulté par un responsable", code_failed: "Code incorrect saisi", code_renewed: "Code renouvelé" };
 const catName = (id: string, c?: Cats) => c?.predefined.find((x) => x.id === id)?.label ?? id;
 async function openReceipt(r: Receipt) { // le fichier est privé : on le charge avec la session, puis on l'ouvre
-  const env = import.meta.env; let fb = ""; try { fb = localStorage.getItem("cookieFallback") ?? ""; } catch { /* navigation privée */ }
-  const res = await fetch(`${env.VITE_APPWRITE_ENDPOINT}/storage/buckets/articles/files/${r.fileId}/view`, { headers: { "X-Appwrite-Project": String(env.VITE_APPWRITE_PROJECT_ID), "X-Fallback-Cookies": fb }, credentials: "include" }); if (!res.ok) throw new Error("Justificatif inaccessible");
+  const res = await backend().files.fetch(r.fileId, "view"); if (!res.ok) throw new Error("Justificatif inaccessible");
   const url = URL.createObjectURL(await res.blob()); window.open(url, "_blank", "noopener"); setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
