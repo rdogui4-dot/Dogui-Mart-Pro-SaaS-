@@ -11,6 +11,7 @@ import { routerBasepath } from "@/lib/basepath";
 import { SessionProvider, can, useSession, type Perm } from "@/lib/session";
 import { Layout } from "@/components/Layout";
 import { consumeVerifyReturn } from "@/lib/verify";
+import { installLocalIfServed } from "@/lib/local-backend";
 import { ErrorPage, ForbiddenPage, NotFoundPage, SpacePage } from "@/routes/shell-pages";
 import { AuthPage } from "@/routes/auth";
 import { InvitationPage, isInvitationPath } from "@/routes/invitation";
@@ -88,6 +89,7 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
 }
 // Préchargement discret des pages de comptoir (caisse, stock, ventes) : le service worker les met en cache pour le hors-ligne.
 if (import.meta.env.PROD) window.addEventListener("load", () => setTimeout(() => { if (navigator.onLine) for (const p of [import("@/routes/pos"), import("@/routes/stock"), import("@/routes/caisse"), import("@/routes/ventes")]) void p.catch(() => undefined); }, 4000), { once: true });
+installLocalIfServed(); // version Windows : le serveur local sert l'application et remplace le cloud
 void consumeVerifyReturn().finally(() => createRoot(document.getElementById("root")!).render(
   <StrictMode><QueryClientProvider client={queryClient}><SessionProvider><RouterProvider router={router} /></SessionProvider></QueryClientProvider></StrictMode>,
 ));

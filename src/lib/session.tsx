@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Query, account, teams } from "./appwrite";
+import { Query } from "./appwrite";
+import { identity } from "./identity";
 import { dataSource } from "./backend";
 import { api } from "./api";
 import { MODULES, isStaffRole, modulesFor, type Module, type StaffRole } from "@/domain/access";
@@ -50,11 +51,11 @@ async function load(): Promise<Session | null> {
 
 async function loadOnline(): Promise<Session | null> {
   {
-    const me = await account.get();
-    const team = (await teams.list()).teams[0];
+    const me = await identity().me();
+    const team = (await identity().teams())[0];
     if (!team) return { userId: me.$id, name: me.name, tenantId: "", shopId: "", role: "owner", shops: [], modules: [...MODULES], needsTenant: true };
-    const m = await teams.listMemberships({ teamId: team.$id });
-    const mine = m.memberships.find((x) => x.userId === me.$id);
+    const m = await identity().memberships(team.$id);
+    const mine = m.find((x) => x.userId === me.$id);
     let role = (mine?.roles.includes("owner") ? "owner" : (mine?.roles.find((r) => isStaffRole(r)) ?? "cashier")) as Role;
     let modules: Module[] = [...MODULES];
     let shops = await listShops(team.$id);
@@ -89,7 +90,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSession(s); setLoading(false);
   };
   useEffect(() => { void refresh(); }, []);
-  const logout = async () => { const uid = session?.userId; await account.deleteSession({ sessionId: "current" }); qc.clear(); writeCachedSession(null); if (uid) await clearCache(uid); setSession(null); };
+  const logout = async () => { const uid = session?.userId; await identity().logout(); qc.clear(); writeCachedSession(null); if (uid) await clearCache(uid); setSession(null); };
   const switchShop = (id: string) => {
     setSession((s) => { if (!s || !s.shops.some((x) => x.id === id)) return s; remember(s.userId, id); return { ...s, shopId: id }; });
     qc.clear(); // les données en cache appartiennent à l'ancienne boutique

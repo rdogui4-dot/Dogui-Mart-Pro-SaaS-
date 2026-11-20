@@ -2,7 +2,8 @@
  *  Aucun faux élément : pas de connexion Google/Microsoft/Apple (non configurée), pas de code SMS (Appwrite envoie un lien), pas de « se souvenir de moi » (la session est déjà conservée). */
 import { useState } from "react";
 import { Boxes, Calculator, CheckCircle2, Eye, EyeOff, Lock, Mail, Send, ShieldCheck, ShoppingCart, TrendingUp, Users, Wallet, Zap, ArrowRight, ArrowLeft, UserRound, type LucideIcon } from "lucide-react";
-import { account, ID } from "@/lib/appwrite";
+import { account } from "@/lib/appwrite";
+import { identity } from "@/lib/identity";
 import { useSession } from "@/lib/session";
 import { authMessage } from "@/lib/auth-errors";
 import { Logo } from "@/components/Logo";
@@ -55,7 +56,8 @@ export function AuthPage() {
     e.preventDefault(); setBusy(true); setErr(""); setInfo("");
     if (mode === "forgot") {
       try {
-        if (!f.email.includes("@")) setInfo("Un identifiant d'employé n'a pas d'e-mail : demandez à votre responsable de réinitialiser votre mot de passe (Réglages → Équipe & accès).");
+        if (identity().local) setInfo("Sur ce poste, les e-mails ne sont pas utilisés : demandez au propriétaire de réinitialiser votre mot de passe (Réglages → Équipe & accès).");
+        else if (!f.email.includes("@")) setInfo("Un identifiant d'employé n'a pas d'e-mail : demandez à votre responsable de réinitialiser votre mot de passe (Réglages → Équipe & accès).");
         else { await account.createRecovery({ email: f.email.trim(), url: `${window.location.origin}${import.meta.env.BASE_URL}` }); setSent(true); setInfo("Si un compte existe pour cette adresse, un e-mail contenant un lien de réinitialisation vient d'être envoyé (valable 1 heure). Ouvrez ce lien pour choisir un nouveau mot de passe."); }
       } catch (x) { setErr(authMessage(x)); } finally { setBusy(false); }
       return;
@@ -70,11 +72,10 @@ export function AuthPage() {
     try {
       if (mode === "signup") {
         if (!accept) { setErr("Vous devez accepter les conditions d'utilisation et la politique de confidentialité."); return; }
-        await account.create({ userId: ID.unique(), email: login, password: f.password, name: f.name.trim() });
-        await account.createEmailPasswordSession({ email: login, password: f.password });
-        if (hasRealEmail(login)) void sendVerification().catch(() => undefined); // non bloquant : un rappel s'affiche dans l'application tant que l'adresse n'est pas confirmée
+        await identity().signup(login, f.password, f.name.trim());
+        if (!identity().local && hasRealEmail(login)) void sendVerification().catch(() => undefined); // non bloquant : un rappel s'affiche dans l'application tant que l'adresse n'est pas confirmée
         // Le commerce (équipe Appwrite) est créé à l'étape suivante : l'assistant d'accueil (entreprise, boutique).
-      } else await account.createEmailPasswordSession({ email: login, password: f.password });
+      } else await identity().login(login, f.password);
       // Pas de redirection forcée : la page demandée (par exemple le retour de Selar) s'affiche dès que la session est chargée.
       await refresh();
     } catch (x) { setErr(authMessage(x)); } finally { setBusy(false); }

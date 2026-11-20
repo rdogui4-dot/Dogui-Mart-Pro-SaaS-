@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Building2, CheckCircle2, ChevronRight, Circle, ImagePlus, Lightbulb, MessageSquare, Package, Rocket, ShoppingCart, Store, UserPlus, X } from "lucide-react";
-import { ID, teams } from "@/lib/appwrite";
+import { identity } from "@/lib/identity";
 import { api } from "@/lib/api";
 import { compressImage } from "@/lib/articles";
 import { useSession } from "@/lib/session";
@@ -65,7 +65,7 @@ export function OnboardingPage() {
     e.preventDefault(); const er = companyErrors(c); setErrs(er); if (Object.keys(er).length) return;
     setBusy(true); setErr(""); setLogoMsg("");
     try {
-      const id = teamId ?? (await teams.create({ teamId: ID.unique(), name: c.companyName.trim(), roles: ["owner"] })).$id; setTeamId(id);
+      const id = teamId ?? await identity().createTeam(c.companyName.trim()); setTeamId(id);
       const init = await api<{ shopId: string }>({ ...s, tenantId: id }, "tenant.init", { name: c.companyName.trim() });
       const cx = { ...s, tenantId: id, shopId: init.shopId }; setIds({ tenantId: id, shopId: init.shopId });
       await api(cx, "shop.save", { profileType: c.profileType, companyName: c.companyName.trim(), ...(c.profileType === "company" ? { legalForm: c.legalForm, legal: c.legal.trim() } : {}), sector: c.sector, country: c.country, city: c.city.trim(), address: c.address.trim(), phone: c.phone.trim(), description: c.description.trim() });
