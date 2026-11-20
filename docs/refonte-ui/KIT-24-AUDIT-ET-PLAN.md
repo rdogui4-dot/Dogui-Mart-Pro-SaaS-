@@ -356,3 +356,13 @@ Variations réelles : CA du jour vs **hier à la même heure** (jamais la journ�
 - **Corrigé au passage** : l'indicateur « numéros en stock » du tableau de bord stock comptait un statut inexistant (`in_stock`) ; il compte maintenant les unités disponibles.
 
 **Schéma Appwrite** (créé) : `article_serials` + `qty` (entier), `initialQty` (entier), `seq` (entier), `ops` (texte 255). **Fichiers** : `src/domain/tracking.ts` (`parseSerialEntries`, `serialRemaining`, `serialSeq`, `takeFromSerials`, `wholeSerialsFor`, `serialUnitsOf`), `functions/dmp-api/src/{tracking,checkout,returns,team,purchasing,stock-pro}.ts`, `src/routes/{tracking,pos,ventes,fournisseurs,achats}.tsx`, `scripts/schema.mjs`, tests `serial-qty.test.ts` (10) et domaine (4), `e2e/kit22.cjs`.
+
+## 39. Tableau de bord — onglet « Bénéfice brut » (toutes les formules)
+
+**Demande** : un onglet « Bénéfice brut » dans le tableau de bord, disponible pour toutes les offres. **Reformulation validée** : montrer, pour la période choisie, d'où vient le bénéfice (par article, catégorie, boutique), où la marge est faible, sans jamais inventer un coût d'achat.
+
+- **Accès** : nouveau droit `grossProfit` (formule Starter et au-dessus) ; propriétaire et gérant seulement (la marge est une donnée sensible) ; contrôlé côté serveur (`dashboard.profit`). En Starter, « Vue d'ensemble » reste verrouillé (Business) mais « Bénéfice brut » s'ouvre.
+- **Calcul** : même moteur et mêmes coûts figés à la vente que la rentabilité du tableau Pro (`profit()` d'`analytics.ts`) : bénéfice brut = CA HT − coût d'achat figé ; taux de marge (÷ CA HT) et taux de marque (÷ coût) ; écart avec la période précédente de même durée ; courbe par jour (ou par mois au-delà de 62 jours) avec la période précédente en pointillé.
+- **Fiabilité** : si des lignes n'ont pas de coût, le bénéfice est « partiel » (lignes avec coût seulement), les taux sont calculés sur la part couverte, la couverture en % est indiquée et les articles sans coût sont listés avec un lien vers le catalogue. Le bénéfice n'est jamais présenté comme complet dans ce cas.
+- **Contenu** : 5 indicateurs, évolution, articles qui rapportent le plus, articles à faible marge (seuil = marge minimale des Réglages, 10 % par défaut), par catégorie, par boutique (si « toutes »), fiabilité et notes. Bénéfice net exclu (dépenses non déduites).
+- **Fichiers** : `src/domain/features.ts`, `functions/dmp-api/src/analytics.ts` (`grossProfitTab`, `world` accepte une formule), `handlers.ts`, `src/routes/profit-tab.tsx`, `src/routes/activite.tsx` (onglets « Vue d'ensemble » / « Bénéfice brut »), tests `gross-profit.test.ts` (5) et droits par formule adaptés, `e2e/kit23.cjs`.

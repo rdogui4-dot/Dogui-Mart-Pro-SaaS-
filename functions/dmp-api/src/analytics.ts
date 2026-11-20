@@ -5,8 +5,9 @@ import { clientsReport, lastMonths, monthly, projectRevenue } from "../../../src
 import { fromScaled, scaleOf } from "../../../src/domain/quantity";
 import { methodLabel } from "../../../src/domain/costing";
 import { needFeature } from "./articles";
+import type { FeatureKey } from "../../../src/domain/features";
 import { stockSnapshot } from "./stock-snapshot";
-import { HttpError, roleOf, needModule, type Ctx, type Row, type Store } from "./store";
+import { HttpError, need, roleOf, needModule, type Ctx, type Row, type Store } from "./store";
 
 const parse = <T,>(s: unknown, fb: T): T => { try { const v = JSON.parse(String(s)); return v ?? fb; } catch { return fb; } };
 const MAX_SALES = 20_000, MAX_MOVES = 100_000, MAX_DAYS = 400, DAY = 864e5;
@@ -23,8 +24,8 @@ const clampInt = (v: unknown, d: number, lo: number, hi: number) => { const n = 
 const shiftYear = (day: string): string => { const [y, m, d] = day.split("-").map(Number); const dim = new Date(Date.UTC(y! - 1, m!, 0)).getUTCDate(); return `${y! - 1}-${String(m).padStart(2, "0")}-${String(Math.min(d!, dim)).padStart(2, "0")}`; };
 
 /** Le monde chargé pour une requête : boutiques autorisées, période(s), ventes terminées (période, précédente, an dernier), produits, mouvements. Lecture seule, bornée, isolée par commerce et boutique. */
-async function world(store: Store, ctx: Ctx, b: Params, needMoves: boolean) {
-  needModule(ctx, "reports"); await needFeature(store, ctx, "proDashboard");
+async function world(store: Store, ctx: Ctx, b: Params, needMoves: boolean, feature: FeatureKey = "proDashboard") {
+  needModule(ctx, "reports"); await needFeature(store, ctx, feature);
   const now = new Date(); const all = await store.list("shops", { tenantId: ctx.tenantId }, 100); let allowed = all;
   if (roleOf(ctx.roles) !== "owner") { const staff = await store.get("staff", ctx.userId); const ids: string[] = staff && staff.tenantId === ctx.tenantId && staff.active !== false ? parse(staff.shopIds, []) : []; allowed = all.filter((s) => ids.includes(String(s.$id))); }
   const filters: A.Filters = { categories: arr(b.filters?.categories), articles: arr(b.filters?.articles), suppliers: arr(b.filters?.suppliers), sellers: arr(b.filters?.sellers), shops: arr(b.filters?.shops), methods: arr(b.filters?.methods) };
@@ -295,6 +296,26 @@ export async function proDashboard(store: Store, ctx: Ctx, b: Params = {}) {
   const out = space === "kit" ? await kit(store, w) : space === "clients" ? await clients(store, w) : space === "exec" ? { ...exec(w), purchasesHt: [...journal.values()].reduce((a, b2) => a + b2, 0) } : space === "sales" ? sales(w) : space === "profit" ? profit(w, minMargin) : space === "stock" ? (({ _f, ...x }) => x)(stocks(w)) : space === "purchases" ? purchases(w, journal) : space === "stores" ? stores(w) : forecast(w);
   const checks = w.hasLineFilter ? null : (() => { const t = A.totalsOf(w.facts); const s = A.series(w.facts, w.period, "day").reduce((a, p) => a + p.revenue, 0); return { seriesEqualsTotal: s === t.revenue, paymentsEqualRevenue: t.encaisse + t.credit === t.revenue }; })();
   return { ...out, checks };
+}
+
+/** Onglet « Bénéfice brut » du tableau de bord (toutes les formules ; propriétaire et gérant) : même moteur que la rentabilité du tableau Pro, mêmes coûts figés à la vente.
+ *  Jamais de coût inventé : sans coût connu sur toutes les lignes, le bénéfice est « partiel » (lignes avec coût seulement) et la couverture est indiquée. Bénéfice brut ≠ bénéfice net (dépenses non déduites). */
+export async function grossProfitTab(store: Store, ctx: Ctx, b: { preset?: string; from?: string; to?: string; shopId?: string } = {}) {
+  need(ctx, "manager");
+  const w = await world(store, ctx, { preset: b.preset, from: b.from, to: b.to, shopId: b.shopId, compare: "prev" }, false, "grossProfit");
+  const t = A.totalsOf(w.facts); const pt = w.prev ? A.totalsOf(w.prevFacts) : null; const minMargin = Number(w.home.minMarginPct ?? 0) > 0 ? Number(w.home.minMarginPct) : 10; const p = profit(w, minMargin);
+  const partial = (x: A.Totals) => x.cost.indicativeMargin; const amountOf = (x: A.Totals) => (x.cost.complete ? x.margin : null);
+  const bucketKeys = (facts: A.Fact[], range: { from: string; to: string }) => A.series(facts, range, w.gran).map((pt2) => { const fs = facts.filter((f) => A.bucketOf(f.day, w.gran) === pt2.key); const tt = A.totalsOf(fs); return { key: pt2.key, revenueHt: tt.revenueHt, profit: tt.cost.complete ? tt.margin : null, partialProfit: tt.cost.indicativeMargin, complete: tt.cost.complete }; });
+  const series = bucketKeys(w.facts, w.period); const prevSeries = w.prev ? bucketKeys(w.prevFacts, w.prev) : [];
+  const withCost = p.byArticle.filter((a) => a.indicativeMargin !== 0 || a.margin !== null); const best = [...withCost].sort((x, y) => (y.margin ?? y.indicativeMargin) - (x.margin ?? x.indicativeMargin)).slice(0, 10);
+  const weak = p.byArticle.filter((a) => a.margin !== null && a.marginRate !== null).sort((x, y) => x.marginRate! - y.marginRate!).slice(0, 10);
+  const missing = new Map<string, { productId: string; name: string; lines: number; revenueHt: number }>(); for (const f of w.facts) for (const l of f.lines) if (l.cost === null || l.cost <= 0) { const m = missing.get(l.productId) ?? { productId: l.productId, name: l.name, lines: 0, revenueHt: 0 }; m.lines++; m.revenueHt += l.revenueHt; missing.set(l.productId, m); }
+  return { ...head(w, "grossProfit"), totals: { count: t.count, revenueHt: t.revenueHt, cogs: t.cogs, costedCogs: t.cost.costedCogs, profit: amountOf(t), partialProfit: partial(t), partialMarginRate: t.cost.costedRevenueHt > 0 ? r1(t.cost.indicativeMargin / t.cost.costedRevenueHt * 100) : null, partialMarkup: t.cost.costedCogs > 0 ? r1(t.cost.indicativeMargin / t.cost.costedCogs * 100) : null, complete: t.cost.complete, marginRate: t.marginRate, markup: t.markup, coveragePct: t.cost.coveragePct, linesTotal: t.cost.linesTotal, linesWithoutCost: t.cost.linesWithoutCost },
+    prevTotals: pt ? { revenueHt: pt.revenueHt, profit: amountOf(pt), partialProfit: partial(pt), complete: pt.cost.complete, marginRate: pt.marginRate, count: pt.count } : null,
+    deltas: pt ? { revenueHt: A.delta(t.revenueHt, pt.revenueHt), profit: t.cost.complete && pt.cost.complete ? A.delta(t.margin, pt.margin) : A.delta(partial(t), partial(pt)), profitIsPartial: !(t.cost.complete && pt.cost.complete), marginRatePts: t.marginRate !== null && pt.marginRate !== null ? r1(t.marginRate - pt.marginRate) : null } : null,
+    series, prevSeries, best, weak, byCategory: p.byCategory.slice(0, 12), byShop: w.target.length > 1 ? p.byShop : [], contribution: p.contribution, lowMargin: { thresholdPct: p.lowMargin.thresholdPct, count: p.lowMargin.count, topArticles: p.lowMargin.topArticles },
+    missingCost: [...missing.values()].sort((x, y) => y.revenueHt - x.revenueHt).slice(0, 20),
+    notes: ["Bénéfice brut = chiffre d'affaires HT − coût d'achat figé au moment de la vente. Ce n'est pas un bénéfice net : les dépenses ne sont pas déduites.", t.cost.complete ? (t.count ? "Tous les articles vendus ont un coût d'achat connu." : "Aucune vente sur la période.") : `Coût d'achat inconnu sur ${t.cost.linesWithoutCost} ligne(s) vendue(s) : le bénéfice est calculé sur les ${t.cost.coveragePct} % du chiffre d'affaires dont le coût est connu.`, w.truncated ? "Volume de ventes très élevé : certaines ventes n'ont pas été lues, les totaux peuvent être partiels." : ""].filter(Boolean) };
 }
 
 // ------------------------------------------------------------------ rapports et exports

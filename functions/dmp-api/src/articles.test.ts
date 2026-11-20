@@ -104,9 +104,9 @@ describe("formules (droits d'abonnement ≠ rôles)", () => {
 describe("droits par formule : tous les paliers", () => {
   const keys = Object.keys(FEATURES) as FeatureKey[]; const ctx = () => ({ userId: "own", tenantId: T, shopId: A, roles: ["owner"] });
   const allowedKeys = async () => { const out: string[] = []; for (const k of keys) { try { await needFeature(st, ctx(), k); out.push(k); } catch { /* verrouillé */ } } return out; };
-  it("Starter : rien ; Business : Articles seulement ; Pro : tout", async () => {
-    setPlan(T, "starter"); expect(await allowedKeys()).toEqual([]);
-    setPlan(T, "business"); expect(await allowedKeys()).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "finBusiness", "icompta", "investBusiness", "stockIntel", "businessDashboard", "articles"]);
+  it("Starter : bénéfice brut seulement ; Business : Articles et activité ; Pro : tout", async () => {
+    setPlan(T, "starter"); expect(await allowedKeys()).toEqual(["grossProfit"]);
+    setPlan(T, "business"); expect(await allowedKeys()).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "finBusiness", "icompta", "investBusiness", "stockIntel", "businessDashboard", "grossProfit", "articles"]);
     setPlan(T, "pro"); expect(await allowedKeys()).toEqual(keys);
   });
   it("accès à vie (compte plateforme) : toutes les fonctions, présentes et futures", async () => {
@@ -115,7 +115,7 @@ describe("droits par formule : tous les paliers", () => {
   });
   it("retour de Pro à Business : les données avancées restent, l'usage se referme", async () => {
     setPlan(T, "pro"); const { id } = await ok(save("own", riz, { initialQty: 4 }));
-    setPlan(T, "business"); expect((await allowedKeys())).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "finBusiness", "icompta", "investBusiness", "stockIntel", "businessDashboard", "articles"]);
+    setPlan(T, "business"); expect((await allowedKeys())).toEqual(["promotions", "smartPos", "expenses", "purchasing", "silentCount", "crm", "finBusiness", "icompta", "investBusiness", "stockIntel", "businessDashboard", "grossProfit", "articles"]);
     expect(st.rows("products").find((p) => p.$id === id)).toBeTruthy(); expect(await stockFor(st, id)).toBe(4);
   });
 });

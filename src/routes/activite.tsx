@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Info, Users, RotateCcw, AlertTriangle, Boxes, ClipboardList, Lock, Plus, Receipt, RefreshCw, ScanLine, Tags, WifiOff, FileBarChart, ShoppingCart, Coins, Package, ShoppingBasket, Truck, UserPlus, BarChart3, ChevronRight, ArrowDownToLine, PackagePlus, PieChart, Trophy, Activity, LineChart as LineIcon, Send, type LucideIcon } from "lucide-react";
+import { Info, Users, RotateCcw, AlertTriangle, Boxes, ClipboardList, Lock, Plus, Receipt, RefreshCw, ScanLine, Tags, WifiOff, FileBarChart, ShoppingCart, Coins, Package, ShoppingBasket, Truck, UserPlus, BarChart3, ChevronRight, ArrowDownToLine, PackagePlus, PieChart, Trophy, Activity, LineChart as LineIcon, Send, TrendingUp, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { useMasterModal } from "@/lib/master-modal";
 import { api } from "@/lib/api";
 import { can, useSession } from "@/lib/session";
@@ -14,7 +14,9 @@ import { planAllows } from "@/domain/features";
 import { formatFcfa } from "@/domain/money";
 import { PRESETS, type PresetId } from "@/domain/overview";
 import type { TrendRange } from "@/domain/overview-compare";
+import { PillTabs, type PillTab } from "@/components/kit";
 import { useSubscription } from "./subscription";
+import { ProfitTab } from "./profit-tab";
 
 type Daily = { date: string; revenue: number; count: number };
 type Margin = { known: boolean; amount: number | null; pct: number | null; linesWithoutCost: number; coveragePct: number; indicative: number };
@@ -121,6 +123,8 @@ function DashMaster() {
 export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) {
   const { session } = useSession(); const s = session!; const sub = useSubscription(); const allowed = planAllows(sub.data?.entitlement.plan.id, "businessDashboard");
   const [preset, setPreset] = useState<PresetId>("last30"); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [shop, setShop] = useState(s.shopId); const [tab, setTab] = useState<"sales" | "purchases" | "moves" | "created" | "important">("sales"); const [open, setOpen] = useState<string | null>(null); const [allAct, setAllAct] = useState(false);
+  const [view, setView] = useState<"overview" | "profit">("overview"); const canProfit = !embedded && (s.role === "owner" || s.role === "manager"); // bénéfice brut : propriétaire et gérant, toutes les formules
+  const pf = { preset, setPreset, from, setFrom, to, setTo, shop, setShop }; const viewTabs: PillTab<"overview" | "profit">[] = [{ key: "overview", label: "Vue d'ensemble", icon: LayoutDashboard }, { key: "profit", label: "Bénéfice brut", icon: TrendingUp }];
   useEffect(() => { if (open) setAllAct(false); }, [open]); // une seule fenêtre à la fois : le détail d'une vente remplace la liste
   const custom = preset === "custom"; const ready = !custom || (!!from && !!to && from <= to);
   const q = useQuery({ queryKey: ["overview", s.shopId, preset, custom ? from : "", custom ? to : "", shop], enabled: allowed && ready, placeholderData: keepPreviousData, retry: 1, queryFn: () => api<Overview>(s, "dashboard.business", { preset, ...(custom ? { from, to } : {}), shopId: shop }) });
@@ -130,7 +134,8 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
   const last7 = useMemo(() => (q.data?.charts.last7 ?? []).map((x) => ({ key: x.date, label: dd(x.date), value: x.revenue, sub: `${x.count} vente(s)` })), [q.data]);
   if (!allowed) return (
     <div className="flex flex-col gap-3"><h1 className="text-2xl font-bold">Tableau de bord</h1>
-      <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Chiffre d'affaires, marge, stock, graphiques et alertes sur vos données réelles.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div></div>
+      {canProfit && <PillTabs idBase="tdb" label="Sections du tableau de bord" value={view} onChange={setView} items={viewTabs} />}
+      {canProfit && view === "profit" ? <ProfitTab f={pf} /> : <div className="card flex flex-col gap-2 text-sm"><span className="flex items-center gap-2 font-semibold"><Lock size={16} className="text-accent-text" />Réservé à la formule Business</span><span className="text-muted">Chiffre d'affaires, marge, stock, graphiques et alertes sur vos données réelles.</span><button className="btn !py-2" onClick={() => window.location.assign(`${import.meta.env.BASE_URL}reglages?onglet=abonnement&formule=business`)}>Passer à Business</button></div>}</div>
   );
   const proOn = planAllows(sub.data?.entitlement.plan.id, "proDashboard"); const d = q.data; const tz = d?.tz ?? "UTC"; const offline = typeof navigator !== "undefined" && !navigator.onLine; const k = d?.kpis; const per = k?.period;
   const [trendRange, setTrendRange] = useState<TrendRange>("30"); const trend = d?.charts.trend?.[trendRange];
@@ -143,6 +148,8 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
           <p className="text-xs text-muted mt-0.5">{d ? `Mis à jour à ${new Date(d.asOf).toLocaleTimeString("fr-FR", { timeZone: tz, hour: "2-digit", minute: "2-digit" })} · jours en heure de l'entreprise (${tz})` : "Chargement des données réelles…"}</p></div>
         <button className="btn-ghost !px-3 !py-2 flex items-center gap-1 text-sm" aria-label="Actualiser" onClick={() => void q.refetch()} disabled={q.isFetching}><RefreshCw size={16} className={q.isFetching ? "animate-spin" : ""} />Actualiser</button></div>
       {proOn && !embedded && <Link to="/pilotage" className="card !py-3 flex items-center justify-between text-sm border border-accent/40"><span><b>Tableau de bord Pro</b> <span className="text-muted text-xs">· rentabilité, stocks, achats, magasins, prévisions, exports</span></span><span className="text-accent-text font-semibold inline-flex items-center">Ouvrir<ChevronRight size={16} /></span></Link>}
+      {canProfit && <PillTabs idBase="tdb" label="Sections du tableau de bord" value={view} onChange={setView} items={viewTabs} />}
+      {view === "profit" && canProfit ? <ProfitTab f={pf} /> : <>
       <nav aria-label="Période" className="scroll-x">{PRESETS.map((p) => <button key={p.id} className="chip" aria-current={preset === p.id} onClick={() => setPreset(p.id)}>{p.label}</button>)}</nav>
       {custom && <div className="grid grid-cols-2 gap-2"><label className="text-xs text-muted">Du<input className="input mt-1" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} /></label><label className="text-xs text-muted">Au<input className="input mt-1" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></label>{!ready && <p className="col-span-2 text-xs text-muted">Choisissez deux dates (92 jours au plus).</p>}</div>}
       {d?.scope.many && <label className="text-xs text-muted flex flex-col gap-1">Boutique<select className="input" value={shop} onChange={(e) => setShop(e.target.value)}>{d.scope.shops.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="all">Toutes mes boutiques</option></select></label>}
@@ -206,6 +213,7 @@ export function ActivitePage({ embedded = false }: { embedded?: boolean } = {}) 
         </section>
         </Sheet>}
         <details className="card text-xs text-muted"><summary className="cursor-pointer">Méthodes de calcul</summary><ul className="list-disc pl-4 pt-1 flex flex-col gap-1">{d.notes.map((n) => <li key={n}>{n}</li>)}</ul></details>
+      </>}
       </>}
       {sale && <Sheet title={`Vente ${sale.number}`} onClose={() => setOpen(null)} back>
         <div className="card flex flex-col gap-1 text-sm"><div className="flex justify-between"><span className="text-muted">Date</span><span>{dt(sale.at, tz)}</span></div><div className="flex justify-between"><span className="text-muted">Paiement</span><span>{sale.methods.map((m) => METHOD[m] ?? m).join(" + ")}</span></div><div className="flex justify-between"><span className="text-muted">Boutique</span><span>{sale.shop}</span></div><div className="flex justify-between font-semibold"><span>Total TTC</span><span>{formatFcfa(sale.total)}</span></div></div>
