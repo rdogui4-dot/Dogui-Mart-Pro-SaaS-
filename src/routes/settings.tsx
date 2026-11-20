@@ -12,7 +12,9 @@ import { COST_METHODS, isCostMethod, methodLabel } from "@/domain/costing";
 import { planAllows } from "@/domain/features";
 import { EXPIRED_POLICIES, isExpiredPolicy } from "@/domain/tracking";
 import { ModuleHeader, PillTabs, type PillTab } from "@/components/kit";
-import { Building2, CreditCard, Scale, ScrollText, Settings as SettingsIcon, Store, UserCog } from "lucide-react";
+import { identity } from "@/lib/identity";
+import { NetworkSection } from "./network-local";
+import { Building2, CreditCard, Scale, ScrollText, Settings as SettingsIcon, Store, UserCog, Wifi } from "lucide-react";
 import { GeneralSection, SettingsKpis } from "./settings-general";
 import { ActivityLog } from "./activity-log";
 import { readFxPref, writeFxPref, useFxLevel, type FxPref } from "@/lib/fx3d";
@@ -24,13 +26,14 @@ function FxPrefCard() {
   return <div className="card flex flex-col gap-2 md:max-w-2xl"><h2 className="font-semibold">Effets 3D</h2><label className="text-xs text-muted flex flex-col gap-1">Sur cet appareil<select className="input" aria-label="Effets 3D" value={pref} onChange={(e) => { const v = e.target.value as FxPref; setPref(v); writeFxPref(v); }}><option value="auto">Automatique (recommandé)</option><option value="on">Activés</option><option value="off">Désactivés</option></select></label><p className="text-xs text-muted" role="status">Actuellement : {FX_TXT[level]}. Si votre appareil demande de réduire les animations, l'affichage reste plat.</p></div>;
 }
 
-type STab = "general" | "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
+type STab = "network" | "general" | "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
+const NETWORK_TAB: PillTab<STab> = { key: "network", label: "Réseau local", icon: Wifi };
 const MAIN_SET: PillTab<STab>[] = [{ key: "general", label: "Général", icon: SettingsIcon }, { key: "shop", label: "Point de vente", icon: Store }, { key: "rules", label: "Règles de gestion", icon: Scale }, { key: "shops", label: "Boutiques", icon: Building2 }, { key: "payments", label: "Paiements", icon: CreditCard }, { key: "activity", label: "Journal d'activité", icon: ScrollText }];
 /** Message après enregistrement : succès en vert (statut), erreur en rouge (alerte). */
 const Msg = ({ text }: { text: string }) => (!text ? null : /^(Enregistr|Méthode enregistr|Politique enregistr|Marge minimale enregistr|Lien retiré)/.test(text) ? <p className="d3-saved text-sm text-ok font-medium self-start rounded-lg bg-ok-bg px-3 py-1.5" role="status">✓ {text}</p> : <p className="text-sm text-bad" role="alert">{text}</p>);
 
 export function SettingsPage() {
-  const { session, logout } = useSession(); const s = session!;
+  const { session, logout } = useSession(); const s = session!; const mainSet = identity().local ? [...MAIN_SET, NETWORK_TAB] : MAIN_SET; // « Réseau local » n'existe que sur le poste principal (version Windows)
   const [f, setF] = useState({ waveTemplate: "", orangeTemplate: "", expiryMinutes: "15" });
   const [msg, setMsg] = useState("");
   const pay = useQuery({ queryKey: ["pay-settings", s.shopId], enabled: can(s, "settings"), queryFn: () => api<{ wave: boolean; orange: boolean }>(s, "payments.settings.get", {}) });
@@ -87,7 +90,7 @@ export function SettingsPage() {
       {can(s, "settings") && <>
         {tab !== "staff" && tab !== "subscription" && <>
           <SettingsKpis />
-          <PillTabs idBase="set" label="Sections des paramètres" value={MAIN_SET.some((t) => t.key === tab) ? tab : ("" as STab)} onChange={setTab} items={MAIN_SET} />
+          <PillTabs idBase="set" label="Sections des paramètres" value={mainSet.some((t) => t.key === tab) ? tab : ("" as STab)} onChange={setTab} items={mainSet} />
           {/* Équipe et Abonnement ont leur propre entrée dans le menu : leurs onglets ne sont proposés ici que sur téléphone (pas de menu latéral). */}
           <div role="tablist" aria-label="Autres sections" className="scroll-x !gap-1.5 -mt-1 md:flex-wrap md:overflow-x-visible">{([["profile", "Mon profil", ""], ["staff", "Équipe & accès", "md:hidden"], ["subscription", "Abonnement", "md:hidden"], ...(me.data?.admin ? [["platform", "Plateforme", ""]] : [])] as [STab, string, string][]).map(([k, l, c]) => <button key={k} role="tab" type="button" aria-selected={tab === k} className={`chip !min-h-8 !py-1 !px-3 text-sm ${c}`} onClick={() => setTab(k)}>{l}</button>)}</div>
         </>}
@@ -95,6 +98,7 @@ export function SettingsPage() {
       </>}
       <div key={tab} className="d3-settings flex flex-col gap-3">
       {tab === "general" && can(s, "settings") && <GeneralSection onTab={(t) => setTab(t as STab)} />}
+      {tab === "network" && identity().local && can(s, "settings") && <NetworkSection />}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}

@@ -390,3 +390,17 @@ Variations réelles : CA du jour vs **hier à la même heure** (jamais la journ�
 **Preuves** : 1 595 tests unitaires (dont 12 nouveaux : conformité du stockage, moteur de requêtes, droits de lecture, équivalence mémoire/SQLite sur un parcours réel — création, vente rejouée, numéros de série à quantité, retour, transfert, tableaux de bord —, serveur, HTTPS) ; scénario `e2e/kit24.cjs` : le vrai serveur SQLite sur disque sert l'application, inscription et assistant d'accueil, lecture des articles, vente et retour, bénéfice brut, caissier limité à sa boutique, redémarrage du serveur sans perte, aucune requête vers l'extérieur.
 
 **Limites connues** : `node:sqlite` est encore signalé « expérimental » par Node 22 (à vérifier avec la version de Node embarquée par Electron au lot 5) ; la sécurité (jetons de session, mots de passe) est locale et ne se synchronise pas avant le lot 4 ; pas de double authentification en local ; la liste des sessions ouvertes et la dernière connexion du module Équipe reposent sur les sessions locales.
+
+## 42. Version Windows — lot 3 : réseau local
+
+**Objectif** : le poste principal sert les autres appareils du magasin (PC, tablettes, téléphones) sur le réseau local, en HTTPS, avec une connexion guidée.
+
+**Réalisé**
+- **Adresses** : `GET /v1/connect` (public, sans donnée d'entreprise) donne les adresses du poste (IPv4 puis `dogui.local`), l'empreinte et l'échéance du certificat. Annonce **mDNS** (`dogui.local`, service `_dogui._tcp`), en meilleur effort : si le système refuse, l'adresse IP reste valable (l'écran le dit).
+- **Page publique « Connecter un appareil »** (`/connect`) : QR code de l'adresse, boutons d'ouverture, téléchargement du certificat public (`/v1/certificate.crt`, jamais la clé privée), étapes d'approbation pour Android, iPhone/iPad, Windows et Mac, empreinte à comparer, échéance.
+- **Paramètres → « Réseau local »** (propriétaire, poste principal seulement) : état « En marche », HTTPS ou non, adresses avec copie et QR code, certificat de sécurité (empreinte, échéance, téléchargement), conseil pare-feu Windows, et **appareils connectés** : personne, rôle, type d'appareil (« Chrome · Android »), adresse, actif (vu il y a moins de 15 minutes) ou inactif, avec **déconnexion à distance** (l'appareil doit se reconnecter).
+- **Serveur** : chaque session retient l'appareil (déduit de l'agent utilisateur) et son adresse ; dernier passage mis à jour au plus toutes les 30 secondes ; état du réseau et déconnexion réservés au propriétaire (403 sinon) ; migration automatique des bases créées avant ce lot.
+
+**Preuves** : 21 tests du serveur local (adresses, libellés d'appareils, réponses mDNS, page de connexion et protection contre l'injection, migration, état réseau et droits, déconnexion à distance, dernier passage, certificat en HTTPS sans clé privée) ; scénario `e2e/kit25.cjs` en HTTPS (assistant d'accueil, onglet Réseau local, caissier connecté depuis un « téléphone » puis déconnecté par le propriétaire, page de connexion, caissier sans accès, 390 px sans débordement).
+
+**Limites** : l'approbation du certificat sur de vrais téléphones et la résolution de `dogui.local` dépendent du système et du réseau (non testables ici) ; l'ouverture du pare-feu Windows sera faite par l'installateur (lot 5) ; un poste secondaire n'est pour l'instant qu'un navigateur (l'application de bureau « poste secondaire » vient au lot 5).

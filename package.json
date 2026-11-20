@@ -26,6 +26,7 @@
     "idb": "^8.0.4",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.70.0",
+    "multicast-dns": "^7.2.5",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

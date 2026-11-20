@@ -41,7 +41,11 @@ export class SqliteStore implements Store {
       CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS members (tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, roles TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, user_id));
       CREATE TABLE IF NOT EXISTS labels (user_id TEXT PRIMARY KEY, labels TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL, device TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '');`);
+    // bases créées avant le réseau local : on ajoute l'appareil et l'adresse aux sessions
+    const cols = this.db.prepare("PRAGMA table_info(sessions)").all().map((c) => String(c.name));
+    if (!cols.includes("device")) this.db.exec("ALTER TABLE sessions ADD COLUMN device TEXT NOT NULL DEFAULT ''");
+    if (!cols.includes("ip")) this.db.exec("ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''");
   }
   close() { this.db.close(); }
 
@@ -145,7 +149,18 @@ export class SqliteStore implements Store {
   }
   userById(id: string): { id: string; email: string; name: string; active: boolean } | null { const r = this.db.prepare("SELECT id, email, name, active FROM users WHERE id = ?").get(id); return r ? { id: String(r.id), email: String(r.email), name: String(r.name), active: !!r.active } : null; }
   /** Ouvre une session : renvoie le jeton (seule son empreinte est conservée). */
-  openSession(userId: string): string { const token = randomBytes(32).toString("hex"); const now = iso(); this.db.prepare("INSERT INTO sessions (token_hash, user_id, created_at, last_seen) VALUES (?, ?, ?, ?)").run(sha(token), userId, now, now); return token; }
+  openSession(userId: string, device = "", ip = ""): string { const token = randomBytes(32).toString("hex"); const now = iso(); this.db.prepare("INSERT INTO sessions (token_hash, user_id, created_at, last_seen, device, ip) VALUES (?, ?, ?, ?, ?, ?)").run(sha(token), userId, now, now, device.slice(0, 80), ip.slice(0, 60)); return token; }
+  /** Marque la session comme vue (au plus une écriture par 30 secondes) : sert à la liste des appareils connectés. */
+  touchSession(token: string): void { const now = iso(); this.db.prepare("UPDATE sessions SET last_seen = ? WHERE token_hash = ? AND last_seen < ?").run(now, sha(token), new Date(Date.now() - 30_000).toISOString()); }
+  /** Appareils connectés à un commerce : sessions des membres de l'équipe, avec dernier passage. `id` est un identifiant court (jamais le jeton). */
+  sessionsOfTenant(tenantId: string): { id: string; userId: string; name: string; roles: string[]; device: string; ip: string; createdAt: string; lastSeen: string }[] {
+    return this.db.prepare("SELECT s.token_hash AS h, s.user_id AS uid, s.device AS device, s.ip AS ip, s.created_at AS c, s.last_seen AS l, m.roles AS roles, u.name AS name FROM sessions s JOIN members m ON m.user_id = s.user_id AND m.tenant_id = ? LEFT JOIN users u ON u.id = s.user_id ORDER BY s.last_seen DESC").all(tenantId)
+      .map((r) => ({ id: String(r.h).slice(0, 16), userId: String(r.uid), name: String(r.name ?? r.uid), roles: JSON.parse(String(r.roles)) as string[], device: String(r.device), ip: String(r.ip), createdAt: String(r.c), lastSeen: String(r.l) }));
+  }
+  /** Ferme une session d'un membre du commerce (identifiant court) : l'appareil doit se reconnecter. Renvoie vrai si une session a été fermée. */
+  revokeSession(tenantId: string, id: string): boolean {
+    const r = this.db.prepare("DELETE FROM sessions WHERE substr(token_hash, 1, 16) = ? AND user_id IN (SELECT user_id FROM members WHERE tenant_id = ?)").run(id, tenantId); return Number(r.changes) > 0;
+  }
   sessionUser(token: string): string | null { const r = this.db.prepare("SELECT s.user_id AS id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND u.active = 1").get(sha(token)); return r ? String(r.id) : null; }
   closeSession(token: string): void { this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha(token)); }
   /** Rôles d'authentification d'un utilisateur, comme Appwrite les calcule : compte, équipes, rôles d'équipe, étiquettes. */

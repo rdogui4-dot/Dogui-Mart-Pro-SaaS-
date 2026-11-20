@@ -13,7 +13,14 @@ export const isLocalMode = (): boolean => typeof document !== "undefined" && !!d
 
 type SessionInfo = { user: { id: string; name: string; email: string }; teams: { id: string; name: string; roles: string[] }[] };
 
-export function createLocal(base = ""): { backend: Partial<Backend>; identity: Identity; setup: () => Promise<{ needsSetup: boolean }> } {
+export type NetworkInfo = { app: string; hostName: string; port: number; https: boolean; urls: string[]; certificate: { fingerprint: string; notAfter: string; hosts: string[] } | null; mdns: boolean };
+export type Device = { id: string; userId: string; name: string; roles: string[]; device: string; ip: string; createdAt: string; lastSeen: string; current: boolean; active: boolean };
+/** Réseau local du poste principal (propriétaire) : adresses, certificat, appareils connectés. */
+export type LocalNetwork = { get(): Promise<{ info: NetworkInfo | null; devices: Device[] }>; revoke(id: string): Promise<void> };
+let networkApi: LocalNetwork | null = null;
+export const localNetwork = (): LocalNetwork | null => networkApi;
+
+export function createLocal(base = ""): { backend: Partial<Backend>; identity: Identity; network: LocalNetwork; setup: () => Promise<{ needsSetup: boolean }> } {
   const req = async (path: string, init: RequestInit = {}): Promise<Response> => {
     const token = getToken(); let r: Response;
     try { r = await fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) } }); }
@@ -50,10 +57,11 @@ export function createLocal(base = ""): { backend: Partial<Backend>; identity: I
     },
     files: { fetch: (fileId) => req(`/v1/files/${encodeURIComponent(fileId)}`, { headers: {} }) },
   };
-  return { backend, identity, setup: async () => json<{ needsSetup: boolean }>(await req("/v1/setup")) };
+  const network: LocalNetwork = { get: async () => json(await req("/v1/network")), revoke: async (id) => { await json(await req("/v1/network/revoke", { method: "POST", body: JSON.stringify({ id }) })); } };
+  return { backend, identity, network, setup: async () => json<{ needsSetup: boolean }>(await req("/v1/setup")) };
 }
 
 /** À appeler au démarrage : si le serveur local sert l'application, remplace le cloud par lui. */
 export function installLocalIfServed(): boolean {
-  if (!isLocalMode()) return false; const l = createLocal(""); setBackend(l.backend); setIdentity(l.identity); return true;
+  if (!isLocalMode()) return false; const l = createLocal(""); setBackend(l.backend); setIdentity(l.identity); networkApi = l.network; return true;
 }
