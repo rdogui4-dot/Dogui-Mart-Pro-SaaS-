@@ -1,16 +1,16 @@
-/** Lot K1 (kit 24 interfaces) : coque — barre latérale plate (17 modules), carte boutique, barre supérieure (état réseau, alertes réelles, profil), pleine largeur, mobile. Lancement : bash e2e/run.sh kit1 */
+/** Lot K1 (kit 24 interfaces) : coque — barre latérale plate (18 modules), carte boutique, barre supérieure (état réseau, alertes réelles, profil), pleine largeur, mobile. Lancement : bash e2e/run.sh kit1 */
 const path = require("path"), fs = require("fs");
 const { start } = require("./harness.cjs");
 const OUT = path.join(__dirname, "out"); fs.mkdirSync(OUT, { recursive: true });
 const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 3).join(" | ").slice(0, 400)); } };
-const LABELS = ["Tableau de bord", "Caisse (Ventes)", "Articles & Catalogue", "Stocks & Inventaires", "Inventaires (Silent Count)", "Achats & Fournisseurs", "Dépenses", "Clients (CRM)", "Finance (FinI)", "ICompta", "IProj-Invest", "Rapports & Analyses", "MASTER DOGUI", "Promotions & Offres", "Équipe & Permissions", "Paramètres", "Abonnement & Facturation"];
+const LABELS = ["Tableau de bord", "Caisse (Ventes)", "Articles & Catalogue", "Stocks & Inventaires", "Inventaires (Silent Count)", "Achats & Fournisseurs", "Dépenses", "Clients (CRM)", "Finance (FinI)", "ICompta", "IProj-Invest", "Rapports & Analyses", "MASTER DOGUI", "Promotions & Offres", "Équipe & Permissions", "Security Guardian", "Paramètres", "Abonnement & Facturation"];
 (async () => {
   const h = await start({ plan: "pro", expect: [] }); const { page } = h;
   const p1 = (await h.call("article.save", { data: { name: "Riz", price: 1000, cost: 600, minStock: 10 }, initialQty: 2 }, h.shop)).body.data.id;
   const nav = () => page.getByRole("navigation", { name: "Navigation principale" });
   const open = async (r, w = 1280, hh = 900) => { await page.setViewportSize({ width: w, height: hh }); await page.goto(h.url(r)); await page.waitForTimeout(1200); };
 
-  await step("barre latérale : 17 modules aux noms du kit, dans l'ordre", async () => {
+  await step("barre latérale : 18 modules aux noms du kit, dans l'ordre", async () => {
     await open("pos"); const got = (await nav().locator("a, button").allInnerTexts()).map((t) => t.trim());
     if (JSON.stringify(got) !== JSON.stringify(LABELS)) throw new Error(got.join(" | "));
   });
