@@ -2,7 +2,7 @@ import { autoPreorder, preorderTargets } from "./preorder";
 import { ACTIONS, LOCK_EXEMPT, TENANT_LEVEL } from "./handlers";
 import { assertWritable } from "./subscriptions";
 import { appwriteStore } from "./appwrite-store";
-import { HttpError, roleOf, type Ctx, type Store } from "./store";
+import { HttpError, roleOf, type Ctx, type Store, type StatusProbe } from "./store";
 import { MODULES, READ_ONLY_ROLES, modulesFor, type StaffRole } from "../../../src/domain/access";
 import { PUBLIC_ACTIONS } from "./invites";
 import { READ_ACTIONS, READ_ONLY_MESSAGE } from "./viewer";
@@ -14,7 +14,7 @@ type Req = { method: string; headers: Record<string, string>; bodyJson?: any };
 type Res = { json(body: unknown, status?: number): unknown };
 
 /** Point d'entrée testable : authentifie l'appelant (membre confirmé du tenant) puis route l'action. */
-export async function handle(store: Store, userId: string | undefined, body: any, env: { admins?: string[]; /** vrai dans le cloud : un commerce hébergé par un poste n'y accepte plus d'écritures d'exploitation */ cloud?: boolean } = {}): Promise<{ status: number; body: unknown }> {
+export async function handle(store: Store, userId: string | undefined, body: any, env: { admins?: string[]; /** vrai dans le cloud : un commerce hébergé par un poste n'y accepte plus d'écritures d'exploitation */ cloud?: boolean; /** mesures de la machine hôte (poste Windows) pour le Centre de sécurité */ probe?: StatusProbe } = {}): Promise<{ status: number; body: unknown }> {
   // Contexte du journal de sécurité (renseigné au fil de l'authentification) : permet de classer un refus (appelant sans identité, étranger au commerce, membre sans droit).
   const sec = { requestId: newRequestId(), source: (env.cloud ? "cloud" : "poste") as "cloud" | "poste", tenantId: "", member: false, role: "", action: "" };
   const log = (e: Omit<SecurityEventInput, "source" | "requestId">) => recordSecurityEvent(store, { ...e, source: sec.source, requestId: sec.requestId });
@@ -40,7 +40,7 @@ export async function handle(store: Store, userId: string | undefined, body: any
     if (typeof tenantId !== "string" || !tenantId || (!tenantLevel && (typeof shopId !== "string" || !shopId))) throw new HttpError(400, "tenantId et shopId requis");
     const m = await store.membership(tenantId, userId);
     if (!m) throw new HttpError(403, "Vous n'appartenez pas à ce commerce");
-    const ctx: Ctx = { userId, tenantId, shopId: tenantLevel ? "" : shopId, roles: m.roles, admin };
+    const ctx: Ctx = { userId, tenantId, shopId: tenantLevel ? "" : shopId, roles: m.roles, admin, probe: env.probe };
     sec.member = true; sec.role = roleOf(m.roles);
     // Accès : le propriétaire a tout ; un employé actif a les modules de sa fiche (préréglage de son rôle ou liste personnalisée), sinon rien.
     let ids: string[] = [];

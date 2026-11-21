@@ -145,6 +145,6 @@ export const TABLES = {
   market_cache: { cols: [t("data"), s("fetchedAt", 32), s("attemptAt", 32), s("error", 200)], idx: [] },
   // Journal de sécurité (lot S2) : ajout seulement, écrit par le serveur ; chaque ligne est chaînée (SHA-256) à la précédente. `security_heads` = dernier numéro et dernière empreinte par commerce.
   security_events: { cols: [s("tenantId", 64, true), i("seq", true), d("at"), s("kind", 48, true), s("severity", 12, true), s("outcome", 12, true), s("actorId", 64), s("actorRole", 24), s("target", 80), s("requestId", 24), s("source", 8), i("count"), d("lastAt"), s("prevHash", 64, true), s("hash", 64, true)], idx: [["tenant", ["tenantId"]], ["tenant_seq", ["tenantId", "seq"]], ["kind", ["tenantId", "kind"]]] },
-  security_heads: { cols: [s("tenantId", 64, true), i("seq", true), s("hash", 64, true)], idx: [] },
+  security_heads: { cols: [s("tenantId", 64, true), i("seq", true), s("hash", 64, true), i("anchorSeq"), s("anchorHash", 64)], idx: [] },
   audit_log: { cols: [...base, s("userId", 64), s("action", 64, true), t("detail")], idx: [["shop", ["tenantId", "shopId"]]] },
 };

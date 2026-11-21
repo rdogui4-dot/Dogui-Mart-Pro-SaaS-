@@ -6,7 +6,7 @@ export type Host = { name: string; since: string; by: string };
 export const parseHost = (v: unknown): Host | null => { try { const h = JSON.parse(String(v ?? "")); return h && typeof h === "object" && typeof h.name === "string" ? (h as Host) : null; } catch { return null; } };
 
 /** Actions qui restent permises au cloud pendant l'hébergement : synchronisation, hébergement, abonnement et paiements, licence MASTER (tables décidées par le cloud). Les lectures (rapports, tableaux de bord) sont déjà permises. */
-export const HOST_ALLOWED = new Set(["host.status", "host.claim", "host.release", "tenant.init", "report.consolidated", "md.license", "md.pay.request", "md.pay.list", "md.trial.start"]);
+export const HOST_ALLOWED = new Set(["security.status", "security.events", "host.status", "host.claim", "host.release", "tenant.init", "report.consolidated", "md.license", "md.pay.request", "md.pay.list", "md.trial.start"]);
 export const isHostAllowed = (action: string): boolean => HOST_ALLOWED.has(action) || action.startsWith("sync.") || action.startsWith("subscription.");
 export const hostedMessage = (h: Host) => `Ce commerce est hébergé par le poste « ${h.name} » depuis le ${h.since.slice(0, 10)} : saisissez vos opérations sur ce poste (les rapports restent consultables ici). Le propriétaire peut reprendre l'hébergement dans Paramètres.`;
 

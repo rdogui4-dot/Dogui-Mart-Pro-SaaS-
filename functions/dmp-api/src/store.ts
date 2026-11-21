@@ -47,7 +47,9 @@ export interface Store {
   userDirectory(tenantId: string): Promise<DirectoryUser[]>;
 }
 /** shopId vaut "" pour les actions qui ne dépendent d'aucune boutique (équipe, création de boutique). */
-export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean; /** Accès effectifs (le propriétaire les a tous) : calculés par handle(), jamais fournis par le client. */ modules?: Module[] };
+/** Mesures que seule la machine hôte peut fournir (le poste Windows : sauvegardes, synchronisation, constats). Absentes dans le cloud : les contrôles correspondants sont alors « inconnus », jamais « ok ». */
+export type StatusProbe = { /** le poste n'a pas de double authentification : sa valeur n'y est pas mesurable (le magasin local répond toujours « non ») */ noMfa?: boolean; station?: () => { lastSyncOkAt: string | null; pending: number; sessionOk: boolean; openConflicts: number; alertHours: number } | null; backups?: () => { lastOkAt: string | null; hasBackups: boolean; externalError: string | null } | null };
+export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean; probe?: StatusProbe; /** Accès effectifs (le propriétaire les a tous) : calculés par handle(), jamais fournis par le client. */ modules?: Module[] };
 import { MODULES, MODULE_LABEL, type Module } from "../../../src/domain/access";
 export type Role = "owner" | "manager" | "cashier";
 /** Compte d'un membre du commerce tel que l'annuaire du cloud le connaît : sert à la connexion du personnel sur le poste local (empreinte du mot de passe, jamais le mot de passe). */

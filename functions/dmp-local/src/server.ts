@@ -5,6 +5,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { handle } from "../../dmp-api/src/main";
 import { recordSecurityEvent } from "../../dmp-api/src/security-log";
+import type { StatusProbe } from "../../dmp-api/src/store";
 import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import { queryRows } from "./query";
 import { connectPage, deviceLabel, type NetworkInfo } from "./network";
@@ -36,6 +37,12 @@ export function createLocalServer(opts: LocalServerOptions) {
 
   const authed = (req: http.IncomingMessage, url: URL): { userId: string; token: string } | null => { const token = bearer(req, url); if (!token) return null; const userId = store.sessionUser(token); return userId ? { userId, token } : null; };
   const sessionInfo = (userId: string) => { const u = store.userById(userId)!; return { user: { id: u.id, name: u.name, email: u.email }, teams: store.teamsOf(userId) }; };
+  /** Mesures du poste pour le Centre de sécurité (sauvegardes, synchronisation, constats) : lues telles quelles, jamais déduites. */
+  const statusProbe = (): StatusProbe => ({
+    noMfa: true,
+    station: () => { const h = hostState(store); return h.hosted ? { lastSyncOkAt: h.lastSyncOkAt ?? null, pending: h.pending, sessionOk: h.sessionOk, openConflicts: h.conflicts, alertHours: h.alertHours } : null; },
+    backups: () => { if (!opts.backups) return null; const st = opts.backups.status(store.syncGet("hosted") === "1"); return { lastOkAt: st.lastOkAt ?? null, hasBackups: st.backups.length > 0, externalError: st.settings.externalError }; },
+  });
   const needsSetup = () => !store.db.prepare("SELECT 1 FROM teams LIMIT 1").get();
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
@@ -84,7 +91,7 @@ export function createLocalServer(opts: LocalServerOptions) {
     }
     const who = authed(req, url);
     if (path === "/v1/execute" && method === "POST") {
-      const body = JSON.parse((await readBody(req)) || "{}"); const r = await handle(store, who?.userId, body, { admins: opts.admins ?? [] }); return send(res, r.status, r.body);
+      const body = JSON.parse((await readBody(req)) || "{}"); const r = await handle(store, who?.userId, body, { admins: opts.admins ?? [], probe: statusProbe() }); return send(res, r.status, r.body);
     }
     if (!who) return send(res, 401, { ok: false, error: "Connexion requise" });
     store.touchSession(who.token);

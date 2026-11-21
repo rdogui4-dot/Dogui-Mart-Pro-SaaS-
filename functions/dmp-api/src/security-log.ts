@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { EVENT_KINDS, GENESIS, cleanTarget, eventHash, isEventKind, verifyChain, type ChainRow, type EventKind, type EventSource, type Outcome } from "../../../src/domain/security-events";
+import { EVENT_KINDS, GENESIS, cleanTarget, eventHash, isEventKind, normAt, verifyChain, type ChainRow, type EventKind, type EventSource, type Outcome } from "../../../src/domain/security-events";
 import { HttpError, roleOf, type Ctx, type Store } from "./store";
 
 /** Commerce « virtuel » qui porte les événements de la plateforme et ceux d'un appelant sans commerce : visibles du seul administrateur de la plateforme. */
@@ -50,17 +50,42 @@ async function append(store: Store, tenantId: string, severity: string, ev: Secu
 
 export { cleanTarget };
 
+type Row = Record<string, unknown>;
+const toRow = (r: Row): ChainRow => ({ tenantId: String(r.tenantId), seq: Number(r.seq), at: String(r.at), kind: String(r.kind), severity: String(r.severity), outcome: String(r.outcome), actorId: String(r.actorId ?? ""), actorRole: String(r.actorRole ?? ""), target: String(r.target ?? ""), requestId: String(r.requestId ?? ""), source: String(r.source ?? ""), prevHash: String(r.prevHash), hash: String(r.hash) });
+const anchorOf = (head: Row | null) => (head && Number(head.anchorSeq) > 0 ? { seq: Number(head.anchorSeq), hash: String(head.anchorHash ?? "") } : null);
+
+/** Lit le journal d'un commerce (jusqu'à 5000 événements) et vérifie la chaîne. */
+export async function readJournal(store: Store, tenantId: string) {
+  const [{ rows, truncated }, head] = await Promise.all([store.scan("security_events", { tenantId }, { maxRows: 5000 }), store.get("security_heads", headId(tenantId))]);
+  const mine = rows.filter((r) => r.tenantId === tenantId); // la lecture est déjà filtrée par commerce ; contrôle redondant volontaire
+  const chain = verifyChain(mine.map(toRow), head ? { seq: Number(head.seq), hash: String(head.hash) } : null, anchorOf(head));
+  return { rows: mine, head, chain, truncated, total: head ? Number(head.seq) : 0 };
+}
+
 /** Lecture réservée au propriétaire du commerce (ou à l'administrateur de la plateforme pour le journal de la plateforme). */
 export async function securityEvents(store: Store, ctx: Ctx, b: { limit?: number; kind?: string; scope?: "tenant" | "platform" } = {}) {
   const platform = b.scope === "platform";
   if (platform ? !ctx.admin : roleOf(ctx.roles) !== "owner") throw new HttpError(403, platform ? "Réservé à l'administrateur de la plateforme" : "Réservé au propriétaire du commerce");
   const tenantId = platform ? PLATFORM_JOURNAL : ctx.tenantId; const limit = Math.min(Math.max(Math.trunc(Number(b.limit) || 100), 1), 500);
-  const [{ rows, truncated }, head] = await Promise.all([store.scan("security_events", { tenantId }, { maxRows: 5000 }), store.get("security_heads", headId(tenantId))]);
-  const mine = rows.filter((r) => r.tenantId === tenantId); // la lecture est déjà filtrée par commerce ; contrôle redondant volontaire
-  const toRow = (r: Record<string, unknown>): ChainRow => ({ tenantId: String(r.tenantId), seq: Number(r.seq), at: String(r.at), kind: String(r.kind), severity: String(r.severity), outcome: String(r.outcome), actorId: String(r.actorId ?? ""), actorRole: String(r.actorRole ?? ""), target: String(r.target ?? ""), requestId: String(r.requestId ?? ""), source: String(r.source ?? ""), prevHash: String(r.prevHash), hash: String(r.hash) });
-  const chain = verifyChain(mine.map(toRow), head ? { seq: Number(head.seq), hash: String(head.hash) } : null);
-  const kindOk = isEventKind(b.kind) ? b.kind : null;
-  const events = mine.filter((r) => !kindOk || r.kind === kindOk).sort((a, c) => Number(c.seq) - Number(a.seq)).slice(0, limit)
+  const j = await readJournal(store, tenantId); const kindOk = isEventKind(b.kind) ? b.kind : null;
+  const events = j.rows.filter((r) => !kindOk || r.kind === kindOk).sort((a, c) => Number(c.seq) - Number(a.seq)).slice(0, limit)
     .map((r) => ({ seq: Number(r.seq), at: String(r.at), kind: String(r.kind), label: isEventKind(r.kind) ? EVENT_KINDS[r.kind].label : String(r.kind), severity: String(r.severity), outcome: String(r.outcome), actorId: String(r.actorId ?? ""), actorRole: String(r.actorRole ?? ""), target: String(r.target ?? ""), requestId: String(r.requestId ?? ""), source: String(r.source ?? ""), count: Number(r.count ?? 1), lastAt: String(r.lastAt ?? r.at) }));
-  return { events, chain: { ok: chain.ok, checked: chain.checked, fromStart: chain.fromStart && !truncated, problems: chain.problems.slice(0, 20) }, total: head ? Number(head.seq) : 0, truncated };
+  return { events, chain: { ok: j.chain.ok, checked: j.chain.checked, fromStart: j.chain.fromStart && !j.truncated, problems: j.chain.problems.slice(0, 20) }, total: j.total, truncated: j.truncated };
+}
+
+/** Rétention (D12) : 13 mois au minimum. La purge retire les plus anciens événements, par lots atomiques, et **ancre** la chaîne sur le dernier événement retiré (numéro et empreinte dans le pointeur) :
+ *  la suite conservée reste vérifiable. Jamais le dernier événement ; jamais d'événement plus récent que la limite. */
+export const RETENTION_MONTHS = 13; const PURGE_BATCH = 80;
+export async function purgeSecurityEvents(store: Store, tenantId: string, opts: { now?: Date; months?: number } = {}): Promise<{ purged: number; anchorSeq: number | null }> {
+  const months = Math.max(RETENTION_MONTHS, Math.trunc(Number(opts.months) || RETENTION_MONTHS)); const cut = new Date(opts.now ?? new Date()); cut.setUTCMonth(cut.getUTCMonth() - months);
+  const j = await readJournal(store, tenantId); if (!j.head) return { purged: 0, anchorSeq: null };
+  if (!j.chain.ok) throw new HttpError(409, "Purge refusée : la chaîne du journal est rompue (examiner d'abord)");
+  const sorted = [...j.rows].sort((a, b) => Number(a.seq) - Number(b.seq)); const last = sorted.length - 1; let purged = 0; let anchorSeq: number | null = null;
+  const old = sorted.filter((r, idx) => idx < last && Date.parse(normAt(String(r.at))) < cut.getTime());
+  for (let k = 0; k < old.length; k += PURGE_BATCH) {
+    const chunk = old.slice(k, k + PURGE_BATCH); const lastRemoved = chunk[chunk.length - 1]!;
+    await store.batch([...chunk.map((r) => ({ kind: "remove" as const, table: "security_events", id: String(r.$id) })), { kind: "update" as const, table: "security_heads", id: headId(tenantId), data: { anchorSeq: Number(lastRemoved.seq), anchorHash: String(lastRemoved.hash) } }]);
+    purged += chunk.length; anchorSeq = Number(lastRemoved.seq);
+  }
+  return { purged, anchorSeq };
 }

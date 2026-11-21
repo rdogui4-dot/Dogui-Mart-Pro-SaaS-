@@ -31,6 +31,14 @@ describe("routes /v1/backup", () => {
       const all = await s.store.list("security_events", { tenantId: "tenantbk000001" }, 50); expect(all.some((e) => e.kind === "backup.restore" && e.severity === "critical")).toBe(true);
     } finally { await s.close(); }
   });
+  it("Centre de sécurité sur le poste : les sauvegardes réelles du poste sont mesurées (copie du jour vérifiée = ok), la synchronisation est « sans objet » hors cloud", async () => {
+    const { s, post } = await boot();
+    try {
+      const r = await (await post("/v1/execute", { action: "security.status", tenantId: "tenantbk000001", shopId: "", payload: {} })).json(); expect(r.ok, JSON.stringify(r)).toBe(true);
+      const c = (id: string) => r.data.checks.find((x: any) => x.id === id);
+      expect(c("backups")).toMatchObject({ state: "ok", source: "Poste Windows" }); expect(c("sync").state).toBe("na"); expect(c("mfa_owner").state).toBe("unknown"); expect(c("backups").evidence).toMatch(/h\./);
+    } finally { await s.close(); }
+  });
   it("réservé au propriétaire : un caissier n'accède à rien", async () => {
     const { s, url, post, uid } = await boot();
     try {

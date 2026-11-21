@@ -63,6 +63,7 @@ import { hostClaim, hostRelease, hostStatus } from "./hosting";
 import { listPromotions, promotionAnalytics, promotionJournal, promotionRecommendations } from "./promotions-pro";
 import { isCategory } from "../../../src/domain/pricing";
 import { securityEvents } from "./security-log";
+import { platformSecurityPurge, securityStatus } from "./security-status";
 import { archiveArticle, needFeature, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
 
@@ -222,7 +223,7 @@ export async function paymentLinkStatus(store: Store, ctx: Ctx, b: { linkId: str
 }
 
 /** Actions qui ne dépendent d'aucune boutique particulière (le shopId du contexte est alors vide). */
-export const TENANT_LEVEL = new Set(["security.events", "sync.push", "sync.pull", "sync.users", "sync.userPush", "sync.ids", "sync.fileUp", "sync.fileDown", "sync.fileDelete", "host.status", "host.claim", "host.release", "md.license", "md.chat.ask", "md.chat.list", "md.chat.get", "md.chat.delete", "md.reco.generate", "md.reco.list", "md.reco.decide", "md.reco.cfg.save", "md.profile", "md.profile.set", "md.profile.confirm", "md.profile.delete", "md.trial.start", "md.pay.request", "md.pay.list", "report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "subscription.receipt", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword", "team.overview", "staff.invite.create", "staff.invite.list", "staff.invite.renew", "staff.invite.revoke"]);
+export const TENANT_LEVEL = new Set(["security.events", "security.status", "sync.push", "sync.pull", "sync.users", "sync.userPush", "sync.ids", "sync.fileUp", "sync.fileDown", "sync.fileDelete", "host.status", "host.claim", "host.release", "md.license", "md.chat.ask", "md.chat.list", "md.chat.get", "md.chat.delete", "md.reco.generate", "md.reco.list", "md.reco.decide", "md.reco.cfg.save", "md.profile", "md.profile.set", "md.profile.confirm", "md.profile.delete", "md.trial.start", "md.pay.request", "md.pay.list", "report.consolidated", "subscription.get", "subscription.checkout", "subscription.submitProof", "subscription.receipt", "tenant.init", "shop.create", "staff.create", "staff.update", "staff.resetPassword", "team.overview", "staff.invite.create", "staff.invite.list", "staff.invite.renew", "staff.invite.revoke"]);
 
 export const ACTIONS = {
   checkout: (s: Store, c: Ctx, b: CheckoutInput) => checkout(s, c, b),
@@ -234,7 +235,7 @@ export const ACTIONS = {
   "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "team.overview": teamOverview, "staff.invite.create": inviteCreate, "staff.invite.list": inviteList, "staff.invite.renew": inviteRenew, "staff.invite.revoke": inviteRevoke, "invite.peek": invitePeek, "invite.accept": inviteAccept, "stock.transfer": transferStock,
   "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof, "subscription.receipt": subscriptionReceipt,
   "platform.me": platformMe, "platform.subscription.lifetime": platformLifetime, "platform.renewals.list": platformRenewals, "platform.renewals.markReminded": platformMarkReminded, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
-  "security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind }), "platform.security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind, scope: "platform" }),
+  "security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind }), "security.status": securityStatus, "platform.security.purge": platformSecurityPurge, "platform.security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind, scope: "platform" }),
   "report.consolidated": consolidatedReport,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,
 } as const;
