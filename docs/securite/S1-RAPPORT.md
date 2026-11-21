@@ -14,12 +14,17 @@ Date : 2026-11-21 · Suite du rapport S0 (`S0-RAPPORT-BASELINE.md`).
 
 Limite de la CSP : `frame-ancestors` et les en-têtes HTTP ne se posent pas par balise `<meta>` ; `style-src` garde `'unsafe-inline'` (styles en ligne de React). Décision D3 (CDN/WAF) toujours ouverte.
 
-## À faire par le propriétaire (réglages GitHub, hors de mes accès)
-1. **Secret scanning + push protection** : Settings → Code security.
-2. **Protection de branche / ruleset** sur la branche par défaut. Attention : exiger une pull request bloquerait aussi mes publications directes ; choix à faire : (a) bloquer force-push et suppression seulement (sans gêne), (b) exiger revue + CI verte (plus sûr, change notre façon de publier).
-3. Activer **la 2FA** du compte GitHub et revoir jetons personnels/applications autorisées.
-4. Activer « Private vulnerability reporting » (utilisé par `SECURITY.md`).
-5. Rattachement Appwrite : renommer le projet « PRO HRI CENTER » ; l'organisation « Meet Evidence » est à traiter à part (D11).
+## Réglages GitHub / Appwrite : état au 2026-11-21
+| Réglage | État |
+|---|---|
+| Secret scanning + push protection | à activer (GitHub → Settings → Advanced Security) |
+| Protection de branche | **refusée par le propriétaire (risque accepté)** : un push publie sans revue ; compensé par les workflows et le test avant publication |
+| 2FA du compte GitHub | activée (déclaré par le propriétaire) |
+| Signalement privé de vulnérabilités | activé (déclaré par le propriétaire) |
+| Projet et organisation Appwrite renommés | projet « Dogui Mart Pro » vérifié par lecture (D11 clos) |
 
 ## Non fait volontairement
 Réduction des droits de clé Appwrite, `DMP_RECEIPT_KEY`, alignement 3 Mo/5 Mo, MFA du compte plateforme : modifications de production ou de code métier, à planifier séparément avec essais.
+
+## Observation supplémentaire (à décider)
+Méthodes d'authentification Appwrite actives : e-mail/mot de passe, lien magique, code e-mail, **anonyme**, invitations, JWT, **téléphone** ; passkey désactivée. L'application n'en utilise que certaines : désactiver les méthodes inutilisées réduit la surface d'attaque (à vérifier par essai avant, lot S2).
