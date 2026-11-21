@@ -13,6 +13,10 @@ on:
         description: "Publier la version de desktop/package.json sur GitHub Releases (crée l'étiquette vX.Y.Z sur ce commit ; refusé si la version existe déjà)"
         type: boolean
         default: false
+      completer:
+        description: "Compléter seulement la version de desktop/package.json déjà publiée (notes en français, empreinte, guide) sans recompiler"
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -26,6 +30,7 @@ env:
 
 jobs:
   windows:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.completer) }}
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -130,17 +135,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      - name: Compléter la version (notes en français, empreinte, guide d'installation)
-        if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publier))
-        shell: pwsh
-        run: |
-          $tag = "v$(node -p \"require('./desktop/package.json').version\")"
-          $sha = (Get-FileHash "desktop/dist-installer/Dogui-Mart-Pro-Setup.exe" -Algorithm SHA256).Hash
-          $notes = (Get-Content desktop/RELEASE-NOTES.md -Raw -Encoding utf8).Replace("{{VERSION}}", $tag).Replace("{{SHA256}}", $sha)
-          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
-          Copy-Item docs/WINDOWS.md "Guide-installation-Windows.md"
-          "Dogui-Mart-Pro-Setup.exe  SHA256=$sha" | Set-Content -Path "SHA256.txt" -Encoding utf8
-          gh release edit $tag --notes-file release-notes.md --title "Dogui Mart Pro pour Windows $tag"
-          gh release upload $tag "Guide-installation-Windows.md" "SHA256.txt" --clobber
+
+  finaliser:
+    # Notes de version en français, empreinte SHA-256 et guide d'installation joints à la Release (ré-exécutable seul avec l'option « completer »).
+    needs: windows
+    if: ${{ always() && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.publier || inputs.completer))) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compléter la version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(node -p "require('./desktop/package.json').version")"
+          gh release view "$TAG" >/dev/null || { echo "Version $TAG introuvable"; exit 1; }
+          mkdir -p dl && gh release download "$TAG" -p "Dogui-Mart-Pro-Setup.exe" -D dl
+          SHA=$(sha256sum dl/Dogui-Mart-Pro-Setup.exe | cut -d' ' -f1 | tr a-f A-F)
+          sed -e "s/{{VERSION}}/$TAG/g" -e "s/{{SHA256}}/$SHA/g" desktop/RELEASE-NOTES.md > release-notes.md
+          cp docs/WINDOWS.md Guide-installation-Windows.md
+          echo "Dogui-Mart-Pro-Setup.exe  SHA256=$SHA" > SHA256.txt
+          gh release edit "$TAG" --notes-file release-notes.md --title "Dogui Mart Pro pour Windows $TAG"
+          gh release upload "$TAG" Guide-installation-Windows.md SHA256.txt --clobber
+          echo "Version $TAG complétée (SHA256 $SHA)"
