@@ -26,6 +26,11 @@ describe("page publique /presentation/", () => {
   it("MASTER DOGUI : essai 14 jours, 15 000 puis 2 500 FCFA", () => {
     expect(text).toContain("14 jours"); expect(text).toContain("15 000 FCFA"); expect(text).toContain("2 500 FCFA par mois");
   });
+  it("version Windows : lien de téléchargement stable vers la dernière version, guide, avertissement honnête sur l'éditeur inconnu, aucune promesse invérifiable", () => {
+    expect(html).toContain("https://github.com/rdogui4-dot/Dogui-Mart-Pro-SaaS-/releases/latest/download/Dogui-Mart-Pro-Setup.exe");
+    expect(html).toContain("docs/WINDOWS.md"); expect(text).toContain("Télécharger pour Windows"); expect(text).toContain("Windows 10 ou 11"); expect(text).toContain("pas encore signé");
+    expect(text).toContain("Exécuter quand même"); expect(text).not.toMatch(/100 ?% (sûr|sécurisé)|certifié|garanti/i);
+  });
   it("aucun contenu non vérifiable : pas de témoignage ni de chiffre de clientèle", () => {
     expect(text).not.toMatch(/témoignage|clients satisfaits|\d+\s*(commerçants|clients actifs)/i);
   });
