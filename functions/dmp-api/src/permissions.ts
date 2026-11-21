@@ -123,6 +123,9 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   fin_reconciliations: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
   fin_budgets: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
   journal_entries: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
+  // Journal de sécurité : lisible par le propriétaire seul (jamais par un employé) ; écrit uniquement par le serveur.
+  security_events: (t) => [owner(t)],
+  security_heads: () => [],
   audit_log: (t, d) => [owner(t), `label:${managerLabel(shopOf(d))}`],
   // Un transfert concerne deux boutiques : le module Stock des deux
   transfers: (t, d) => [owner(t), `label:${moduleLabel("stock", shopOf(d))}`, `label:${moduleLabel("stock", String(d.toShopId ?? ""))}`],

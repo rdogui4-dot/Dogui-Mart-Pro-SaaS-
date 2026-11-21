@@ -22,6 +22,15 @@ describe("routes /v1/backup", () => {
       expect((await post("/v1/backup/verify", { name: "../x" })).status).toBe(404); expect((await post("/v1/backup/settings", { keep: 1 })).status).toBe(400); expect((await (await post("/v1/backup/settings", { keep: 10 })).json()).settings.keep).toBe(10);
     } finally { await s.close(); }
   });
+  it("journal de sécurité : l'export chiffré et la restauration sont tracés (acteur, rôle, source « poste »), sans phrase secrète ni nom de fichier", async () => {
+    const { s, post } = await boot();
+    try {
+      expect((await post("/v1/backup/export", { passphrase: "phrase-secrete" })).status).toBe(200);
+      const ex = (await s.store.list("security_events", { tenantId: "tenantbk000001" }, 50)).filter((e) => e.kind === "backup.export"); expect(ex.length).toBe(1); expect(ex[0]).toMatchObject({ outcome: "accepted", actorRole: "owner", source: "poste", severity: "warning" }); expect(JSON.stringify(ex)).not.toContain("phrase-secrete");
+      const now = await (await post("/v1/backup/now", {})).json(); expect((await post("/v1/backup/restore", { name: now.item.name, confirm: "RESTAURER" })).status).toBe(200);
+      const all = await s.store.list("security_events", { tenantId: "tenantbk000001" }, 50); expect(all.some((e) => e.kind === "backup.restore" && e.severity === "critical")).toBe(true);
+    } finally { await s.close(); }
+  });
   it("réservé au propriétaire : un caissier n'accède à rien", async () => {
     const { s, url, post, uid } = await boot();
     try {
@@ -35,7 +44,7 @@ describe("routes /v1/backup", () => {
     try {
       expect((await post("/v1/backup/export", { passphrase: "court" })).status).toBe(400); const ex = await post("/v1/backup/export", { passphrase: "phrase-secrete" }); expect(ex.status).toBe(200); expect(ex.headers.get("content-disposition")).toMatch(/\.dmpbackup/); const file = Buffer.from(await ex.arrayBuffer()); expect(file.subarray(0, 8).toString()).toBe("DMPBAK01");
       const now = await (await post("/v1/backup/now", {})).json(); await s.store.create("products", "p2", "tenantbk000001", { tenantId: "tenantbk000001", shopId: "s1", name: "Récent" });
-      expect((await post("/v1/backup/restore", { name: now.item.name })).status).toBe(400); const r = await post("/v1/backup/restore", { name: now.item.name, confirm: "RESTAURER" }); expect(await r.json()).toMatchObject({ ok: true, needsLogin: true, rows: 1 }); expect(await s.store.get("products", "p2")).toBeFalsy();
+      expect((await post("/v1/backup/restore", { name: now.item.name })).status).toBe(400); const r = await post("/v1/backup/restore", { name: now.item.name, confirm: "RESTAURER" }); expect(await r.json()).toMatchObject({ ok: true, needsLogin: true, rows: 3 /* 1 article + l'événement d'export du journal de sécurité et son pointeur de chaîne */ }); expect(await s.store.get("products", "p2")).toBeFalsy();
       const imp = (pass: string, confirm = "RESTAURER") => fetch(url("/v1/backup/import"), { method: "POST", headers: { authorization: H.authorization, "x-dmp-passphrase": encodeURIComponent(pass), "x-dmp-confirm": confirm }, body: file });
       // la session de l'ancienne base est celle de la sauvegarde : on se reconnecte
       const lg = await (await fetch(url("/v1/auth/login"), { method: "POST", headers: J, body: JSON.stringify({ email: "o@x.sn", password: "Abcdefg1!xyz" }) })).json(); const H2 = { authorization: `Bearer ${lg.token}`, "x-dmp-confirm": "RESTAURER" };

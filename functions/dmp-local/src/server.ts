@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { handle } from "../../dmp-api/src/main";
+import { recordSecurityEvent } from "../../dmp-api/src/security-log";
 import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import { queryRows } from "./query";
 import { connectPage, deviceLabel, type NetworkInfo } from "./network";
@@ -69,6 +70,7 @@ export function createLocalServer(opts: LocalServerOptions) {
       if (!needsSetup()) return send(res, 403, { ok: false, error: "Ce poste est déjà configuré" }); if (!loopback) return send(res, 403, { ok: false, error: "Le rattachement se fait sur le poste principal" });
       const b = JSON.parse((await readBody(req)) || "{}") as { email?: string; password?: string; stationName?: string; tenantId?: string };
       const r = await attachToCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), { email: String(b.email ?? ""), password: String(b.password ?? ""), stationName: String(b.stationName ?? ""), tenantId: b.tenantId ? String(b.tenantId) : undefined });
+      if (r.ok) await recordSecurityEvent(store, { tenantId: String(r.tenantId), kind: "station.attach", outcome: "accepted", actorRole: "owner", target: "poste:rattaché", source: "poste" });
       return send(res, r.ok ? 200 : 400, r.ok ? { ok: true, tenantId: r.tenantId, report: r.report } : r);
     }
     if ((path === "/v1/backup/import" || path === "/v1/backup/peek") && method === "POST" && opts.backups) { // fichier de sauvegarde : propriétaire, ou poste VIERGE depuis le poste lui-même (nouveau PC après une panne)
@@ -77,7 +79,7 @@ export function createLocalServer(opts: LocalServerOptions) {
         const buf = await readRaw(req, 1024 ** 3); const hosted = store.syncGet("hosted") === "1";
         if (path === "/v1/backup/peek") return send(res, 200, { ok: true, ...opts.backups.peek(buf) });
         if (decodeURIComponent(String(req.headers["x-dmp-confirm"] ?? "")) !== "RESTAURER") return send(res, 400, { ok: false, error: "Confirmation requise : tapez RESTAURER" });
-        const r = opts.backups.restoreFromFile(buf, decodeURIComponent(String(req.headers["x-dmp-passphrase"] ?? "")), { hosted }); return send(res, 200, { ok: true, ...r, needsLogin: true });
+        const ownTid = w ? store.teamsOf(w.userId).find((t) => t.roles.includes("owner"))?.id : undefined; const r = opts.backups.restoreFromFile(buf, decodeURIComponent(String(req.headers["x-dmp-passphrase"] ?? "")), { hosted }); if (ownTid) await recordSecurityEvent(store, { tenantId: ownTid, kind: "backup.restore", outcome: "accepted", actorId: w!.userId, actorRole: "owner", target: "sauvegarde:fichier", source: "poste" }); return send(res, 200, { ok: true, ...r, needsLogin: true });
       } catch (e) { if (e instanceof BackupError) return send(res, e.status, { ok: false, error: e.message }); throw e; }
     }
     const who = authed(req, url);
@@ -119,8 +121,8 @@ export function createLocalServer(opts: LocalServerOptions) {
         if (path === "/v1/backup/now" && method === "POST") { const item = bk.create("manuel"); return send(res, 200, { ok: true, item, ...bk.status(hosted) }); }
         if (path === "/v1/backup/verify" && method === "POST") { const v = bk.verify(String(b.name ?? "")); return send(res, 200, { ok: true, verification: v, ...bk.status(hosted) }); }
         if (path === "/v1/backup/settings" && method === "POST") { bk.setSettings({ keep: b.keep, externalDir: b.externalDir }); return send(res, 200, { ok: true, ...bk.status(hosted) }); }
-        if (path === "/v1/backup/export" && method === "POST") { const x = bk.exportEncrypted(b.name ? String(b.name) : null, b.passphrase); res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": `attachment; filename="${x.filename}"`, "content-length": String(x.file.length), "cache-control": "no-store" }); return void res.end(x.file); }
-        if (path === "/v1/backup/restore" && method === "POST") { if (b.confirm !== "RESTAURER") return send(res, 400, { ok: false, error: "Confirmation requise : tapez RESTAURER" }); const r = bk.restoreFromList(String(b.name ?? ""), { hosted }); return send(res, 200, { ok: true, ...r, needsLogin: true }); }
+        if (path === "/v1/backup/export" && method === "POST") { const x = bk.exportEncrypted(b.name ? String(b.name) : null, b.passphrase); await recordSecurityEvent(store, { tenantId: tid, kind: "backup.export", outcome: "accepted", actorId: who.userId, actorRole: "owner", target: "sauvegarde:exportée", source: "poste" }); res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": `attachment; filename="${x.filename}"`, "content-length": String(x.file.length), "cache-control": "no-store" }); return void res.end(x.file); }
+        if (path === "/v1/backup/restore" && method === "POST") { if (b.confirm !== "RESTAURER") return send(res, 400, { ok: false, error: "Confirmation requise : tapez RESTAURER" }); const r = bk.restoreFromList(String(b.name ?? ""), { hosted }); await recordSecurityEvent(store, { tenantId: tid, kind: "backup.restore", outcome: "accepted", actorId: who.userId, actorRole: "owner", target: "sauvegarde:liste", source: "poste" }); return send(res, 200, { ok: true, ...r, needsLogin: true }); }
       } catch (e) { if (e instanceof BackupError) return send(res, e.status, { ok: false, error: e.message }); throw e; }
     }
     if (path === "/v1/auth/logout" && method === "POST") { store.closeSession(who.token); return send(res, 200, { ok: true }); }

@@ -1,6 +1,7 @@
 /** Fonction publique `dmp-hooks` : reçoit UNIQUEMENT la notification de paiement MASTER DOGUI. Aucune autre action n'y est exposée (le routeur de dmp-api reste réservé aux utilisateurs connectés). */
 import { appwriteStore } from "../../dmp-api/src/appwrite-store";
 import { TOKEN_RE, processWebhook } from "../../dmp-api/src/master-pay";
+import { recordSecurityEvent } from "../../dmp-api/src/security-log";
 
 /** Frein de rafale (par instance) : au-delà de 30 jetons invalides par minute, réponse 429 immédiate sans aucun travail. */
 const bad = { at: 0, n: 0 };
@@ -11,9 +12,14 @@ type Res = { json(body: unknown, status?: number): unknown };
 export default async ({ req, res }: { req: Req; res: Res }) => {
   if (req.method !== "POST") return res.json({ ok: false }, 404);
   if (tooMany()) return res.json({ ok: false }, 429);
-  const token = String(req.query?.k ?? /[?&]k=([A-Za-z0-9]+)/.exec(String(req.path ?? ""))?.[1] ?? ""); if (!TOKEN_RE.test(token)) { bad.n++; return res.json({ ok: false }, 404); }
+  const token = String(req.query?.k ?? /[?&]k=([A-Za-z0-9]+)/.exec(String(req.path ?? ""))?.[1] ?? ""); if (!TOKEN_RE.test(token)) { bad.n++; return res.json({ ok: false }, 404); } // jeton mal formé : refusé sans toucher à la base (ni journal : le frein de rafale ci-dessus suffit)
   const raw = typeof req.bodyRaw === "string" ? req.bodyRaw : typeof req.bodyText === "string" ? req.bodyText : req.bodyJson !== undefined ? JSON.stringify(req.bodyJson) : "";
   const store = appwriteStore(process.env.APPWRITE_FUNCTION_API_ENDPOINT!, process.env.APPWRITE_FUNCTION_PROJECT_ID!, req.headers["x-appwrite-key"]!, process.env.DATABASE_ID || "dmp");
-  try { const r = await processWebhook(store, { token, raw, contentType: req.headers["content-type"] }, { cacheMs: 30_000 }); if (r.status === 404) bad.n++; return res.json(r.body, r.status); }
+  try {
+    const r = await processWebhook(store, { token, raw, contentType: req.headers["content-type"] }, { cacheMs: 30_000 }); if (r.status === 404) bad.n++;
+    // Journal de sécurité (jamais le jeton ni le contenu) : refusé = regroupé par minute ; reçu ou doublon = un événement.
+    await recordSecurityEvent(store, r.status === 404 ? { tenantId: "", kind: "hook.rejected", outcome: "denied", target: "webhook:paiement", source: "cloud", throttleKey: "-" } : r.status === 200 ? { tenantId: "", kind: (r.body as { duplicate?: boolean }).duplicate ? "hook.duplicate" : "hook.accepted", outcome: "accepted", target: "webhook:paiement", source: "cloud", throttleKey: (r.body as { duplicate?: boolean }).duplicate ? "dup" : undefined } : { tenantId: "", kind: "hook.rejected", outcome: "failed", target: `webhook:http${r.status}`, source: "cloud", throttleKey: String(r.status) });
+    return res.json(r.body, r.status);
+  }
   catch { return res.json({ ok: false, error: "erreur interne" }, 500); }
 };

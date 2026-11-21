@@ -1,4 +1,5 @@
 import { PULLED_TABLES, SYNC_CLASS_OF } from "../../../src/domain/sync-tables";
+import { recordSecurityEvent } from "../../dmp-api/src/security-log";
 import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import type { PushResult, PushRow, UserPushIn, UserPushResult } from "../../dmp-api/src/sync";
 import type { DirectoryUser } from "../../dmp-api/src/store";
@@ -127,5 +128,6 @@ export async function syncOnce(store: SqliteStore, cloud: CloudApi, tenantId: st
   if (!rep.error) { const last = Date.parse(store.syncGet("reconciledAt") ?? ""); if (!(Date.now() - last < 36e5)) { const d = await reconcileDeletions(store, cloud); if (d.error) rep.error = `suppressions : ${d.error}`; else store.syncSet("reconciledAt", new Date().toISOString()); } }
   if (!rep.error) { const g = await pullFiles(store, cloud); if (g.error) rep.error = `fichiers reçus : ${g.error}`; }
   store.syncSet("lastSyncAt", new Date().toISOString()); if (!rep.error) store.syncSet("lastSyncOkAt", new Date().toISOString());
+  if (rep.conflicts > 0) await recordSecurityEvent(store, { tenantId, kind: "sync.conflict", outcome: "accepted", target: `conflits:${rep.conflicts}`, source: "poste", throttleKey: "sync" }); // le détail reste dans le journal des constats, jamais dans le journal de sécurité
   return rep;
 }
