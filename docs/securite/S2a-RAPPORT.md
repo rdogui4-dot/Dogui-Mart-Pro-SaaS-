@@ -24,7 +24,14 @@ Date : 2026-11-21 · Plan : `S2-PLAN.md` (D12–D16 validées : journal dédié 
 - Le regroupement est par instance de fonction : le compteur peut sous-estimer sur plusieurs instances (l'événement, lui, est toujours écrit).
 - Un administrateur de la base Appwrite (accès console) peut modifier le journal **et** le pointeur ensemble : la chaîne détecte une altération partielle, pas un administrateur total (ancrage externe prévu en S3 avec le moniteur indépendant).
 
-## Mise en production (à faire seulement après « publie »)
+## Essai réel sur Appwrite (2026-11-21, comptes jetables, nettoyage vérifié)
+Tables créées (colonnes et index « available »), code déployé, puis commerce jetable avec propriétaire, employé et compte étranger : lecture du journal par le propriétaire, création/modification d'employé journalisées (acteur, rôle, source « cloud »), étranger refusé et son refus **dans le journal de la plateforme seulement** (journal du commerce non pollué), propriétaire refusé sur le journal de la plateforme, chaîne valide : **7/7**.
+**Deux défauts trouvés par cet essai et corrigés (tests ajoutés, redéployés)** :
+1. La chaîne paraissait invalide : Appwrite relit la date en « +00:00 » au lieu de « Z » ; l'empreinte utilise maintenant une date normalisée (commit 3dcf00b).
+2. Le journal de la plateforme avait pour droit de lecture « team:platform/owner » : n'importe quel compte pouvait créer une équipe d'identifiant « platform » et le lire. Il n'a désormais **aucun** rôle de lecture (commit e7d2315). Aucune équipe « platform » n'existait.
+Nettoyage : 3 comptes, 1 équipe et toutes les lignes (commerce, abonnement, employé, journal d'audit, événements, pointeurs) supprimés ; absence vérifiée.
+
+## Mise en production (réalisée)
 1. Créer les 2 tables dans Appwrite (colonnes, index) depuis `scripts/schema.mjs`, puis vérifier colonnes « available ».
 2. Pousser le code (déploiement automatique de `dmp-api` et `dmp-hooks`).
 3. Essai réel (comptes jetables, nettoyage vérifié) : refus, succès, lecture, chaîne valide.
