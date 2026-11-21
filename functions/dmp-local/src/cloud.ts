@@ -47,7 +47,7 @@ export function createCloudClient(cfg: CloudConfig, opts: { fetch?: Fetch; sessi
   async function execute<T = unknown>(action: string, tenantId: string, payload: unknown = {}, shopId = ""): Promise<T> {
     if (!session) throw new CloudError(401, "Session cloud absente : reconnectez ce poste au cloud");
     const r = await call("POST", `/functions/${encodeURIComponent(fn)}/executions`, { body: JSON.stringify({ action, tenantId, shopId, payload }), async: false, path: "/", method: "POST", headers: { "content-type": "application/json" } });
-    const b = await json(r); if (r.status === 401) throw new CloudError(401, "Session cloud expirée : reconnectez ce poste au cloud"); if (r.status >= 500) throw new CloudError(r.status, "Service cloud indisponible", true); if (!r.ok) throw new CloudError(r.status, String(b.message ?? "Appel refusé"));
+    const b = await json(r); /* session refusée : elle ne vaut plus rien, le poste le signale au propriétaire */ if (r.status === 401) { session = null; opts.onSession?.(null); throw new CloudError(401, "Session cloud expirée : reconnectez ce poste au cloud"); } if (r.status >= 500) throw new CloudError(r.status, "Service cloud indisponible", true); if (!r.ok) throw new CloudError(r.status, String(b.message ?? "Appel refusé"));
     let out: { ok: boolean; data?: T; error?: string }; try { out = JSON.parse(String(b.responseBody ?? "")); } catch { throw new CloudError(Number(b.responseStatusCode) || 500, "Réponse du cloud illisible"); }
     if (!out.ok) throw new CloudError(Number(b.responseStatusCode) || 400, out.error ?? "Refusé par le cloud"); return out.data as T;
   }

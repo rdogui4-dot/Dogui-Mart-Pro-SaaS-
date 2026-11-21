@@ -7,12 +7,12 @@ import { handle } from "../../dmp-api/src/main";
 import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import { queryRows } from "./query";
 import { connectPage, deviceLabel, type NetworkInfo } from "./network";
-import type { CloudConfig } from "./cloud";
-import { attachToCloud, cloudFor, hostState, releaseToCloud, runSync } from "./hosting";
+import { createCloudClient, type CloudConfig } from "./cloud";
+import { attachToCloud, cloudFor, hostState, reconnectCloud, releaseToCloud, restoreFromCloud, runSync } from "./hosting";
 
 /** Serveur local de la version Windows : même fonction métier (`handle`) et même contrat de lecture que le cloud, sur la base SQLite du poste principal.
  *  Il sert aussi l'application web, pour les postes du réseau (navigateur) et pour la fenêtre de bureau. Toute requête de données exige une session. */
-export type LocalServerOptions = { store: SqliteStore; webRoot?: string; admins?: string[]; tls?: { key: string | Buffer; cert: string | Buffer }; /** Adresses et certificat à montrer aux autres appareils (poste principal). */ network?: () => NetworkInfo; /** Vérifie un identifiant et un mot de passe auprès du cloud (première connexion en ligne). */ verifyOnline?: (email: string, password: string) => Promise<"ok" | "bad" | "unreachable"> ; /** Liaison au cloud (rattachement, synchronisation, retour au cloud). Absente : le poste reste 100 % local. */ cloud?: { config: CloudConfig; fetch?: typeof fetch } };
+export type LocalServerOptions = { store: SqliteStore; webRoot?: string; admins?: string[]; tls?: { key: string | Buffer; cert: string | Buffer }; /** Adresses et certificat à montrer aux autres appareils (poste principal). */ network?: () => NetworkInfo; /** Vérifie un identifiant et un mot de passe auprès du cloud (première connexion en ligne). */ verifyOnline?: (email: string, password: string) => Promise<"ok" | "bad" | "unreachable"> ; /** Dossier des copies de sécurité (avant une restauration). */ backupDir?: string; /** Liaison au cloud (rattachement, synchronisation, retour au cloud). Absente : le poste reste 100 % local. */ cloud?: { config: CloudConfig; fetch?: typeof fetch } };
 const MAX_BODY = 12 * 1024 * 1024;
 const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8", ".map": "application/json" };
 
@@ -23,7 +23,8 @@ const sha16 = (token: string): string => createHash("sha256").update(token).dige
 const bearer = (req: http.IncomingMessage, url: URL): string => { const h = String(req.headers.authorization ?? ""); return h.startsWith("Bearer ") ? h.slice(7) : url.searchParams.get("token") ?? ""; };
 
 export function createLocalServer(opts: LocalServerOptions) {
-  const { store } = opts; const root = opts.webRoot ? resolve(opts.webRoot) : "";
+  const { store } = opts; const verifyOnline = opts.verifyOnline ?? (opts.cloud ? (e: string, p: string) => createCloudClient(opts.cloud!.config, { fetch: opts.cloud!.fetch }).verifyOnline(e, p) : undefined); // première connexion d'un compte venu du cloud : vérifiée en ligne
+  const root = opts.webRoot ? resolve(opts.webRoot) : "";
   const fails = new Map<string, { n: number; until: number }>(); // limite les essais de mot de passe par identifiant
   const sse = new Set<http.ServerResponse>();
   store.events.on("change", (e: { table: string; id: string }) => { for (const r of sse) r.write(`data: ${JSON.stringify(e)}\n\n`); });
@@ -40,8 +41,8 @@ export function createLocalServer(opts: LocalServerOptions) {
       const b = JSON.parse((await readBody(req)) || "{}") as { email?: string; password?: string }; const email = String(b.email ?? "").trim(); const f = fails.get(email) ?? { n: 0, until: 0 };
       if (f.until > Date.now()) return send(res, 429, { ok: false, error: "Trop d'essais : réessayez dans quelques minutes" });
       const pw = String(b.password ?? ""); const lu = email ? await store.verifyLogin(email, pw) : null; let granted = !!lu && lu.known && lu.active; let why = "Identifiant ou mot de passe incorrect";
-      if (!granted && lu && lu.active && opts.verifyOnline) { // mot de passe inconnu du poste (jamais vu, ou changé au cloud depuis) : vérification en ligne, puis empreinte gardée pour les connexions hors ligne
-        const r = await opts.verifyOnline(email, pw); if (r === "ok") { store.cacheCredential(lu.id, pw); granted = true; } else if (r === "unreachable" && !store.userHasCredential(lu.id)) why = "Connexion impossible hors ligne : ce compte doit d'abord se connecter une fois avec internet";
+      if (!granted && lu && lu.active && verifyOnline) { // mot de passe inconnu du poste (jamais vu, ou changé au cloud depuis) : vérification en ligne, puis empreinte gardée pour les connexions hors ligne
+        const r = await verifyOnline(email, pw); if (r === "ok") { store.cacheCredential(lu.id, pw); granted = true; } else if (r === "unreachable" && !store.userHasCredential(lu.id)) why = "Connexion impossible hors ligne : ce compte doit d'abord se connecter une fois avec internet";
       }
       const u = granted ? store.userById(lu!.id) : null;
       if (!u) { f.n++; if (f.n >= 5) { f.until = Date.now() + 5 * 60_000; f.n = 0; } fails.set(email, f); return send(res, 401, { ok: false, error: why }); }
@@ -59,6 +60,7 @@ export function createLocalServer(opts: LocalServerOptions) {
     }
     if (path === "/v1/connect" && method === "GET") return send(res, 200, opts.network?.() ?? null); // public : adresses du poste et empreinte du certificat, aucune donnée d'entreprise
     if (path === "/v1/certificate.crt" && method === "GET") { const c = opts.tls?.cert; if (!c) return send(res, 404, { ok: false, error: "Aucun certificat : ce poste fonctionne en HTTP" }); res.writeHead(200, { "content-type": "application/x-x509-ca-cert", "content-disposition": 'attachment; filename="dogui-mart-pro.crt"', "cache-control": "no-store" }); return void res.end(c); }
+    if (path === "/v1/cloud/availability" && method === "GET") return send(res, 200, { available: !!opts.cloud, needsSetup: needsSetup() }); // public : l'accueil propose le rattachement à un poste vierge
     if (path === "/v1/cloud/attach" && method === "POST") { // rattachement d'un poste vierge à un commerce du cloud : poste principal uniquement
       if (!opts.cloud) return send(res, 404, { ok: false, error: "Liaison au cloud non disponible sur ce poste" });
       if (!needsSetup()) return send(res, 403, { ok: false, error: "Ce poste est déjà configuré" }); if (!loopback) return send(res, 403, { ok: false, error: "Le rattachement se fait sur le poste principal" });
@@ -90,6 +92,11 @@ export function createLocalServer(opts: LocalServerOptions) {
       const tid = ownerTeam(); if (!tid) return send(res, 403, { ok: false, error: "Réservé au propriétaire" }); if (!opts.cloud) return send(res, 404, { ok: false, error: "Liaison au cloud non disponible sur ce poste" });
       if (path === "/v1/cloud/status" && method === "GET") return send(res, 200, { ok: true, ...hostState(store) });
       if (path === "/v1/cloud/sync" && method === "POST") { const r = await runSync(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), { force: true }); return send(res, 200, { ok: !r.error, report: r, ...hostState(store) }); }
+      if (path === "/v1/cloud/conflicts" && method === "GET") { const cut = (v: unknown) => { const t = JSON.stringify(v ?? null); return t.length > 4000 ? { tronque: true, extrait: t.slice(0, 4000) } : v; }; return send(res, 200, { ok: true, conflicts: store.conflicts(true).map((c) => ({ ...c, local: cut(c.local), cloud: cut(c.cloud) })) }); }
+      if (path === "/v1/cloud/conflicts/review" && method === "POST") { const b = JSON.parse((await readBody(req)) || "{}") as { id?: number; all?: boolean }; if (b.all) for (const c of store.conflicts(true)) store.resolveConflict(c.id); else if (Number.isInteger(b.id)) store.resolveConflict(Number(b.id)); else return send(res, 400, { ok: false, error: "Constat à préciser" }); return send(res, 200, { ok: true, ...hostState(store) }); }
+      if (path === "/v1/cloud/reconnect" && method === "POST") { const b = JSON.parse((await readBody(req)) || "{}") as { password?: string }; const r = await reconnectCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), String(b.password ?? "")); return send(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...hostState(store) } : r); }
+      if (path === "/v1/cloud/settings" && method === "POST") { const b = JSON.parse((await readBody(req)) || "{}") as { alertHours?: number }; const h = Math.round(Number(b.alertHours)); if (!Number.isFinite(h) || h < 1 || h > 720) return send(res, 400, { ok: false, error: "Seuil d'alerte : 1 à 720 heures" }); store.syncSet("alertHours", String(h)); return send(res, 200, { ok: true, ...hostState(store) }); }
+      if (path === "/v1/cloud/restore" && method === "POST") { const b = JSON.parse((await readBody(req)) || "{}") as { confirmName?: string }; if (!opts.backupDir) return send(res, 409, { ok: false, error: "Dossier de sauvegarde non configuré" }); const r = await restoreFromCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), { backupDir: opts.backupDir, confirmName: String(b.confirmName ?? "") }); return send(res, r.ok ? 200 : 409, r.ok ? { ok: true, ...hostState(store) } : r); }
       if (path === "/v1/cloud/release" && method === "POST") { const r = await releaseToCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch)); return send(res, r.ok ? 200 : 409, r); }
     }
     if (path === "/v1/auth/logout" && method === "POST") { store.closeSession(who.token); return send(res, 200, { ok: true }); }

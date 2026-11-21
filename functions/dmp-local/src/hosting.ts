@@ -3,11 +3,11 @@ import { CloudError, createCloudClient, type CloudClient, type CloudConfig, type
 import { initialDownload, pullFiles, pushPending, syncOnce, syncUsers, type SyncReport } from "./sync";
 
 /** Rattachement d'un poste local au cloud : le poste télécharge le commerce (mêmes identifiants), en devient l'hébergeur, puis synchronise. */
-export type HostState = { hosted: boolean; tenantId?: string; stationName?: string; cloudEmail?: string; attachedAt?: string; lastSyncAt?: string; lastSyncOkAt?: string; lastError?: string; pending: number; conflicts: number; sessionOk: boolean; /** échecs de synchronisation consécutifs */ failures: number; /** prochain essai automatique (après des échecs) */ nextTryAt?: string };
+export type HostState = { hosted: boolean; tenantId?: string; stationName?: string; cloudEmail?: string; attachedAt?: string; lastSyncAt?: string; lastSyncOkAt?: string; lastError?: string; pending: number; conflicts: number; sessionOk: boolean; /** échecs de synchronisation consécutifs */ alertHours: number; failures: number; /** prochain essai automatique (après des échecs) */ nextTryAt?: string };
 
 export const hostState = (store: SqliteStore): HostState => ({
   hosted: store.syncGet("hosted") === "1", tenantId: store.syncGet("tenantId") ?? undefined, stationName: store.syncGet("stationName") ?? undefined, cloudEmail: store.syncGet("cloudEmail") ?? undefined, attachedAt: store.syncGet("attachedAt") ?? undefined,
-  lastSyncAt: store.syncGet("lastSyncAt") ?? undefined, lastSyncOkAt: store.syncGet("lastSyncOkAt") ?? undefined, lastError: store.syncGet("lastError") ?? undefined, pending: store.outboxCount(), conflicts: store.conflicts().length, sessionOk: !!store.syncGet("cloud.session"), failures: Number(store.syncGet("failures") ?? 0), nextTryAt: store.syncGet("nextTryAt") ?? undefined,
+  lastSyncAt: store.syncGet("lastSyncAt") ?? undefined, lastSyncOkAt: store.syncGet("lastSyncOkAt") ?? undefined, lastError: store.syncGet("lastError") ?? undefined, pending: store.outboxCount(), conflicts: store.conflicts().length, sessionOk: !!store.syncGet("cloud.session"), alertHours: Number(store.syncGet("alertHours") ?? 24), failures: Number(store.syncGet("failures") ?? 0), nextTryAt: store.syncGet("nextTryAt") ?? undefined,
 });
 /** Client du cloud dont la session (cookie du propriétaire) est conservée dans la base du poste. */
 export function cloudFor(store: SqliteStore, cfg: CloudConfig, f?: typeof fetch): CloudClient {
@@ -64,4 +64,27 @@ export async function releaseToCloud(store: SqliteStore, cloud: CloudClient): Pr
     if (store.outboxCount() > 0) return { ok: false, error: "Des opérations restent à envoyer : rien n'est rendu au cloud" };
     await cloud.execute("host.release", tenantId, {}); store.syncOn = false; for (const k of ["hosted", "syncOn"]) store.syncSet(k, null); return { ok: true };
   } catch (e) { return { ok: false, error: e instanceof CloudError ? e.message : (e as Error).message || "Retour au cloud impossible" }; }
+}
+
+/** Reconnecte le poste au cloud (session expirée) avec le mot de passe du propriétaire ; le mot de passe n'est jamais conservé. */
+export async function reconnectCloud(store: SqliteStore, cloud: CloudClient, password: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const tenantId = store.syncGet("tenantId"), email = store.syncGet("cloudEmail"); if (!tenantId || !email) return { ok: false, error: "Ce poste n'est rattaché à aucun commerce" };
+  try { await cloud.login(email, password); if (!(await cloud.ownerOf(tenantId))) { await cloud.logout(); return { ok: false, error: "Ce compte n'est plus propriétaire de ce commerce" }; } store.syncSet("failures", null); store.syncSet("nextTryAt", null); store.syncSet("lastError", null); return { ok: true }; }
+  catch (e) { return { ok: false, error: e instanceof CloudError ? e.message : (e as Error).message || "Connexion impossible" }; }
+}
+/** Rétablit le miroir depuis le cloud : refusé s'il reste quoi que ce soit à envoyer (rien ne doit se perdre) ; une copie de la base actuelle est faite AVANT, puis le commerce est téléchargé de nouveau. */
+export async function restoreFromCloud(store: SqliteStore, cloud: CloudClient, opts: { backupDir: string; confirmName: string }): Promise<{ ok: true; backup: string } | { ok: false; error: string }> {
+  const tenantId = store.syncGet("tenantId"); if (!tenantId || store.syncGet("hosted") !== "1") return { ok: false, error: "Ce poste n'est rattaché à aucun commerce" };
+  if (opts.confirmName.trim() !== (store.syncGet("stationName") ?? "")) return { ok: false, error: "Tapez exactement le nom de ce poste pour confirmer" };
+  if (store.outboxCount() > 0 || store.filesPending(1).length > 0 || store.filesDeleted().length > 0) return { ok: false, error: "Des éléments ne sont pas encore envoyés au cloud : synchronisez d'abord, sinon ils seraient perdus" };
+  if (!cloud.hasSession()) return { ok: false, error: "Session cloud absente : reconnectez ce poste au cloud" };
+  const { mkdirSync } = await import("node:fs"); const { join } = await import("node:path"); mkdirSync(opts.backupDir, { recursive: true });
+  const backup = join(opts.backupDir, `avant-restauration-${new Date().toISOString().replace(/[:.]/g, "-")}.sqlite`); store.snapshotTo(backup);
+  try {
+    store.syncOn = false; store.wipeMirror(); const api = cloud.api(tenantId);
+    const rep = await initialDownload(store, api, tenantId); if (rep.error) throw new Error(rep.error);
+    const u = await syncUsers(store, api, tenantId); if (u.error) throw new Error(u.error); const g = await pullFiles(store, api); if (g.error) throw new Error(g.error);
+    store.syncSet("lastSyncOkAt", new Date().toISOString()); store.syncSet("lastSyncAt", new Date().toISOString()); store.syncSet("lastError", null); store.syncSet("failures", null); store.syncSet("nextTryAt", null); store.syncOn = true;
+    return { ok: true, backup };
+  } catch (e) { store.syncOn = true; store.syncSet("lastError", `Restauration interrompue : ${(e as Error).message}`); return { ok: false, error: `Restauration interrompue (${(e as Error).message}). La copie d'avant est dans ${backup} ; relancez la restauration.` }; }
 }

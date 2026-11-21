@@ -253,6 +253,13 @@ export class SqliteStore implements Store {
       else this.db.prepare("INSERT INTO rows (tbl, id, tenant_id, created_at, updated_at, remote_at, data, read_roles) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(table, id, tenantId, createdAt, updatedAt, updatedAt, JSON.stringify(clean), roles);
       this.emit(table, id); } finally { this.applying = false; }
   }
+  /** Copie cohérente de la base dans un fichier (avant une restauration). */
+  snapshotTo(path: string): void { this.db.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`); }
+  /** Vide le miroir du commerce (lignes, fichiers, file d'envoi, curseurs) avant un nouveau téléchargement complet. Comptes, équipe et journal des conflits sont conservés. */
+  wipeMirror(): void {
+    this.applying = true;
+    try { this.tx(() => { this.db.exec("DELETE FROM rows; DELETE FROM outbox; DELETE FROM files;"); for (const k of this.db.prepare("SELECT key FROM sync_state WHERE key LIKE 'pull:%' OR key LIKE 'filemiss:%' OR key LIKE 'filedel:%' OR key LIKE 'userpush:%' OR key = 'reconciledAt'").all() as { key: string }[]) this.db.prepare("DELETE FROM sync_state WHERE key = ?").run(k.key); }); } finally { this.applying = false; }
+  }
   /** Lignes de la table connues du cloud (reçues ou déjà envoyées et acquittées) et sans envoi en attente. */
   syncedIds(table: string): string[] { return (this.db.prepare("SELECT id FROM rows WHERE tbl = ? AND remote_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.tbl = rows.tbl AND o.id = rows.id)").all(table) as { id: string }[]).map((r) => String(r.id)); }
   removeRemote(table: string, id: string): void { this.applying = true; try { this.db.prepare("DELETE FROM rows WHERE tbl = ? AND id = ?").run(table, id); this.emit(table, id); } finally { this.applying = false; } }

@@ -1,6 +1,6 @@
 /** Connexion, création de compte et récupération du mot de passe (kit écrans 02-04) : deux colonnes (message et modules à gauche, formulaire à droite), une colonne sur mobile.
  *  Aucun faux élément : pas de connexion Google/Microsoft/Apple (non configurée), pas de code SMS (Appwrite envoie un lien), pas de « se souvenir de moi » (la session est déjà conservée). */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Boxes, Calculator, CheckCircle2, Eye, EyeOff, Lock, Mail, Send, ShieldCheck, ShoppingCart, TrendingUp, Users, Wallet, Zap, ArrowRight, ArrowLeft, UserRound, type LucideIcon } from "lucide-react";
 import { account } from "@/lib/appwrite";
 import { identity } from "@/lib/identity";
@@ -12,6 +12,8 @@ import { passwordStrength } from "@/domain/signup";
 import { hasRealEmail, sendVerification, takeVerifyResult } from "@/lib/verify";
 import { legalHref } from "./legal";
 import { MasterSymbol } from "./master";
+import { localCloud } from "@/lib/local-backend";
+import { AttachPoste } from "./sync-local";
 
 type Mode = "login" | "signup" | "forgot" | "reset";
 /** Paramètres d'adresse lus au chargement de l'application : la redirection de la racine vers /accueil les supprime ensuite
@@ -48,6 +50,8 @@ export function AuthPage() {
   const [mode, setMode] = useState<Mode>(recoveryParams ? "reset" : new URLSearchParams(LANDING_SEARCH).get("inscription") === "1" ? "signup" : "login"); const [info, setInfo] = useState(takeVerifyResult() === "ok" ? "Adresse e-mail confirmée. Connectez-vous pour continuer." : ""); const [show, setShow] = useState(false);
   const [f, setF] = useState({ name: "", email: "", password: "" }); const [accept, setAccept] = useState(false); const [sent, setSent] = useState(false); const [resetDone, setResetDone] = useState(false);
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const [canAttach, setCanAttach] = useState(false); const [attach, setAttach] = useState(false); // poste local vierge : rattachement possible à un commerce cloud
+  useEffect(() => { const c = localCloud(); if (c) void c.availability().then((a) => setCanAttach(a.available && a.needsSetup)).catch(() => undefined); }, []);
   const { refresh } = useSession();
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const go = (m: Mode) => { setMode(m); setErr(""); setInfo(""); setSent(false); setResetDone(false); };
@@ -95,6 +99,7 @@ export function AuthPage() {
       <Side mode={mode} />
       <main className="flex flex-col justify-center gap-5 p-5 sm:p-10 max-w-xl w-full mx-auto">
         <div className="lg:hidden flex flex-col items-center gap-2 text-center"><Logo size={56} /><p className="text-muted text-sm">Caisse, stocks, achats, clients et compta dans votre poche.</p></div>
+        {attach ? <div className="card flex flex-col gap-4 !p-6 sm:!p-8"><h1 className="text-2xl font-extrabold">Rattacher à mon commerce cloud</h1><AttachPoste onBack={() => setAttach(false)} /></div> :
         <form onSubmit={submit} className="card flex flex-col gap-4 !p-6 sm:!p-8" noValidate={false}>
           <div className="flex flex-col gap-1"><h1 className="text-2xl font-extrabold">{mode === "login" ? "Se connecter" : mode === "signup" ? "Créer un compte" : mode === "forgot" ? "Mot de passe oublié ?" : resetDone ? "Mot de passe modifié" : "Nouveau mot de passe"}</h1>
             <p className="text-sm text-soft">{mode === "login" ? "Accédez à votre espace DOGUI MART PRO." : mode === "signup" ? "Commencez gratuitement et découvrez la puissance de DOGUI MART PRO." : mode === "forgot" ? "Entrez votre adresse e-mail pour recevoir un lien de réinitialisation." : resetDone ? "Vous pouvez maintenant vous connecter." : "Choisissez un nouveau mot de passe."}</p></div>
@@ -115,7 +120,8 @@ export function AuthPage() {
           {!resetDone && <button type="button" className="btn-ghost inline-flex items-center justify-center gap-2" onClick={() => go(mode === "login" ? "signup" : "login")}>
             {mode === "login" ? "Pas encore de compte ? Créer un compte" : mode === "signup" ? "Vous avez déjà un compte ? Se connecter" : <><ArrowLeft size={16} aria-hidden="true" /> Retour à la connexion</>}
           </button>}
-        </form>
+        </form>}
+        {canAttach && !attach && <button type="button" className="btn-ghost" onClick={() => setAttach(true)}>Rattacher ce poste à mon commerce cloud</button>}
         <p className="text-center text-xs text-muted"><a className="underline" href={`${import.meta.env.BASE_URL}presentation/`}>Découvrir DOGUI MART PRO</a> · <a className="underline" href={legalHref("conditions")}>Conditions</a> · <a className="underline" href={legalHref("confidentialite")}>Confidentialité</a></p>
       </main>
     </div>

@@ -165,3 +165,59 @@ describe("suppressions côté cloud et reprise après échecs", () => {
     down = false; expect((await runSync(local, c)).waiting).toBe(true); expect((await runSync(local, c, { force: true })).error).toBeUndefined(); expect(hostState(local)).toMatchObject({ failures: 0, nextTryAt: undefined, lastError: undefined });
   });
 });
+
+describe("reconnexion, restauration, robustesse (lot 4d)", () => {
+  let local: SqliteStore;
+  beforeEach(async () => { local = new SqliteStore(); expect((await attachToCloud(local, client("own"), { email: "a@x.sn", password: "bon", stationName: "Caisse", tenantId: T })).ok).toBe(true); });
+  const sale = (id: string, q = 1) => ok(cl(local, "own", "checkout", { clientId: id, lines: [{ productId: eau, qty: q }], payments: [{ method: "cash", amount: 500 * q }] }, shop));
+  it("reconnexion : refusée avec un mauvais mot de passe, acceptée avec le bon ; le mot de passe n'est pas conservé", async () => {
+    const { reconnectCloud } = await import("./hosting"); const c = client("own");
+    expect(await reconnectCloud(local, c, "faux")).toMatchObject({ ok: false, error: "Identifiant ou mot de passe incorrect" }); expect(await reconnectCloud(local, c, "bon")).toEqual({ ok: true }); expect(c.hasSession()).toBe(true);
+    expect(JSON.stringify(local.db.prepare("SELECT * FROM sync_state").all())).not.toContain("bon\"");
+  });
+  it("restauration : refusée sans confirmation exacte ou avec des envois en attente ; sinon copie de sécurité puis téléchargement complet (les ventes déjà envoyées reviennent du cloud)", async () => {
+    const { restoreFromCloud } = await import("./hosting"); const dir = mkdtempSync(join(tmpdir(), "dmp-restore-")); const c = client("own"); await c.login("a@x.sn", "bon");
+    try {
+      await sale("vente-resto-001", 2); expect(await restoreFromCloud(local, c, { backupDir: dir, confirmName: "Caisse" })).toMatchObject({ ok: false, error: expect.stringContaining("pas encore envoyés") });
+      expect((await runSync(local, c, { force: true })).error).toBeUndefined();
+      expect(await restoreFromCloud(local, c, { backupDir: dir, confirmName: "autre" })).toMatchObject({ ok: false, error: expect.stringContaining("nom de ce poste") });
+      local.db.exec("DELETE FROM rows WHERE tbl = 'sales'"); expect((await local.scan("sales", { tenantId: T })).rows).toHaveLength(0); // poste abîmé
+      const r = await restoreFromCloud(local, c, { backupDir: dir, confirmName: "Caisse" }); expect(r.ok).toBe(true); if (r.ok) expect(require("node:fs").existsSync(r.backup)).toBe(true);
+      expect((await local.scan("sales", { tenantId: T })).rows).toHaveLength(1); expect(await local.get("products", eau)).toBeTruthy(); expect(hostState(local)).toMatchObject({ pending: 0, hosted: true }); expect(local.syncOn).toBe(true);
+      await sale("vente-resto-002"); expect(hostState(local).pending).toBeGreaterThan(0); // la journalisation a repris
+      down = true; expect(await restoreFromCloud(local, c, { backupDir: dir, confirmName: "Caisse" })).toMatchObject({ ok: false }); down = false;
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it("envoi en double (même lot rejoué) : aucune vente dupliquée au cloud ; coupure réseau en pleine remontée : reprise sans perte ni doublon", async () => {
+    await sale("vente-dbl-0001", 1); await sale("vente-dbl-0002", 2); await sale("vente-dbl-0003", 3);
+    let calls = 0; const c = client("own"); await c.login("a@x.sn", "bon"); const real = c.api; (c as any).api = (t: string) => { const a = real(t); return { ...a, push: async (rows: any[]) => { calls++; const r = await a.push(rows); if (calls === 1) { const half = rows.slice(0, Math.ceil(rows.length / 2)); await a.push(half); /* rejeu du début du lot */ throw new CloudError(0, "Coupure réseau", true); } return r; } }; };
+    const r1 = await runSync(local, c, { force: true }); expect(r1.error).toBeTruthy(); expect(hostState(local).pending).toBeGreaterThan(0);
+    const r2 = await runSync(local, c, { force: true }); expect(r2.error).toBeUndefined(); expect(hostState(local).pending).toBe(0);
+    expect((await cloud.scan("sales", { tenantId: T })).rows).toHaveLength(3); expect(await stockFor(cloud, eau, 0)).toBe(50 - 6);
+  });
+  it("horloge du poste très décalée (3 jours en arrière) : la synchronisation converge quand même (aucune dépendance à l'horloge)", async () => {
+    const { vi } = await import("vitest"); const c = client("own"); await c.login("a@x.sn", "bon"); vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(Date.now() - 3 * 864e5);
+    try { await sale("vente-clock-001", 2); const r = await runSync(local, c, { force: true }); expect(r.error).toBeUndefined(); } finally { vi.useRealTimers(); }
+    expect((await cloud.scan("sales", { tenantId: T })).rows).toHaveLength(1); expect(hostState(local).pending).toBe(0);
+    await cloud.update("products", eau, { price: 640 }); local.syncSet("reconciledAt", null); expect((await runSync(local, c, { force: true })).error).toBeUndefined(); expect((await local.get("products", eau))!.price).toBe(640);
+  });
+});
+
+describe("routes lot 4d", () => {
+  it("disponibilité publique, seuil d'alerte, constats à examiner : réservés au propriétaire", async () => {
+    const { startLocalServer } = await import("./main"); const dir = mkdtempSync(join(tmpdir(), "dmp-4d-"));
+    const b = await startLocalServer({ dataDir: dir, port: 0, host: "127.0.0.1", cloud: { config: { endpoint: "https://cloud.invalid/v1", projectId: "p" }, fetch: (async () => { throw new TypeError("x"); }) as typeof fetch } });
+    const url = (p: string) => `http://127.0.0.1:${b.port}${p}`; const J = { "content-type": "application/json" };
+    try {
+      expect(await (await fetch(url("/v1/cloud/availability"))).json()).toEqual({ available: true, needsSetup: true });
+      const reg = await (await fetch(url("/v1/auth/register"), { method: "POST", headers: J, body: JSON.stringify({ email: "o@x.sn", password: "Abcdefg1!xyz", name: "O" }) })).json(); const uid = String(b.store.db.prepare("SELECT id FROM users WHERE email = 'o@x.sn'").get()!.id);
+      b.store.createTeam("team4d00000001", "Boutique"); await b.store.addMember("team4d00000001", uid, ["owner"], "O"); const H = { ...J, authorization: `Bearer ${reg.token}` };
+      expect((await (await fetch(url("/v1/cloud/settings"), { method: "POST", headers: H, body: JSON.stringify({ alertHours: 12 }) })).json())).toMatchObject({ ok: true, alertHours: 12 });
+      expect((await fetch(url("/v1/cloud/settings"), { method: "POST", headers: H, body: JSON.stringify({ alertHours: 0 }) })).status).toBe(400);
+      b.store.addConflict("products", "p1", "deleted_on_cloud", { name: "Eau" }, null); const l = await (await fetch(url("/v1/cloud/conflicts"), { headers: H })).json(); expect(l.conflicts).toHaveLength(1);
+      expect((await (await fetch(url("/v1/cloud/conflicts/review"), { method: "POST", headers: H, body: JSON.stringify({ id: l.conflicts[0].id }) })).json()).conflicts).toBe(0); expect((await (await fetch(url("/v1/cloud/conflicts"), { headers: H })).json()).conflicts).toHaveLength(0);
+      expect((await fetch(url("/v1/cloud/restore"), { method: "POST", headers: H, body: JSON.stringify({ confirmName: "x" }) })).status).toBe(409);
+      expect((await fetch(url("/v1/cloud/reconnect"), { method: "POST", headers: H, body: JSON.stringify({ password: "x" }) })).status).toBe(400);
+    } finally { await b.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+});

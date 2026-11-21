@@ -444,3 +444,22 @@ Variations réelles : CA du jour vs **hier à la même heure** (jamais la journ�
 - **Fiabilité** : un seul tour de synchronisation à la fois ; après des échecs, les essais automatiques attendent 1, 2, 4, 8 puis 15 minutes ; « Synchroniser maintenant » passe outre ; un succès remet le compteur à zéro. Compteur d'échecs et prochain essai visibles dans l'état du poste.
 
 **Limites restantes** : un mot de passe changé sur le poste pour un compte déjà présent au cloud n'est pas transmis (Appwrite ne permet pas de remplacer une empreinte : à changer aussi au cloud, ou retour au cloud puis réinitialisation) ; écran Paramètres → Synchronisation = lot 4d ; essai de bout en bout sur Appwrite avec un commerce jetable après déploiement de ces actions.
+
+## 46. Lot 4d — écran « Synchronisation », bandeau d'alerte, rattachement, restauration
+
+**Écran (Paramètres → « Synchronisation », propriétaire seulement, poste local uniquement)**
+- **État réel** : poste, date de rattachement, dernière synchronisation réussie, éléments en attente, connexion cloud, échecs consécutifs et prochain essai automatique, dernière erreur.
+- **Actions** : « Synchroniser maintenant » (passe outre l'attente après échec) ; « Reconnecter au cloud » (mot de passe du propriétaire, jamais conservé) ; « Rendre au cloud » (saisir « RENDRE », refusé s'il reste des envois) ; « Rétablir depuis le cloud » (saisir le nom du poste ; refusé tant que des éléments ne sont pas envoyés ; copie de sécurité de la base AVANT, dans le dossier « sauvegardes » ; puis téléchargement complet).
+- **Constats à examiner** : suppression côté cloud, version du cloud remplacée, modification des deux côtés, refus du cloud, suppressions suspectes ignorées. Chaque constat montre les deux versions gardées ; « Marquer comme examiné » ne modifie rien. Rien n'est appliqué automatiquement.
+- **Alerte** : seuil réglable (1 à 720 h, 24 h par défaut). Bandeau en haut de l'application affiché **au propriétaire seulement** : session cloud perdue (rouge), plus de synchronisation réussie depuis le seuil (rouge), échecs à répétition (orange). Aucune action automatique.
+- **Rattachement d'un poste vierge** : bouton « Rattacher ce poste à mon commerce cloud » sur l'écran de connexion (visible seulement sur un poste local vierge dont la liaison cloud est disponible) ; choix du commerce s'il y en a plusieurs ; connexion automatique du propriétaire ensuite.
+
+**Corrections trouvées par l'e2e**
+- La vérification en ligne de la première connexion d'un compte venu du cloud n'était **pas branchée** dans le serveur réel : elle l'est maintenant (le propriétaire rattaché peut se connecter, les employés aussi au premier passage en ligne).
+- Une session cloud refusée (401) est maintenant oubliée par le poste : le bandeau « n'est plus connecté au cloud » apparaît au lieu d'un échec silencieux.
+
+**Routes locales** : `GET /v1/cloud/availability` (public), `status`, `sync`, `release`, `reconnect`, `restore`, `settings`, `conflicts`, `conflicts/review` (propriétaire), `attach` (poste principal vierge).
+
+**Tests** : `sync-alert.test.ts` (5), `hosting.test.ts` (17, dont envoi en double, coupure en pleine remontée, horloge décalée de 3 jours, restauration, routes) ; e2e `kit26` (10 scénarios : rattachement, vente puis synchronisation, coupure, session perdue et bandeau, reconnexion, constats, seuil, caissier sans accès, restauration, 390 px, retour au cloud) contre un faux Appwrite qui utilise le vrai moteur métier.
+
+**Limites** : essai de bout en bout sur le VRAI Appwrite avec un commerce jetable (à faire après publication) ; essais sur de vrais appareils (certificat des téléphones, pare-feu Windows) = lot 5.

@@ -17,10 +17,22 @@ export type NetworkInfo = { app: string; hostName: string; port: number; https: 
 export type Device = { id: string; userId: string; name: string; roles: string[]; device: string; ip: string; createdAt: string; lastSeen: string; current: boolean; active: boolean };
 /** Réseau local du poste principal (propriétaire) : adresses, certificat, appareils connectés. */
 export type LocalNetwork = { get(): Promise<{ info: NetworkInfo | null; devices: Device[] }>; revoke(id: string): Promise<void> };
+import type { HostStatus } from "@/domain/sync-alert";
+export type SyncConflict = { id: number; at: string; table: string; rowId: string; kind: string; local: unknown; cloud: unknown };
+/** Liaison du poste avec le cloud : état, synchronisation, reconnexion, retour au cloud, restauration, constats à examiner, rattachement d'un poste vierge. */
+export type LocalCloud = {
+  availability(): Promise<{ available: boolean; needsSetup: boolean }>;
+  status(): Promise<HostStatus>; sync(): Promise<HostStatus & { report: { pushed: number; pulled: number; error?: string; rejected: { table: string; id: string; error: string }[] } }>;
+  reconnect(password: string): Promise<HostStatus>; release(): Promise<void>; restore(confirmName: string): Promise<HostStatus>; setAlertHours(h: number): Promise<HostStatus>;
+  conflicts(): Promise<SyncConflict[]>; review(id: number | "all"): Promise<HostStatus>;
+  attach(p: { email: string; password: string; stationName: string; tenantId?: string }): Promise<{ ok: true } | { ok: false; error: string; choose?: { id: string; name: string }[] }>;
+};
+let cloudApi: LocalCloud | null = null;
+export const localCloud = (): LocalCloud | null => cloudApi;
 let networkApi: LocalNetwork | null = null;
 export const localNetwork = (): LocalNetwork | null => networkApi;
 
-export function createLocal(base = ""): { backend: Partial<Backend>; identity: Identity; network: LocalNetwork; setup: () => Promise<{ needsSetup: boolean }> } {
+export function createLocal(base = ""): { backend: Partial<Backend>; identity: Identity; network: LocalNetwork; cloud: LocalCloud; setup: () => Promise<{ needsSetup: boolean }> } {
   const req = async (path: string, init: RequestInit = {}): Promise<Response> => {
     const token = getToken(); let r: Response;
     try { r = await fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) } }); }
@@ -58,10 +70,18 @@ export function createLocal(base = ""): { backend: Partial<Backend>; identity: I
     files: { fetch: (fileId) => req(`/v1/files/${encodeURIComponent(fileId)}`, { headers: {} }) },
   };
   const network: LocalNetwork = { get: async () => json(await req("/v1/network")), revoke: async (id) => { await json(await req("/v1/network/revoke", { method: "POST", body: JSON.stringify({ id }) })); } };
-  return { backend, identity, network, setup: async () => json<{ needsSetup: boolean }>(await req("/v1/setup")) };
+  const raw = async (path: string, body?: unknown) => { const r = await req(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }); const t = await r.text(); let b: any = {}; try { b = JSON.parse(t); } catch { /* corps non JSON */ } return { status: r.status, ok: r.ok, b }; };
+  const must = async <T>(path: string, body?: unknown): Promise<T> => { const r = await raw(path, body); if (!r.ok) throw new LocalError(r.status, String(r.b?.error ?? "Opération impossible")); return r.b as T; };
+  const cloud: LocalCloud = {
+    availability: () => must("/v1/cloud/availability"), status: () => must("/v1/cloud/status"), sync: () => must("/v1/cloud/sync", {}), reconnect: (password) => must("/v1/cloud/reconnect", { password }),
+    release: async () => { await must("/v1/cloud/release", {}); }, restore: (confirmName) => must("/v1/cloud/restore", { confirmName }), setAlertHours: (alertHours) => must("/v1/cloud/settings", { alertHours }),
+    conflicts: async () => (await must<{ conflicts: SyncConflict[] }>("/v1/cloud/conflicts")).conflicts, review: (id) => must("/v1/cloud/conflicts/review", id === "all" ? { all: true } : { id }),
+    attach: async (p) => { const r = await raw("/v1/cloud/attach", p); return r.ok ? { ok: true } : { ok: false, error: String(r.b?.error ?? "Rattachement impossible"), choose: r.b?.choose }; },
+  };
+  return { backend, identity, network, cloud, setup: async () => json<{ needsSetup: boolean }>(await req("/v1/setup")) };
 }
 
 /** À appeler au démarrage : si le serveur local sert l'application, remplace le cloud par lui. */
 export function installLocalIfServed(): boolean {
-  if (!isLocalMode()) return false; const l = createLocal(""); setBackend(l.backend); setIdentity(l.identity); networkApi = l.network; return true;
+  if (!isLocalMode()) return false; const l = createLocal(""); setBackend(l.backend); setIdentity(l.identity); networkApi = l.network; cloudApi = l.cloud; return true;
 }

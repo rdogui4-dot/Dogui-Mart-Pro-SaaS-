@@ -16,7 +16,7 @@ export async function startLocalServer(o: StartOptions) {
   const cert = o.https && !o.tls ? ensureCertificate(join(o.dataDir, "tls")) : undefined;
   const https = !!(o.tls || cert); let boundPort = 0; let mdnsOn = false;
   const network = (): NetworkInfo => ({ app: "Dogui Mart Pro", hostName: "dogui.local", port: boundPort, https, urls: accessUrls(lanAddresses(), boundPort, https), certificate: cert ? { fingerprint: cert.fingerprint, notAfter: cert.notAfter, hosts: cert.hosts } : null, mdns: mdnsOn });
-  const srv = createLocalServer({ store, webRoot: o.webRoot, admins: o.admins, tls: o.tls ?? (cert ? { key: cert.key, cert: cert.cert } : undefined), network, cloud: o.cloud });
+  const srv = createLocalServer({ store, webRoot: o.webRoot, admins: o.admins, tls: o.tls ?? (cert ? { key: cert.key, cert: cert.cert } : undefined), network, cloud: o.cloud, backupDir: join(o.dataDir, "sauvegardes") });
   resumeSync(store);
   const { port } = await srv.listen(o.port ?? 0, o.host ?? "0.0.0.0"); boundPort = port;
   const md = o.mdns ? startMdns({ hostName: "dogui.local", port, ips: lanAddresses(), https }) : null; mdnsOn = !!md?.running;

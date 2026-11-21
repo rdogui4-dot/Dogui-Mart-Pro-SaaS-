@@ -8,6 +8,8 @@ import { useSession } from "@/lib/session";
 import { SPACES, activeModuleId, itemsOf, kitModulesFor, spaceOfPath, type KitModule } from "@/lib/nav";
 import { pendingCount, rejectedSales, syncPending } from "@/lib/offline";
 import { SubscriptionBanner, useSubscription } from "@/routes/subscription";
+import { SyncBanner } from "@/routes/sync-local";
+import { identity } from "@/lib/identity";
 import { LogoMark, MarkInline, Wordmark } from "./Logo";
 import { useMasterModal } from "@/lib/master-modal";
 import { ShopArt } from "./ShopArt";
@@ -75,6 +77,7 @@ function LayoutInner() {
           {session && <ProfileMenu name={session.name} role={session.role} wide={wide} onLogout={() => void logout()} />}
         </header>
         <SubscriptionBanner />
+        {session?.role === "owner" && identity().local && <SyncBanner />}
         {session?.role === "viewer" && <div role="status" className="text-sm py-1.5 px-3 text-center bg-info-bg text-info">Compte Consultant : consultation seule. Les créations, modifications et suppressions sont refusées par le serveur.</div>}
         <div className="px-4 md:px-6 pt-3 empty:hidden mx-auto w-full max-w-[96rem]"><VerifyBanner /></div>
         <main className="flex-1 overflow-y-auto p-4 md:px-6 pb-24 md:pb-6">
