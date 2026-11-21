@@ -1,5 +1,5 @@
 import { PULLED_TABLES, SYNC_CLASS_OF, syncClass } from "../../../src/domain/sync-tables";
-import { HttpError, need, type Ctx, type Row, type Store } from "./store";
+import { HttpError, need, type Ctx, type DirectoryUser, type Row, type Store } from "./store";
 
 /** Synchronisation d'un poste local avec le cloud (miroir du commerce). Réservée au PROPRIÉTAIRE du commerce, contrôlée ici : un poste ne porte jamais de clé d'administration.
  *  - `sync.push` : le poste envoie ses lignes modifiées (tables « locales » et « partagées » seulement) ; chaque ligne est rattachée de force au commerce de l'appelant ;
@@ -50,5 +50,7 @@ export async function syncPull(store: Store, ctx: Ctx, b: { table?: string; sinc
   const more = sorted.length > end || scan.truncated; const next = page.length ? String(page[page.length - 1]!.$updatedAt ?? since) : since;
   return { rows: page.map((r) => ({ id: r.$id, createdAt: String(r.$createdAt ?? ""), updatedAt: String(r.$updatedAt ?? r.$createdAt ?? ""), data: clean(r) })), next, more };
 }
+/** Annuaire du commerce pour le poste : comptes, rôles, étiquettes et empreintes de mots de passe (Argon2, jamais le mot de passe). Propriétaire seulement ; uniquement les membres de CE commerce. */
+export async function syncUsers(store: Store, ctx: Ctx): Promise<{ users: DirectoryUser[] }> { need(ctx, "owner"); return { users: await store.userDirectory(ctx.tenantId) }; }
 /** Tables que le poste interroge en continu (le téléchargement initial les interroge toutes). */
 export { PULLED_TABLES };

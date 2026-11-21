@@ -73,6 +73,12 @@ export class MemoryStore implements Store {
   /** Sécurité simulée par compte (tests) ; défaut : jamais connecté, sans double authentification. */
   security = new Map<string, { lastLogin: string | null; sessions24h: number; mfa: boolean }>();
   async userSecurity(userId: string) { return this.security.get(userId) ?? { lastLogin: null, sessions24h: 0, mfa: false }; }
+  /** Annuaire simulé (tests) : empreintes fournies par `hashes` (userId → empreinte PHC). */
+  hashes = new Map<string, string>();
+  async userDirectory(tenantId: string) {
+    return [...this.members].filter(([k]) => k.startsWith(`${tenantId}:`)).map(([k, roles]) => { const userId = k.slice(tenantId.length + 1); const u = this.users.get(userId);
+      return { userId, email: u?.email ?? `${userId}@example.test`, name: u?.name ?? this.ownerNames.get(userId) ?? userId, active: u?.active !== false, labels: this.labels.get(userId) ?? [], roles, passwordHash: this.hashes.get(userId) ?? null, passwordUpdatedAt: null }; });
+  }
   failAddMember = false;
   async addMember(tenantId: string, userId: string, roles: string[]) { if (this.failAddMember) throw new Error("boom"); this.members.set(`${tenantId}:${userId}`, roles); }
   async setMemberRoles(tenantId: string, userId: string, roles: string[]) { this.members.set(`${tenantId}:${userId}`, roles); }

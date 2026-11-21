@@ -1,7 +1,8 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { HttpError, type BatchOp, type Row, type Store, type UserSecurity } from "./store";
+import { argon2Verify } from "hash-wasm";
+import { HttpError, type BatchOp, type DirectoryUser, type Row, type Store, type UserSecurity } from "./store";
 import { readRoles } from "./permissions";
 import { syncClass } from "../../../src/domain/sync-tables";
 
@@ -21,6 +22,13 @@ export const verifyPassword = (pw: string, stored: string): boolean => {
   const [alg, salt, h] = stored.split("$"); if (alg !== "scrypt" || !salt || !h) return false;
   const a = Buffer.from(h, "hex"), b = scryptSync(pw, salt, 32); return a.length === b.length && timingSafeEqual(a, b);
 };
+
+/** Vérifie un mot de passe contre une empreinte : locale (scrypt) ou venue d'Appwrite (Argon2, format PHC). Jamais d'exception : une empreinte illisible ne valide rien. */
+export async function verifyCredential(pw: string, stored: string | null | undefined): Promise<boolean> {
+  if (!stored || stored === "*") return false;
+  try { if (stored.startsWith("scrypt$")) return verifyPassword(pw, stored); if (/^\$argon2(id|i|d)\$/.test(stored)) return await argon2Verify({ password: pw, hash: stored }); } catch { /* empreinte illisible */ }
+  return false;
+}
 
 export class SqliteStore implements Store {
   readonly db: DatabaseSync;
@@ -42,12 +50,16 @@ export class SqliteStore implements Store {
       CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sync_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, tbl TEXT NOT NULL, row_id TEXT NOT NULL, kind TEXT NOT NULL, local_data TEXT, cloud_data TEXT, resolved INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL, read_roles TEXT NOT NULL DEFAULT '[]');
-      CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '', password TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '', password TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'local', cred_cloud TEXT, cred_cache TEXT);
       CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS members (tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, roles TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, user_id));
       CREATE TABLE IF NOT EXISTS labels (user_id TEXT PRIMARY KEY, labels TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL, device TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '');`);
     // bases créées avant le réseau local : on ajoute l'appareil et l'adresse aux sessions
+    const ucols = this.db.prepare("PRAGMA table_info(users)").all().map((c) => String(c.name));
+    if (!ucols.includes("source")) this.db.exec("ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'");
+    if (!ucols.includes("cred_cloud")) this.db.exec("ALTER TABLE users ADD COLUMN cred_cloud TEXT");
+    if (!ucols.includes("cred_cache")) this.db.exec("ALTER TABLE users ADD COLUMN cred_cache TEXT");
     const rcols = this.db.prepare("PRAGMA table_info(rows)").all().map((c) => String(c.name));
     if (!rcols.includes("updated_at")) { this.db.exec("ALTER TABLE rows ADD COLUMN updated_at TEXT"); this.db.exec("UPDATE rows SET updated_at = created_at WHERE updated_at IS NULL"); }
     if (!rcols.includes("remote_at")) this.db.exec("ALTER TABLE rows ADD COLUMN remote_at TEXT");
@@ -134,6 +146,39 @@ export class SqliteStore implements Store {
   async listOwners(tenantId: string) {
     return this.db.prepare("SELECT m.user_id AS id, m.roles AS roles, u.name AS name, u.email AS email FROM members m LEFT JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ?").all(tenantId)
       .filter((r) => (JSON.parse(String(r.roles)) as string[]).includes("owner")).map((r) => ({ userId: String(r.id), name: String(r.name ?? r.id), email: String(r.email ?? "") }));
+  }
+  async userDirectory(tenantId: string): Promise<DirectoryUser[]> {
+    return this.db.prepare("SELECT m.user_id AS id, m.roles AS roles, u.email AS email, u.name AS name, u.active AS active, u.password AS pw, u.cred_cloud AS cc FROM members m LEFT JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ?").all(tenantId)
+      .map((r) => { const lab = this.db.prepare("SELECT labels FROM labels WHERE user_id = ?").get(String(r.id)); return { userId: String(r.id), email: String(r.email ?? ""), name: String(r.name ?? r.id), active: r.active !== 0, labels: lab ? (JSON.parse(String(lab.labels)) as string[]) : [], roles: JSON.parse(String(r.roles)) as string[], passwordHash: r.cc ? String(r.cc) : null, passwordUpdatedAt: null }; });
+  }
+  /** Connexion locale : cherche l'identifiant puis vérifie le mot de passe contre l'empreinte locale, celle copiée du cloud (Argon2) ou celle gardée après une première connexion en ligne. */
+  async verifyLogin(email: string, password: string): Promise<{ id: string; email: string; name: string; active: boolean; known: boolean } | null> {
+    const r = this.db.prepare("SELECT id, email, name, active, password, cred_cloud, cred_cache FROM users WHERE email = ?").get(email); if (!r) return null;
+    const ok = (await verifyCredential(password, String(r.password))) || (await verifyCredential(password, r.cred_cloud ? String(r.cred_cloud) : null)) || (await verifyCredential(password, r.cred_cache ? String(r.cred_cache) : null));
+    return ok ? { id: String(r.id), email: String(r.email), name: String(r.name), active: !!r.active, known: true } : { id: String(r.id), email: String(r.email), name: String(r.name), active: !!r.active, known: false };
+  }
+  /** Première connexion réussie EN LIGNE (vérifiée par le cloud) : on garde une empreinte locale pour les connexions hors ligne suivantes. */
+  cacheCredential(userId: string, password: string): void { this.db.prepare("UPDATE users SET cred_cache = ? WHERE id = ?").run(hashPassword(password), userId); }
+  userHasCredential(userId: string): boolean { const r = this.db.prepare("SELECT cred_cloud, cred_cache FROM users WHERE id = ?").get(userId); return !!(r?.cred_cloud || r?.cred_cache); }
+  /** Copie l'annuaire du cloud sur le poste : comptes, empreintes Argon2, rôles et étiquettes. Un mot de passe modifié ferme les sessions de la personne ; un compte désactivé ou retiré perd l'accès. Les comptes créés sur le poste ne sont jamais retirés. */
+  applyDirectory(tenantId: string, dir: DirectoryUser[]): { created: number; updated: number; removed: number; skipped: string[] } {
+    const out = { created: 0, updated: 0, removed: 0, skipped: [] as string[] }; const seen = new Set<string>();
+    this.tx(() => {
+      for (const d of dir) {
+        seen.add(d.userId); const ex = this.db.prepare("SELECT id, source, cred_cloud, active FROM users WHERE id = ?").get(d.userId);
+        const clash = this.db.prepare("SELECT id FROM users WHERE email = ? AND id <> ?").get(d.email, d.userId); if (clash) { out.skipped.push(`${d.email} : identifiant déjà utilisé par un autre compte du poste`); continue; }
+        if (!ex) { this.db.prepare("INSERT INTO users (id, email, name, password, active, created_at, source, cred_cloud) VALUES (?, ?, ?, '*', ?, ?, 'cloud', ?)").run(d.userId, d.email, d.name, d.active ? 1 : 0, iso(), d.passwordHash); out.created++; }
+        else {
+          const changed = d.passwordHash !== null && d.passwordHash !== (ex.cred_cloud ? String(ex.cred_cloud) : null);
+          this.db.prepare("UPDATE users SET email = ?, name = ?, active = ?, source = 'cloud', cred_cloud = COALESCE(?, cred_cloud)" + (changed ? ", cred_cache = NULL" : "") + " WHERE id = ?").run(d.email, d.name, d.active ? 1 : 0, d.passwordHash, d.userId);
+          if (changed || !d.active) this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(d.userId); out.updated++;
+        }
+        this.db.prepare("INSERT OR REPLACE INTO members (tenant_id, user_id, roles, name) VALUES (?, ?, ?, ?)").run(tenantId, d.userId, JSON.stringify(d.roles), d.name);
+        this.db.prepare("INSERT OR REPLACE INTO labels (user_id, labels) VALUES (?, ?)").run(d.userId, JSON.stringify(d.labels));
+      }
+      for (const m of this.db.prepare("SELECT m.user_id AS id FROM members m JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ? AND u.source = 'cloud'").all(tenantId)) if (!seen.has(String(m.id))) { this.db.prepare("DELETE FROM members WHERE tenant_id = ? AND user_id = ?").run(tenantId, String(m.id)); this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(String(m.id)); this.db.prepare("DELETE FROM labels WHERE user_id = ?").run(String(m.id)); out.removed++; }
+    });
+    return out;
   }
   async setLabels(userId: string, labels: string[]): Promise<void> { this.db.prepare("INSERT OR REPLACE INTO labels (user_id, labels) VALUES (?, ?)").run(userId, JSON.stringify(labels)); }
   async setUserActive(userId: string, active: boolean): Promise<void> { this.db.prepare("UPDATE users SET active = ? WHERE id = ?").run(active ? 1 : 0, userId); if (!active) this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId); }

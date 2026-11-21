@@ -76,6 +76,17 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       const r = await teams.listMemberships({ teamId: tenantId, queries: [Query.limit(100)] });
       return r.memberships.filter((m) => m.roles.includes("owner")).map((m) => ({ userId: m.userId, name: m.userName, email: m.userEmail }));
     },
+    async userDirectory(tenantId) {
+      const out: import("./store").DirectoryUser[] = []; let cursor: string | undefined;
+      for (;;) {
+        const page = await teams.listMemberships({ teamId: tenantId, queries: [Query.limit(100), ...(cursor ? [Query.cursorAfter(cursor)] : [])] }); if (!page.memberships.length) break;
+        for (const m of page.memberships) { const u = (await users.get({ userId: m.userId })) as unknown as { email?: string; name?: string; status?: boolean; labels?: string[]; password?: string; hash?: string; passwordUpdate?: string };
+          const pw = typeof u.password === "string" && /^\$argon2(id|i|d)\$/.test(u.password) ? u.password : null; // seule l'empreinte Argon2 (format PHC) est utilisable ; sinon le poste passera par la connexion en ligne
+          out.push({ userId: m.userId, email: String(u.email ?? m.userEmail ?? ""), name: String(u.name ?? m.userName ?? ""), active: u.status !== false, labels: u.labels ?? [], roles: m.roles, passwordHash: pw, passwordUpdatedAt: u.passwordUpdate ?? null }); }
+        cursor = page.memberships[page.memberships.length - 1]!.$id; if (page.memberships.length < 100) break;
+      }
+      return out;
+    },
     async setLabels(userId, labels) { await users.updateLabels({ userId, labels }); },
     async setUserActive(userId, active) { await users.updateStatus({ userId, status: active }); },
     async setPassword(userId, password) { await users.updatePassword({ userId, password }); },

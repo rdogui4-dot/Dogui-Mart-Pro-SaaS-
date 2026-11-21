@@ -1,11 +1,13 @@
 import { PULLED_TABLES, SYNC_CLASS_OF } from "../../../src/domain/sync-tables";
 import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import type { PushResult, PushRow } from "../../dmp-api/src/sync";
+import type { DirectoryUser } from "../../dmp-api/src/store";
 
 /** Moteur de synchronisation du poste : envoi des écritures locales au cloud (idempotent, dans l'ordre), réception des changements du cloud, téléchargement initial.
  *  Le cloud est joint par une interface minimale (`CloudApi`) : en production ce sont les actions `sync.push` / `sync.pull` appelées avec la session du propriétaire. */
 export interface CloudApi {
   push(rows: PushRow[]): Promise<PushResult[]>;
+  users(): Promise<DirectoryUser[]>;
   pull(table: string, since: string, limit: number): Promise<{ rows: { id: string; createdAt: string; updatedAt: string; data: Record<string, unknown> }[]; next: string; more: boolean }>;
 }
 export type SyncReport = { pushed: number; overwrittenOnCloud: number; rejected: { table: string; id: string; error: string }[]; pulled: number; conflicts: number; error?: string };
@@ -54,9 +56,15 @@ export async function initialDownload(store: SqliteStore, cloud: CloudApi, tenan
   onProgress?.("", tables.length, tables.length); return rep;
 }
 
+/** Copie l'annuaire du commerce sur le poste (comptes du personnel, empreintes Argon2, rôles, étiquettes) : tout le monde peut se connecter hors ligne dès la première synchronisation. */
+export async function syncUsers(store: SqliteStore, cloud: CloudApi, tenantId: string): Promise<{ created: number; updated: number; removed: number; skipped: string[]; error?: string }> {
+  try { return store.applyDirectory(tenantId, await cloud.users()); } catch (e) { return { created: 0, updated: 0, removed: 0, skipped: [], error: (e as Error).message || "Cloud injoignable" }; }
+}
+
 /** Un tour de synchronisation : envoi puis réception des tables du cloud et partagées. */
 export async function syncOnce(store: SqliteStore, cloud: CloudApi, tenantId: string): Promise<SyncReport> {
   const rep = await pushPending(store, cloud); if (rep.error) return rep;
+  const u = await syncUsers(store, cloud, tenantId); if (u.error) { rep.error = `comptes : ${u.error}`; return rep; }
   for (const t of PULLED_TABLES) { const r = await pullTable(store, cloud, tenantId, t); rep.pulled += r.pulled; rep.conflicts += r.conflicts; if (r.error) { rep.error = `${t} : ${r.error}`; break; } }
   store.syncSet("lastSyncAt", new Date().toISOString()); if (!rep.error) store.syncSet("lastSyncOkAt", new Date().toISOString());
   return rep;

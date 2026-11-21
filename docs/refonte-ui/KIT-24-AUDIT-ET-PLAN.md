@@ -417,3 +417,18 @@ Variations réelles : CA du jour vs **hier à la même heure** (jamais la journ�
 - **Tests** : 12 (téléchargement, envoi idempotent, convergence de toutes les tables locales, coupure réseau, écriture pendant l'envoi, abonnement venant du cloud, conflits, sécurité multi-commerces, suppression) ; classement des tables : 3.
 
 **Limites connues** : la suppression d'une ligne **côté cloud** n'est pas propagée au poste (pas de pierres tombales) ; photos et justificatifs, comptes du personnel, bascule « hébergé par un poste » et refus des écritures d'exploitation côté cloud viennent aux lots 4b-4c ; l'essai contre le vrai Appwrite (requêtes sur `$updatedAt`, tri) aura lieu après le déploiement des actions `sync.*`.
+
+## 44. Lot 4b — comptes, rattachement au cloud, hébergement par un poste
+
+**Fait (testé)**
+- **Comptes** : l'action cloud `sync.users` fournit au poste l'annuaire (e-mail, nom, empreinte Argon2 Appwrite). Le poste vérifie les mots de passe du personnel hors ligne avec cette empreinte (`hash-wasm`), et garde en cache (scrypt) le mot de passe d'une première connexion réussie en ligne. Les comptes créés sur le poste ne remontent pas encore au cloud (lot 4c).
+- **Rattachement** (`attachToCloud`) : sur un poste vierge, le propriétaire se connecte au cloud, choisit son commerce, nomme le poste ; le cloud enregistre « hébergé par le poste X » (`host.claim`, rejouable, remplacement explicite avec `force`), le poste télécharge le commerce puis les comptes. Refus : compte non propriétaire, mot de passe faux, plusieurs commerces (choix demandé), poste contenant déjà un autre commerce, commerce déjà hébergé ailleurs, cloud injoignable.
+- **Garde cloud** : tant qu'un poste héberge, le cloud refuse (409, message clair) toute écriture d'exploitation ; il reste ouvert aux lectures (rapports, tableaux de bord), à l'abonnement, aux paiements, à la licence MASTER, à la synchronisation et aux actions `host.*`. Aucune double saisie possible.
+- **Synchronisation** (`runSync`) : envoi → comptes → réception ; coupure réseau = tout reste en attente puis repart ; erreur lisible conservée ; reprise après redémarrage du poste.
+- **Retour au cloud** (`releaseToCloud`) : dernière synchronisation obligatoire, refus s'il reste des envois ; le cloud reprend l'écriture, le poste cesse de journaliser. Reprise forcée tracée dans le journal d'audit (niveau commerce, lisible du seul propriétaire).
+- **Routes locales** : `POST /v1/cloud/attach` (poste principal, poste vierge uniquement), `GET /v1/cloud/status`, `POST /v1/cloud/sync`, `POST /v1/cloud/release` (propriétaire). Synchronisation automatique optionnelle (`autoSyncMs`).
+- **Correction trouvée par les tests** : le journal d'audit d'hébergement écrivait une ligne sans boutique (étiquette invalide) ; il utilise désormais l'étiquette « commerce ».
+
+**Limites connues (à traiter en 4c/4d)** : suppressions faites côté cloud non propagées ; comptes créés sur le poste non poussés ; photos/justificatifs non synchronisés ; écran Paramètres → Synchronisation ; essai réel avec un commerce jetable sur Appwrite (requêtes `$updatedAt`, lecture des empreintes avec la clé de fonction) après déploiement de `sync.*` / `host.*`.
+
+**Tests** : `hosting.test.ts` (7), `cloud.test.ts`, `accounts.test.ts`, `sync.test.ts` ; suite complète 1640 tests verts.

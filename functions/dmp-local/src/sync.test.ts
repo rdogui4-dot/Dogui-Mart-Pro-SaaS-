@@ -21,6 +21,7 @@ const call = (st: MemoryStore | SqliteStore, user: string, action: string, paylo
 const ok = async (r: ReturnType<typeof call>) => { const x = await r; if (x.status !== 200) throw new Error(JSON.stringify(x.body)); return (x.body as { data: any }).data; };
 /** Le poste parle au cloud comme en production : actions sync.* avec la session du propriétaire. */
 const api = (user = "own", tenant = T, onPush?: (rows: PushRow[]) => void): CloudApi => ({
+  users: async () => { const r = await call(cloud, user, "sync.users", {}, "", tenant); if (r.status !== 200) throw new Error((r.body as { error: string }).error); return (r.body as { data: { users: any[] } }).data.users; },
   push: async (rows) => { onPush?.(rows); const r = await call(cloud, user, "sync.push", { rows }, "", tenant); if (r.status !== 200) throw new Error((r.body as { error: string }).error); return (r.body as { data: { results: any[] } }).data.results; },
   pull: async (table, since, limit) => { const r = await call(cloud, user, "sync.pull", { table, since, limit }, "", tenant); if (r.status !== 200) throw new Error((r.body as { error: string }).error); return (r.body as { data: any }).data; },
 });

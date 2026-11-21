@@ -6,12 +6,13 @@ import { HttpError, roleOf, type Ctx, type Store } from "./store";
 import { MODULES, READ_ONLY_ROLES, modulesFor, type StaffRole } from "../../../src/domain/access";
 import { PUBLIC_ACTIONS } from "./invites";
 import { READ_ACTIONS, READ_ONLY_MESSAGE } from "./viewer";
+import { hostedMessage, isHostAllowed, parseHost } from "./hosting";
 
 type Req = { method: string; headers: Record<string, string>; bodyJson?: any };
 type Res = { json(body: unknown, status?: number): unknown };
 
 /** Point d'entrée testable : authentifie l'appelant (membre confirmé du tenant) puis route l'action. */
-export async function handle(store: Store, userId: string | undefined, body: any, env: { admins?: string[] } = {}): Promise<{ status: number; body: unknown }> {
+export async function handle(store: Store, userId: string | undefined, body: any, env: { admins?: string[]; /** vrai dans le cloud : un commerce hébergé par un poste n'y accepte plus d'écritures d'exploitation */ cloud?: boolean } = {}): Promise<{ status: number; body: unknown }> {
   try {
     const { action, tenantId, shopId, payload } = body ?? {};
     // Actions publiques (acceptation d'une invitation) : aucune appartenance, la preuve est le jeton à usage unique.
@@ -51,6 +52,7 @@ export async function handle(store: Store, userId: string | undefined, body: any
       if (roleOf(m.roles) === "owner") ctx.shopIds = "all";
       else { if (!ids.includes(shopId)) throw new HttpError(403, "Vous n'êtes pas affecté à cette boutique"); ctx.shopIds = ids; }
     }
+    if (env.cloud && !READ_ACTIONS.has(action) && !isHostAllowed(action)) { const h = parseHost((await store.get("subscriptions", tenantId))?.hostedBy); if (h) throw new HttpError(409, hostedMessage(h)); } // commerce hébergé par un poste : le cloud reste en lecture
     if (!LOCK_EXEMPT.has(action)) await assertWritable(store, tenantId); // abonnement expiré (hors délai de grâce) : plus aucune écriture ; l'interface suspend l'accès
     const data = await fn(store, ctx, payload ?? {});
     // précommande automatique après une sortie de stock : ne fait jamais échouer l'opération d'origine
@@ -68,6 +70,6 @@ export default async ({ req, res }: { req: Req; res: Res }) => {
   const key = req.headers["x-appwrite-key"];
   const store = appwriteStore(process.env.APPWRITE_FUNCTION_API_ENDPOINT!, process.env.APPWRITE_FUNCTION_PROJECT_ID!, key!, process.env.DATABASE_ID || "dmp");
   const admins = (process.env.PLATFORM_ADMINS || "").split(",").map((x) => x.trim()).filter(Boolean);
-  const r = await handle(store, req.headers["x-appwrite-user-id"] || undefined, req.bodyJson, { admins });
+  const r = await handle(store, req.headers["x-appwrite-user-id"] || undefined, req.bodyJson, { admins, cloud: true });
   return res.json(r.body, r.status);
 };

@@ -4,13 +4,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { handle } from "../../dmp-api/src/main";
-import { SqliteStore, verifyPassword } from "../../dmp-api/src/sqlite-store";
+import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import { queryRows } from "./query";
 import { connectPage, deviceLabel, type NetworkInfo } from "./network";
+import type { CloudConfig } from "./cloud";
+import { attachToCloud, cloudFor, hostState, releaseToCloud, runSync } from "./hosting";
 
 /** Serveur local de la version Windows : même fonction métier (`handle`) et même contrat de lecture que le cloud, sur la base SQLite du poste principal.
  *  Il sert aussi l'application web, pour les postes du réseau (navigateur) et pour la fenêtre de bureau. Toute requête de données exige une session. */
-export type LocalServerOptions = { store: SqliteStore; webRoot?: string; admins?: string[]; tls?: { key: string | Buffer; cert: string | Buffer }; /** Adresses et certificat à montrer aux autres appareils (poste principal). */ network?: () => NetworkInfo };
+export type LocalServerOptions = { store: SqliteStore; webRoot?: string; admins?: string[]; tls?: { key: string | Buffer; cert: string | Buffer }; /** Adresses et certificat à montrer aux autres appareils (poste principal). */ network?: () => NetworkInfo; /** Vérifie un identifiant et un mot de passe auprès du cloud (première connexion en ligne). */ verifyOnline?: (email: string, password: string) => Promise<"ok" | "bad" | "unreachable"> ; /** Liaison au cloud (rattachement, synchronisation, retour au cloud). Absente : le poste reste 100 % local. */ cloud?: { config: CloudConfig; fetch?: typeof fetch } };
 const MAX_BODY = 12 * 1024 * 1024;
 const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8", ".map": "application/json" };
 
@@ -37,8 +39,12 @@ export function createLocalServer(opts: LocalServerOptions) {
     if (path === "/v1/auth/login" && method === "POST") {
       const b = JSON.parse((await readBody(req)) || "{}") as { email?: string; password?: string }; const email = String(b.email ?? "").trim(); const f = fails.get(email) ?? { n: 0, until: 0 };
       if (f.until > Date.now()) return send(res, 429, { ok: false, error: "Trop d'essais : réessayez dans quelques minutes" });
-      const u = email ? store.userByEmail(email) : null;
-      if (!u || !u.active || !verifyPassword(String(b.password ?? ""), u.password)) { f.n++; if (f.n >= 5) { f.until = Date.now() + 5 * 60_000; f.n = 0; } fails.set(email, f); return send(res, 401, { ok: false, error: "Identifiant ou mot de passe incorrect" }); }
+      const pw = String(b.password ?? ""); const lu = email ? await store.verifyLogin(email, pw) : null; let granted = !!lu && lu.known && lu.active; let why = "Identifiant ou mot de passe incorrect";
+      if (!granted && lu && lu.active && opts.verifyOnline) { // mot de passe inconnu du poste (jamais vu, ou changé au cloud depuis) : vérification en ligne, puis empreinte gardée pour les connexions hors ligne
+        const r = await opts.verifyOnline(email, pw); if (r === "ok") { store.cacheCredential(lu.id, pw); granted = true; } else if (r === "unreachable" && !store.userHasCredential(lu.id)) why = "Connexion impossible hors ligne : ce compte doit d'abord se connecter une fois avec internet";
+      }
+      const u = granted ? store.userById(lu!.id) : null;
+      if (!u) { f.n++; if (f.n >= 5) { f.until = Date.now() + 5 * 60_000; f.n = 0; } fails.set(email, f); return send(res, 401, { ok: false, error: why }); }
       fails.delete(email); const token = store.openSession(u.id, deviceLabel(String(req.headers["user-agent"] ?? "")), clientIp(req)); return send(res, 200, { ok: true, token, ...sessionInfo(u.id) });
     }
     const loopback = /^(::1|127\.\d+\.\d+\.\d+|::ffff:127\.\d+\.\d+\.\d+)$/.test(String(req.socket.remoteAddress ?? ""));
@@ -53,6 +59,13 @@ export function createLocalServer(opts: LocalServerOptions) {
     }
     if (path === "/v1/connect" && method === "GET") return send(res, 200, opts.network?.() ?? null); // public : adresses du poste et empreinte du certificat, aucune donnée d'entreprise
     if (path === "/v1/certificate.crt" && method === "GET") { const c = opts.tls?.cert; if (!c) return send(res, 404, { ok: false, error: "Aucun certificat : ce poste fonctionne en HTTP" }); res.writeHead(200, { "content-type": "application/x-x509-ca-cert", "content-disposition": 'attachment; filename="dogui-mart-pro.crt"', "cache-control": "no-store" }); return void res.end(c); }
+    if (path === "/v1/cloud/attach" && method === "POST") { // rattachement d'un poste vierge à un commerce du cloud : poste principal uniquement
+      if (!opts.cloud) return send(res, 404, { ok: false, error: "Liaison au cloud non disponible sur ce poste" });
+      if (!needsSetup()) return send(res, 403, { ok: false, error: "Ce poste est déjà configuré" }); if (!loopback) return send(res, 403, { ok: false, error: "Le rattachement se fait sur le poste principal" });
+      const b = JSON.parse((await readBody(req)) || "{}") as { email?: string; password?: string; stationName?: string; tenantId?: string };
+      const r = await attachToCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), { email: String(b.email ?? ""), password: String(b.password ?? ""), stationName: String(b.stationName ?? ""), tenantId: b.tenantId ? String(b.tenantId) : undefined });
+      return send(res, r.ok ? 200 : 400, r.ok ? { ok: true, tenantId: r.tenantId, report: r.report } : r);
+    }
     const who = authed(req, url);
     if (path === "/v1/execute" && method === "POST") {
       const body = JSON.parse((await readBody(req)) || "{}"); const r = await handle(store, who?.userId, body, { admins: opts.admins ?? [] }); return send(res, r.status, r.body);
@@ -73,6 +86,12 @@ export function createLocalServer(opts: LocalServerOptions) {
       const mine = store.sessionsOfTenant(tid).find((d) => d.id === sha16(who.token)); return send(res, 200, { ok: true, info: opts.network?.() ?? null, devices: devices.map((d) => ({ ...d, current: d.id === mine?.id })) });
     }
     if (path === "/v1/network/revoke" && method === "POST") { const tid = ownerTeam(); if (!tid) return send(res, 403, { ok: false, error: "Réservé au propriétaire" }); const b = JSON.parse((await readBody(req)) || "{}") as { id?: string }; const ok = store.revokeSession(tid, String(b.id ?? "")); return send(res, ok ? 200 : 404, { ok, error: ok ? undefined : "Appareil introuvable" }); }
+    if (path.startsWith("/v1/cloud/")) {
+      const tid = ownerTeam(); if (!tid) return send(res, 403, { ok: false, error: "Réservé au propriétaire" }); if (!opts.cloud) return send(res, 404, { ok: false, error: "Liaison au cloud non disponible sur ce poste" });
+      if (path === "/v1/cloud/status" && method === "GET") return send(res, 200, { ok: true, ...hostState(store) });
+      if (path === "/v1/cloud/sync" && method === "POST") { const r = await runSync(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch)); return send(res, 200, { ok: !r.error, report: r, ...hostState(store) }); }
+      if (path === "/v1/cloud/release" && method === "POST") { const r = await releaseToCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch)); return send(res, r.ok ? 200 : 409, r); }
+    }
     if (path === "/v1/auth/logout" && method === "POST") { store.closeSession(who.token); return send(res, 200, { ok: true }); }
     let m = /^\/v1\/rows\/([A-Za-z0-9_]+)$/.exec(path);
     if (m && method === "GET") { let queries: string[] = []; try { queries = JSON.parse(url.searchParams.get("q") ?? "[]"); } catch { return send(res, 400, { ok: false, error: "Requêtes invalides" }); }

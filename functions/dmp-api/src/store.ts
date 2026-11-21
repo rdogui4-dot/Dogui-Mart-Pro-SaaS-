@@ -39,11 +39,15 @@ export interface Store {
   addMember(tenantId: string, userId: string, roles: string[], name: string): Promise<void>;
   setMemberRoles(tenantId: string, userId: string, roles: string[]): Promise<void>;
   removeMember(tenantId: string, userId: string): Promise<void>;
+  /** Membres du commerce (propriétaires et personnel) avec leurs comptes : annuaire à copier sur un poste local. */
+  userDirectory(tenantId: string): Promise<DirectoryUser[]>;
 }
 /** shopId vaut "" pour les actions qui ne dépendent d'aucune boutique (équipe, création de boutique). */
 export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean; /** Accès effectifs (le propriétaire les a tous) : calculés par handle(), jamais fournis par le client. */ modules?: Module[] };
 import { MODULES, MODULE_LABEL, type Module } from "../../../src/domain/access";
 export type Role = "owner" | "manager" | "cashier";
+/** Compte d'un membre du commerce tel que l'annuaire du cloud le connaît : sert à la connexion du personnel sur le poste local (empreinte du mot de passe, jamais le mot de passe). */
+export type DirectoryUser = { userId: string; email: string; name: string; active: boolean; labels: string[]; roles: string[]; /** empreinte Argon2 au format PHC ; null si le serveur ne l'expose pas */ passwordHash: string | null; passwordUpdatedAt: string | null };
 export type UserSecurity = { lastLogin: string | null; sessions24h: number; mfa: boolean };
 export const roleOf = (roles: string[]): Role => (roles.includes("owner") ? "owner" : roles.includes("manager") ? "manager" : "cashier");
 export const need = (ctx: Ctx, min: Role) => {
