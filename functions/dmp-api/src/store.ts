@@ -37,6 +37,8 @@ export interface Store {
   /** Étiquettes du compte : elles donnent la lecture des lignes d'une boutique (voir permissions.ts). */
   setLabels(userId: string, labels: string[]): Promise<void>;
   setUserActive(userId: string, active: boolean): Promise<void>;
+  /** Ferme TOUTES les sessions ouvertes d'un compte (l'appareil doit se reconnecter) ; renvoie le nombre de sessions fermées. */
+  revokeUserSessions(userId: string): Promise<number>;
   setPassword(userId: string, password: string): Promise<void>;
   /** Sécurité d'un compte lue dans l'annuaire : dernière ouverture de session, sessions ouvertes ces dernières 24 h, double authentification activée. */
   userSecurity(userId: string): Promise<UserSecurity>;
@@ -49,7 +51,7 @@ export interface Store {
 /** shopId vaut "" pour les actions qui ne dépendent d'aucune boutique (équipe, création de boutique). */
 /** Mesures que seule la machine hôte peut fournir (le poste Windows : sauvegardes, synchronisation, constats). Absentes dans le cloud : les contrôles correspondants sont alors « inconnus », jamais « ok ». */
 export type StatusProbe = { /** le poste n'a pas de double authentification : sa valeur n'y est pas mesurable (le magasin local répond toujours « non ») */ noMfa?: boolean; station?: () => { lastSyncOkAt: string | null; pending: number; sessionOk: boolean; openConflicts: number; alertHours: number } | null; backups?: () => { lastOkAt: string | null; hasBackups: boolean; externalError: string | null } | null };
-export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean; probe?: StatusProbe; /** Accès effectifs (le propriétaire les a tous) : calculés par handle(), jamais fournis par le client. */ modules?: Module[] };
+export type Ctx = { userId: string; tenantId: string; shopId: string; roles: string[]; shopIds?: string[] | "all"; admin?: boolean; probe?: StatusProbe; /** machine qui exécute l'action (journal de sécurité) */ source?: "cloud" | "poste"; /** Accès effectifs (le propriétaire les a tous) : calculés par handle(), jamais fournis par le client. */ modules?: Module[] };
 import { MODULES, MODULE_LABEL, type Module } from "../../../src/domain/access";
 export type Role = "owner" | "manager" | "cashier";
 /** Compte d'un membre du commerce tel que l'annuaire du cloud le connaît : sert à la connexion du personnel sur le poste local (empreinte du mot de passe, jamais le mot de passe). */

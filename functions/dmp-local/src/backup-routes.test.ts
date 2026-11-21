@@ -39,6 +39,21 @@ describe("routes /v1/backup", () => {
       expect(c("backups")).toMatchObject({ state: "ok", source: "Poste Windows" }); expect(c("sync").state).toBe("na"); expect(c("mfa_owner").state).toBe("unknown"); expect(c("backups").evidence).toMatch(/h\./);
     } finally { await s.close(); }
   });
+  it("poste : le propriétaire ferme les sessions d'un employé (son jeton cesse de marcher aussitôt), la sauvegarde immédiate est tracée ; événements avec la source « poste »", async () => {
+    const { s, url, post } = await boot();
+    try {
+      await s.store.createUser({ userId: "cashier0000000002", email: "c2@x.sn", password: "motdepasse1", name: "Moussa" }); await s.store.addMember("tenantbk000001", "cashier0000000002", ["cashier"], "Moussa");
+      await s.store.create("staff", "cashier0000000002", "tenantbk000001", { tenantId: "tenantbk000001", userId: "cashier0000000002", name: "Moussa", username: "moussa", role: "cashier", shopIds: JSON.stringify(["s1"]), active: true });
+      const lg = await (await fetch(url("/v1/auth/login"), { method: "POST", headers: J, body: JSON.stringify({ email: "c2@x.sn", password: "motdepasse1" }) })).json(); const tok = lg.token as string; expect(tok).toBeTruthy();
+      const ping = async () => (await fetch(url("/v1/execute"), { method: "POST", headers: { ...J, authorization: `Bearer ${tok}` }, body: JSON.stringify({ action: "shop.list", tenantId: "tenantbk000001", shopId: "s1", payload: {} }) })).status;
+      expect(await ping()).not.toBe(401);
+      const r = await (await post("/v1/execute", { action: "security.sessions.revoke", tenantId: "tenantbk000001", shopId: "", payload: { userId: "cashier0000000002" } })).json(); expect(r.ok, JSON.stringify(r)).toBe(true); expect(r.data.revoked).toBeGreaterThanOrEqual(1);
+      expect(await ping()).toBe(401);
+      expect((await post("/v1/backup/now", {})).status).toBe(200);
+      const evs = await s.store.list("security_events", { tenantId: "tenantbk000001" }, 50); const kinds = evs.map((e) => e.kind);
+      expect(kinds).toContain("staff.sessions.revoke"); expect(kinds).toContain("backup.create"); expect(evs.filter((e) => ["staff.sessions.revoke", "backup.create"].includes(String(e.kind))).every((e) => e.source === "poste" && e.actorRole === "owner")).toBe(true);
+    } finally { await s.close(); }
+  });
   it("réservé au propriétaire : un caissier n'accède à rien", async () => {
     const { s, url, post, uid } = await boot();
     try {

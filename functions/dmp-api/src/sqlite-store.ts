@@ -227,6 +227,7 @@ export class SqliteStore implements Store {
   async setLabels(userId: string, labels: string[]): Promise<void> { this.db.prepare("INSERT OR REPLACE INTO labels (user_id, labels) VALUES (?, ?)").run(userId, JSON.stringify(labels)); }
   async setUserActive(userId: string, active: boolean): Promise<void> { this.db.prepare("UPDATE users SET active = ? WHERE id = ?").run(active ? 1 : 0, userId); if (!active) this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId); }
   async setPassword(userId: string, password: string): Promise<void> { this.db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashPassword(password), userId); this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId); }
+  async revokeUserSessions(userId: string): Promise<number> { const r = this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId); return Number(r.changes); }
   async userSecurity(userId: string): Promise<UserSecurity> {
     const last = this.db.prepare("SELECT MAX(created_at) AS t FROM sessions WHERE user_id = ?").get(userId); const since = new Date(Date.now() - 864e5).toISOString();
     const n = this.db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND created_at >= ?").get(userId, since);

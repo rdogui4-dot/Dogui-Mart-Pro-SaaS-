@@ -31,3 +31,14 @@ export async function platformSecurityPurge(store: Store, ctx: Ctx, b: { tenantI
   if (r.purged > 0) await recordSecurityEvent(store, { tenantId, kind: "security.purge", outcome: "accepted", actorId: ctx.userId, actorRole: "platform", target: `purge:${r.purged}`, source: "cloud" });
   return r;
 }
+
+/** Ferme toutes les sessions d'un EMPLOYÉ du commerce (jamais un propriétaire, jamais un compte d'un autre commerce). Action explicite du propriétaire, journalisée (journal de sécurité + journal d'activité). */
+export async function revokeStaffSessions(store: Store, ctx: Ctx, b: { userId?: string }) {
+  need(ctx, "owner"); const userId = String(b.userId ?? "");
+  const s = userId ? await store.get("staff", userId) : null; if (!s || s.tenantId !== ctx.tenantId) throw new HttpError(404, "Employé introuvable");
+  const revoked = await store.revokeUserSessions(userId);
+  await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: "staff.sessions.revoke", outcome: "accepted", actorId: ctx.userId, actorRole: "owner", target: "compte:employé", source: ctx.source ?? "cloud" });
+  const shopId = (() => { try { const v = JSON.parse(String(s.shopIds ?? "[]")); return Array.isArray(v) && v[0] ? String(v[0]) : ""; } catch { return ""; } })() || String((await store.list("shops", { tenantId: ctx.tenantId }, 1))[0]?.$id ?? ""); // le journal d'activité est rangé par boutique
+  await store.create("audit_log", `rv${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 36), ctx.tenantId, { tenantId: ctx.tenantId, shopId, userId: ctx.userId, action: "staff.sessions.revoke", detail: `${String(s.name ?? "").slice(0, 60)} : ${revoked} session(s) fermée(s)` });
+  return { revoked };
+}

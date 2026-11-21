@@ -98,6 +98,7 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
     },
     async setLabels(userId, labels) { await users.updateLabels({ userId, labels }); },
     async setUserActive(userId, active) { await users.updateStatus({ userId, status: active }); },
+    async revokeUserSessions(userId) { const l = await users.listSessions({ userId }); await users.deleteSessions({ userId }); return Number((l as unknown as { total?: number }).total ?? 0); },
     async setPassword(userId, password) { await users.updatePassword({ userId, password }); },
     async userSecurity(userId) {
       const [u, ss] = await Promise.all([users.get({ userId }), users.listSessions({ userId })]);

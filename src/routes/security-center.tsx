@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, CheckCircle2, Download, HelpCircle, Info, ListChecks, RefreshCw, ScrollText, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
+import { Confirm } from "@/components/ui";
+import { localBackup } from "@/lib/local-backend";
+import type { Member } from "@/domain/team-kit";
+import type { TeamData } from "./team-page";
+import { Activity, AlertTriangle, CheckCircle2, Download, HardDrive, HelpCircle, Info, ListChecks, LogOut, RefreshCw, ScrollText, ShieldAlert, ShieldCheck, UserCheck, UserX, Users, XCircle } from "lucide-react";
 import { DeniedState, ErrorState, FilterBar, FilterSelect, KitTable, KpiRow, KpiTile, LoadingState, ModuleHeader, Panel, PillTabs, StatusBadge, TabPanel, type PillTab } from "@/components/kit";
 import { api } from "@/lib/api";
 import { exportReport } from "@/lib/report-export";
@@ -13,7 +17,7 @@ import { CHECK_LINK, OUTCOME_LABEL, ROLE_LABEL, SEVERITY_LABEL, SEVERITY_TONE, S
 
 type Status = { measuredAt: string; checks: Check[]; score: number | null; measured: number; unknown: number; total: number; coverage: number; limits: string[] };
 type Journal = { events: EventRow[]; chain: Chain; total: number; truncated: boolean };
-type Tab = "controls" | "journal" | "limits";
+type Tab = "controls" | "accounts" | "journal" | "limits";
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }) : "—");
 const STATE_ICON = { ok: CheckCircle2, watch: AlertTriangle, critical: XCircle, unknown: HelpCircle, na: Info } as const;
 
@@ -87,12 +91,76 @@ function JournalTab() {
   );
 }
 
+type Pending = { kind: "revoke" | "disable" | "enable" | "backup"; m?: Member } | null;
+const ASK: Record<"revoke" | "disable" | "enable" | "backup", (n: string) => { text: string; label: string; danger?: boolean }> = {
+  revoke: (n) => ({ text: `Fermer toutes les sessions de ${n} ? Tous ses appareils seront déconnectés ; ${n} pourra se reconnecter avec son identifiant et son mot de passe. Pour l'en empêcher, désactivez son compte.`, label: "Fermer les sessions", danger: true }),
+  disable: (n) => ({ text: `Désactiver le compte de ${n} ? ${n} ne pourra plus se connecter et ne verra plus aucune donnée. L'historique est conservé ; vous pourrez réactiver le compte à tout moment.`, label: "Désactiver le compte", danger: true }),
+  enable: (n) => ({ text: `Réactiver le compte de ${n} ? ${n} retrouvera ses accès précédents.`, label: "Réactiver le compte" }),
+  backup: () => ({ text: "Lancer une sauvegarde maintenant ? Une copie vérifiée de la base de ce poste sera créée.", label: "Sauvegarder maintenant" }),
+};
+const ago = (iso: string | null) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "Jamais");
+
+/** Comptes et actions : chaque action est CONFIRMÉE, exécutée par le serveur (propriétaire seulement) et tracée au journal de sécurité. Rien ne se fait automatiquement. */
+function AccountsTab() {
+  const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [ask, setAsk] = useState<Pending>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(""); const [err, setErr] = useState("");
+  const q = useQuery({ queryKey: ["team", s.tenantId], queryFn: () => api<TeamData>(s, "team.overview"), staleTime: 30_000 });
+  const bk = localBackup(); const bq = useQuery({ queryKey: ["local-backup"], enabled: !!bk, queryFn: () => bk!.status() });
+  if (q.isLoading) return <LoadingState label="Lecture des comptes" />;
+  if (q.error || !q.data) return <ErrorState message={(q.error as Error)?.message} onRetry={() => void q.refetch()} />;
+  const members = q.data.members;
+  const done = async () => { await Promise.all([qc.invalidateQueries({ queryKey: ["team", s.tenantId] }), qc.invalidateQueries({ queryKey: ["security-events", s.tenantId] }), qc.invalidateQueries({ queryKey: ["security-status", s.tenantId] }), qc.invalidateQueries({ queryKey: ["local-backup"] })]); };
+  const run = async () => {
+    if (!ask) return; const a = ask; setAsk(null); setBusy(true); setMsg(""); setErr("");
+    try {
+      if (a.kind === "backup") { await bk!.now(); setMsg("Sauvegarde effectuée et vérifiée."); }
+      else if (a.kind === "revoke") { const r = await api<{ revoked: number }>(s, "security.sessions.revoke", { userId: a.m!.userId }); setMsg(`Sessions de ${a.m!.name} fermées (${r.revoked}).`); }
+      else { await api(s, "staff.update", { userId: a.m!.userId, active: a.kind === "enable" }); setMsg(a.kind === "enable" ? `Compte de ${a.m!.name} réactivé.` : `Compte de ${a.m!.name} désactivé.`); }
+      await done();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const acts = (m: Member) => m.role === "owner" ? <span className="text-xs text-muted">Aucune action sur un propriétaire</span> : (
+    <div className="flex flex-wrap gap-1.5">
+      <button type="button" className="btn-ghost !min-h-9 !px-3 !py-1 text-xs" disabled={busy} onClick={() => setAsk({ kind: "revoke", m })} aria-label={`Fermer les sessions de ${m.name}`}><LogOut size={14} aria-hidden="true" /> Déconnecter</button>
+      {m.active ? <button type="button" className="btn-ghost !min-h-9 !px-3 !py-1 text-xs !text-bad" disabled={busy} onClick={() => setAsk({ kind: "disable", m })} aria-label={`Désactiver le compte de ${m.name}`}><UserX size={14} aria-hidden="true" /> Désactiver</button>
+        : <button type="button" className="btn-ghost !min-h-9 !px-3 !py-1 text-xs" disabled={busy} onClick={() => setAsk({ kind: "enable", m })} aria-label={`Réactiver le compte de ${m.name}`}><UserCheck size={14} aria-hidden="true" /> Réactiver</button>}
+    </div>);
+  const mfa = (m: Member) => (m.mfa === null ? "Inconnue" : m.mfa ? "Activée" : "Non activée");
+  return (
+    <div className="flex flex-col gap-3">
+      {msg && <p role="status" className="text-sm text-ok font-medium rounded-lg bg-ok-bg px-3 py-1.5 self-start">✓ {msg}</p>}
+      {err && <p role="alert" className="text-sm text-bad">{err}</p>}
+      <Panel title="Comptes du commerce" icon={Users}>
+        <p className="text-sm text-soft">Seul le propriétaire peut agir sur les comptes. Chaque action demande une confirmation et est écrite au journal de sécurité. Les propriétaires ne se désactivent pas ici.</p>
+        <KitTable label="Comptes du commerce" rows={members} rowKey={(m) => m.userId}
+          columns={[
+            { key: "n", label: "Compte", cell: (m) => <span><b>{m.name}</b><span className="block text-xs text-muted">{m.login}</span></span> },
+            { key: "r", label: "Rôle", hideBelow: "md", cell: (m) => ROLE_LABEL[m.role] ?? m.role },
+            { key: "s", label: "État", cell: (m) => <StatusBadge tone={m.active ? "ok" : "muted"}>{m.active ? "Actif" : "Désactivé"}</StatusBadge> },
+            { key: "l", label: "Dernière connexion", hideBelow: "lg", nowrap: true, cell: (m) => ago(m.lastLogin) },
+            { key: "ss", label: "Sessions (24 h)", hideBelow: "lg", align: "right", cell: (m) => (q.data!.securityAvailable ? m.sessions24h : "—") },
+            { key: "m", label: "Double authentification", hideBelow: "lg", cell: (m) => mfa(m) },
+          ]}
+          actions={(m) => acts(m)}
+          renderCard={(m) => <div className="flex flex-col gap-1.5 text-sm"><div className="flex items-center justify-between gap-2"><b>{m.name}</b><StatusBadge tone={m.active ? "ok" : "muted"}>{m.active ? "Actif" : "Désactivé"}</StatusBadge></div><span className="text-xs text-muted">{ROLE_LABEL[m.role] ?? m.role} · {m.login} · connexion : {ago(m.lastLogin)} · 2FA : {mfa(m)}</span>{acts(m)}</div>} />
+        {!q.data.securityAvailable && <p className="text-xs text-muted">Dernières connexions et sessions : annuaire illisible pour le moment (jamais inventées).</p>}
+      </Panel>
+      <Panel title="Sauvegarde immédiate" icon={HardDrive}>
+        {bk ? <>
+          <p className="text-sm text-soft">{bq.data?.lastOkAt ? `Dernière sauvegarde valide : ${ago(bq.data.lastOkAt)}.` : bq.isLoading ? "Lecture des sauvegardes…" : "Aucune sauvegarde valide enregistrée."}</p>
+          <button type="button" className="btn self-start" disabled={busy} onClick={() => setAsk({ kind: "backup" })}><HardDrive size={16} aria-hidden="true" /> Sauvegarder maintenant</button>
+        </> : <p className="text-sm text-soft">La sauvegarde immédiate se lance depuis le poste Windows du commerce (Paramètres → Sauvegardes). Le cloud ne propose pas de sauvegarde que l'application puisse déclencher.</p>}
+      </Panel>
+      {ask && <Confirm {...ASK[ask.kind](ask.m?.name ?? "")} confirmLabel={ASK[ask.kind](ask.m?.name ?? "").label} onYes={() => void run()} onNo={() => setAsk(null)} />}
+    </div>
+  );
+}
+
 export function SecurityCenterPage() {
   const { session } = useSession(); const s = session!; const qc = useQueryClient(); const [tab, setTab] = useState<Tab>("controls");
   const q = useQuery({ queryKey: ["security-status", s.tenantId], enabled: s.role === "owner", queryFn: () => api<Status>(s, "security.status"), staleTime: 30_000 });
   if (s.role !== "owner") return <DeniedState reason="Le Centre de sécurité est réservé au propriétaire du commerce." />;
   const d = q.data; const n = (st: Check["state"]) => d?.checks.filter((c) => c.state === st).length ?? 0;
-  const tabs: PillTab<Tab>[] = [{ key: "controls", label: "Contrôles", icon: ListChecks, count: d?.checks.filter((c) => c.state !== "na").length }, { key: "journal", label: "Journal de sécurité", icon: ScrollText }, { key: "limits", label: "Ce qui n'est pas mesuré", icon: Info }];
+  const tabs: PillTab<Tab>[] = [{ key: "controls", label: "Contrôles", icon: ListChecks, count: d?.checks.filter((c) => c.state !== "na").length }, { key: "accounts", label: "Comptes et actions", icon: Users }, { key: "journal", label: "Journal de sécurité", icon: ScrollText }, { key: "limits", label: "Ce qui n'est pas mesuré", icon: Info }];
   return (
     <div className="flex flex-col gap-4">
       <ModuleHeader icon={ShieldCheck} title="Security Guardian" subtitle="Centre de sécurité : l'état réel de vos protections, mesuré — jamais supposé"
@@ -111,6 +179,7 @@ export function SecurityCenterPage() {
         <PillTabs idBase="sec" label="Sections du Centre de sécurité" value={tab} onChange={setTab} items={tabs} />
         <TabPanel idBase="sec" active={tab}>
           {tab === "controls" && <ul className="grid gap-3 md:grid-cols-2">{d.checks.map((c) => <CheckCard key={c.id} c={c} />)}</ul>}
+          {tab === "accounts" && <AccountsTab />}
           {tab === "journal" && <JournalTab />}
           {tab === "limits" && <Panel title="Ce que l'application ne peut pas mesurer" icon={Info}>
             <ul className="list-disc pl-5 text-sm text-soft grid gap-1">{d.limits.map((l) => <li key={l}>{l}</li>)}</ul>

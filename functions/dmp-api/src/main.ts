@@ -40,7 +40,7 @@ export async function handle(store: Store, userId: string | undefined, body: any
     if (typeof tenantId !== "string" || !tenantId || (!tenantLevel && (typeof shopId !== "string" || !shopId))) throw new HttpError(400, "tenantId et shopId requis");
     const m = await store.membership(tenantId, userId);
     if (!m) throw new HttpError(403, "Vous n'appartenez pas à ce commerce");
-    const ctx: Ctx = { userId, tenantId, shopId: tenantLevel ? "" : shopId, roles: m.roles, admin, probe: env.probe };
+    const ctx: Ctx = { userId, tenantId, shopId: tenantLevel ? "" : shopId, roles: m.roles, admin, probe: env.probe, source: sec.source };
     sec.member = true; sec.role = roleOf(m.roles);
     // Accès : le propriétaire a tout ; un employé actif a les modules de sa fiche (préréglage de son rôle ou liste personnalisée), sinon rien.
     let ids: string[] = [];

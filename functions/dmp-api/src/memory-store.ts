@@ -73,6 +73,9 @@ export class MemoryStore implements Store {
     return [...this.members].filter(([k, roles]) => k.startsWith(`${tenantId}:`) && roles.includes("owner"))
       .map(([k]) => { const userId = k.slice(tenantId.length + 1); return { userId, name: this.ownerNames.get(userId) ?? userId, email: `${userId}@example.test` }; });
   }
+  /** Comptes dont les sessions ont été fermées (tests). */
+  revoked: string[] = [];
+  async revokeUserSessions(userId: string) { this.revoked.push(userId); return this.security.get(userId)?.sessions24h ?? 0; }
   async setUserActive(userId: string, active: boolean) { const u = this.users.get(userId); if (u) u.active = active; }
   async setPassword(userId: string, password: string) { const u = this.users.get(userId); if (u) u.password = password; }
   /** Sécurité simulée par compte (tests) ; défaut : jamais connecté, sans double authentification. */
