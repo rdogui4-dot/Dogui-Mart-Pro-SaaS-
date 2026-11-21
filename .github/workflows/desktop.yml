@@ -8,6 +8,11 @@ on:
     paths: ["desktop/**", "scripts/build-desktop.mjs", ".github/workflows/desktop.yml", "functions/dmp-local/**", "functions/dmp-api/src/sqlite-store.ts"]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publier:
+        description: "Publier la version de desktop/package.json sur GitHub Releases (crée l'étiquette vX.Y.Z sur ce commit ; refusé si la version existe déjà)"
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -107,18 +112,29 @@ jobs:
             desktop/dist-installer/*.blockmap
             desktop/dist-installer/EMPREINTE.txt
           retention-days: 30
+      - name: Créer la version GitHub (étiquette sur ce commit ; refusée si elle existe déjà)
+        if: (github.event_name == 'workflow_dispatch' && inputs.publier)
+        shell: pwsh
+        run: |
+          $tag = "v$(node -p "require('./desktop/package.json').version")"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) { throw "La version $tag existe déjà : augmentez la version dans desktop/package.json" }
+          gh release create $tag --target $env:GITHUB_SHA --title "Dogui Mart Pro pour Windows $tag" --notes "Version en cours de publication…"
+          $global:LASTEXITCODE = 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publier la version (GitHub Releases) pour les mises à jour automatiques
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publier))
         working-directory: desktop
         run: npx electron-builder --win --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Compléter la version (notes en français, empreinte, guide d'installation)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publier))
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = "v$(node -p \"require('./desktop/package.json').version\")"
           $sha = (Get-FileHash "desktop/dist-installer/Dogui-Mart-Pro-Setup.exe" -Algorithm SHA256).Hash
           $notes = (Get-Content desktop/RELEASE-NOTES.md -Raw -Encoding utf8).Replace("{{VERSION}}", $tag).Replace("{{SHA256}}", $sha)
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
