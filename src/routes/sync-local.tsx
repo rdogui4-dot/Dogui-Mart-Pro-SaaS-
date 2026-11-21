@@ -30,6 +30,8 @@ export function SyncSection() {
   if (!s.hosted) return (
     <Panel title="Synchronisation avec le cloud" icon={CloudOff} action={<StatusBadge tone="muted">Non rattaché</StatusBadge>}>
       <p className="text-sm text-soft">Ce poste n'est rattaché à aucun commerce du cloud : toutes les données restent sur cet ordinateur. Pour rattacher un poste à un commerce existant, utilisez l'écran de première connexion d'un poste vierge (« Rattacher à mon commerce cloud »).</p>
+      {info && <p role="status" className="text-sm text-ok">{info}</p>}
+      {err && <p role="alert" className="text-sm text-bad">{err}</p>}
     </Panel>);
   const tone = al.level === "bad" || !s.sessionOk ? "bad" : al.level === "warn" || s.failures > 0 ? "warn" : "ok";
   return (

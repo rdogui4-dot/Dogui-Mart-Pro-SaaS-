@@ -72,7 +72,9 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     await page.setViewportSize({ width: 390, height: 900 }); await openSync(); const o = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o > 1) throw new Error("débordement " + o); await page.screenshot({ path: path.join(OUT, "kit26-sync-390.png"), fullPage: true }); await page.setViewportSize({ width: 1440, height: 1000 });
   });
   await step("retour au cloud : confirmation « RENDRE », le cloud reprend l'écriture, le poste n'est plus rattaché", async () => {
-    await openSync(); const btn = page.getByRole("button", { name: "Rendre au cloud" }); if (!(await btn.isDisabled())) throw new Error("bouton actif sans confirmation"); await page.getByLabel("Confirmation du retour au cloud").fill("RENDRE"); await btn.click(); await page.getByText("Commerce rendu au cloud.").waitFor({ timeout: 30000 });
+    await openSync(); await page.getByRole("button", { name: "Synchroniser maintenant" }).click(); await page.getByText(/Synchronisation terminée/).waitFor({ timeout: 30000 }); // comme un utilisateur : tout envoyer d'abord (sinon le retour est refusé, à raison)
+    const btn = page.getByRole("button", { name: "Rendre au cloud" }); if (!(await btn.isDisabled())) throw new Error("bouton actif sans confirmation"); await page.getByLabel("Confirmation du retour au cloud").fill("RENDRE"); await btn.click();
+    try { await page.getByText("Commerce rendu au cloud.").waitFor({ timeout: 30000 }); } catch (e) { throw new Error("alerte : " + (await page.getByRole("alert").allInnerTexts()).join(" / ")); }
     const ok = await fake.callCloud(fake.UID, "article.save", { data: { name: "Riz", price: 100, cost: 50, sku: "RIZ", barcode: "RIZ0" } }, shopId); if (ok.status !== 200) throw new Error("le cloud devrait écrire de nouveau : " + ok.status + JSON.stringify(ok.body));
     await page.reload(); await page.getByRole("tab", { name: "Synchronisation" }).click(); await page.getByText("Non rattaché").waitFor({ timeout: 20000 });
   });
