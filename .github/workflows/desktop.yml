@@ -1,0 +1,115 @@
+name: Application Windows
+# Compile l'installateur Windows (Electron + NSIS) sur un vrai Windows et le TESTE : installation silencieuse, règle de pare-feu, démarrage du poste principal, désinstallation.
+# - Poussée sur la branche (fichiers desktop/**) ou lancement manuel : construit et teste, publie l'installateur comme « artefact » téléchargeable (pas de version publique).
+# - Étiquette « v1.2.3 » (doit correspondre à la version de desktop/package.json) : publie une VERSION sur GitHub Releases (installateur + latest.yml pour les mises à jour automatiques).
+on:
+  push:
+    branches: [ccr-360cd683-uvf925, main]
+    paths: ["desktop/**", "scripts/build-desktop.mjs", ".github/workflows/desktop.yml", "functions/dmp-local/**", "functions/dmp-api/src/sqlite-store.ts"]
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  # Valeurs publiques (identifiants du projet Appwrite, visibles dans le navigateur) : pas des secrets.
+  VITE_APPWRITE_ENDPOINT: https://fra.cloud.appwrite.io/v1
+  VITE_APPWRITE_PROJECT_ID: 6ae9d6010001952ea399
+  VITE_APPWRITE_DATABASE_ID: dmp
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - name: Vérifier l'étiquette de version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          V=$(node -p "require('./desktop/package.json').version")
+          [ "${GITHUB_REF_NAME}" = "v${V}" ] || { echo "L'étiquette ${GITHUB_REF_NAME} ne correspond pas à la version desktop/package.json (v${V})"; exit 1; }
+      - run: npm ci
+      - run: npm test
+      - name: Construire l'application (web + code du poste)
+        run: npm run desktop:build
+      - name: Installer les dépendances de l'application Windows
+        working-directory: desktop
+        run: npm ci
+      - name: Construire l'installateur
+        working-directory: desktop
+        run: npx electron-builder --win --x64 --publish never
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+      - name: Empreinte de l'installateur
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem desktop/dist-installer -Filter "*Setup*.exe" | Select-Object -First 1
+          if (-not $f) { throw "Installateur introuvable" }
+          "$($f.Name)  $([math]::Round($f.Length/1MB,1)) Mo  SHA256=$((Get-FileHash $f.FullName -Algorithm SHA256).Hash)" | Tee-Object -FilePath desktop/dist-installer/EMPREINTE.txt
+          if ($f.Length -lt 50MB) { throw "Installateur trop petit : $($f.Length)" }
+      - name: Test d'installation silencieuse (pour toutes les sessions)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem desktop/dist-installer -Filter "*Setup*.exe" | Select-Object -First 1).FullName
+          $p = Start-Process -FilePath $setup -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installation : code $($p.ExitCode)" }
+          $exe = "$env:ProgramFiles\Dogui Mart Pro\Dogui Mart Pro.exe"
+          if (-not (Test-Path $exe)) { throw "Application non installée : $exe" }
+          Write-Host "Installé : $exe"
+          $rule = netsh advfirewall firewall show rule name="Dogui Mart Pro" 2>&1 | Out-String
+          Write-Host $rule
+          if ($rule -notmatch "Dogui Mart Pro") { throw "Règle de pare-feu absente" }
+          if ($rule -notmatch "Private|Privé") { throw "La règle de pare-feu doit être limitée aux réseaux privés" }
+          if ($rule -notmatch "Allow|Autoriser") { throw "La règle de pare-feu doit autoriser" }
+      - name: Test de démarrage du poste principal installé
+        shell: pwsh
+        run: |
+          $exe = "$env:ProgramFiles\Dogui Mart Pro\Dogui Mart Pro.exe"
+          $ud = Join-Path $env:RUNNER_TEMP "dmp-userdata"; New-Item -ItemType Directory -Force $ud | Out-Null
+          '{"mode":"main","port":18443,"autostart":false}' | Set-Content -Path (Join-Path $ud "poste.json") -Encoding utf8
+          $proc = Start-Process -FilePath $exe -ArgumentList "--user-data-dir=`"$ud`"","--hidden" -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 2
+            try { $r = & curl.exe -sk https://127.0.0.1:18443/v1/setup; if ($r -match "needsSetup") { $ok = $true; break } } catch { }
+          }
+          Write-Host "Réponse : $r"
+          $cert = & curl.exe -sk https://127.0.0.1:18443/v1/connect
+          Write-Host $cert.Substring(0, [math]::Min(300, $cert.Length))
+          if (-not $ok) { Get-Content (Join-Path $ud "logs/poste.log") -ErrorAction SilentlyContinue; throw "Le poste principal n'a pas démarré" }
+          if (-not (Get-ChildItem (Join-Path $ud "sauvegardes") -Filter "auto-*.sqlite")) { throw "Pas de sauvegarde automatique" }
+          Get-Process | Where-Object { $_.ProcessName -like "Dogui*" } | Stop-Process -Force
+          Start-Sleep -Seconds 3
+      - name: Test de désinstallation (règle de pare-feu retirée, données conservées)
+        shell: pwsh
+        run: |
+          $un = "$env:ProgramFiles\Dogui Mart Pro\Uninstall Dogui Mart Pro.exe"
+          if (-not (Test-Path $un)) { throw "Désinstalleur introuvable" }
+          $p = Start-Process -FilePath $un -ArgumentList "/S" -Wait -PassThru
+          Start-Sleep -Seconds 5
+          if (Test-Path "$env:ProgramFiles\Dogui Mart Pro\Dogui Mart Pro.exe") { throw "Application encore présente" }
+          $rule = netsh advfirewall firewall show rule name="Dogui Mart Pro" 2>&1 | Out-String
+          if ($rule -match "Rule Name|Nom de la règle") { throw "La règle de pare-feu n'a pas été supprimée" }
+          $ud = Join-Path $env:RUNNER_TEMP "dmp-userdata"
+          if (-not (Test-Path (Join-Path $ud "poste.json"))) { throw "Les données ont été supprimées à la désinstallation" }
+          Write-Host "Désinstallation propre : pare-feu retiré, données conservées."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dogui-mart-pro-windows
+          path: |
+            desktop/dist-installer/*Setup*.exe
+            desktop/dist-installer/latest.yml
+            desktop/dist-installer/*.blockmap
+            desktop/dist-installer/EMPREINTE.txt
+          retention-days: 30
+      - name: Publier la version (GitHub Releases) pour les mises à jour automatiques
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: desktop
+        run: npx electron-builder --win --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"

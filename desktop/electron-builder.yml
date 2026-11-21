@@ -11,7 +11,7 @@ win:
   target: [{ target: nsis, arch: [x64] }]
   icon: build/icon.png
   # Non signé pour l'instant (voir docs) : Windows affiche « Éditeur inconnu » à l'installation.
-  signAndEditExecutable: false
+  signExecutable: false
 nsis:
   oneClick: false
   perMachine: true

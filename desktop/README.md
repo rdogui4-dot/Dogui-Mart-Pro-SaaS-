@@ -2,6 +2,8 @@
 
 Application Electron (Windows x64) : le **poste principal** garde les données du commerce (SQLite) et les partage en HTTPS aux autres appareils du magasin ; un **poste secondaire** s'y connecte. Voir `docs/refonte-ui/KIT-24-AUDIT-ET-PLAN.md` (§47).
 
+Guide utilisateur (français) : `docs/WINDOWS.md`.
+
 ## Construire
 ```
 npm install                 # à la racine
@@ -20,3 +22,8 @@ npm run dist                # installateur NSIS dans desktop/dist-installer (à 
 - **Installateur** : pour toutes les sessions (droits administrateur), règle de pare-feu entrante limitée aux réseaux **privés**, supprimée à la désinstallation ; les données ne sont jamais supprimées. **Non signé** pour l'instant : Windows affiche « Éditeur inconnu » (Plus d'infos → Exécuter quand même).
 - **Mises à jour** : GitHub Releases du dépôt ; téléchargement en arrière-plan, installation seulement sur décision de l'utilisateur.
 - **Sauvegardes** : une copie par jour dans `sauvegardes/` (7 conservées), plus une copie avant toute restauration.
+
+## Publier une version
+1. Augmenter `version` dans `desktop/package.json` (ex. 1.0.1).
+2. Étiquette Git `v1.0.1` (doit correspondre) : le workflow « Application Windows » compile sur Windows, teste l'installation silencieuse (pare-feu, démarrage, désinstallation) puis publie la version sur GitHub Releases (installateur + `latest.yml` pour les mises à jour automatiques).
+3. Sans étiquette, le workflow construit et teste seulement (artefact téléchargeable 30 jours).
