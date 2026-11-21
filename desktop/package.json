@@ -17,6 +17,6 @@
     "electron": "45.4.1",
     "electron-builder": "^26.0.12",
     "typescript": "^5.9.0",
-    "@types/node": "^24.0.0"
+    "@types/node": "^26.6.6"
   }
 }
