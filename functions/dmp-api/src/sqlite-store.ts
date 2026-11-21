@@ -49,7 +49,7 @@ export class SqliteStore implements Store {
       CREATE INDEX IF NOT EXISTS outbox_key ON outbox (tbl, id);
       CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sync_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, tbl TEXT NOT NULL, row_id TEXT NOT NULL, kind TEXT NOT NULL, local_data TEXT, cloud_data TEXT, resolved INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL, read_roles TEXT NOT NULL DEFAULT '[]');
+      CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL, read_roles TEXT NOT NULL DEFAULT '[]', synced INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '', password TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'local', cred_cloud TEXT, cred_cache TEXT);
       CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS members (tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, roles TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, user_id));
@@ -57,6 +57,7 @@ export class SqliteStore implements Store {
       CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL, device TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '');`);
     // bases créées avant le réseau local : on ajoute l'appareil et l'adresse aux sessions
     const ucols = this.db.prepare("PRAGMA table_info(users)").all().map((c) => String(c.name));
+    if (!(this.db.prepare("PRAGMA table_info(files)").all() as { name: string }[]).some((c) => c.name === "synced")) this.db.exec("ALTER TABLE files ADD COLUMN synced INTEGER NOT NULL DEFAULT 1");
     if (!ucols.includes("source")) this.db.exec("ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'");
     if (!ucols.includes("cred_cloud")) this.db.exec("ALTER TABLE users ADD COLUMN cred_cloud TEXT");
     if (!ucols.includes("cred_cache")) this.db.exec("ALTER TABLE users ADD COLUMN cred_cache TEXT");
@@ -131,8 +132,29 @@ export class SqliteStore implements Store {
   }
 
   // ------------------------------------------------------------------ fichiers
-  async putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]): Promise<void> { this.db.prepare("INSERT OR REPLACE INTO files (id, name, mime, data, read_roles) VALUES (?, ?, ?, ?, ?)").run(fileId, name, mime, data, JSON.stringify(readRoles)); }
-  async deleteFile(fileId: string): Promise<void> { this.db.prepare("DELETE FROM files WHERE id = ?").run(fileId); }
+  async putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]): Promise<void> { this.db.prepare("INSERT OR REPLACE INTO files (id, name, mime, data, read_roles, synced) VALUES (?, ?, ?, ?, ?, ?)").run(fileId, name, mime, data, JSON.stringify(readRoles), this.syncOn && !this.applying ? 0 : 1); }
+  async deleteFile(fileId: string): Promise<void> {
+    const f = this.db.prepare("SELECT synced FROM files WHERE id = ?").get(fileId); this.db.prepare("DELETE FROM files WHERE id = ?").run(fileId);
+    if (f && f.synced === 1 && this.syncOn && !this.applying) this.syncSet(`filedel:${fileId}`, iso()); // le cloud a ce fichier : la suppression lui sera transmise
+  }
+  async fileInfo(fileId: string) { const r = this.db.prepare("SELECT name, mime, read_roles FROM files WHERE id = ?").get(fileId); return r ? { name: String(r.name), mime: String(r.mime), readRoles: JSON.parse(String(r.read_roles)) as string[] } : null; }
+  // Synchronisation des fichiers : envoyés après leurs lignes, reçus pour les lignes téléchargées.
+  filesPending(limit = 10): { id: string; name: string; mime: string; readRoles: string[]; data: Uint8Array }[] { return this.db.prepare("SELECT id, name, mime, read_roles, data FROM files WHERE synced = 0 LIMIT ?").all(limit).map((r) => ({ id: String(r.id), name: String(r.name), mime: String(r.mime), readRoles: JSON.parse(String(r.read_roles)) as string[], data: new Uint8Array(r.data as Uint8Array) })); }
+  fileAck(fileId: string): void { this.db.prepare("UPDATE files SET synced = 1 WHERE id = ?").run(fileId); }
+  filesDeleted(): string[] { return (this.db.prepare("SELECT key FROM sync_state WHERE key LIKE 'filedel:%'").all() as { key: string }[]).map((r) => r.key.slice(8)); }
+  hasFile(fileId: string): boolean { return !!this.db.prepare("SELECT 1 FROM files WHERE id = ?").get(fileId); }
+  applyFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]): void { this.db.prepare("INSERT OR REPLACE INTO files (id, name, mime, data, read_roles, synced) VALUES (?, ?, ?, ?, ?, 1)").run(fileId, name, mime, data, JSON.stringify(readRoles)); }
+  /** Fichiers cités par les lignes du poste (photo d'article, logo, pièces comptables, documents d'inventaire et d'achats) : identifiant et ligne porteuse. */
+  referencedFiles(): { fileId: string; table: string; rowId: string }[] {
+    const out: { fileId: string; table: string; rowId: string }[] = [];
+    for (const r of this.db.prepare("SELECT tbl, id, data FROM rows WHERE data LIKE '%FileId%' OR data LIKE '%\"file\":%' OR data LIKE '%fileId%'").all()) {
+      let d: Record<string, unknown>; try { d = JSON.parse(String(r.data)); } catch { continue; }
+      const ids = new Set<string>(); for (const k of ["imageFileId", "logoFileId"]) if (typeof d[k] === "string" && d[k]) ids.add(d[k] as string);
+      for (const k of ["pieces", "docs"]) { try { const a = typeof d[k] === "string" ? JSON.parse(d[k] as string) : d[k]; if (Array.isArray(a)) for (const x of a) { const f = (x as { file?: string; fileId?: string })?.file ?? (x as { fileId?: string })?.fileId; if (typeof f === "string" && f) ids.add(f); } } catch { /* colonne illisible : ignorée */ } }
+      for (const fileId of ids) out.push({ fileId, table: String(r.tbl), rowId: String(r.id) });
+    }
+    return out;
+  }
   async readFile(fileId: string): Promise<Uint8Array | null> { const r = this.db.prepare("SELECT data FROM files WHERE id = ?").get(fileId); return r ? new Uint8Array(r.data as Uint8Array) : null; }
   fileMeta(fileId: string): { name: string; mime: string; readRoles: string[]; data: Uint8Array } | null { const r = this.db.prepare("SELECT name, mime, read_roles, data FROM files WHERE id = ?").get(fileId); return r ? { name: String(r.name), mime: String(r.mime), readRoles: JSON.parse(String(r.read_roles)), data: new Uint8Array(r.data as Uint8Array) } : null; }
 
@@ -141,6 +163,19 @@ export class SqliteStore implements Store {
   async createUser(a: { userId: string; email: string; password: string; name: string }): Promise<void> {
     if (this.db.prepare("SELECT 1 FROM users WHERE email = ? OR id = ?").get(a.email, a.userId)) throw new HttpError(409, "Identifiant déjà utilisé");
     this.db.prepare("INSERT INTO users (id, email, name, password, active, created_at) VALUES (?, ?, ?, ?, 1, ?)").run(a.userId, a.email, a.name, hashPassword(a.password), iso());
+  }
+  async importUser(a: { userId: string; email: string; name: string; passwordHash: string }): Promise<void> {
+    if (this.db.prepare("SELECT 1 FROM users WHERE email = ? OR id = ?").get(a.email, a.userId)) throw new HttpError(409, "Identifiant déjà utilisé");
+    this.db.prepare("INSERT INTO users (id, email, name, password, active, created_at) VALUES (?, ?, ?, ?, 1, ?)").run(a.userId, a.email, a.name, a.passwordHash, iso());
+  }
+  /** Comptes créés SUR ce poste (jamais venus du cloud) pour le commerce, avec une empreinte de synchronisation : un changement (nom, rôle, étiquettes, activation) les fait renvoyer. */
+  localAccounts(tenantId: string): { userId: string; email: string; name: string; active: boolean; roles: string[]; labels: string[]; hash: string; fp: string }[] {
+    return this.db.prepare("SELECT m.user_id AS id, m.roles AS roles, u.email AS email, u.name AS name, u.active AS active, u.password AS pw FROM members m JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ? AND u.source = 'local'").all(tenantId)
+      .filter((r) => String(r.pw).startsWith("scrypt$")).map((r) => {
+        const lab = this.db.prepare("SELECT labels FROM labels WHERE user_id = ?").get(String(r.id)); const labels = lab ? (JSON.parse(String(lab.labels)) as string[]) : []; const roles = JSON.parse(String(r.roles)) as string[];
+        const fp = createHash("sha256").update(JSON.stringify([r.email, r.name, r.active, roles, [...labels].sort(), r.pw])).digest("hex");
+        return { userId: String(r.id), email: String(r.email), name: String(r.name), active: r.active !== 0, roles, labels, hash: String(r.pw), fp };
+      });
   }
   async deleteUser(userId: string): Promise<void> { this.db.prepare("DELETE FROM users WHERE id = ?").run(userId); this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId); }
   async listOwners(tenantId: string) {
@@ -170,7 +205,7 @@ export class SqliteStore implements Store {
         if (!ex) { this.db.prepare("INSERT INTO users (id, email, name, password, active, created_at, source, cred_cloud) VALUES (?, ?, ?, '*', ?, ?, 'cloud', ?)").run(d.userId, d.email, d.name, d.active ? 1 : 0, iso(), d.passwordHash); out.created++; }
         else {
           const changed = d.passwordHash !== null && d.passwordHash !== (ex.cred_cloud ? String(ex.cred_cloud) : null);
-          this.db.prepare("UPDATE users SET email = ?, name = ?, active = ?, source = 'cloud', cred_cloud = COALESCE(?, cred_cloud)" + (changed ? ", cred_cache = NULL" : "") + " WHERE id = ?").run(d.email, d.name, d.active ? 1 : 0, d.passwordHash, d.userId);
+          this.db.prepare("UPDATE users SET email = ?, name = ?, active = ?, source = CASE WHEN source = 'local' THEN 'local' ELSE 'cloud' END, cred_cloud = COALESCE(?, cred_cloud)" + (changed ? ", cred_cache = NULL" : "") + " WHERE id = ?").run(d.email, d.name, d.active ? 1 : 0, d.passwordHash, d.userId);
           if (changed || !d.active) this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(d.userId); out.updated++;
         }
         this.db.prepare("INSERT OR REPLACE INTO members (tenant_id, user_id, roles, name) VALUES (?, ?, ?, ?)").run(tenantId, d.userId, JSON.stringify(d.roles), d.name);
@@ -218,6 +253,8 @@ export class SqliteStore implements Store {
       else this.db.prepare("INSERT INTO rows (tbl, id, tenant_id, created_at, updated_at, remote_at, data, read_roles) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(table, id, tenantId, createdAt, updatedAt, updatedAt, JSON.stringify(clean), roles);
       this.emit(table, id); } finally { this.applying = false; }
   }
+  /** Lignes de la table connues du cloud (reçues ou déjà envoyées et acquittées) et sans envoi en attente. */
+  syncedIds(table: string): string[] { return (this.db.prepare("SELECT id FROM rows WHERE tbl = ? AND remote_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.tbl = rows.tbl AND o.id = rows.id)").all(table) as { id: string }[]).map((r) => String(r.id)); }
   removeRemote(table: string, id: string): void { this.applying = true; try { this.db.prepare("DELETE FROM rows WHERE tbl = ? AND id = ?").run(table, id); this.emit(table, id); } finally { this.applying = false; } }
   addConflict(table: string, rowId: string, kind: string, local: unknown, cloud: unknown): void { this.db.prepare("INSERT INTO sync_conflicts (at, tbl, row_id, kind, local_data, cloud_data) VALUES (?, ?, ?, ?, ?, ?)").run(iso(), table, rowId, kind, JSON.stringify(local ?? null), JSON.stringify(cloud ?? null)); }
   conflicts(onlyOpen = true): { id: number; at: string; table: string; rowId: string; kind: string; local: unknown; cloud: unknown; resolved: boolean }[] {

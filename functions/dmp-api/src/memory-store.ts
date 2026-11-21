@@ -40,6 +40,7 @@ export class MemoryStore implements Store {
   files = new Map<string, { data: Uint8Array; name: string; mime: string; readRoles: string[] }>();
   async putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]) { this.files.set(fileId, { data, name, mime, readRoles }); }
   async deleteFile(fileId: string) { this.files.delete(fileId); }
+  async fileInfo(fileId: string) { const f = this.files.get(fileId); return f ? { name: f.name, mime: f.mime, readRoles: f.readRoles } : null; }
   async readFile(fileId: string) { return this.files.get(fileId)?.data ?? null; }
   labels = new Map<string, string[]>();
   async setLabels(userId: string, labels: string[]) { this.labels.set(userId, labels); }
@@ -58,6 +59,10 @@ export class MemoryStore implements Store {
     const r = this.t(table).get(id); if (!r) throw new Error("introuvable"); Object.assign(r, Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined))); // comme Appwrite : une clé absente (undefined) ne modifie pas la colonne
   }
   users = new Map<string, { email: string; password: string; active: boolean; name: string }>();
+  async importUser(a: { userId: string; email: string; name: string; passwordHash: string }) {
+    if (this.users.has(a.userId) || [...this.users.values()].some((u) => u.email === a.email)) throw new HttpError(409, "Identifiant déjà utilisé");
+    this.users.set(a.userId, { email: a.email, password: a.passwordHash, active: true, name: a.name });
+  }
   async createUser(a: { userId: string; email: string; password: string; name: string }) {
     if ([...this.users.values()].some((u) => u.email === a.email)) throw new HttpError(409, "Identifiant déjà utilisé");
     this.users.set(a.userId, { email: a.email, password: a.password, active: true, name: a.name });

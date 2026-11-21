@@ -66,9 +66,18 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
       await storage.createFile({ bucketId: "articles", fileId, file: InputFile.fromBuffer(Buffer.from(data), name), permissions: readRoles.map((r) => Permission.read(r)) });
     },
     async readFile(fileId) { try { return new Uint8Array(await storage.getFileDownload({ bucketId: "articles", fileId })); } catch (e: any) { if (e?.code === 404) return null; throw e; } },
+    async fileInfo(fileId) {
+      try { const f = await storage.getFile({ bucketId: "articles", fileId }); return { name: f.name, mime: f.mimeType, readRoles: (f.$permissions ?? []).map((p: string) => /^read\("(.+)"\)$/.exec(p)?.[1]).filter((r): r is string => !!r) }; }
+      catch (e: any) { if (e?.code === 404) return null; throw e; }
+    },
     async deleteFile(fileId) { try { await storage.deleteFile({ bucketId: "articles", fileId }); } catch (e: any) { if (e?.code !== 404) throw e; } },
     async createUser(a) {
       try { await users.create({ userId: a.userId, email: a.email, password: a.password, name: a.name }); }
+      catch (e: any) { if (e?.code === 409) throw new HttpError(409, "Identifiant déjà utilisé"); throw e; }
+    },
+    async importUser(a) {
+      const [alg, salt, hex] = a.passwordHash.split("$"); if (alg !== "scrypt" || !salt || !hex) throw new HttpError(400, "Empreinte de mot de passe illisible");
+      try { await users.createScryptUser({ userId: a.userId, email: a.email, password: hex, passwordSalt: salt, passwordCpu: 16384, passwordMemory: 8, passwordParallel: 1, passwordLength: 32, name: a.name }); }
       catch (e: any) { if (e?.code === 409) throw new HttpError(409, "Identifiant déjà utilisé"); throw e; }
     },
     async deleteUser(userId) { await users.delete({ userId }); },

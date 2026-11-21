@@ -23,7 +23,7 @@ const client = (userId: string, passwords: Record<string, string> = { own: "bon"
   const run = async (action: string, tenant: string, payload: unknown) => { if (down) throw new CloudError(0, "Cloud injoignable", true); if (!user) throw new CloudError(401, "Session cloud absente"); const r = await cl(cloud, user, action, payload, "", tenant, true); if (r.status !== 200) throw new CloudError(r.status, (r.body as any).error); return (r.body as any).data; };
   const c = { login: async (email: string, pw: string) => { if (down) throw new CloudError(0, "Cloud injoignable", true); if (passwords[userId] !== pw) throw new CloudError(401, "Identifiant ou mot de passe incorrect"); user = userId; return { fallbackCookies: "x", email, userId }; }, logout: async () => { user = null; }, verifyOnline: async () => "ok" as const,
     myTeams: async () => [T, T2].filter((t) => cloud.members.has(`${t}:${userId}`)).map((id) => ({ id, name: id === T ? "Ma Boutique" : "Autre" })), ownerOf: async (id: string) => (cloud.members.get(`${id}:${userId}`) ?? []).includes("owner"),
-    execute: run, api: (tenant: string) => ({ push: async (rows: any[]) => (await run("sync.push", tenant, { rows })).results, pull: (t: string, s: string, l: number) => run("sync.pull", tenant, { table: t, since: s, limit: l }), users: async () => (await run("sync.users", tenant, {})).users }), hasSession: () => !!user, session: () => null };
+    execute: run, api: (tenant: string) => ({ push: async (rows: any[]) => (await run("sync.push", tenant, { rows })).results, pull: (t: string, s: string, l: number) => run("sync.pull", tenant, { table: t, since: s, limit: l }), users: async () => (await run("sync.users", tenant, {})).users, ids: (table: string) => run("sync.ids", tenant, { table }), fileUp: (f: any) => run("sync.fileUp", tenant, f), fileDown: async (fileId: string) => { try { return await run("sync.fileDown", tenant, { fileId }); } catch (e) { if ((e as CloudError).status === 404) return null; throw e; } }, fileDelete: async (fileId: string) => { await run("sync.fileDelete", tenant, { fileId }); }, userPush: async (users: any[]) => (await run("sync.userPush", tenant, { users })).results }), hasSession: () => !!user, session: () => null };
   return c as unknown as CloudClient; };
 
 beforeEach(async () => {
@@ -43,7 +43,7 @@ describe("rattachement d'un poste au cloud", () => {
     expect((await cl(cloud, "own", "dashboard.business", { preset: "last30" }, shop, T, true)).status).toBe(200); expect((await cl(cloud, "own", "subscription.get", {}, "", T, true)).status).toBe(200); expect((await cl(cloud, "own", "host.status", {}, "", T, true)).status).toBe(200);
     // le poste vend (les employés se connectent grâce à l'annuaire copié), puis synchronise
     const v = await cl(local, "own", "checkout", { clientId: "vente-poste-001", lines: [{ productId: eau, qty: 4 }], payments: [{ method: "cash", amount: 2000 }] }, shop, T); expect(v.status).toBe(200);
-    const c = client("own"); await c.login("a@x.sn", "bon"); expect((await runSync(local, c)).error).toBeUndefined(); expect((await cloud.scan("sales", { tenantId: T })).rows).toHaveLength(1);
+    const c = client("own"); await c.login("a@x.sn", "bon"); expect((await runSync(local, c, { force: true })).error).toBeUndefined(); expect((await cloud.scan("sales", { tenantId: T })).rows).toHaveLength(1);
   });
   it("refus : compte non propriétaire, mot de passe faux, plusieurs commerces (choix), poste déjà occupé par un autre commerce, déjà hébergé ailleurs, cloud injoignable", async () => {
     expect(await attachToCloud(new SqliteStore(), client("empl", { empl: "x" }), { email: "e@x.sn", password: "x", stationName: "P" })).toMatchObject({ ok: false, error: expect.stringContaining("propriétaire d'aucun commerce") });
@@ -62,10 +62,10 @@ describe("synchronisation courante et retour au cloud", () => {
   beforeEach(async () => { local = new SqliteStore(); const r = await attachToCloud(local, client("own"), { email: "a@x.sn", password: "bon", stationName: "Caisse", tenantId: T }); expect(r.ok).toBe(true); });
   it("une vente du poste remonte au cloud (miroir) ; coupure réseau : tout reste en attente puis repart ; session absente signalée", async () => {
     await ok(cl(local, "own", "checkout", { clientId: "vente-poste-100", lines: [{ productId: eau, qty: 4 }], payments: [{ method: "cash", amount: 2000 }] }, shop)); expect(hostState(local).pending).toBeGreaterThan(2);
-    const c = client("own"); await c.login("a@x.sn", "bon"); down = true; const r1 = await runSync(local, c); expect(r1.error).toBeTruthy(); expect(hostState(local).pending).toBeGreaterThan(2); expect(hostState(local).lastError).toBeTruthy();
-    down = false; const r2 = await runSync(local, c); expect(r2.error).toBeUndefined(); expect(hostState(local)).toMatchObject({ pending: 0, lastError: undefined }); expect(hostState(local).lastSyncOkAt).toBeTruthy();
+    const c = client("own"); await c.login("a@x.sn", "bon"); down = true; const r1 = await runSync(local, c, { force: true }); expect(r1.error).toBeTruthy(); expect(hostState(local).pending).toBeGreaterThan(2); expect(hostState(local).lastError).toBeTruthy();
+    down = false; const r2 = await runSync(local, c, { force: true }); expect(r2.error).toBeUndefined(); expect(hostState(local)).toMatchObject({ pending: 0, lastError: undefined }); expect(hostState(local).lastSyncOkAt).toBeTruthy();
     expect((await cloud.scan("sales", { tenantId: T })).rows).toHaveLength(1); expect(await stockFor(cloud, eau, 0)).toBe(46);
-    const noSession = await runSync(local, client("own")); expect(noSession.error).toContain("Session cloud absente"); expect((await runSync(new SqliteStore(), c)).skipped).toBe(true);
+    const noSession = await runSync(local, client("own"), { force: true }); expect(noSession.error).toContain("Session cloud absente"); expect((await runSync(new SqliteStore(), c, { force: true })).skipped).toBe(true);
   });
   it("retour au cloud : refusé tant que des envois échouent ; sinon le cloud reprend l'écriture et le poste cesse de journaliser", async () => {
     await ok(cl(local, "own", "checkout", { clientId: "vente-poste-200", lines: [{ productId: eau, qty: 2 }], payments: [{ method: "cash", amount: 1000 }] }, shop)); const c = client("own"); await c.login("a@x.sn", "bon");
@@ -109,5 +109,59 @@ describe("routes /v1/cloud", () => {
       expect((await post(b, "/v1/cloud/release", {}, reg.token)).status).toBe(409);
       expect((await (await post(b, "/v1/cloud/attach", { email: "a@x.sn", password: "x", stationName: "P" })).json()).error).toContain("déjà configuré");
     } finally { await b.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe("fichiers (photos, logos, pièces)", () => {
+  const jpeg = (n = 300, tag = 1) => { const b = new Uint8Array(n); b.set([0xff, 0xd8, 0xff, 0xe0], 0); b[10] = tag; return b; };
+  const ownerRole = `team:${T}/owner`;
+  it("rattachement : la photo d'un article du cloud est copiée sur le poste avec ses droits ; envoi d'un fichier du poste ; suppression ; refus (format, autre commerce, taille)", async () => {
+    await cloud.putFile("photo-eau-001", jpeg(), "eau.jpg", "image/jpeg", [ownerRole, `label:s${shop}`]); await cloud.update("products", eau, { imageFileId: "photo-eau-001" });
+    const local = new SqliteStore(); expect((await attachToCloud(local, client("own"), { email: "a@x.sn", password: "bon", stationName: "Caisse", tenantId: T })).ok).toBe(true);
+    expect(local.fileMeta("photo-eau-001")).toMatchObject({ name: "eau.jpg", mime: "image/jpeg", readRoles: [ownerRole, `label:s${shop}`] }); expect(local.filesPending()).toHaveLength(0); // reçu du cloud : rien à renvoyer
+    const c = client("own"); await c.login("a@x.sn", "bon");
+    await local.putFile("logo-poste-0001", jpeg(500, 2), "logo.jpg", "image/jpeg", [ownerRole, `label:s${shop}`]); expect(local.filesPending()).toHaveLength(1);
+    await local.putFile("mauvais-format-01", new Uint8Array(400).fill(7), "x.bin", "application/octet-stream", [ownerRole]);
+    await local.putFile("autre-commerce-01", jpeg(300, 3), "z.jpg", "image/jpeg", [`team:${T2}/owner`]);
+    await local.putFile("trop-gros-000001", (() => { const b = jpeg(5 * 1024 * 1024 + 10, 4); return b; })(), "big.jpg", "image/jpeg", [ownerRole]);
+    const r = await runSync(local, c, { force: true }); expect(r.error).toBeUndefined(); expect(r.rejected.map((x) => x.id).sort()).toEqual(["autre-commerce-01", "mauvais-format-01", "trop-gros-000001"]);
+    expect(await cloud.fileInfo("logo-poste-0001")).toMatchObject({ mime: "image/jpeg", readRoles: [ownerRole, `label:s${shop}`] }); expect(await cloud.fileInfo("mauvais-format-01")).toBeNull(); expect(await cloud.fileInfo("autre-commerce-01")).toBeNull(); expect(local.filesPending()).toHaveLength(0);
+    expect((await runSync(local, c, { force: true })).rejected).toEqual([]); // rien n'est renvoyé une fois signalé
+    await local.deleteFile("logo-poste-0001"); expect(local.filesDeleted()).toEqual(["logo-poste-0001"]); expect((await runSync(local, c, { force: true })).error).toBeUndefined(); expect(await cloud.fileInfo("logo-poste-0001")).toBeNull(); expect(local.filesDeleted()).toEqual([]);
+    // coupure : le fichier reste en attente puis part
+    await local.putFile("coupure-0000001", jpeg(300, 5), "c.jpg", "image/jpeg", [ownerRole]); down = true; expect((await runSync(local, c, { force: true })).error).toBeTruthy(); expect(local.filesPending()).toHaveLength(1); down = false; expect((await runSync(local, c, { force: true })).error).toBeUndefined(); expect(await cloud.fileInfo("coupure-0000001")).not.toBeNull();
+  });
+  it("le cloud refuse de livrer ou d'effacer le fichier d'un autre commerce, et de modifier un fichier existant", async () => {
+    await cloud.putFile("fichier-autre-01", jpeg(), "a.jpg", "image/jpeg", [`team:${T2}/owner`]);
+    const call2 = (action: string, payload: unknown) => cl(cloud, "own", action, payload, "", T, true);
+    expect((await call2("sync.fileDown", { fileId: "fichier-autre-01" })).status).toBe(404); expect((await call2("sync.fileDelete", { fileId: "fichier-autre-01" })).status).toBe(403);
+    expect((await call2("sync.fileUp", { fileId: "fichier-autre-01", name: "a", data: Buffer.from(jpeg()).toString("base64"), readRoles: [ownerRole] })).status).toBe(403);
+    expect((await cl(cloud, "empl", "sync.fileDown", { fileId: "x" }, "", T, true)).status).toBe(403);
+    await cloud.putFile("fichier-mien-0001", jpeg(), "m.jpg", "image/jpeg", [ownerRole]); const again = await ok(call2("sync.fileUp", { fileId: "fichier-mien-0001", name: "m", data: Buffer.from(jpeg(300, 9)).toString("base64"), readRoles: [ownerRole] })); expect(again.status).toBe("exists"); expect([...(await cloud.readFile("fichier-mien-0001"))!.slice(10, 11)]).toEqual([1]);
+  });
+});
+
+describe("suppressions côté cloud et reprise après échecs", () => {
+  let local: SqliteStore;
+  beforeEach(async () => { local = new SqliteStore(); expect((await attachToCloud(local, client("own"), { email: "a@x.sn", password: "bon", stationName: "Caisse", tenantId: T })).ok).toBe(true); });
+  it("une ligne partagée supprimée au cloud disparaît du poste (version gardée au journal) ; garde-fou si trop de lignes manquent", async () => {
+    const c = client("own"); await c.login("a@x.sn", "bon");
+    const extra: string[] = []; for (let i = 0; i < 6; i++) extra.push((await ok(cl(cloud, "own", "article.save", { data: { name: `A${i}`, price: 100, cost: 50, sku: `S${i}`, barcode: `B${i}` } }, shop))).id);
+    expect((await runSync(local, c, { force: true })).error).toBeUndefined(); expect(await local.get("products", extra[0]!)).toBeTruthy();
+    await cloud.remove("products", extra[0]!); local.syncSet("reconciledAt", null); const r = await runSync(local, c, { force: true }); expect(r.error).toBeUndefined();
+    expect(await local.get("products", extra[0]!)).toBeFalsy(); expect(await local.get("products", eau)).toBeTruthy(); expect(local.conflicts().some((x: any) => x.reason === "deleted_on_cloud" || x.kind === "deleted_on_cloud" || JSON.stringify(x).includes("deleted_on_cloud"))).toBe(true);
+    for (const id of extra.slice(1, 6)) await cloud.remove("products", id); local.syncSet("reconciledAt", null); expect((await runSync(local, c, { force: true })).error).toBeUndefined(); // 5 manquent sur 6 : suspect
+    expect(await local.get("products", extra[1]!)).toBeTruthy(); expect(JSON.stringify(local.conflicts())).toContain("cloud_deletions_suspicious");
+  });
+  it("une ligne en attente d'envoi n'est jamais supprimée par la réconciliation", async () => {
+    const c = client("own"); await c.login("a@x.sn", "bon"); await ok(cl(local, "own", "article.save", { id: eau, data: { price: 777 } }, shop)); await cloud.remove("products", eau); local.syncSet("reconciledAt", null);
+    const { reconcileDeletions } = await import("./sync"); const r = await reconcileDeletions(local, c.api(T)); expect(r.removed).toBe(0); expect(await local.get("products", eau)).toBeTruthy();
+  });
+  it("après des échecs, les essais automatiques attendent (délai croissant) ; « Synchroniser maintenant » passe outre ; un succès remet à zéro", async () => {
+    const { backoffMs } = await import("./hosting"); expect([1, 2, 3, 4, 5, 9].map(backoffMs)).toEqual([60_000, 120_000, 240_000, 480_000, 900_000, 900_000]);
+    const c = client("own"); await c.login("a@x.sn", "bon"); down = true;
+    expect((await runSync(local, c)).error).toBeTruthy(); expect(hostState(local)).toMatchObject({ failures: 1, nextTryAt: expect.any(String) }); expect((await runSync(local, c)).waiting).toBe(true); // encore dans le délai : aucun appel
+    expect((await runSync(local, c, { force: true })).error).toBeTruthy(); expect(hostState(local).failures).toBe(2);
+    down = false; expect((await runSync(local, c)).waiting).toBe(true); expect((await runSync(local, c, { force: true })).error).toBeUndefined(); expect(hostState(local)).toMatchObject({ failures: 0, nextTryAt: undefined, lastError: undefined });
   });
 });

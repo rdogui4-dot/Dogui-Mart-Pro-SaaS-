@@ -89,7 +89,7 @@ export function createLocalServer(opts: LocalServerOptions) {
     if (path.startsWith("/v1/cloud/")) {
       const tid = ownerTeam(); if (!tid) return send(res, 403, { ok: false, error: "Réservé au propriétaire" }); if (!opts.cloud) return send(res, 404, { ok: false, error: "Liaison au cloud non disponible sur ce poste" });
       if (path === "/v1/cloud/status" && method === "GET") return send(res, 200, { ok: true, ...hostState(store) });
-      if (path === "/v1/cloud/sync" && method === "POST") { const r = await runSync(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch)); return send(res, 200, { ok: !r.error, report: r, ...hostState(store) }); }
+      if (path === "/v1/cloud/sync" && method === "POST") { const r = await runSync(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), { force: true }); return send(res, 200, { ok: !r.error, report: r, ...hostState(store) }); }
       if (path === "/v1/cloud/release" && method === "POST") { const r = await releaseToCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch)); return send(res, r.ok ? 200 : 409, r); }
     }
     if (path === "/v1/auth/logout" && method === "POST") { store.closeSession(who.token); return send(res, 200, { ok: true }); }

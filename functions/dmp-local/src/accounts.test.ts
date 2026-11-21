@@ -19,6 +19,11 @@ let cloud: Cloud; let local: SqliteStore; let shop = ""; let ownerId = "own"; le
 const call = (st: MemoryStore | SqliteStore, user: string, action: string, payload: unknown, shopId = "", tenant = T) => handle(st, user, { action, tenantId: tenant, shopId, payload }, { admins: [] });
 const ok = async (r: ReturnType<typeof call>) => { const x = await r; if (x.status !== 200) throw new Error(JSON.stringify(x.body)); return (x.body as { data: any }).data; };
 const cloudApi = (user = "own", tenant = T): CloudApi => ({
+  ids: async (table) => { const r = await call(cloud, user, "sync.ids", { table }, "", tenant); if (r.status !== 200) throw new Error((r.body as { error: string }).error); return (r.body as { data: any }).data; },
+  fileUp: async (f) => { const r = await call(cloud, user, "sync.fileUp", f, "", tenant); if (r.status !== 200) throw Object.assign(new Error((r.body as { error: string }).error), { status: r.status }); return (r.body as { data: any }).data; },
+  fileDown: async (fileId) => { const r = await call(cloud, user, "sync.fileDown", { fileId }, "", tenant); if (r.status === 404) return null; if (r.status !== 200) throw Object.assign(new Error((r.body as { error: string }).error), { status: r.status }); return (r.body as { data: any }).data; },
+  fileDelete: async (fileId) => { const r = await call(cloud, user, "sync.fileDelete", { fileId }, "", tenant); if (r.status !== 200) throw Object.assign(new Error((r.body as { error: string }).error), { status: r.status }); },
+  userPush: async (users) => { const r = await call(cloud, user, "sync.userPush", { users }, "", tenant); if (r.status !== 200) throw new Error((r.body as { error: string }).error); return (r.body as { data: { results: any[] } }).data.results; },
   users: async () => { const r = await call(cloud, user, "sync.users", {}, "", tenant); if (r.status !== 200) throw new Error((r.body as { error: string }).error); return (r.body as { data: { users: any[] } }).data.users; },
   push: async () => [], pull: async (table, since, limit) => { const r = await call(cloud, user, "sync.pull", { table, since, limit }, "", tenant); if (r.status !== 200) throw new Error((r.body as { error: string }).error); return (r.body as { data: any }).data; },
 });
@@ -87,5 +92,27 @@ describe("serveur local : connexion avec empreinte copiée, connexion en ligne m
   it("compte désactivé : refusé même si le cloud répond « ok » ; identifiant inconnu du poste : refusé", async () => {
     await syncUsers(local, cloudApi(), T); await cloud.setUserActive(awa.userId, false); await syncUsers(local, cloudApi(), T); online = "ok";
     expect((await login("awa@staff.invalid", "motdepasse1")).status).toBe(401); expect((await login("autre@personne.sn", "x")).status).toBe(401); expect(onlineCalls).toBe(0); await srv.close();
+  });
+});
+
+describe("comptes créés sur le poste → cloud (sync.userPush)", () => {
+  it("un employé créé sur le poste est créé au cloud avec son empreinte (sans mot de passe en clair), puis seul un changement le renvoie ; rôles et étiquettes contrôlés", async () => {
+    const { pushUsers } = await import("./sync");
+    const local = new SqliteStore(); local.createTeam(T, "Boutique"); await local.addMember(T, "own", ["owner"], "Awa"); local.syncOn = true;
+    const r1 = await ok(call(cloud, "own", "shop.create", { name: "Dakar" })); const shop = r1.shopId; local.applyRemote("shops", shop, T, { tenantId: T, name: "Dakar", vatRatePct: 18 }, new Date().toISOString(), new Date().toISOString());
+    const c = await ok(call(local, "own", "staff.create", { name: "Moussa", username: "moussa", password: "motdepasse1", role: "cashier", shopIds: [shop] }, shop)); const uid = c.userId;
+    const rep = await pushUsers(local, cloudApi(), T); expect(rep).toMatchObject({ sent: 1, refused: [] });
+    const cu = (cloud as any).users.get(uid); expect(cu.email).toContain("moussa"); expect(cu.password.startsWith("scrypt$")).toBe(true); expect(cu.password).not.toContain("motdepasse1");
+    expect((await cloud.membership(T, uid))?.roles).toEqual(["cashier"]);
+    expect((await pushUsers(local, cloudApi(), T)).sent).toBe(0); // rien de changé : rien renvoyé
+    await ok(call(local, "own", "staff.update", { userId: uid, active: false }, shop)); expect((await pushUsers(local, cloudApi(), T)).sent).toBe(1); // changement : renvoi (mise à jour)
+    // refus côté cloud : propriétaire, étiquette d'une autre boutique, compte invalide, non-propriétaire
+    const api = cloudApi();
+    expect(await api.userPush([{ userId: "evil0000000000001", email: "e@x.sn", name: "E", active: true, roles: ["owner"], labels: [], hash: "scrypt$a$b" }])).toMatchObject([{ status: "refused" }]);
+    expect(await api.userPush([{ userId: "evil0000000000002", email: "f@x.sn", name: "F", active: true, roles: ["cashier"], labels: ["sAutreBoutique"], hash: "scrypt$a$b" }])).toMatchObject([{ status: "refused", error: expect.stringContaining("hors des boutiques") }]);
+    expect(await api.userPush([{ userId: "x", email: "pas-un-mail", name: "G", active: true, roles: ["cashier"], labels: [], hash: "scrypt$a$b" }])).toMatchObject([{ status: "refused" }]);
+    await expect(cloudApi("empl").userPush([])).rejects.toThrow();
+    // même e-mail qu'un compte existant d'un autre identifiant : refusé (409), rien n'est écrasé
+    expect(await api.userPush([{ userId: "dup00000000000001", email: cu.email, name: "H", active: true, roles: ["cashier"], labels: [], hash: "scrypt$a$b" }])).toMatchObject([{ status: "refused", error: "Identifiant déjà utilisé" }]);
   });
 });

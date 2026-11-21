@@ -55,6 +55,11 @@ export function createCloudClient(cfg: CloudConfig, opts: { fetch?: Fetch; sessi
     push: async (rows: PushRow[]) => (await execute<{ results: PushResult[] }>("sync.push", tenantId, { rows })).results,
     pull: (table, since, limit) => execute("sync.pull", tenantId, { table, since, limit }),
     users: async () => (await execute<{ users: DirectoryUser[] }>("sync.users", tenantId, {})).users,
+    ids: (table: string) => execute<{ ids: string[]; truncated: boolean }>("sync.ids", tenantId, { table }),
+    fileUp: (f: { fileId: string; name: string; data: string; readRoles: string[] }) => execute<{ status: "stored" | "exists" }>("sync.fileUp", tenantId, f),
+    fileDown: async (fileId: string) => { try { return await execute<{ name: string; mime: string; data: string; readRoles: string[] }>("sync.fileDown", tenantId, { fileId }); } catch (e) { if (e instanceof CloudError && e.status === 404) return null; throw e; } },
+    fileDelete: async (fileId: string) => { await execute("sync.fileDelete", tenantId, { fileId }); },
+    userPush: async (users: unknown[]) => (await execute<{ results: { userId: string; status: "created" | "updated" | "refused"; error?: string }[] }>("sync.userPush", tenantId, { users })).results,
   });
   return { login, logout, verifyOnline, myTeams, ownerOf, execute, api, hasSession: () => !!session, session: () => session };
 }

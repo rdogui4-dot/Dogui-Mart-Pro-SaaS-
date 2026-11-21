@@ -23,10 +23,14 @@ export interface Store {
   /** Fichiers (photos d'articles) : créés par la fonction uniquement, avec les mêmes droits de lecture que la ligne qui les porte. */
   putFile(fileId: string, data: Uint8Array, name: string, mime: string, readRoles: string[]): Promise<void>;
   deleteFile(fileId: string): Promise<void>;
+  /** Nom, type et droits de lecture d'un fichier (synchronisation d'un poste local). Absent : null. */
+  fileInfo(fileId: string): Promise<{ name: string; mime: string; readRoles: string[] } | null>;
   /** Relit un fichier (contrôle d'intégrité des pièces : l'empreinte recalculée est comparée à celle enregistrée). Absent : null. */
   readFile(fileId: string): Promise<Uint8Array | null>;
   // Annuaire des comptes (Appwrite Users + Teams). Réservé aux actions « équipe » du propriétaire.
   createUser(a: { userId: string; email: string; password: string; name: string }): Promise<void>; // 409 si l'identifiant existe déjà
+  /** Crée un compte à partir d'une empreinte scrypt locale (`scrypt$sel$hex`, N=16384 r=8 p=1, 32 octets) : le mot de passe n'est jamais connu du cloud. 409 si l'identifiant ou l'e-mail existe. */
+  importUser(a: { userId: string; email: string; name: string; passwordHash: string }): Promise<void>;
   deleteUser(userId: string): Promise<void>;
   /** Propriétaires d'un commerce (nom et e-mail du compte), pour les relances de la plateforme. */
   listOwners(tenantId: string): Promise<{ userId: string; name: string; email: string }[]>;

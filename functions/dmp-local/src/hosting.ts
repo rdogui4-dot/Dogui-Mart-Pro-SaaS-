@@ -1,13 +1,13 @@
 import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import { CloudError, createCloudClient, type CloudClient, type CloudConfig, type CloudSession } from "./cloud";
-import { initialDownload, pushPending, syncOnce, syncUsers, type SyncReport } from "./sync";
+import { initialDownload, pullFiles, pushPending, syncOnce, syncUsers, type SyncReport } from "./sync";
 
 /** Rattachement d'un poste local au cloud : le poste télécharge le commerce (mêmes identifiants), en devient l'hébergeur, puis synchronise. */
-export type HostState = { hosted: boolean; tenantId?: string; stationName?: string; cloudEmail?: string; attachedAt?: string; lastSyncAt?: string; lastSyncOkAt?: string; lastError?: string; pending: number; conflicts: number; sessionOk: boolean };
+export type HostState = { hosted: boolean; tenantId?: string; stationName?: string; cloudEmail?: string; attachedAt?: string; lastSyncAt?: string; lastSyncOkAt?: string; lastError?: string; pending: number; conflicts: number; sessionOk: boolean; /** échecs de synchronisation consécutifs */ failures: number; /** prochain essai automatique (après des échecs) */ nextTryAt?: string };
 
 export const hostState = (store: SqliteStore): HostState => ({
   hosted: store.syncGet("hosted") === "1", tenantId: store.syncGet("tenantId") ?? undefined, stationName: store.syncGet("stationName") ?? undefined, cloudEmail: store.syncGet("cloudEmail") ?? undefined, attachedAt: store.syncGet("attachedAt") ?? undefined,
-  lastSyncAt: store.syncGet("lastSyncAt") ?? undefined, lastSyncOkAt: store.syncGet("lastSyncOkAt") ?? undefined, lastError: store.syncGet("lastError") ?? undefined, pending: store.outboxCount(), conflicts: store.conflicts().length, sessionOk: !!store.syncGet("cloud.session"),
+  lastSyncAt: store.syncGet("lastSyncAt") ?? undefined, lastSyncOkAt: store.syncGet("lastSyncOkAt") ?? undefined, lastError: store.syncGet("lastError") ?? undefined, pending: store.outboxCount(), conflicts: store.conflicts().length, sessionOk: !!store.syncGet("cloud.session"), failures: Number(store.syncGet("failures") ?? 0), nextTryAt: store.syncGet("nextTryAt") ?? undefined,
 });
 /** Client du cloud dont la session (cookie du propriétaire) est conservée dans la base du poste. */
 export function cloudFor(store: SqliteStore, cfg: CloudConfig, f?: typeof fetch): CloudClient {
@@ -30,6 +30,7 @@ export async function attachToCloud(store: SqliteStore, cloud: CloudClient, p: {
     store.createTeam(team.id, team.name); const api = cloud.api(team.id);
     const rep = await initialDownload(store, api, team.id, onProgress); if (rep.error) return { ok: false, error: `Téléchargement interrompu (${rep.error}) : relancez le rattachement` };
     const u = await syncUsers(store, api, team.id); if (u.error) return { ok: false, error: `Comptes non copiés (${u.error}) : relancez le rattachement` };
+    const g = await pullFiles(store, api); if (g.error) return { ok: false, error: `Fichiers non copiés (${g.error}) : relancez le rattachement` };
     store.syncSet("tenantId", team.id); store.syncSet("stationName", station); store.syncSet("cloudEmail", p.email.trim()); store.syncSet("attachedAt", new Date().toISOString()); store.syncSet("hosted", "1"); store.syncOn = true; store.syncSet("syncOn", "1");
     return { ok: true, tenantId: team.id, report: rep };
   } catch (e) { return { ok: false, error: e instanceof CloudError ? e.message : (e as Error).message || "Rattachement impossible" }; }
@@ -37,11 +38,23 @@ export async function attachToCloud(store: SqliteStore, cloud: CloudClient, p: {
 /** Relance la synchronisation après un redémarrage du serveur local. */
 export const resumeSync = (store: SqliteStore) => { if (store.syncGet("syncOn") === "1") store.syncOn = true; };
 
-/** Un tour de synchronisation avec noms d'erreurs lisibles et état conservé. */
-export async function runSync(store: SqliteStore, cloud: CloudClient): Promise<SyncReport & { skipped?: boolean }> {
-  const tenantId = store.syncGet("tenantId"); if (!tenantId || store.syncGet("hosted") !== "1") return { pushed: 0, overwrittenOnCloud: 0, rejected: [], pulled: 0, conflicts: 0, skipped: true };
-  if (!cloud.hasSession()) { store.syncSet("lastError", "Session cloud absente : reconnectez ce poste au cloud"); return { pushed: 0, overwrittenOnCloud: 0, rejected: [], pulled: 0, conflicts: 0, error: "Session cloud absente : reconnectez ce poste au cloud" }; }
-  const rep = await syncOnce(store, cloud.api(tenantId), tenantId); store.syncSet("lastError", rep.error ?? null); return rep;
+/** Délai avant le prochain essai automatique après N échecs consécutifs : 1, 2, 4, 8 puis 15 minutes au plus. */
+export const backoffMs = (failures: number): number => Math.min(15 * 60_000, 60_000 * 2 ** Math.max(0, failures - 1));
+const running = new WeakSet<SqliteStore>();
+/** Un tour de synchronisation avec erreurs lisibles et état conservé. Un seul tour à la fois par poste ; après des échecs, les essais AUTOMATIQUES attendent (délai croissant) ; `force` (bouton « Synchroniser maintenant ») passe outre. */
+export async function runSync(store: SqliteStore, cloud: CloudClient, opts: { force?: boolean } = {}): Promise<SyncReport & { skipped?: boolean; waiting?: boolean }> {
+  const none = (): SyncReport => ({ pushed: 0, overwrittenOnCloud: 0, rejected: [], pulled: 0, conflicts: 0 });
+  const tenantId = store.syncGet("tenantId"); if (!tenantId || store.syncGet("hosted") !== "1") return { ...none(), skipped: true };
+  if (running.has(store)) return { ...none(), skipped: true };
+  const next = Date.parse(store.syncGet("nextTryAt") ?? ""); if (!opts.force && next > Date.now()) return { ...none(), skipped: true, waiting: true };
+  running.add(store);
+  try {
+    const fail = (msg: string) => { const n = Number(store.syncGet("failures") ?? 0) + 1; store.syncSet("failures", String(n)); store.syncSet("nextTryAt", new Date(Date.now() + backoffMs(n)).toISOString()); store.syncSet("lastError", msg); store.syncSet("lastSyncAt", new Date().toISOString()); return { ...none(), error: msg }; };
+    if (!cloud.hasSession()) return fail("Session cloud absente : reconnectez ce poste au cloud");
+    let rep: SyncReport; try { rep = await syncOnce(store, cloud.api(tenantId), tenantId); } catch (e) { return fail((e as Error).message || "Synchronisation impossible"); }
+    if (rep.error) { const f = fail(rep.error); return { ...rep, ...{ error: f.error } }; }
+    store.syncSet("failures", null); store.syncSet("nextTryAt", null); store.syncSet("lastError", null); return rep;
+  } finally { running.delete(store); }
 }
 /** Rend l'hébergement au cloud : dernière synchronisation complète (refus s'il reste des envois), puis le cloud reprend l'écriture. */
 export async function releaseToCloud(store: SqliteStore, cloud: CloudClient): Promise<{ ok: true } | { ok: false; error: string }> {
