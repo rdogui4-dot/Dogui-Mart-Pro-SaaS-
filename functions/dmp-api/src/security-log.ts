@@ -58,7 +58,7 @@ const anchorOf = (head: Row | null) => (head && Number(head.anchorSeq) > 0 ? { s
 export async function readJournal(store: Store, tenantId: string) {
   const [{ rows, truncated }, head] = await Promise.all([store.scan("security_events", { tenantId }, { maxRows: 5000 }), store.get("security_heads", headId(tenantId))]);
   const mine = rows.filter((r) => r.tenantId === tenantId); // la lecture est déjà filtrée par commerce ; contrôle redondant volontaire
-  const chain = verifyChain(mine.map(toRow), head ? { seq: Number(head.seq), hash: String(head.hash) } : null, anchorOf(head));
+  const chain = verifyChain(mine.map(toRow), head ? { seq: Number(head.seq), hash: String(head.hash) } : null, anchorOf(head), { partial: truncated });
   return { rows: mine, head, chain, truncated, total: head ? Number(head.seq) : 0 };
 }
 

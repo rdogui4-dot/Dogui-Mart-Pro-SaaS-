@@ -97,6 +97,11 @@ describe("chaîne d'empreintes", () => {
     await st.remove("security_events", String(rows[1]!.$id)); expect((await ok(call("own", "security.events", {}, "", T))).chain.problems.join(" ")).toMatch(/absents/);
     await st.remove("security_events", String(rows[rows.length - 1]!.$id)); expect((await ok(call("own", "security.events", {}, "", T))).chain.ok).toBe(false);
   });
+  it("suppression du PREMIER événement détectée (défaut trouvé à l'essai navigateur : seule la fin et le milieu l'étaient)", async () => {
+    for (let i = 0; i < 3; i++) await recordSecurityEvent(st, { tenantId: T, kind: "staff.update", outcome: "accepted", actorId: "own", source: "poste" });
+    const rows = (await st.list("security_events", { tenantId: T }, 50)).sort((a, b) => Number(a.seq) - Number(b.seq)); await st.remove("security_events", String(rows[0]!.$id));
+    const r = await ok(call("own", "security.events", {}, "", T)); expect(r.chain.ok).toBe(false); expect(r.chain.problems.join(" ")).toMatch(/au début/);
+  });
   it("tous les événements supprimés : détecté grâce au pointeur de chaîne", async () => {
     await recordSecurityEvent(st, { tenantId: T, kind: "staff.update", outcome: "accepted", actorId: "own", source: "poste" });
     for (const r of await st.list("security_events", { tenantId: T }, 50)) await st.remove("security_events", String(r.$id));
@@ -122,7 +127,7 @@ describe("chaîne d'empreintes", () => {
     const a = mk(1, GENESIS), b = mk(2, a.hash), c = mk(3, b.hash);
     expect(verifyChain([a, b, c]).ok).toBe(true); expect(verifyChain([c, a, b]).ok).toBe(true);
     expect(verifyChain([a, c]).ok).toBe(false); expect(verifyChain([{ ...b, actorId: "x" }, a]).ok).toBe(false); expect(verifyChain([{ ...a, prevHash: "1".repeat(64) }]).ok).toBe(false);
-    expect(verifyChain([b, c]).ok).toBe(true); expect(verifyChain([b, c]).fromStart).toBe(false);
+    expect(verifyChain([b, c], null, null, { partial: true }).ok).toBe(true); expect(verifyChain([b, c], null, null, { partial: true }).fromStart).toBe(false); expect(verifyChain([b, c]).ok).toBe(false);
   });
 });
 

@@ -2,7 +2,7 @@
 import { BookOpen, Boxes, Settings, ShoppingCart, Receipt, TrendingUp, type LucideIcon } from "lucide-react";
 import { can, type Perm } from "@/lib/session";
 import { planAllows } from "@/domain/features";
-import { BarChart3, Boxes as BoxesI, Brain, Building2, Calculator, ClipboardCheck, CreditCard, LayoutDashboard, Megaphone, Package, Settings as SettingsI, ShoppingCart as CartI, Truck, UserCog, Users, Wallet, Landmark } from "lucide-react";
+import { BarChart3, Boxes as BoxesI, Brain, Building2, Calculator, ClipboardCheck, CreditCard, LayoutDashboard, Megaphone, Package, Settings as SettingsI, ShoppingCart as CartI, Truck, UserCog, Users, Wallet, Landmark, ShieldCheck } from "lucide-react";
 
 export type NavItem = { to: string; label: string; hint: string; perm: Perm; /** autres adresses du même module (onglets) */ also?: string[]; /** s'ouvre en fenêtre sur place (pas de changement de page) */ modal?: boolean };
 export type Space = { id: string; label: string; icon: LucideIcon; hint: string; items: NavItem[] };
@@ -36,6 +36,7 @@ export const SPACES: Space[] = [
   ] },
   { id: "admin", label: "Administration", icon: Settings, hint: "Commerce, équipe, abonnement", items: [
     { to: "/reglages", label: "Réglages", hint: "Commerce, boutiques, équipe, abonnement", perm: "settings" },
+    { to: "/securite", label: "Security Guardian", hint: "Contrôles mesurés, journal de sécurité", perm: "settings" },
   ] },
 ];
 
@@ -68,6 +69,7 @@ export const KIT_MODULES: KitModule[] = [
   { id: "master", to: "/master", label: "MASTER DOGUI", hint: "Vue d'ensemble, assistant, recommandations, rapports, licence", perm: "settings", icon: Brain },
   { id: "promo", to: "/promotions", label: "Promotions & Offres", hint: "Remises, coupons, résultats", perm: "stock", icon: Megaphone },
   { id: "team", to: "/reglages", onglet: "equipe", label: "Équipe & Permissions", hint: "Membres, rôles, accès, journal", perm: "settings", icon: UserCog },
+  { id: "security", to: "/securite", label: "Security Guardian", hint: "Contrôles mesurés, journal de sécurité", perm: "settings", icon: ShieldCheck },
   { id: "settings", to: "/reglages", label: "Paramètres", hint: "Commerce, boutiques, règles, paiements", perm: "settings", icon: SettingsI },
   { id: "billing", to: "/reglages", onglet: "abonnement", label: "Abonnement & Facturation", hint: "Formule, paiements, échéances", perm: "settings", icon: CreditCard },
 ];

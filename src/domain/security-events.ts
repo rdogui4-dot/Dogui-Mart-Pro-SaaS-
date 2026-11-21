@@ -60,13 +60,15 @@ export const cleanTarget = (prefix: string, v: unknown): string => { const s = S
 export type ChainRow = EventFields & { prevHash: string; hash: string };
 export type ChainReport = { ok: boolean; checked: number; firstSeq: number | null; lastSeq: number | null; problems: string[]; /** vrai si la lecture part du début (événement n° 1) */ fromStart: boolean };
 /** Vérifie une suite d'événements d'un même commerce : numéros consécutifs, empreinte recalculée, liaison avec le précédent. Une suite qui ne commence pas à 1 n'est vérifiée qu'à partir de son premier élément. */
-export function verifyChain(rows: ChainRow[], head?: { seq: number; hash: string } | null, anchor?: { seq: number; hash: string } | null): ChainReport {
+export function verifyChain(rows: ChainRow[], head?: { seq: number; hash: string } | null, anchor?: { seq: number; hash: string } | null, opts: { /** lecture tronquée : ni début ni fin ne sont garantis, seul l'intérieur de la fenêtre est vérifié */ partial?: boolean } = {}): ChainReport {
+  if (opts.partial) { head = null; }
   const sorted = [...rows].sort((a, b) => a.seq - b.seq); const problems: string[] = [];
   for (let i = 0; i < sorted.length; i++) {
     const r = sorted[i]!; if (r.hash !== eventHash(r.prevHash, r)) problems.push(`n°${r.seq} : empreinte invalide (ligne modifiée)`);
     if (i === 0) {
       if (anchor && anchor.seq > 0) { if (r.seq !== anchor.seq + 1) problems.push(`rupture : n°${anchor.seq + 1} à ${r.seq - 1} absents après la purge (supprimés ?)`); else if (r.prevHash !== anchor.hash) problems.push(`n°${r.seq} : ne suit pas le dernier événement purgé`); }
-      else if (r.seq === 1 && r.prevHash !== GENESIS) problems.push("n°1 : origine invalide");
+      else if (r.seq === 1) { if (r.prevHash !== GENESIS) problems.push("n°1 : origine invalide"); }
+      else if (!opts.partial) problems.push(`rupture : n°1 à ${r.seq - 1} absents au début du journal (supprimés ?)`);
     }
     else { const p = sorted[i - 1]!; if (r.seq !== p.seq + 1) problems.push(`rupture : n°${p.seq + 1} à ${r.seq - 1} absents (supprimés ?)`); else if (r.prevHash !== p.hash) problems.push(`n°${r.seq} : ne suit pas n°${p.seq}`); }
   }
