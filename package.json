@@ -46,7 +46,7 @@
     "esbuild": "^0.28.2",
     "fake-indexeddb": "^6.2.7",
     "node-appwrite": "^31.1.0",
-    "selfsigned": "^2.4.1",
+    "selfsigned": "^5.5.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.6",
     "vite-node": "^6.0.0",
