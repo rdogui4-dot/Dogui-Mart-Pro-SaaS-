@@ -123,7 +123,7 @@ export function createLocalServer(opts: LocalServerOptions) {
     if (!existsSync(file)) { res.writeHead(404); return void res.end("Introuvable"); }
     const type = MIME[extname(file).toLowerCase()] ?? "application/octet-stream"; let data: Buffer | string = readFileSync(file);
     if (file.endsWith("index.html") && file === join(root, "index.html")) data = data.toString("utf8").replace("<head>", '<head><meta name="dmp-local" content="1" />'); // l'application sait qu'elle parle au serveur local
-    const immutable = /\/assets\/.+-[A-Za-z0-9_-]{8}\./.test(rel);
+    const immutable = /[\\/]assets[\\/].+-[A-Za-z0-9_-]{8}\./.test(rel); // « / » ou « \ » : sous Windows le chemin normalisé utilise des antislashs
     res.writeHead(200, { "content-type": type, "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache", "x-content-type-options": "nosniff" }); res.end(data);
   }
 
