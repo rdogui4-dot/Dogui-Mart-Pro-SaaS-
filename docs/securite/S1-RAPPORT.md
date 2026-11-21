@@ -17,8 +17,8 @@ Limite de la CSP : `frame-ancestors` et les en-têtes HTTP ne se posent pas par 
 ## Réglages GitHub / Appwrite : état au 2026-11-21
 | Réglage | État |
 |---|---|
-| Secret scanning + push protection | à activer (GitHub → Settings → Advanced Security) |
-| Protection de branche | **refusée par le propriétaire (risque accepté)** : un push publie sans revue ; compensé par les workflows et le test avant publication |
+| Secret scanning + push protection | activés (déclaré par le propriétaire) |
+| Protection de branche | rulesets créés par le propriétaire (étiquettes : suppression et force-push interdits ; branche par défaut : suppression et force-push interdits). Pas de revue obligatoire : un push publie sans revue (risque accepté, compensé par les tests avant publication). Vérifié par captures d'écran |
 | 2FA du compte GitHub | activée (déclaré par le propriétaire) |
 | Signalement privé de vulnérabilités | activé (déclaré par le propriétaire) |
 | Projet et organisation Appwrite renommés | projet « Dogui Mart Pro » vérifié par lecture (D11 clos) |
