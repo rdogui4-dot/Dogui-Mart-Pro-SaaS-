@@ -500,3 +500,18 @@ Variations réelles : CA du jour vs **hier à la même heure** (jamais la journ�
 **Tests** : `backup.test.ts` (11 : logique, alerte, format chiffré et falsification, gestionnaire, copie externe, export puis restauration sur poste neuf, refus), `backup-routes.test.ts` (4 : routes, droits, restauration, poste rattaché, poste vierge) ; e2e `kit28` (7 scénarios sur un vrai serveur et navigateur : sauvegarde, copie externe, export chiffré et contenu illisible, restauration depuis la liste, bandeau, caissier sans accès, nouveau PC).
 
 **Limites** : une phrase secrète perdue rend le fichier irrécupérable (annoncé dans l'écran) ; après la restauration d'un poste qui était rattaché au cloud, il faut refaire « Rattacher ce poste » avec le même nom de poste ; la restauration d'un fichier sur un poste déjà rattaché est volontairement refusée.
+
+## 49. Essai de bout en bout sur le VRAI Appwrite (commerce jetable)
+
+**Méthode** : propriétaire jetable créé dans Appwrite, commerce créé comme l'application (équipe + `tenant.init`), article avec photo et session de caisse au cloud ; puis le VRAI serveur local (SQLite) rattaché au VRAI cloud par `/v1/cloud/attach`. Trois passages ; tout a été nettoyé à la fin (3 commerces, 11 tables, 5 photos, 3 comptes).
+
+**Résultat du 3ᵉ passage : 27 vérifications sur 27**
+- Rattachement (requêtes `$updatedAt`, tri, pagination, annuaire) en 45 s ; article et **photo du cloud** copiés sur le poste.
+- **Empreinte Argon2 du propriétaire** lue avec la clé de la fonction (`users.get`) et validant le vrai mot de passe : connexion locale possible sans appel au cloud.
+- Vente, **employé** et nouvelle photo créés sur le poste ; synchronisation sans erreur (14 envoyés, 0 en attente) ; la vente est au cloud ; la photo est relue depuis le vrai stockage.
+- **Employé créé sur le poste : se connecte au VRAI cloud** avec son mot de passe (empreinte scrypt importée, N=16384, r=8, p=1, 32 octets) ; un mauvais mot de passe est refusé.
+- Garde cloud : écriture d'exploitation refusée (409, message clair avec le nom du poste) ; `host.status` correct ; **retour au cloud** accepté, le cloud reprend l'écriture, `host.status` vide.
+
+**Défaut trouvé et corrigé (invisible dans les tests en mémoire)** : `platform_settings` et `market_cache` — tables de la PLATEFORME sans colonne `tenantId` (liens de paiement, formules, **crochet MASTER**, cache de marchés) — étaient classées « cloud » et donc demandées par le poste : erreur interne sur le vrai Appwrite (le rattachement échouait) et, surtout, exposition potentielle de configuration de plateforme à un poste de commerce. Elles sont désormais **exclues de la synchronisation dans les deux sens** (`PLATFORM_ONLY`) ; un test vérifie que toute table synchronisée a une colonne `tenantId`.
+**À déployer** : la fonction `dmp-api` du cloud applique la même liste (le cloud refuse alors ces tables à `sync.pull`/`sync.push`). Le poste Windows v1.0.1 déjà publié les demande encore → le rattachement d'un NOUVEAU poste v1.0.1 échoue au cloud actuel ; correctif dans la prochaine version (v1.0.2).
+**Observation sans gravité** : `cash.open` rejoué avec le même `requestId` par le même utilisateur dans deux commerces différents renvoie « doublon » sans créer la session du 2ᵉ commerce (identifiant dérivé de l'utilisateur et du `requestId`). Les identifiants de requête sont aléatoires dans l'application : sans effet réel.
