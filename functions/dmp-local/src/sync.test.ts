@@ -10,9 +10,11 @@ import { initialDownload, pullTable, pushPending, syncOnce, type CloudApi } from
 const T = "tenantsync0001", T2 = "tenantsync0002";
 const saved = { ...MemoryStore.defaults }; beforeAll(() => { MemoryStore.defaults = {}; }); afterAll(() => { MemoryStore.defaults = saved; });
 /** Le cloud simulé : le stockage de référence avec les dates de modification d'Appwrite. */
+/** Horloge simulée strictement croissante (deux mises à jour dans la même milliseconde n'auraient sinon qu'une date : Appwrite ne le fait pas). */
+let lastStamp = 0; const nextStamp = (): string => { lastStamp = Math.max(Date.now() + 1, lastStamp + 1); return new Date(lastStamp).toISOString(); };
 class Cloud extends MemoryStore {
   override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { const now = new Date().toISOString(); return super.create(t, id, tenant, { $createdAt: now, $updatedAt: now, ...d }); }
-  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: new Date(Date.now() + 1).toISOString() }); }
+  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: nextStamp() }); }
 }
 const pro = (st: { create: MemoryStore["create"]; update: MemoryStore["update"] }, tenant: string) => { const d = { tenantId: tenant, plan: "pro", period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }; return st.create("subscriptions", tenant, tenant, d).then((ok) => (ok ? undefined : st.update("subscriptions", tenant, d))); };
 

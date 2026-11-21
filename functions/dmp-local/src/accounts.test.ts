@@ -11,9 +11,11 @@ const T = "tenantacct0001", T2 = "tenantacct0002";
 const saved = { ...MemoryStore.defaults }; beforeAll(() => { MemoryStore.defaults = {}; }); afterAll(() => { MemoryStore.defaults = saved; });
 /** Empreinte au format d'Appwrite (Argon2id, mêmes paramètres : 7 Mio, 5 passes, 1 fil, 64 octets). */
 const appwriteHash = (pw: string) => argon2id({ password: pw, salt: randomBytes(16), parallelism: 1, iterations: 5, memorySize: 7168, hashLength: 64, outputType: "encoded" });
+/** Horloge simulée strictement croissante (deux mises à jour dans la même milliseconde n'auraient sinon qu'une date : Appwrite ne le fait pas). */
+let lastStamp = 0; const nextStamp = (): string => { lastStamp = Math.max(Date.now() + 1, lastStamp + 1); return new Date(lastStamp).toISOString(); };
 class Cloud extends MemoryStore {
   override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { const now = new Date().toISOString(); return super.create(t, id, tenant, { $createdAt: now, $updatedAt: now, ...d }); }
-  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: new Date(Date.now() + 1).toISOString() }); }
+  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: nextStamp() }); }
 }
 let cloud: Cloud; let local: SqliteStore; let shop = ""; let ownerId = "own"; let awa = { userId: "", email: "" };
 const call = (st: MemoryStore | SqliteStore, user: string, action: string, payload: unknown, shopId = "", tenant = T) => handle(st, user, { action, tenantId: tenant, shopId, payload }, { admins: [] });

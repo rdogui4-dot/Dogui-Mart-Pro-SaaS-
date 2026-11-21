@@ -463,3 +463,22 @@ Variations réelles : CA du jour vs **hier à la même heure** (jamais la journ�
 **Tests** : `sync-alert.test.ts` (5), `hosting.test.ts` (17, dont envoi en double, coupure en pleine remontée, horloge décalée de 3 jours, restauration, routes) ; e2e `kit26` (10 scénarios : rattachement, vente puis synchronisation, coupure, session perdue et bandeau, reconnexion, constats, seuil, caissier sans accès, restauration, 390 px, retour au cloud) contre un faux Appwrite qui utilise le vrai moteur métier.
 
 **Limites** : essai de bout en bout sur le VRAI Appwrite avec un commerce jetable (à faire après publication) ; essais sur de vrais appareils (certificat des téléphones, pare-feu Windows) = lot 5.
+
+## 47. Lot 5 — application Windows (Electron) et installateur
+
+**Vérification préalable (testée)** : Electron 45.4.1 embarque Node 24.22.3 et SQLite 3.54.1 ; `node:sqlite`, HTTPS, scrypt et la copie de sécurité fonctionnent dans ce Node ; le serveur local réel y démarre. L'application embarque sa propre version : elle ne dépend pas du Node du PC du client. Décision : on garde `node:sqlite`.
+
+**Fait (testé)**
+- **Poste principal** : le processus principal démarre le serveur local (HTTPS, certificat généré une fois, annonce `dogui.local`, liaison cloud, synchronisation automatique toutes les 5 minutes, sauvegarde quotidienne), ouvre la fenêtre, reste actif dans la zone de notification quand la fenêtre est fermée (les autres appareils continuent de fonctionner), instance unique, démarrage avec Windows réglable, journal technique tourné à 1 Mo (aucune donnée d'entreprise).
+- **Poste secondaire** : choix du mode au premier lancement ; saisie de l'adresse du poste principal (réseau local uniquement : adresses privées, noms « .local » ou sans point ; HTTP, Internet, chemins, identifiants refusés) ; l'empreinte du certificat PRÉSENTÉ est affichée pour comparaison avec celle du poste principal ; case de confirmation obligatoire ; empreinte épinglée ; empreinte fausse = connexion refusée et écran « Poste principal injoignable » (pas d'exception de sécurité).
+- **Sécurité de la fenêtre** : isolation du contexte, pas de Node dans la page, bac à sable, navigation limitée à l'origine du poste, liens externes en https/mailto/tel seulement dans le navigateur du système, permissions limitées à la caméra (scan) et à la copie. Le pont du poste (`window.dogui`) n'existe que sur les écrans internes (fichiers locaux) et chaque appel est vérifié côté processus principal.
+- **Sauvegardes** : une copie par jour (`sauvegardes/auto-AAAA-MM-JJ.sqlite`), 7 gardées ; les copies « avant-restauration » ne sont jamais supprimées.
+- **Mises à jour** : GitHub Releases ; recherche 1 minute après le démarrage puis toutes les 6 h ; téléchargement en arrière-plan ; installation **seulement** si l'utilisateur choisit « Installer maintenant » (message : choisir un moment sans vente en cours).
+- **Installateur (configuration)** : NSIS, toutes les sessions, choix du dossier, raccourcis, règle de pare-feu entrante limitée aux réseaux privés (supprimée à la désinstallation), données jamais supprimées ; non signé (voir ci-dessous).
+- **Paquet** : `electron-builder --win --dir` produit le dossier Windows (368 Mo décompressé) avec code, écrans, application web et configuration de mise à jour ; le `.exe` d'installation exige Windows (désinstalleur NSIS) : lot 6 (CI `windows-latest`).
+
+**Défauts trouvés par les essais sur le vrai Electron, corrigés** : application web construite sans les identifiants publics du cloud (page blanche) ; erreur de certificat sur le service worker (vérification de certificat désormais au niveau réseau, toujours par empreinte exacte) ; pont `window.dogui` exposé à la page de l'application (restreint aux écrans internes + contrôle d'origine des appels).
+
+**Tests** : `desktop/src/logic.test.ts` (8), `boot.test.ts` (3) ; e2e `kit27` (3 scénarios sur le vrai Electron sous Xvfb : principal, secondaire, empreinte fausse). Le scénario est ignoré proprement si Electron n'est pas installé.
+
+**À faire de votre côté / lot 6** : compilation de l'installateur sur Windows (CI) ; essai d'installation sur un vrai PC (SmartScreen « Éditeur inconnu » attendu), règle de pare-feu, `dogui.local`, téléphones ; publication d'une version sur GitHub Releases pour activer les mises à jour (jamais de signature de code pour l'instant : à reconsidérer si les clients s'inquiètent).

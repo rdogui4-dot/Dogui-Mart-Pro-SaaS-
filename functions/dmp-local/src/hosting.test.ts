@@ -11,9 +11,11 @@ import { attachToCloud, hostState, releaseToCloud, resumeSync, runSync } from ".
 
 const T = "tenanthost0001", T2 = "tenanthost0002";
 const saved = { ...MemoryStore.defaults }; beforeAll(() => { MemoryStore.defaults = {}; }); afterAll(() => { MemoryStore.defaults = saved; });
+/** Horloge simulée strictement croissante (deux mises à jour dans la même milliseconde n'auraient sinon qu'une date : Appwrite ne le fait pas). */
+let lastStamp = 0; const nextStamp = (): string => { lastStamp = Math.max(Date.now() + 1, lastStamp + 1); return new Date(lastStamp).toISOString(); };
 class Cloud extends MemoryStore {
   override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { const now = new Date().toISOString(); return super.create(t, id, tenant, { $createdAt: now, $updatedAt: now, ...d }); }
-  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: new Date(Date.now() + 1).toISOString() }); }
+  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: nextStamp() }); }
 }
 let cloud: Cloud; let shop = ""; let eau = ""; let down = false;
 const cl = (st: MemoryStore | SqliteStore, user: string, action: string, payload: unknown, shopId = "", tenant = T, isCloud = false) => handle(st, user, { action, tenantId: tenant, shopId, payload }, { admins: [], cloud: isCloud });

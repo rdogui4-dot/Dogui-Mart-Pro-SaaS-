@@ -13,3 +13,9 @@ dist
 .skipper/*
 !.skipper/receipts/
 /ov1.png
+
+# Application Windows
+desktop/node_modules
+desktop/dist
+desktop/dist-installer
+desktop/resources

@@ -1,0 +1,1 @@
+for (const m of ["main", "secondary"]) document.getElementById(m).addEventListener("click", async () => { const r = await window.dogui.chooseMode(m); if (!r.ok) document.getElementById("err").textContent = r.error || "Choix impossible"; });

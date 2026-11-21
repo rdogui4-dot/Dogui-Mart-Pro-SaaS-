@@ -1,0 +1,27 @@
+appId: com.dogui.martpro
+productName: Dogui Mart Pro
+copyright: Dogui Mart Pro
+directories: { output: dist-installer, buildResources: build }
+files: ["dist/**", "ui/**", "package.json"]
+extraResources:
+  - { from: resources/web, to: web }
+  - { from: build/icon.png, to: icon.png }
+asar: true
+win:
+  target: [{ target: nsis, arch: [x64] }]
+  icon: build/icon.png
+  # Non signé pour l'instant (voir docs) : Windows affiche « Éditeur inconnu » à l'installation.
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Dogui Mart Pro
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  include: build/installer.nsh
+  language: "1036"
+publish: { provider: github, owner: rdogui4-dot, repo: Dogui-Mart-Pro-SaaS-, releaseType: release }

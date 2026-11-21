@@ -12,5 +12,5 @@ export default defineConfig({
   define: { __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)) },
   plugins: [react(), tailwind()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
-  test: { environment: "node", setupFiles: ["functions/dmp-api/src/test-setup.ts"], include: ["src/**/*.test.ts", "functions/**/*.test.ts"] },
+  test: { environment: "node", setupFiles: ["functions/dmp-api/src/test-setup.ts"], include: ["src/**/*.test.ts", "functions/**/*.test.ts", "desktop/src/**/*.test.ts"] },
 });

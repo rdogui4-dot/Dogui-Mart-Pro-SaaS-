@@ -1,0 +1,6 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'"><title>Dogui Mart Pro — poste secondaire</title><link rel="stylesheet" href="style.css"></head>
+<body><main><h1>Connexion au poste principal</h1><p>Saisissez l'adresse affichée sur le poste principal (Paramètres → Réseau local), par exemple <b>192.168.1.20</b> ou <b>dogui.local</b>.</p>
+<form id="f" style="display:flex;flex-direction:column;gap:10px"><input id="addr" aria-label="Adresse du poste principal" placeholder="192.168.1.20" autocomplete="off" autofocus><button id="go">Rechercher le poste principal</button></form>
+<div id="step2" hidden style="display:none;flex-direction:column;gap:10px"><p>Poste trouvé. <b>Vérifiez</b> que l'empreinte ci-dessous est identique à celle affichée sur le poste principal (Paramètres → Réseau local → Certificat de sécurité) :</p><div class="fp" id="fp"></div>
+<label class="check"><input type="checkbox" id="ok"><span>L'empreinte est identique : j'autorise ce poste à se connecter à ce poste principal.</span></label><button id="confirm" disabled>Se connecter</button></div>
+<p class="err" id="err" role="alert"></p><script src="connect.js"></script></main></body></html>

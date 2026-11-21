@@ -1,0 +1,2 @@
+(async () => { const i = await window.dogui.info(); if (i.message) document.getElementById("msg").textContent = "Détail technique : " + i.message; if (i.mode === "secondary") document.getElementById("re").hidden = false; })();
+document.getElementById("retry").addEventListener("click", () => window.dogui.retry()); document.getElementById("re").addEventListener("click", () => window.dogui.reconfigure());

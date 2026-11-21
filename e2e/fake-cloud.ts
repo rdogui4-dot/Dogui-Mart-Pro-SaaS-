@@ -3,9 +3,11 @@ import { MemoryStore } from "../functions/dmp-api/src/memory-store";
 import { handle } from "../functions/dmp-api/src/main";
 
 /** Faux Appwrite pour l'e2e du poste local : mêmes routes REST que le client cloud du poste (session, équipes, exécution de fonction), mais le moteur métier est le VRAI (`handle`, mode cloud). */
+/** Horloge simulée strictement croissante (deux mises à jour dans la même milliseconde n'auraient sinon qu'une date : Appwrite ne le fait pas). */
+let lastStamp = 0; const nextStamp = (): string => { lastStamp = Math.max(Date.now() + 1, lastStamp + 1); return new Date(lastStamp).toISOString(); };
 class Cloud extends MemoryStore {
   override async create(t: string, id: string, tenant: string, d: Record<string, unknown>) { const now = new Date().toISOString(); return super.create(t, id, tenant, { $createdAt: now, $updatedAt: now, ...d }); }
-  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: new Date(Date.now() + 1).toISOString() }); }
+  override async update(t: string, id: string, d: Record<string, unknown>) { await super.update(t, id, { ...d, $updatedAt: nextStamp() }); }
 }
 export async function startFakeCloud() {
   const cloud = new Cloud(); const T = "tenante2e0000001"; const EMAIL = "patron@boutique.sn", PW = "Motdepasse1!"; const UID = "ownere2e0000001";
