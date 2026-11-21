@@ -20,7 +20,11 @@ Nouvel onglet **« Comptes et actions »** du Centre de sécurité (propriétair
 - 7 tests serveur (`security-actions.test.ts`) + 1 test du poste réel (jeton de l'employé invalidé, événements « poste ») ; 1760 tests verts, typecheck propre.
 - Scénario navigateur `e2e/kit30.cjs` (9 étapes, zéro erreur console) : comptes, propriétaire sans action, annulation, fermeture des sessions (seul le compte visé), désactivation puis réactivation avec événements au journal, erreur serveur affichée en alerte sans faux succès, 1600/820/390 px et mode sombre sans débordement.
 
-## À valider en production (au « publie »)
+## Essai réel sur Appwrite (2026-11-21, comptes jetables, nettoyage vérifié) : 6/6 mesures utiles
+Code déployé (66db8cc → 0a6b54e). Propriétaire jetable + employé jetable avec une vraie session : **la fermeture des sessions fonctionne en production** (1 session fermée ; la clé de la fonction a bien le droit `users.write`), la session de l'employé est aussitôt refusée (« Connexion requise »), l'employé ne peut pas déclencher l'action, désactivation puis réactivation et tous les événements (`staff.sessions.revoke`, `staff.disable`, `staff.enable`) sont au journal, chaîne valide sur les 6 événements. Une mesure de l'essai a échoué par défaut du script d'essai (action de sonde inexistante), pas de l'application. Nettoyage : comptes, équipe et toutes les lignes supprimés, absence vérifiée.
+Observation à traiter (S3) : les événements écrits depuis les actions (fermeture de sessions, désactivation) n'ont pas de numéro de requête (champ vide) ; à renseigner via le contexte.
+
+## À valider en production (réalisé)
 Essai réel sur Appwrite avec comptes jetables : fermeture des sessions (la clé de la fonction a `users.write` : à confirmer en réel), désactivation/réactivation, événements au journal, nettoyage vérifié. Aucune migration de schéma.
 
 ## Limites
