@@ -1,0 +1,59 @@
+name: Sécurité
+# Contrôles continus (lot S1). Indépendant de « Publier » : un échec ici n'arrête pas la publication, mais il est visible dans l'onglet Actions.
+on:
+  push:
+    branches: [ccr-360cd683-uvf925, main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: securite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependances:
+    name: Dépendances (npm audit) et inventaire (SBOM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Vulnérabilités de production (échec dès « high »)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Vulnérabilités de développement (information)
+        run: npm audit --audit-level=high || echo "::warning::Des vulnérabilités de développement existent (voir le journal)."
+      - name: SBOM CycloneDX
+        run: npm sbom --sbom-format cyclonedx --omit dev > sbom-cyclonedx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: sbom-cyclonedx, path: sbom-cyclonedx.json, retention-days: 90 }
+
+  codeql:
+    name: Analyse statique (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: github/codeql-action/init@aaf92c3279600a7c7217a1cd605774c6c791c6c3 # v3
+        with: { languages: javascript-typescript, queries: security-and-quality }
+      - uses: github/codeql-action/analyze@aaf92c3279600a7c7217a1cd605774c6c791c6c3 # v3
+        with: { category: "/language:javascript-typescript" }
+
+  secrets:
+    name: Recherche de secrets dans le dépôt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+      - name: Motifs de secrets (arbre et historique)
+        run: |
+          set -u
+          re='(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|standard_[a-f0-9]{100,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9]{32,}|AIza[0-9A-Za-z_-]{30,})'
+          if git grep -n -I -E "$re" -- . ':!package-lock.json' ':!.github/workflows/securite.yml'; then echo "::error::Motif de secret trouvé dans l'arbre"; exit 1; fi
+          if git log --all -p -G"$re" --oneline -- . ':!package-lock.json' ':!.github/workflows/securite.yml' | grep -q -E "$re"; then echo "::error::Motif de secret trouvé dans l'historique"; exit 1; fi
+          echo "Aucun motif trouvé."
