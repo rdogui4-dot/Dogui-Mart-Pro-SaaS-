@@ -97,6 +97,7 @@ jobs:
           $ud = Join-Path $env:RUNNER_TEMP "dmp-userdata"
           if (-not (Test-Path (Join-Path $ud "poste.json"))) { throw "Les données ont été supprimées à la désinstallation" }
           Write-Host "Désinstallation propre : pare-feu retiré, données conservées."
+          $global:LASTEXITCODE = 0 # netsh renvoie 1 quand la règle n'existe plus : c'est le résultat attendu
       - uses: actions/upload-artifact@v4
         with:
           name: dogui-mart-pro-windows
