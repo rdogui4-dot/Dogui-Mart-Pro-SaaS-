@@ -34,7 +34,7 @@ export function appwriteStore(endpoint: string, project: string, key: string, da
     async scan(tableId, where, opts = {}) {
       const max = opts.maxRows ?? 10_000; const PAGE = 100; const rows: Row[] = []; let cursor: string | undefined;
       const filters = [...Object.entries(where).map(([k, v]) => Query.equal(k, v)),
-        ...(opts.range?.from ? [Query.greaterThanEqual(opts.range.field, opts.range.from)] : []), ...(opts.range?.to ? [Query.lessThan(opts.range.field, opts.range.to)] : [])];
+        ...(opts.range?.from ? [Query.greaterThanEqual(opts.range.field, opts.range.from)] : []), ...(opts.range?.to ? [Query.lessThan(opts.range.field, opts.range.to)] : []), ...(opts.orderBy ? [Query.orderAsc(opts.orderBy)] : [])];
       // On s'arrête sur une page vide (et non « plus petite que demandée ») : si la base plafonne la taille des pages, on ne perd rien.
       for (;;) {
         const page = (await db.listRows({ databaseId, tableId, queries: [...filters, Query.limit(PAGE), ...(cursor ? [Query.cursorAfter(cursor)] : [])] })).rows as unknown as Row[];

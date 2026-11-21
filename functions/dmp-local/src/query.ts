@@ -56,7 +56,7 @@ export function queryRows(store: SqliteStore, table: string, queries: string[], 
     }
     w2.push(`(${parts.join(" OR ")})`); a2.push(...pargs);
   }
-  const sql = `SELECT id, created_at, data FROM rows WHERE ${w2.join(" AND ")} ORDER BY ${orderSql.join(", ")} LIMIT ? OFFSET ?`;
+  const sql = `SELECT id, created_at, updated_at, data FROM rows WHERE ${w2.join(" AND ")} ORDER BY ${orderSql.join(", ")} LIMIT ? OFFSET ?`;
   const rows = store.db.prepare(sql).all(...a2, ...orderArgs, limit, offset) as Record<string, unknown>[];
-  return { rows: rows.map((r) => ({ ...(JSON.parse(String(r.data)) as object), $id: String(r.id), $createdAt: String(r.created_at) }) as Row), total };
+  return { rows: rows.map((r) => ({ ...(JSON.parse(String(r.data)) as object), $id: String(r.id), $createdAt: String(r.created_at), $updatedAt: String(r.updated_at ?? r.created_at) }) as Row), total };
 }

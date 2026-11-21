@@ -3,6 +3,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import { EventEmitter } from "node:events";
 import { HttpError, type BatchOp, type Row, type Store, type UserSecurity } from "./store";
 import { readRoles } from "./permissions";
+import { syncClass } from "../../../src/domain/sync-tables";
 
 /** Stockage local (SQLite) : mêmes garanties que le stockage Appwrite de production, pour la version Windows et son réseau local.
  *  - une ligne = un document JSON dans la table `rows` (comme une table Appwrite : colonnes libres), avec ses rôles de lecture calculés à la création (permissions.ts) ;
@@ -31,11 +32,15 @@ export class SqliteStore implements Store {
     this.db = new DatabaseSync(opts.path ?? ":memory:");
     this.db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS rows (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, id TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, id TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT, remote_at TEXT,
         data TEXT NOT NULL, read_roles TEXT NOT NULL DEFAULT '[]',
         shop_id TEXT GENERATED ALWAYS AS (json_extract(data, '$.shopId')) VIRTUAL, UNIQUE (tbl, id));
       CREATE INDEX IF NOT EXISTS rows_tenant ON rows (tbl, tenant_id, shop_id);
       CREATE INDEX IF NOT EXISTS rows_created ON rows (tbl, created_at);
+      CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, id TEXT NOT NULL, at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS outbox_key ON outbox (tbl, id);
+      CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS sync_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, tbl TEXT NOT NULL, row_id TEXT NOT NULL, kind TEXT NOT NULL, local_data TEXT, cloud_data TEXT, resolved INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL, read_roles TEXT NOT NULL DEFAULT '[]');
       CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '', password TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
@@ -43,6 +48,9 @@ export class SqliteStore implements Store {
       CREATE TABLE IF NOT EXISTS labels (user_id TEXT PRIMARY KEY, labels TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, last_seen TEXT NOT NULL, device TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '');`);
     // bases créées avant le réseau local : on ajoute l'appareil et l'adresse aux sessions
+    const rcols = this.db.prepare("PRAGMA table_info(rows)").all().map((c) => String(c.name));
+    if (!rcols.includes("updated_at")) { this.db.exec("ALTER TABLE rows ADD COLUMN updated_at TEXT"); this.db.exec("UPDATE rows SET updated_at = created_at WHERE updated_at IS NULL"); }
+    if (!rcols.includes("remote_at")) this.db.exec("ALTER TABLE rows ADD COLUMN remote_at TEXT");
     const cols = this.db.prepare("PRAGMA table_info(sessions)").all().map((c) => String(c.name));
     if (!cols.includes("device")) this.db.exec("ALTER TABLE sessions ADD COLUMN device TEXT NOT NULL DEFAULT ''");
     if (!cols.includes("ip")) this.db.exec("ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''");
@@ -59,54 +67,55 @@ export class SqliteStore implements Store {
   private emit(table: string, id: string) { this.events.emit("change", { table, id }); }
 
   // ------------------------------------------------------------------ lignes
-  private shape(r: Record<string, unknown>): Row { return { ...(JSON.parse(String(r.data)) as object), $id: String(r.id), $createdAt: String(r.created_at) } as Row; }
+  private shape(r: Record<string, unknown>): Row { return { ...(JSON.parse(String(r.data)) as object), $id: String(r.id), $createdAt: String(r.created_at), $updatedAt: String(r.updated_at ?? r.created_at) } as Row; }
   private exists(table: string, id: string): boolean { return !!this.db.prepare("SELECT 1 FROM rows WHERE tbl = ? AND id = ?").get(table, id); }
-  async get(table: string, id: string): Promise<Row | null> { const r = this.db.prepare("SELECT id, created_at, data FROM rows WHERE tbl = ? AND id = ?").get(table, id); return r ? this.shape(r) : null; }
+  async get(table: string, id: string): Promise<Row | null> { const r = this.db.prepare("SELECT id, created_at, updated_at, data FROM rows WHERE tbl = ? AND id = ?").get(table, id); return r ? this.shape(r) : null; }
   private where(table: string, where: Record<string, string | number | boolean>, range?: { field: string; from?: string; to?: string }) {
     const sql: string[] = ["tbl = ?"]; const args: SQLInputValue[] = [table];
     for (const [k, v] of Object.entries(where)) { if (k === "tenantId") { sql.push("tenant_id = ?"); args.push(v as SQLInputValue); } else if (k === "$id") { sql.push("id = ?"); args.push(String(v)); } else { sql.push("json_extract(data, ?) = ?"); args.push(`$.${k}`, bool(v)); } }
-    if (range) { const f = range.field === "$createdAt" ? "created_at" : "json_extract(data, ?)"; const fa: SQLInputValue[] = range.field === "$createdAt" ? [] : [`$.${range.field}`];
+    if (range) { const sys = range.field === "$createdAt" ? "created_at" : range.field === "$updatedAt" ? "updated_at" : ""; const f = sys || "json_extract(data, ?)"; const fa: SQLInputValue[] = sys ? [] : [`$.${range.field}`];
       if (range.from !== undefined) { sql.push(`COALESCE(${f}, '') >= ?`); args.push(...fa, range.from); } if (range.to !== undefined) { sql.push(`COALESCE(${f}, '') < ?`); args.push(...fa, range.to); } }
     return { sql: sql.join(" AND "), args };
   }
   async list(table: string, where: Record<string, string | number | boolean>, limit = 100): Promise<Row[]> {
-    const w = this.where(table, where); return this.db.prepare(`SELECT id, created_at, data FROM rows WHERE ${w.sql} ORDER BY seq LIMIT ?`).all(...w.args, limit).map((r) => this.shape(r));
+    const w = this.where(table, where); return this.db.prepare(`SELECT id, created_at, updated_at, data FROM rows WHERE ${w.sql} ORDER BY seq LIMIT ?`).all(...w.args, limit).map((r) => this.shape(r));
   }
-  async scan(table: string, where: Record<string, string | number | boolean>, opts: { range?: { field: string; from?: string; to?: string }; maxRows?: number } = {}): Promise<{ rows: Row[]; truncated: boolean }> {
+  async scan(table: string, where: Record<string, string | number | boolean>, opts: { range?: { field: string; from?: string; to?: string }; maxRows?: number; orderBy?: string } = {}): Promise<{ rows: Row[]; truncated: boolean }> {
     const max = opts.maxRows ?? 10_000; const w = this.where(table, where, opts.range);
-    const all = this.db.prepare(`SELECT id, created_at, data FROM rows WHERE ${w.sql} ORDER BY seq LIMIT ?`).all(...w.args, max + 1);
+    const ob = opts.orderBy === "$updatedAt" ? "updated_at, seq" : opts.orderBy === "$createdAt" ? "created_at, seq" : "seq";
+    const all = this.db.prepare(`SELECT id, created_at, updated_at, data FROM rows WHERE ${w.sql} ORDER BY ${ob} LIMIT ?`).all(...w.args, max + 1);
     return { rows: all.slice(0, max).map((r) => this.shape(r)), truncated: all.length > max };
   }
   async create(table: string, id: string, tenantId: string, data: Record<string, unknown>): Promise<boolean> {
     if (this.exists(table, id)) return false; // idempotence : aucune politique de lecture n'est évaluée pour une ligne déjà là
     const { $createdAt, $id: _id, ...rest } = data as Record<string, unknown>; void _id;
-    const r = this.db.prepare("INSERT OR IGNORE INTO rows (tbl, id, tenant_id, created_at, data, read_roles) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(table, id, tenantId, String($createdAt ?? iso()), JSON.stringify(rest), JSON.stringify(readRoles(table, tenantId, rest, id)));
-    if (Number(r.changes) > 0) this.emit(table, id);
+    const r = this.db.prepare("INSERT OR IGNORE INTO rows (tbl, id, tenant_id, created_at, updated_at, data, read_roles) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(table, id, tenantId, String($createdAt ?? iso()), iso(), JSON.stringify(rest), JSON.stringify(readRoles(table, tenantId, rest, id)));
+    if (Number(r.changes) > 0) { this.track(table, id); this.emit(table, id); }
     return Number(r.changes) > 0;
   }
   async update(table: string, id: string, data: Record<string, unknown>): Promise<void> {
     const cur = this.db.prepare("SELECT data FROM rows WHERE tbl = ? AND id = ?").get(table, id); if (!cur) throw new Error("introuvable");
     const merged = { ...(JSON.parse(String(cur.data)) as object), ...Object.fromEntries(Object.entries(data).filter(([k, v]) => v !== undefined && k !== "$id" && k !== "$createdAt")) };
-    this.db.prepare("UPDATE rows SET data = ? WHERE tbl = ? AND id = ?").run(JSON.stringify(merged), table, id); this.emit(table, id);
+    this.db.prepare("UPDATE rows SET data = ?, updated_at = ? WHERE tbl = ? AND id = ?").run(JSON.stringify(merged), iso(), table, id); this.track(table, id); this.emit(table, id);
   }
-  async remove(table: string, id: string): Promise<void> { this.db.prepare("DELETE FROM rows WHERE tbl = ? AND id = ?").run(table, id); this.emit(table, id); }
+  async remove(table: string, id: string): Promise<void> { const r = this.db.prepare("DELETE FROM rows WHERE tbl = ? AND id = ?").run(table, id); if (Number(r.changes) > 0) this.track(table, id); this.emit(table, id); }
   /** Transaction : contrôles préalables (doublons, lignes absentes) puis application ; l'échec d'un contrôle n'écrit RIEN. */
   async batch(ops: BatchOp[]): Promise<void> {
     this.tx(() => {
       const seen = new Set<string>();
       for (const o of ops) { const k = `${o.table}/${o.id}`; if (o.kind === "create") { if (this.exists(o.table, o.id) || seen.has(k)) throw new HttpError(409, "Conflit d'écriture : la ligne existe déjà"); seen.add(k); } else if (o.kind === "update" && !this.exists(o.table, o.id) && !seen.has(k)) throw new HttpError(404, "Ligne introuvable"); }
-      for (const o of ops) { if (o.kind === "create") { this.syncCreate(o); } else if (o.kind === "update") { this.syncUpdate(o.table, o.id, o.data); } else { this.db.prepare("DELETE FROM rows WHERE tbl = ? AND id = ?").run(o.table, o.id); this.emit(o.table, o.id); } }
+      for (const o of ops) { if (o.kind === "create") { this.syncCreate(o); } else if (o.kind === "update") { this.syncUpdate(o.table, o.id, o.data); } else { const d = this.db.prepare("DELETE FROM rows WHERE tbl = ? AND id = ?").run(o.table, o.id); if (Number(d.changes) > 0) this.track(o.table, o.id); this.emit(o.table, o.id); } }
     });
   }
   private syncCreate(o: Extract<BatchOp, { kind: "create" }>) {
     const { $createdAt, $id: _id, ...rest } = o.data as Record<string, unknown>; void _id;
-    this.db.prepare("INSERT INTO rows (tbl, id, tenant_id, created_at, data, read_roles) VALUES (?, ?, ?, ?, ?, ?)").run(o.table, o.id, o.tenantId, String($createdAt ?? iso()), JSON.stringify(rest), JSON.stringify(readRoles(o.table, o.tenantId, rest, o.id))); this.emit(o.table, o.id);
+    this.db.prepare("INSERT INTO rows (tbl, id, tenant_id, created_at, updated_at, data, read_roles) VALUES (?, ?, ?, ?, ?, ?, ?)").run(o.table, o.id, o.tenantId, String($createdAt ?? iso()), iso(), JSON.stringify(rest), JSON.stringify(readRoles(o.table, o.tenantId, rest, o.id))); this.track(o.table, o.id); this.emit(o.table, o.id);
   }
   private syncUpdate(table: string, id: string, data: Record<string, unknown>) {
     const cur = this.db.prepare("SELECT data FROM rows WHERE tbl = ? AND id = ?").get(table, id); if (!cur) throw new Error("introuvable");
     const merged = { ...(JSON.parse(String(cur.data)) as object), ...Object.fromEntries(Object.entries(data).filter(([k, v]) => v !== undefined && k !== "$id" && k !== "$createdAt")) };
-    this.db.prepare("UPDATE rows SET data = ? WHERE tbl = ? AND id = ?").run(JSON.stringify(merged), table, id); this.emit(table, id);
+    this.db.prepare("UPDATE rows SET data = ?, updated_at = ? WHERE tbl = ? AND id = ?").run(JSON.stringify(merged), iso(), table, id); this.track(table, id); this.emit(table, id);
   }
 
   // ------------------------------------------------------------------ fichiers
@@ -137,6 +146,39 @@ export class SqliteStore implements Store {
   async addMember(tenantId: string, userId: string, roles: string[], name = ""): Promise<void> { this.db.prepare("INSERT OR REPLACE INTO members (tenant_id, user_id, roles, name) VALUES (?, ?, ?, ?)").run(tenantId, userId, JSON.stringify(roles), name); }
   async setMemberRoles(tenantId: string, userId: string, roles: string[]): Promise<void> { this.db.prepare("UPDATE members SET roles = ? WHERE tenant_id = ? AND user_id = ?").run(JSON.stringify(roles), tenantId, userId); }
   async removeMember(tenantId: string, userId: string): Promise<void> { this.db.prepare("DELETE FROM members WHERE tenant_id = ? AND user_id = ?").run(tenantId, userId); }
+
+  // ------------------------------------------------------------------ synchronisation avec le cloud
+  /** Vrai quand ce poste héberge le commerce : chaque écriture d'une table envoyée au cloud est notée dans le journal des envois. */
+  syncOn = false; private applying = false;
+  private track(table: string, id: string) { if (!this.syncOn || this.applying) return; const c = syncClass(table); if (!c || c === "cloud") return; this.db.prepare("INSERT INTO outbox (tbl, id, at) VALUES (?, ?, ?)").run(table, id, iso()); }
+  syncGet(key: string): string | null { const r = this.db.prepare("SELECT value FROM sync_state WHERE key = ?").get(key); return r ? String(r.value) : null; }
+  syncSet(key: string, value: string | null): void { if (value === null) this.db.prepare("DELETE FROM sync_state WHERE key = ?").run(key); else this.db.prepare("INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)").run(key, value); }
+  /** Envois en attente : une entrée par ligne (la dernière écriture seule compte), dans l'ordre de première modification. `upsert` si la ligne existe encore, `remove` sinon. */
+  outboxPending(limit = 200): { table: string; id: string; op: "upsert" | "remove"; mx: number; row?: Row; remoteAt: string | null }[] {
+    const keys = this.db.prepare("SELECT tbl, id, MAX(seq) AS mx, MIN(seq) AS mn FROM outbox GROUP BY tbl, id ORDER BY mn LIMIT ?").all(limit);
+    return keys.map((k) => { const t = String(k.tbl), id = String(k.id); const r = this.db.prepare("SELECT id, created_at, updated_at, remote_at, data FROM rows WHERE tbl = ? AND id = ?").get(t, id);
+      return r ? { table: t, id, op: "upsert" as const, mx: Number(k.mx), row: this.shape(r), remoteAt: r.remote_at ? String(r.remote_at) : null } : { table: t, id, op: "remove" as const, mx: Number(k.mx), remoteAt: null }; });
+  }
+  outboxCount(): number { return Number(this.db.prepare("SELECT COUNT(*) AS n FROM (SELECT 1 FROM outbox GROUP BY tbl, id)").get()?.n ?? 0); }
+  /** Envoi réussi : retire les écritures jusqu'à `mx` pour cette ligne (une écriture plus récente reste en attente) et mémorise la date côté cloud. */
+  outboxAck(table: string, id: string, mx: number, remoteAt?: string): void { this.db.prepare("DELETE FROM outbox WHERE tbl = ? AND id = ? AND seq <= ?").run(table, id, mx); if (remoteAt) this.db.prepare("UPDATE rows SET remote_at = ? WHERE tbl = ? AND id = ?").run(remoteAt, table, id); }
+  /** Date de la dernière version du cloud connue pour cette ligne (null si la ligne n'est que locale). */
+  remoteAtOf(table: string, id: string): string | null { const r = this.db.prepare("SELECT remote_at FROM rows WHERE tbl = ? AND id = ?").get(table, id); return r?.remote_at ? String(r.remote_at) : null; }
+  hasPending(table: string, id: string): boolean { return !!this.db.prepare("SELECT 1 FROM outbox WHERE tbl = ? AND id = ?").get(table, id); }
+  /** Applique une ligne reçue du cloud (sans la renvoyer) : conserve les dates du cloud. */
+  applyRemote(table: string, id: string, tenantId: string, data: Record<string, unknown>, createdAt: string, updatedAt: string): void {
+    this.applying = true; try { const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !k.startsWith("$")));
+      const roles = JSON.stringify(readRoles(table, tenantId, clean, id)); const ex = this.db.prepare("SELECT 1 FROM rows WHERE tbl = ? AND id = ?").get(table, id);
+      if (ex) this.db.prepare("UPDATE rows SET data = ?, updated_at = ?, remote_at = ?, read_roles = ? WHERE tbl = ? AND id = ?").run(JSON.stringify(clean), updatedAt, updatedAt, roles, table, id);
+      else this.db.prepare("INSERT INTO rows (tbl, id, tenant_id, created_at, updated_at, remote_at, data, read_roles) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(table, id, tenantId, createdAt, updatedAt, updatedAt, JSON.stringify(clean), roles);
+      this.emit(table, id); } finally { this.applying = false; }
+  }
+  removeRemote(table: string, id: string): void { this.applying = true; try { this.db.prepare("DELETE FROM rows WHERE tbl = ? AND id = ?").run(table, id); this.emit(table, id); } finally { this.applying = false; } }
+  addConflict(table: string, rowId: string, kind: string, local: unknown, cloud: unknown): void { this.db.prepare("INSERT INTO sync_conflicts (at, tbl, row_id, kind, local_data, cloud_data) VALUES (?, ?, ?, ?, ?, ?)").run(iso(), table, rowId, kind, JSON.stringify(local ?? null), JSON.stringify(cloud ?? null)); }
+  conflicts(onlyOpen = true): { id: number; at: string; table: string; rowId: string; kind: string; local: unknown; cloud: unknown; resolved: boolean }[] {
+    return this.db.prepare(`SELECT id, at, tbl, row_id, kind, local_data, cloud_data, resolved FROM sync_conflicts ${onlyOpen ? "WHERE resolved = 0" : ""} ORDER BY id DESC LIMIT 200`).all().map((r) => ({ id: Number(r.id), at: String(r.at), table: String(r.tbl), rowId: String(r.row_id), kind: String(r.kind), local: JSON.parse(String(r.local_data ?? "null")), cloud: JSON.parse(String(r.cloud_data ?? "null")), resolved: !!r.resolved }));
+  }
+  resolveConflict(id: number): void { this.db.prepare("UPDATE sync_conflicts SET resolved = 1 WHERE id = ?").run(id); }
 
   // ------------------------------------------------------------------ authentification locale (serveur local)
   createTeam(teamId: string, name: string): void { this.db.prepare("INSERT OR IGNORE INTO teams (id, name, created_at) VALUES (?, ?, ?)").run(teamId, name, iso()); }
