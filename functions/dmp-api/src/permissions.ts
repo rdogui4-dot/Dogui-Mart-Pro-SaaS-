@@ -124,7 +124,8 @@ const POLICY: Record<string, (tenantId: string, d: Row, id: string) => Role[] | 
   fin_budgets: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
   journal_entries: (t, d) => [owner(t), `label:${moduleLabel("accounting", shopOf(d))}`],
   // Journal de sécurité : lisible par le propriétaire seul (jamais par un employé) ; écrit uniquement par le serveur.
-  security_events: (t) => [owner(t)],
+  // Journal de la plateforme (tenantId « platform ») : AUCUN rôle de lecture. Un identifiant d'équipe « platform » pourrait être créé par n'importe quel compte : « team:platform/owner » serait une porte ouverte (défaut trouvé à l'essai réel).
+  security_events: (t) => (t === "platform" ? [] : [owner(t)]),
   security_heads: () => [],
   audit_log: (t, d) => [owner(t), `label:${managerLabel(shopOf(d))}`],
   // Un transfert concerne deux boutiques : le module Stock des deux

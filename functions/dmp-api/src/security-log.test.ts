@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MemoryStore } from "./memory-store";
 import { handle } from "./main";
 import { PLATFORM_JOURNAL, _resetThrottle, recordSecurityEvent, securityEvents } from "./security-log";
+import { readRoles } from "./permissions";
 import { EVENT_KINDS, GENESIS, eventHash, verifyChain, type ChainRow } from "../../../src/domain/security-events";
 
 const T = "tenantsec001", OTHER = "tenantsec002";
@@ -137,6 +138,10 @@ describe("garde-fous du journal", () => {
   });
   it("seul le propriétaire lit le journal : un gérant ou un caissier est refusé", async () => {
     expect((await call(U.caissier, "security.events", {}, "")).status).toBe(403);
+  });
+  it("droits de lecture : propriétaire du commerce seulement ; le journal de la plateforme n'a AUCUN rôle de lecture (une équipe « platform » créée par n'importe qui n'y donnerait pas accès)", () => {
+    expect(readRoles("security_events", T, {}, "x")).toEqual([`team:${T}/owner`]);
+    expect(readRoles("security_events", "platform", {}, "x")).toEqual([]); expect(readRoles("security_heads", T, {}, "x")).toEqual([]);
   });
   it("chaque type d'événement a une gravité, un libellé et une portée", () => {
     for (const [k, d] of Object.entries(EVENT_KINDS)) { expect(["info", "warning", "critical"]).toContain(d.severity); expect(d.label.length, k).toBeGreaterThan(5); expect(["tenant", "platform"]).toContain(d.scope); }
