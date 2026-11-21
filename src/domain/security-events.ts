@@ -48,8 +48,10 @@ export const SUCCESS_ACTIONS: readonly EventKind[] = ["staff.create", "staff.upd
 export const GENESIS = "0".repeat(64);
 export type EventFields = { tenantId: string; seq: number; at: string; kind: string; severity: string; outcome: string; actorId: string; actorRole: string; target: string; requestId: string; source: string };
 /** Empreinte d'un événement : liée à celle du précédent. `count` et `lastAt` (compteurs de regroupement) n'en font volontairement pas partie. */
+/** Date normalisée (UTC, millisecondes, « Z ») : Appwrite relit une date avec un autre format (« +00:00 ») que celui écrit — constaté à l'essai réel ; l'empreinte doit être la même des deux côtés. */
+export const normAt = (at: string): string => { const t = Date.parse(at); return Number.isNaN(t) ? String(at) : new Date(t).toISOString(); };
 export const eventHash = (prevHash: string, e: EventFields): string =>
-  createHash("sha256").update(JSON.stringify([prevHash, e.tenantId, e.seq, e.at, e.kind, e.severity, e.outcome, e.actorId, e.actorRole, e.target, e.requestId, e.source])).digest("hex");
+  createHash("sha256").update(JSON.stringify([prevHash, e.tenantId, e.seq, normAt(e.at), e.kind, e.severity, e.outcome, e.actorId, e.actorRole, e.target, e.requestId, e.source])).digest("hex");
 
 /** Cible : champ court et contrôlé (identifiants et noms d'action seulement). */
 export const cleanTarget = (prefix: string, v: unknown): string => { const s = String(v ?? ""); return `${prefix}:${/^[A-Za-z0-9._-]{1,64}$/.test(s) ? s : "invalide"}`; };

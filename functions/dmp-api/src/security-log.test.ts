@@ -110,6 +110,12 @@ describe("chaîne d'empreintes", () => {
     const other = (await ok(call("own2", "security.events", {}, "", OTHER))); expect(other.events.every((e: any) => e.actorId !== "own")).toBe(true);
     expect((await events(T)).some((e) => e.actorId === "own2")).toBe(false);
   });
+  it("Appwrite relit la date sous une autre forme (« +00:00 ») : la chaîne reste valide (défaut trouvé à l'essai réel)", async () => {
+    await recordSecurityEvent(st, { tenantId: T, kind: "staff.update", outcome: "accepted", actorId: "own", source: "cloud" });
+    await recordSecurityEvent(st, { tenantId: T, kind: "staff.update", outcome: "accepted", actorId: "own", source: "cloud" });
+    for (const r of await st.list("security_events", { tenantId: T }, 50)) await st.update("security_events", String(r.$id), { at: String(r.at).replace("Z", "+00:00") });
+    expect((await ok(call("own", "security.events", {}, "", T))).chain).toMatchObject({ ok: true, problems: [] });
+  });
   it("vérification pure : origine, empreinte et liaison", () => {
     const mk = (seq: number, prev: string): ChainRow => { const f = { tenantId: "t", seq, at: "2026-01-01T00:00:00.000Z", kind: "staff.create", severity: "info", outcome: "accepted", actorId: "a", actorRole: "owner", target: "", requestId: "r", source: "cloud" }; return { ...f, prevHash: prev, hash: eventHash(prev, f) }; };
     const a = mk(1, GENESIS), b = mk(2, a.hash), c = mk(3, b.hash);
