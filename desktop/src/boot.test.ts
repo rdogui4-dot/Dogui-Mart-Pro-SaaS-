@@ -2,22 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteStore } from "../../functions/dmp-api/src/sqlite-store";
-import { loadConfig, runBackup, saveConfig, startMainServer } from "./boot";
+import { loadConfig, saveConfig, startMainServer } from "./boot";
 
 const dirs: string[] = []; const tmp = () => { const d = mkdtempSync(join(tmpdir(), "dmp-desk-")); dirs.push(d); return d; }; afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 describe("configuration enregistrée", () => {
   it("relue après enregistrement ; fichier absent ou abîmé : défauts", () => {
     const d = tmp(); expect(loadConfig(d)).toEqual({ port: 8443, autostart: true }); saveConfig(d, { mode: "main", port: 9000, autostart: false }); expect(loadConfig(d)).toEqual({ mode: "main", port: 9000, autostart: false }); expect(readdirSync(d)).toEqual(["poste.json"]);
     writeFileSync(join(d, "poste.json"), "{pas du json"); expect(loadConfig(d)).toEqual({ port: 8443, autostart: true });
-  });
-});
-describe("sauvegarde quotidienne", () => {
-  it("une copie par jour, relisible ; 7 gardées ; une copie déjà faite aujourd'hui n'est pas refaite", async () => {
-    const d = tmp(); const store = new SqliteStore({ path: join(d, "base.sqlite") }); store.createTeam("t1", "Boutique"); let cfg = loadConfig(d);
-    for (let day = 1; day <= 9; day++) { const r = runBackup(store, d, cfg, new Date(`2026-06-${String(day).padStart(2, "0")}T10:00:00Z`)); expect(r).not.toBeNull(); cfg = r!.cfg; }
-    expect(runBackup(store, d, cfg, new Date("2026-06-09T18:00:00Z"))).toBeNull(); const files = readdirSync(join(d, "sauvegardes")).sort(); expect(files).toHaveLength(7); expect(files[0]).toBe("auto-2026-06-03.sqlite");
-    const copy = new SqliteStore({ path: join(d, "sauvegardes", files[6]!) }); expect(copy.db.prepare("SELECT name FROM teams").get()).toMatchObject({ name: "Boutique" }); copy.close(); store.close();
   });
 });
 describe("poste principal", () => {

@@ -1,6 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { copyFileSync, rmSync } from "node:fs";
 import { argon2Verify } from "hash-wasm";
 import { HttpError, type BatchOp, type DirectoryUser, type Row, type Store, type UserSecurity } from "./store";
 import { readRoles } from "./permissions";
@@ -31,13 +32,15 @@ export async function verifyCredential(pw: string, stored: string | null | undef
 }
 
 export class SqliteStore implements Store {
-  readonly db: DatabaseSync;
+  db!: DatabaseSync; // remplaçable : restauration d'une sauvegarde (replaceDatabase)
+  private readonly path: string;
   /** Changements de données (table, identifiant) : alimente le temps réel du serveur local. */
   readonly events = new EventEmitter();
   private depth = 0;
 
-  constructor(opts: SqliteStoreOptions = {}) {
-    this.db = new DatabaseSync(opts.path ?? ":memory:");
+  constructor(opts: SqliteStoreOptions = {}) { this.path = opts.path ?? ":memory:"; this.init(); }
+  private init() {
+    this.db = new DatabaseSync(this.path);
     this.db.exec(`PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS rows (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, id TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT, remote_at TEXT,
@@ -69,6 +72,12 @@ export class SqliteStore implements Store {
     if (!cols.includes("ip")) this.db.exec("ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''");
   }
   close() { this.db.close(); }
+  /** Remplace TOUTE la base par une sauvegarde déjà vérifiée (restauration). Les liens avec le cloud (rattachement, file d'envoi, curseurs) sont retirés : le poste restauré redevient un poste local ordinaire. Les sessions ouvertes sont celles de la sauvegarde. */
+  replaceDatabase(srcPath: string): void {
+    if (this.path === ":memory:") throw new Error("Restauration impossible sur une base en mémoire");
+    this.db.close(); for (const suf of ["", "-wal", "-shm"]) rmSync(this.path + suf, { force: true }); copyFileSync(srcPath, this.path); this.syncOn = false; this.init();
+    this.db.exec("DELETE FROM sync_state; DELETE FROM outbox; UPDATE rows SET remote_at = NULL;"); this.events.emit("change", { table: "*", id: "*" });
+  }
 
   // ------------------------------------------------------------------ transactions
   /** Exécute `fn` dans une transaction (imbriquée : réutilise l'externe). Toute exception annule tout. */

@@ -15,7 +15,8 @@ import { ModuleHeader, PillTabs, type PillTab } from "@/components/kit";
 import { identity } from "@/lib/identity";
 import { NetworkSection } from "./network-local";
 import { SyncSection } from "./sync-local";
-import { Building2, Cloud, CreditCard, Scale, ScrollText, Settings as SettingsIcon, Store, UserCog, Wifi } from "lucide-react";
+import { BackupSection } from "./backup-local";
+import { Archive, Building2, Cloud, CreditCard, Scale, ScrollText, Settings as SettingsIcon, Store, UserCog, Wifi } from "lucide-react";
 import { GeneralSection, SettingsKpis } from "./settings-general";
 import { ActivityLog } from "./activity-log";
 import { readFxPref, writeFxPref, useFxLevel, type FxPref } from "@/lib/fx3d";
@@ -27,15 +28,16 @@ function FxPrefCard() {
   return <div className="card flex flex-col gap-2 md:max-w-2xl"><h2 className="font-semibold">Effets 3D</h2><label className="text-xs text-muted flex flex-col gap-1">Sur cet appareil<select className="input" aria-label="Effets 3D" value={pref} onChange={(e) => { const v = e.target.value as FxPref; setPref(v); writeFxPref(v); }}><option value="auto">Automatique (recommandé)</option><option value="on">Activés</option><option value="off">Désactivés</option></select></label><p className="text-xs text-muted" role="status">Actuellement : {FX_TXT[level]}. Si votre appareil demande de réduire les animations, l'affichage reste plat.</p></div>;
 }
 
-type STab = "sync" | "network" | "general" | "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
+type STab = "backup" | "sync" | "network" | "general" | "profile" | "shop" | "rules" | "shops" | "staff" | "payments" | "subscription" | "activity" | "platform";
 const NETWORK_TAB: PillTab<STab> = { key: "network", label: "Réseau local", icon: Wifi };
 const SYNC_TAB: PillTab<STab> = { key: "sync", label: "Synchronisation", icon: Cloud };
+const BACKUP_TAB: PillTab<STab> = { key: "backup", label: "Sauvegardes", icon: Archive };
 const MAIN_SET: PillTab<STab>[] = [{ key: "general", label: "Général", icon: SettingsIcon }, { key: "shop", label: "Point de vente", icon: Store }, { key: "rules", label: "Règles de gestion", icon: Scale }, { key: "shops", label: "Boutiques", icon: Building2 }, { key: "payments", label: "Paiements", icon: CreditCard }, { key: "activity", label: "Journal d'activité", icon: ScrollText }];
 /** Message après enregistrement : succès en vert (statut), erreur en rouge (alerte). */
 const Msg = ({ text }: { text: string }) => (!text ? null : /^(Enregistr|Méthode enregistr|Politique enregistr|Marge minimale enregistr|Lien retiré)/.test(text) ? <p className="d3-saved text-sm text-ok font-medium self-start rounded-lg bg-ok-bg px-3 py-1.5" role="status">✓ {text}</p> : <p className="text-sm text-bad" role="alert">{text}</p>);
 
 export function SettingsPage() {
-  const { session, logout } = useSession(); const s = session!; const mainSet = identity().local ? [...MAIN_SET, NETWORK_TAB, SYNC_TAB] : MAIN_SET; // « Réseau local » n'existe que sur le poste principal (version Windows)
+  const { session, logout } = useSession(); const s = session!; const mainSet = identity().local ? [...MAIN_SET, NETWORK_TAB, SYNC_TAB, BACKUP_TAB] : MAIN_SET; // « Réseau local » n'existe que sur le poste principal (version Windows)
   const [f, setF] = useState({ waveTemplate: "", orangeTemplate: "", expiryMinutes: "15" });
   const [msg, setMsg] = useState("");
   const pay = useQuery({ queryKey: ["pay-settings", s.shopId], enabled: can(s, "settings"), queryFn: () => api<{ wave: boolean; orange: boolean }>(s, "payments.settings.get", {}) });
@@ -102,6 +104,7 @@ export function SettingsPage() {
       {tab === "general" && can(s, "settings") && <GeneralSection onTab={(t) => setTab(t as STab)} />}
       {tab === "network" && identity().local && can(s, "settings") && <NetworkSection />}
       {tab === "sync" && identity().local && can(s, "settings") && <SyncSection />}
+      {tab === "backup" && identity().local && can(s, "settings") && <BackupSection />}
       {tab === "shops" && <ShopsSection />}
       {tab === "staff" && <StaffSection />}
       {tab === "subscription" && <SubscriptionSection initial={deep.plan ? { plan: deep.plan, period: deep.period } : undefined} />}

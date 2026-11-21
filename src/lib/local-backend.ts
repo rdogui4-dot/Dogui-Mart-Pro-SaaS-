@@ -27,12 +27,22 @@ export type LocalCloud = {
   conflicts(): Promise<SyncConflict[]>; review(id: number | "all"): Promise<HostStatus>;
   attach(p: { email: string; password: string; stationName: string; tenantId?: string }): Promise<{ ok: true } | { ok: false; error: string; choose?: { id: string; name: string }[] }>;
 };
+export type BackupItem = { name: string; kind: "auto" | "manuel" | "avant-restauration"; size: number; at: string; verification?: { ok: boolean; rows: number; teamName?: string; error?: string; checkedAt: string } };
+export type BackupStatus = { hosted: boolean; backups: BackupItem[]; settings: { keep: number; externalDir: string | null; externalOk: boolean; externalError: string | null; externalLastAt: string | null }; lastOkAt: string | null; canRestoreFile: boolean; alert: { level: "none" | "warn" | "bad"; title: string; detail: string } };
+/** Sauvegardes du poste : liste vérifiée, sauvegarde manuelle, export chiffré, restauration (liste ou fichier), copie externe. */
+export type LocalBackup = {
+  status(): Promise<BackupStatus>; now(): Promise<BackupStatus>; verify(name: string): Promise<BackupStatus>; setSettings(s: { keep?: number; externalDir?: string | null }): Promise<BackupStatus>;
+  exportFile(passphrase: string, name?: string): Promise<{ blob: Blob; filename: string }>; restore(name: string): Promise<{ rows: number; teamName?: string }>;
+  peek(file: File): Promise<{ createdAt: string; teamName?: string; rows?: number }>; importFile(file: File, passphrase: string): Promise<{ rows: number; teamName?: string }>;
+};
+let backupApi: LocalBackup | null = null;
+export const localBackup = (): LocalBackup | null => backupApi;
 let cloudApi: LocalCloud | null = null;
 export const localCloud = (): LocalCloud | null => cloudApi;
 let networkApi: LocalNetwork | null = null;
 export const localNetwork = (): LocalNetwork | null => networkApi;
 
-export function createLocal(base = ""): { backend: Partial<Backend>; identity: Identity; network: LocalNetwork; cloud: LocalCloud; setup: () => Promise<{ needsSetup: boolean }> } {
+export function createLocal(base = ""): { backend: Partial<Backend>; identity: Identity; network: LocalNetwork; cloud: LocalCloud; backup: LocalBackup; setup: () => Promise<{ needsSetup: boolean }> } {
   const req = async (path: string, init: RequestInit = {}): Promise<Response> => {
     const token = getToken(); let r: Response;
     try { r = await fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) } }); }
@@ -78,10 +88,16 @@ export function createLocal(base = ""): { backend: Partial<Backend>; identity: I
     conflicts: async () => (await must<{ conflicts: SyncConflict[] }>("/v1/cloud/conflicts")).conflicts, review: (id) => must("/v1/cloud/conflicts/review", id === "all" ? { all: true } : { id }),
     attach: async (p) => { const r = await raw("/v1/cloud/attach", p); return r.ok ? { ok: true } : { ok: false, error: String(r.b?.error ?? "Rattachement impossible"), choose: r.b?.choose }; },
   };
-  return { backend, identity, network, cloud, setup: async () => json<{ needsSetup: boolean }>(await req("/v1/setup")) };
+  const rawFile = async (path: string, file: File, headers: Record<string, string>) => { const token = getToken(); let r: Response; try { r = await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/octet-stream", ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: file }); } catch { throw new Error("Serveur local injoignable"); } const t = await r.text(); let b: any = {}; try { b = JSON.parse(t); } catch { /* corps non JSON */ } if (!r.ok) throw new LocalError(r.status, String(b?.error ?? "Opération impossible")); return b; };
+  const backup: LocalBackup = {
+    status: () => must("/v1/backup/status"), now: () => must("/v1/backup/now", {}), verify: (name) => must("/v1/backup/verify", { name }), setSettings: (s) => must("/v1/backup/settings", s),
+    exportFile: async (passphrase, name) => { const r = await req("/v1/backup/export", { method: "POST", body: JSON.stringify({ passphrase, name }) }); if (!r.ok) { let m = "Export impossible"; try { m = (await r.json()).error ?? m; } catch { /* corps non JSON */ } throw new LocalError(r.status, m); } const cd = r.headers.get("content-disposition") ?? ""; return { blob: await r.blob(), filename: /filename="([^"]+)"/.exec(cd)?.[1] ?? "sauvegarde.dmpbackup" }; },
+    restore: (name) => must("/v1/backup/restore", { name, confirm: "RESTAURER" }), peek: (file) => rawFile("/v1/backup/peek", file, {}), importFile: (file, passphrase) => rawFile("/v1/backup/import", file, { "x-dmp-passphrase": encodeURIComponent(passphrase), "x-dmp-confirm": "RESTAURER" }),
+  };
+  return { backend, identity, network, cloud, backup, setup: async () => json<{ needsSetup: boolean }>(await req("/v1/setup")) };
 }
 
 /** À appeler au démarrage : si le serveur local sert l'application, remplace le cloud par lui. */
 export function installLocalIfServed(): boolean {
-  if (!isLocalMode()) return false; const l = createLocal(""); setBackend(l.backend); setIdentity(l.identity); networkApi = l.network; cloudApi = l.cloud; return true;
+  if (!isLocalMode()) return false; const l = createLocal(""); setBackend(l.backend); setIdentity(l.identity); networkApi = l.network; cloudApi = l.cloud; backupApi = l.backup; return true;
 }

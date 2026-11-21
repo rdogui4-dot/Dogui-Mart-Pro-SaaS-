@@ -42,9 +42,15 @@ Sur chaque téléphone ou tablette, ouvrez la page **« Connecter un appareil »
 2. Saisissez l'adresse du poste principal (affichée dans *Paramètres → Réseau local*), par exemple `192.168.1.20` ou `dogui.local`. Seules les adresses du réseau local sont acceptées.
 3. **Comparez l'empreinte** affichée avec celle du poste principal (*Paramètres → Réseau local → Certificat de sécurité*). Si elles sont identiques, cochez la case et connectez-vous. L'empreinte est alors mémorisée : un autre appareil se faisant passer pour le poste principal sera refusé.
 
-## 7. Sauvegardes
-- **Automatiques** : une copie de la base par jour dans `%APPDATA%\Dogui Mart Pro\sauvegardes` (les 7 dernières sont gardées), plus une copie avant toute restauration.
-- Pensez à **copier ce dossier régulièrement sur un support externe** : une panne du PC ne doit jamais être la seule copie de vos données (le cloud en garde une copie dès que le poste est rattaché).
+## 7. Sauvegardes (Paramètres → Sauvegardes)
+- **Automatiques** : une copie de la base par jour dans `%APPDATA%\Dogui Mart Pro\sauvegardes` (7 gardées par défaut, réglable de 3 à 60). **Chaque copie est vérifiée aussitôt** (contrôle d'intégrité de la base) ; l'écran indique « vérifiée » ou « invalide ».
+- **Sauvegarder maintenant** : copie manuelle, vérifiée elle aussi.
+- **Copie externe** : indiquez un dossier complet (clé USB, disque réseau, par exemple `E:\Sauvegardes`) : chaque sauvegarde y est copiée automatiquement. Si le dossier est indisponible, un avertissement s'affiche et la copie est refaite dès son retour. Une panne du PC emporterait sinon aussi les sauvegardes.
+- **Alerte** : un bandeau (propriétaire seulement) apparaît si aucune sauvegarde valide n'a moins de 48 heures, ou si la copie externe échoue.
+- **Exporter un fichier chiffré** (`.dmpbackup`) à copier sur une clé USB ou un autre PC. Il est chiffré (AES-256) avec une **phrase secrète de 8 caractères au moins que vous choisissez**. Elle n'est enregistrée nulle part : **si vous la perdez, le fichier est irrécupérable**. Le fichier contient toutes vos données et les empreintes des mots de passe : gardez-le en lieu sûr.
+- **Restaurer** depuis une sauvegarde de la liste ou depuis un fichier exporté : le fichier doit être celui du **même commerce** ; vous tapez RESTAURER pour confirmer ; une copie « avant restauration » de l'état actuel est faite d'abord (les 5 dernières sont gardées) ; vous vous reconnectez ensuite avec les comptes de la sauvegarde.
+- **Poste rattaché au cloud** : la restauration depuis un fichier est désactivée (elle ferait reculer le poste par rapport au cloud). Utilisez **Paramètres → Synchronisation → Rétablir depuis le cloud**.
+- **Nouveau PC après une panne** : installez Dogui Mart Pro, choisissez **Poste principal**, puis sur l'écran de connexion cliquez **« Restaurer une sauvegarde (nouveau PC) »**, choisissez le fichier `.dmpbackup` et saisissez sa phrase secrète. Votre commerce et vos comptes sont retrouvés. Si le commerce était rattaché au cloud, refaites **« Rattacher ce poste »** avec le **même nom de poste**.
 
 ## 8. Mises à jour
 L'application recherche les mises à jour toutes les 6 heures. Quand une version est prête, une fenêtre propose **« Installer maintenant »** ou **« Plus tard »** : choisissez un moment **sans vente en cours**. Rien ne s'installe sans votre accord. Menu de la zone de notification → *Rechercher une mise à jour* pour vérifier à la demande.

@@ -8,15 +8,18 @@ import type { SqliteStore } from "../../dmp-api/src/sqlite-store";
 import { queryRows } from "./query";
 import { connectPage, deviceLabel, type NetworkInfo } from "./network";
 import { createCloudClient, type CloudConfig } from "./cloud";
+import { BackupError, type BackupManager } from "./backup";
 import { attachToCloud, cloudFor, hostState, reconnectCloud, releaseToCloud, restoreFromCloud, runSync } from "./hosting";
 
 /** Serveur local de la version Windows : même fonction métier (`handle`) et même contrat de lecture que le cloud, sur la base SQLite du poste principal.
  *  Il sert aussi l'application web, pour les postes du réseau (navigateur) et pour la fenêtre de bureau. Toute requête de données exige une session. */
-export type LocalServerOptions = { store: SqliteStore; webRoot?: string; admins?: string[]; tls?: { key: string | Buffer; cert: string | Buffer }; /** Adresses et certificat à montrer aux autres appareils (poste principal). */ network?: () => NetworkInfo; /** Vérifie un identifiant et un mot de passe auprès du cloud (première connexion en ligne). */ verifyOnline?: (email: string, password: string) => Promise<"ok" | "bad" | "unreachable"> ; /** Dossier des copies de sécurité (avant une restauration). */ backupDir?: string; /** Liaison au cloud (rattachement, synchronisation, retour au cloud). Absente : le poste reste 100 % local. */ cloud?: { config: CloudConfig; fetch?: typeof fetch } };
+export type LocalServerOptions = { store: SqliteStore; webRoot?: string; admins?: string[]; tls?: { key: string | Buffer; cert: string | Buffer }; /** Adresses et certificat à montrer aux autres appareils (poste principal). */ network?: () => NetworkInfo; /** Vérifie un identifiant et un mot de passe auprès du cloud (première connexion en ligne). */ verifyOnline?: (email: string, password: string) => Promise<"ok" | "bad" | "unreachable"> ; /** Dossier des copies de sécurité (avant une restauration). */ backupDir?: string; /** Sauvegardes du poste (liste, export chiffré, restauration). */ backups?: BackupManager; /** Liaison au cloud (rattachement, synchronisation, retour au cloud). Absente : le poste reste 100 % local. */ cloud?: { config: CloudConfig; fetch?: typeof fetch } };
 const MAX_BODY = 12 * 1024 * 1024;
 const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8", ".map": "application/json" };
 
 const send = (res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => { const text = typeof body === "string" ? body : JSON.stringify(body); res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers }); res.end(text); };
+/** Corps brut (fichier de sauvegarde) avec plafond : jamais plus de `max` octets en mémoire. */
+const readRaw = (req: http.IncomingMessage, max: number): Promise<Buffer> => new Promise((ok, ko) => { const chunks: Buffer[] = []; let n = 0; req.on("data", (c: Buffer) => { n += c.length; if (n > max) { ko(new BackupError(413, "Fichier trop volumineux")); req.destroy(); } else chunks.push(c); }); req.on("end", () => ok(Buffer.concat(chunks))); req.on("error", ko); });
 const readBody = (req: http.IncomingMessage): Promise<string> => new Promise((ok, ko) => { const chunks: Buffer[] = []; let n = 0; req.on("data", (c: Buffer) => { n += c.length; if (n > MAX_BODY) { ko(new Error("trop volumineux")); req.destroy(); } else chunks.push(c); }); req.on("end", () => ok(Buffer.concat(chunks).toString("utf8"))); req.on("error", ko); });
 const clientIp = (req: http.IncomingMessage): string => String(req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
 const sha16 = (token: string): string => createHash("sha256").update(token).digest("hex").slice(0, 16);
@@ -68,6 +71,15 @@ export function createLocalServer(opts: LocalServerOptions) {
       const r = await attachToCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), { email: String(b.email ?? ""), password: String(b.password ?? ""), stationName: String(b.stationName ?? ""), tenantId: b.tenantId ? String(b.tenantId) : undefined });
       return send(res, r.ok ? 200 : 400, r.ok ? { ok: true, tenantId: r.tenantId, report: r.report } : r);
     }
+    if ((path === "/v1/backup/import" || path === "/v1/backup/peek") && method === "POST" && opts.backups) { // fichier de sauvegarde : propriétaire, ou poste VIERGE depuis le poste lui-même (nouveau PC après une panne)
+      const w = authed(req, url); const owner = !!w && store.teamsOf(w.userId).some((t) => t.roles.includes("owner")); if (!owner && !(loopback && needsSetup())) return send(res, 403, { ok: false, error: "Réservé au propriétaire (ou à un poste vierge)" });
+      try {
+        const buf = await readRaw(req, 1024 ** 3); const hosted = store.syncGet("hosted") === "1";
+        if (path === "/v1/backup/peek") return send(res, 200, { ok: true, ...opts.backups.peek(buf) });
+        if (decodeURIComponent(String(req.headers["x-dmp-confirm"] ?? "")) !== "RESTAURER") return send(res, 400, { ok: false, error: "Confirmation requise : tapez RESTAURER" });
+        const r = opts.backups.restoreFromFile(buf, decodeURIComponent(String(req.headers["x-dmp-passphrase"] ?? "")), { hosted }); return send(res, 200, { ok: true, ...r, needsLogin: true });
+      } catch (e) { if (e instanceof BackupError) return send(res, e.status, { ok: false, error: e.message }); throw e; }
+    }
     const who = authed(req, url);
     if (path === "/v1/execute" && method === "POST") {
       const body = JSON.parse((await readBody(req)) || "{}"); const r = await handle(store, who?.userId, body, { admins: opts.admins ?? [] }); return send(res, r.status, r.body);
@@ -98,6 +110,18 @@ export function createLocalServer(opts: LocalServerOptions) {
       if (path === "/v1/cloud/settings" && method === "POST") { const b = JSON.parse((await readBody(req)) || "{}") as { alertHours?: number }; const h = Math.round(Number(b.alertHours)); if (!Number.isFinite(h) || h < 1 || h > 720) return send(res, 400, { ok: false, error: "Seuil d'alerte : 1 à 720 heures" }); store.syncSet("alertHours", String(h)); return send(res, 200, { ok: true, ...hostState(store) }); }
       if (path === "/v1/cloud/restore" && method === "POST") { const b = JSON.parse((await readBody(req)) || "{}") as { confirmName?: string }; if (!opts.backupDir) return send(res, 409, { ok: false, error: "Dossier de sauvegarde non configuré" }); const r = await restoreFromCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch), { backupDir: opts.backupDir, confirmName: String(b.confirmName ?? "") }); return send(res, r.ok ? 200 : 409, r.ok ? { ok: true, ...hostState(store) } : r); }
       if (path === "/v1/cloud/release" && method === "POST") { const r = await releaseToCloud(store, cloudFor(store, opts.cloud.config, opts.cloud.fetch)); return send(res, r.ok ? 200 : 409, r); }
+    }
+    if (path.startsWith("/v1/backup/") && opts.backups) { // sauvegardes : propriétaire seulement
+      const tid = ownerTeam(); if (!tid) return send(res, 403, { ok: false, error: "Réservé au propriétaire" }); const bk = opts.backups; const hosted = store.syncGet("hosted") === "1";
+      try {
+        if (path === "/v1/backup/status" && method === "GET") return send(res, 200, { ok: true, hosted, ...bk.status(hosted) });
+        const b = JSON.parse((await readBody(req)) || "{}") as { name?: string; passphrase?: string; confirm?: string; keep?: unknown; externalDir?: unknown };
+        if (path === "/v1/backup/now" && method === "POST") { const item = bk.create("manuel"); return send(res, 200, { ok: true, item, ...bk.status(hosted) }); }
+        if (path === "/v1/backup/verify" && method === "POST") { const v = bk.verify(String(b.name ?? "")); return send(res, 200, { ok: true, verification: v, ...bk.status(hosted) }); }
+        if (path === "/v1/backup/settings" && method === "POST") { bk.setSettings({ keep: b.keep, externalDir: b.externalDir }); return send(res, 200, { ok: true, ...bk.status(hosted) }); }
+        if (path === "/v1/backup/export" && method === "POST") { const x = bk.exportEncrypted(b.name ? String(b.name) : null, b.passphrase); res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": `attachment; filename="${x.filename}"`, "content-length": String(x.file.length), "cache-control": "no-store" }); return void res.end(x.file); }
+        if (path === "/v1/backup/restore" && method === "POST") { if (b.confirm !== "RESTAURER") return send(res, 400, { ok: false, error: "Confirmation requise : tapez RESTAURER" }); const r = bk.restoreFromList(String(b.name ?? ""), { hosted }); return send(res, 200, { ok: true, ...r, needsLogin: true }); }
+      } catch (e) { if (e instanceof BackupError) return send(res, e.status, { ok: false, error: e.message }); throw e; }
     }
     if (path === "/v1/auth/logout" && method === "POST") { store.closeSession(who.token); return send(res, 200, { ok: true }); }
     let m = /^\/v1\/rows\/([A-Za-z0-9_]+)$/.exec(path);

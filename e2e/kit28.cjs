@@ -1,0 +1,73 @@
+/** Version Windows, lot « sauvegarde et restauration » : écran Sauvegardes du propriétaire (liste vérifiée, sauvegarde manuelle, export chiffré), restauration depuis la liste,
+ *  bandeau d'alerte, puis NOUVEAU PC : restauration du fichier chiffré sur un poste vierge (comptes retrouvés). Lancement : bash e2e/run.sh kit28 */
+const path = require("path"), fs = require("fs"), os = require("os");
+const { chromium } = require("playwright");
+const { startLocalServer } = require("./.build/local.cjs");
+const OUT = path.join(__dirname, "out"); fs.mkdirSync(OUT, { recursive: true });
+const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 3).join(" | ").slice(0, 500)); } };
+(async () => {
+  const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "dmp-bk-a-")), dirB = fs.mkdtempSync(path.join(os.tmpdir(), "dmp-bk-b-")); const web = path.join(__dirname, ".build", "local-site"); const ext = fs.mkdtempSync(path.join(os.tmpdir(), "dmp-bk-ext-"));
+  let srv = await startLocalServer({ dataDir: dirA, webRoot: web, port: 0, host: "127.0.0.1" }); let base = `http://127.0.0.1:${srv.port}`;
+  const browser = await chromium.launch(); const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true }); const page = await ctx.newPage(); page.on("dialog", (d) => void d.accept());
+  const errors = []; page.on("pageerror", (e) => errors.push(String(e.message))); page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource|WebSocket/.test(m.text())) errors.push(m.text()); });
+  const token = () => page.evaluate(() => localStorage.getItem("dmp.local.token"));
+  const exec = async (action, payload, tenantId = "", shopId = "", tk) => { const r = await fetch(`${base}/v1/execute`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tk ?? await token()}` }, body: JSON.stringify({ action, tenantId, shopId, payload }) }); return { status: r.status, body: await r.json() }; };
+  const openBk = async () => { await page.goto(base + "/reglages"); await page.getByRole("tab", { name: "Sauvegardes" }).click(); await page.getByText("Sauvegardes de ce poste").first().waitFor({ timeout: 20000 }); };
+  let tenantId = "", shopId = "", exportPath = "";
+  const login = async (p, b) => { await p.goto(b + "/accueil"); await p.getByLabel("E-mail ou identifiant").fill("awa@boutique.local"); await p.getByLabel("Mot de passe", { exact: true }).fill("Abcdefg1!xyz"); await p.getByRole("button", { name: /Se connecter/ }).last().click(); };
+
+  await step("poste créé hors ligne (assistant d'accueil) ; une sauvegarde automatique vérifiée existe déjà", async () => {
+    await page.goto(base + "/"); await page.getByRole("button", { name: /Créer un compte/ }).click(); await page.getByLabel("Nom complet").fill("Awa Traoré"); await page.getByLabel("Adresse e-mail").fill("awa@boutique.local"); await page.getByLabel("Mot de passe", { exact: true }).fill("Abcdefg1!xyz"); await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Créer mon compte" }).click();
+    await page.getByRole("heading", { name: "Informations sur votre entreprise" }).waitFor({ timeout: 20000 }); await page.getByLabel("Nom de votre activité").fill("Boutique Awa"); await page.getByLabel("Secteur d'activité").selectOption("Alimentation & boissons"); await page.getByLabel("Pays", { exact: true }).selectOption("SN"); await page.getByLabel("Ville", { exact: true }).fill("Dakar"); await page.getByLabel("Adresse complète").fill("Médina"); await page.getByLabel("Téléphone de l'entreprise").fill("+221 77 000 00 00"); await page.getByRole("button", { name: /Continuer vers la boutique/ }).click();
+    await page.getByRole("heading", { name: "Créer votre première boutique" }).waitFor({ timeout: 20000 }); await page.getByLabel("Nom de la boutique").fill("Boutique Awa Dakar"); await page.getByLabel("Type de boutique").selectOption("Commerce de détail"); await page.getByRole("button", { name: /Finaliser et accéder/ }).click(); await page.getByRole("heading", { name: "Configuration terminée !" }).waitFor({ timeout: 20000 }); await page.getByRole("button", { name: /Accéder à mon tableau de bord/ }).click(); await page.waitForTimeout(1500);
+    const s = await (await fetch(`${base}/v1/auth/session`, { headers: { authorization: `Bearer ${await token()}` } })).json(); tenantId = s.teams[0].id; shopId = String(srv.store.db.prepare("SELECT id FROM rows WHERE tbl = 'shops' AND tenant_id = ?").get(tenantId).id);
+    srv.store.db.prepare("UPDATE rows SET data = json_set(data, '$.cashRequired', json('false')) WHERE tbl = 'shops'").run(); await srv.store.create("subscriptions", tenantId, tenantId, { tenantId, plan: "business", period: "month", status: "paid", startedAt: new Date().toISOString(), renewsAt: new Date(Date.now() + 20 * 864e5).toISOString() }).catch(() => undefined);
+    const a = await exec("article.save", { data: { name: "Riz 25 kg", price: 15000, cost: 11000, sku: "RIZ", barcode: "RIZ0" }, initialQty: 12 }, tenantId, shopId); if (a.status !== 200) throw new Error(JSON.stringify(a.body));
+    await openBk(); const t = (await page.locator("body").innerText()).replace(/\s+/g, " "); for (const w of ["À jour", "Automatique", "vérifiée", "Boutique Awa", "Sauvegarder maintenant", "Exporter un fichier de sauvegarde chiffré", "Restaurer depuis un fichier", "Copie externe"]) if (!t.includes(w)) throw new Error("manque : " + w);
+    await page.screenshot({ path: path.join(OUT, "kit28-sauvegardes-1440.png"), fullPage: true });
+  });
+  await step("sauvegarde manuelle ; copie externe : dossier refusé s'il est relatif, accepté sinon, copie faite", async () => {
+    await page.getByRole("button", { name: "Sauvegarder maintenant" }).click(); await page.getByText("Sauvegarde faite et vérifiée.").waitFor({ timeout: 30000 }); await page.getByText("Manuelle").first().waitFor({ timeout: 10000 });
+    await page.getByLabel("Dossier de copie externe").fill("dossier/relatif"); await page.getByRole("button", { name: "Enregistrer" }).click(); await page.getByRole("alert").filter({ hasText: /chemin complet/ }).waitFor({ timeout: 15000 });
+    await page.getByLabel("Dossier de copie externe").fill(ext); await page.getByRole("button", { name: "Enregistrer" }).click(); await page.getByText("Réglages enregistrés.").waitFor({ timeout: 15000 });
+    await page.getByRole("button", { name: "Sauvegarder maintenant" }).click(); await page.getByText("Copie externe active").waitFor({ timeout: 30000 }); const n = fs.readdirSync(ext).filter((f) => f.endsWith(".sqlite")).length; if (n < 1) throw new Error("copie externe absente");
+  });
+  await step("export chiffré : phrase trop courte / différente refusées par le formulaire ; le fichier téléchargé est chiffré (aucune donnée lisible)", async () => {
+    await page.getByLabel("Phrase secrète de l'export").fill("court"); await page.getByLabel("Confirmation de la phrase secrète").fill("court"); if (!(await page.getByRole("button", { name: "Exporter le fichier chiffré" }).isDisabled())) throw new Error("export possible avec une phrase trop courte");
+    await page.getByLabel("Phrase secrète de l'export").fill("phrase-secrete-1"); await page.getByLabel("Confirmation de la phrase secrète").fill("autre-phrase-2"); await page.getByText("Les deux phrases ne sont pas identiques.").waitFor({ timeout: 5000 }); if (!(await page.getByRole("button", { name: "Exporter le fichier chiffré" }).isDisabled())) throw new Error("export possible avec phrases différentes");
+    await page.getByLabel("Confirmation de la phrase secrète").fill("phrase-secrete-1"); const dl = page.waitForEvent("download", { timeout: 30000 }); await page.getByRole("button", { name: "Exporter le fichier chiffré" }).click(); const d = await dl; exportPath = path.join(OUT, "kit28-export.dmpbackup"); await d.saveAs(exportPath);
+    const buf = fs.readFileSync(exportPath); if (buf.subarray(0, 8).toString() !== "DMPBAK01") throw new Error("format"); if (buf.includes(Buffer.from("Riz 25 kg")) || buf.includes(Buffer.from("SQLite format"))) throw new Error("données lisibles dans le fichier exporté"); if (!/\.dmpbackup$/.test(d.suggestedFilename())) throw new Error(d.suggestedFilename());
+    await page.getByText(/prêt : conservez-le avec votre phrase secrète/).waitFor({ timeout: 15000 });
+  });
+  await step("restauration depuis la liste : données récentes retirées, copie « avant restauration » gardée, retour à l'écran de connexion puis reconnexion", async () => {
+    await page.getByRole("button", { name: "Sauvegarder maintenant" }).click(); await page.waitForTimeout(1200); const b = await exec("article.save", { data: { name: "Huile 5 L", price: 6000, cost: 4000, sku: "HUI", barcode: "HUI0" }, initialQty: 5 }, tenantId, shopId); if (b.status !== 200) throw new Error(JSON.stringify(b.body));
+    await openBk(); const list = srv.store.db.prepare("SELECT COUNT(*) AS n FROM rows WHERE tbl = 'products'").get().n; if (list !== 2) throw new Error("2 articles attendus avant : " + list);
+    // restaurer la sauvegarde manuelle faite avant « Huile »
+    const rows = page.getByRole("button", { name: /^Restaurer la sauvegarde du/ }); await rows.first().click(); /* la plus récente : la copie manuelle faite juste avant « Huile » */ const btn = page.getByRole("button", { name: "Restaurer cette sauvegarde" }); if (!(await btn.isDisabled())) throw new Error("bouton actif sans confirmation"); await page.getByLabel("Confirmation de la restauration", { exact: true }).fill("RESTAURER"); await btn.click();
+    try { await page.getByRole("button", { name: /Se connecter/ }).first().waitFor({ timeout: 30000 }); } catch (e) { throw new Error("après restauration : " + (await page.getByRole("alert").allInnerTexts()).join(" / ") + " | url " + page.url() + " | " + (await page.locator("body").innerText()).replace(/\s+/g, " ").slice(0, 300)); } const n = srv.store.db.prepare("SELECT COUNT(*) AS n FROM rows WHERE tbl = 'products'").get().n; if (n !== 1) throw new Error("articles après restauration : " + n);
+    const files = fs.readdirSync(path.join(dirA, "sauvegardes")); if (!files.some((f) => f.startsWith("avant-restauration-"))) throw new Error("pas de copie avant restauration");
+    await login(page, base); await page.getByText("Boutique Awa Dakar").first().waitFor({ timeout: 30000 });
+  });
+  await step("bandeau d'alerte du propriétaire quand plus aucune sauvegarde valide ; 390 px sans débordement", async () => {
+    for (const f of fs.readdirSync(path.join(dirA, "sauvegardes"))) fs.rmSync(path.join(dirA, "sauvegardes", f), { force: true }); await page.goto(base + "/"); await page.getByText(/Aucune sauvegarde valide/).first().waitFor({ timeout: 40000 });
+    await page.setViewportSize({ width: 390, height: 900 }); await page.goto(base + "/reglages?onglet=sauvegardes"); await page.getByText("Sauvegardes de ce poste").first().waitFor({ timeout: 20000 }); const o = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o > 1) throw new Error("débordement " + o); await page.screenshot({ path: path.join(OUT, "kit28-sauvegardes-390.png"), fullPage: true }); await page.setViewportSize({ width: 1440, height: 1000 });
+  });
+  await step("le caissier ne voit pas l'onglet Sauvegardes et n'a aucun accès (403)", async () => {
+    const c = await exec("staff.create", { name: "Moussa", username: "moussa", password: "motdepasse1", role: "cashier", shopIds: [shopId] }, tenantId, ""); if (c.status !== 200) throw new Error(JSON.stringify(c.body));
+    const lg = await fetch(`${base}/v1/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: srv.store.userById(c.body.data.userId).email, password: "motdepasse1" }) }); const tk = (await lg.json()).token; if (!tk) throw new Error("connexion");
+    if ((await fetch(`${base}/v1/backup/status`, { headers: { authorization: `Bearer ${tk}` } })).status !== 403) throw new Error("état lisible par un caissier");
+    const c2 = await browser.newContext({ viewport: { width: 1440, height: 1000 } }); const p2 = await c2.newPage(); await p2.addInitScript((t) => localStorage.setItem("dmp.local.token", t), tk); await p2.goto(base + "/reglages"); await p2.waitForTimeout(3000); if (await p2.getByRole("tab", { name: "Sauvegardes" }).count()) throw new Error("onglet visible"); if (await p2.getByText(/Ouvrir les sauvegardes/).count()) throw new Error("bandeau visible"); await c2.close();
+  });
+  await step("NOUVEAU PC : poste vierge → « Restaurer une sauvegarde » avec le fichier chiffré : mauvaise phrase refusée, bonne phrase acceptée, le propriétaire retrouve son compte et ses données", async () => {
+    const srvB = await startLocalServer({ dataDir: dirB, webRoot: web, port: 0, host: "127.0.0.1" }); const baseB = `http://127.0.0.1:${srvB.port}`; const c3 = await browser.newContext({ viewport: { width: 1440, height: 1000 } }); const p3 = await c3.newPage(); p3.on("dialog", (d) => void d.accept());
+    try {
+      await p3.goto(baseB + "/accueil"); await p3.getByRole("button", { name: /Restaurer une sauvegarde \(nouveau PC\)/ }).click(); await p3.getByLabel("Fichier de sauvegarde").setInputFiles(exportPath); await p3.getByText(/Boutique Awa/).first().waitFor({ timeout: 20000 });
+      await p3.getByLabel("Phrase secrète du fichier").fill("mauvaise-phrase"); await p3.getByLabel("Confirmation").fill("RESTAURER"); await p3.getByRole("button", { name: "Restaurer cette sauvegarde" }).click(); await p3.getByRole("alert").filter({ hasText: /Phrase secrète incorrecte/ }).waitFor({ timeout: 30000 });
+      await p3.getByLabel("Phrase secrète du fichier").fill("phrase-secrete-1"); await p3.getByRole("button", { name: "Restaurer cette sauvegarde" }).click(); await p3.getByRole("button", { name: /Se connecter/ }).first().waitFor({ timeout: 40000 });
+      await login(p3, baseB); await p3.getByText("Boutique Awa Dakar").first().waitFor({ timeout: 30000 }); const n = srvB.store.db.prepare("SELECT COUNT(*) AS n FROM rows WHERE tbl = 'products'").get().n; if (n !== 1) throw new Error("articles restaurés : " + n);
+      await p3.goto(baseB + "/articles"); await p3.getByText("Riz 25 kg").first().waitFor({ timeout: 30000 });
+    } finally { await c3.close(); await srvB.close(); }
+  });
+  console.log("ERRORS", JSON.stringify(errors.slice(0, 5)));
+  await browser.close(); await srv.close(); for (const d of [dirA, dirB, ext]) fs.rmSync(d, { recursive: true, force: true }); process.exit(0);
+})().catch((e) => { console.log("Error", e.message); process.exit(1); });

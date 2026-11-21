@@ -40,11 +40,5 @@ export const isAllowedNavigation = (url: string, origin: string): boolean => { t
 /** Liens externes (WhatsApp, e-mail…) : ouverts dans le navigateur du système, en https seulement. */
 export const isSafeExternal = (url: string): boolean => { try { const u = new URL(url); return u.protocol === "https:" || u.protocol === "mailto:" || u.protocol === "tel:"; } catch { return false; } };
 
-/** Sauvegarde automatique quotidienne : une copie par jour, 7 conservées. */
-export const BACKUP_KEEP = 7;
-export const backupName = (d: Date): string => `auto-${d.toISOString().slice(0, 10)}.sqlite`;
-export const needsBackup = (lastIso: string | undefined, now: Date): boolean => !lastIso || lastIso.slice(0, 10) !== now.toISOString().slice(0, 10);
-/** Noms à supprimer pour ne garder que les `keep` plus récentes sauvegardes automatiques (les autres fichiers, notamment « avant-restauration-… », ne sont jamais touchés). */
-export function backupsToDelete(names: string[], keep = BACKUP_KEEP): string[] {
-  const auto = names.filter((n) => /^auto-\d{4}-\d{2}-\d{2}\.sqlite$/.test(n)).sort(); return auto.slice(0, Math.max(0, auto.length - keep));
-}
+/** Sauvegardes : noms, rotation et règles dans functions/dmp-local/src/backup-logic.ts (une seule source). */
+export { BACKUP_KEEP, backupName, backupsToDelete } from "../../functions/dmp-local/src/backup-logic";

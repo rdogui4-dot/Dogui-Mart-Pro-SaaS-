@@ -482,3 +482,21 @@ Variations réelles : CA du jour vs **hier à la même heure** (jamais la journ�
 **Tests** : `desktop/src/logic.test.ts` (8), `boot.test.ts` (3) ; e2e `kit27` (3 scénarios sur le vrai Electron sous Xvfb : principal, secondaire, empreinte fausse). Le scénario est ignoré proprement si Electron n'est pas installé.
 
 **À faire de votre côté / lot 6** : compilation de l'installateur sur Windows (CI) ; essai d'installation sur un vrai PC (SmartScreen « Éditeur inconnu » attendu), règle de pare-feu, `dogui.local`, téléphones ; publication d'une version sur GitHub Releases pour activer les mises à jour (jamais de signature de code pour l'instant : à reconsidérer si les clients s'inquiètent).
+
+## 48. Lot « Sauvegarde et restauration »
+
+**Décisions validées** : phrase secrète obligatoire pour les exports ; restauration depuis un fichier bloquée sur un poste rattaché au cloud ; copie externe incluse.
+
+**Fait (testé)**
+- **Gestionnaire de sauvegardes** (`functions/dmp-local/src/backup.ts`) : une copie automatique par jour (date UTC), sauvegarde manuelle, copie « avant restauration » ; **chaque copie est vérifiée** à la création (contrôle d'intégrité SQLite, tables attendues, nombre de lignes, commerce) et le résultat est conservé ; rotation par famille (7 automatiques réglables de 3 à 60, 20 manuelles, 5 avant-restauration) sans jamais toucher un fichier inconnu ; écriture atomique (`.part` puis renommage).
+- **Copie externe** : dossier validé (chemin complet, inscriptible, hors du dossier des données), copie de chaque sauvegarde, rotation, **rattrapage** quand le dossier revient ; l'échec n'empêche jamais la sauvegarde locale et est signalé.
+- **Fichier `.dmpbackup`** : en-tête lisible et **authentifié** + base compressée et chiffrée (AES-256-GCM, clé dérivée par scrypt). Phrase de 8 caractères au moins, jamais enregistrée ; toute modification (contenu ou en-tête), mauvaise phrase, fichier tronqué ou étranger est refusé avec un message clair ; aucune donnée lisible dans le fichier.
+- **Restauration** : contrôle d'intégrité, même commerce obligatoire (sauf poste vierge), copie de sécurité de l'existant avant remplacement, liens avec le cloud retirés (le poste restauré redevient un poste local ordinaire), confirmation RESTAURER. **Refusée sur un poste rattaché au cloud** (message : utiliser « Rétablir depuis le cloud »).
+- **Nouveau PC** : sur un poste vierge, import d'un fichier chiffré sans compte (depuis le poste lui-même seulement) ; le propriétaire retrouve son compte et ses données.
+- **Routes** (`/v1/backup/*`, propriétaire seulement ; import aussi pour un poste vierge) : `status`, `now`, `verify`, `settings`, `export` (binaire), `restore`, `peek`, `import` (fichier brut, 1 Go maximum).
+- **Interface** : Paramètres → « Sauvegardes » (liste vérifiée, sauvegarde manuelle, export chiffré avec confirmation de la phrase, restauration depuis la liste ou un fichier, réglages et copie externe) ; bandeau d'alerte propriétaire (aucune sauvegarde valide depuis 48 h, ou copie externe en échec) ; « Restaurer une sauvegarde (nouveau PC) » sur l'écran de connexion d'un poste vierge.
+- Les sauvegardes quotidiennes sont maintenant gérées par le serveur local (une seule source pour le poste principal, la CLI et l'application Windows).
+
+**Tests** : `backup.test.ts` (11 : logique, alerte, format chiffré et falsification, gestionnaire, copie externe, export puis restauration sur poste neuf, refus), `backup-routes.test.ts` (4 : routes, droits, restauration, poste rattaché, poste vierge) ; e2e `kit28` (7 scénarios sur un vrai serveur et navigateur : sauvegarde, copie externe, export chiffré et contenu illisible, restauration depuis la liste, bandeau, caissier sans accès, nouveau PC).
+
+**Limites** : une phrase secrète perdue rend le fichier irrécupérable (annoncé dans l'écran) ; après la restauration d'un poste qui était rattaché au cloud, il faut refaire « Rattacher ce poste » avec le même nom de poste ; la restauration d'un fichier sur un poste déjà rattaché est volontairement refusée.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backupName, backupsToDelete, DEFAULT_PORT, isAllowedNavigation, isSafeExternal, needsBackup, normalizeAddress, parseConfig, samePin } from "./logic";
+import { backupName, backupsToDelete, DEFAULT_PORT, isAllowedNavigation, isSafeExternal, normalizeAddress, parseConfig, samePin } from "./logic";
 
 const FP = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, "0").toUpperCase()).join(":");
 describe("configuration du poste", () => {
@@ -28,10 +28,10 @@ describe("navigation de la fenêtre", () => {
     expect(isSafeExternal("https://wa.me/221770000000")).toBe(true); expect(isSafeExternal("mailto:a@b.sn")).toBe(true); expect(isSafeExternal("javascript:alert(1)")).toBe(false); expect(isSafeExternal("file:///c:/windows")).toBe(false); expect(isSafeExternal("http://x.com")).toBe(false);
   });
 });
-describe("sauvegarde automatique quotidienne", () => {
-  it("une par jour, nommée par date ; 7 conservées ; les autres fichiers ne sont jamais supprimés", () => {
-    const d = new Date("2026-06-10T08:00:00Z"); expect(backupName(d)).toBe("auto-2026-06-10.sqlite"); expect(needsBackup(undefined, d)).toBe(true); expect(needsBackup("2026-06-10T01:00:00Z", d)).toBe(false); expect(needsBackup("2026-06-09T23:00:00Z", d)).toBe(true);
-    const names = Array.from({ length: 10 }, (_, i) => `auto-2026-06-${String(i + 1).padStart(2, "0")}.sqlite`).concat(["avant-restauration-2026-05-01.sqlite", "notes.txt"]);
+describe("sauvegardes (règles partagées avec le serveur local)", () => {
+  it("noms par date ; 7 gardées ; les autres fichiers ne sont jamais supprimés", () => {
+    expect(backupName(new Date("2026-06-10T08:00:00Z"))).toBe("auto-2026-06-10.sqlite");
+    const names = Array.from({ length: 10 }, (_, i) => `auto-2026-06-${String(i + 1).padStart(2, "0")}.sqlite`).concat(["avant-restauration-2026-05-01T10-00-00.sqlite", "notes.txt"]);
     expect(backupsToDelete(names)).toEqual(["auto-2026-06-01.sqlite", "auto-2026-06-02.sqlite", "auto-2026-06-03.sqlite"]); expect(backupsToDelete(names.slice(0, 5))).toEqual([]); expect(backupsToDelete([])).toEqual([]);
   });
 });
