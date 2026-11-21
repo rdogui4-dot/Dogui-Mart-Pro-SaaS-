@@ -21,7 +21,11 @@ Date : 2026-11-21 · Plan : `S2-PLAN.md` §4.3 · Suite de S2-a (publié, vérif
 ## Preuves
 13 tests du domaine, 16 tests serveur (`security-status.test.ts` : rôles, 2FA lue / illisible, journal vide, chaîne rompue, refus comptés, sondes du poste, isolation entre commerces, purge avec ancre, trou détecté, durée minimale, chaîne rompue refusée, action admin), 1 test du poste réel (sauvegardes mesurées). **1742 tests verts**, typecheck propre.
 
-## À faire en production au « publie »
+## Essai réel sur Appwrite (2026-11-21, compte jetable, nettoyage vérifié) : 7/7
+Colonnes `anchorSeq` / `anchorHash` ajoutées à `security_heads` (« available ») et écriture vérifiée ; code déployé. Commerce jetable : `security.status` lu par le propriétaire — **2FA réellement lue dans l'annuaire Appwrite** (la clé de la fonction a le droit : « non activée », donc à surveiller), abonnement en essai (ok), synchronisation et constats « sans objet » (cloud seul), sauvegardes **inconnues** (jamais « ok »), refus 0, chaîne du journal vérifiée, score 83 avec couverture 75 %, aucune heure de mesure sur les contrôles inconnus ; purge refusée au propriétaire (administrateur seulement). Confirmé en production : le journal de la plateforme n'a plus aucun droit de lecture (`$permissions: []`). Nettoyage : compte, employé, équipe, lignes (abonnement, boutique, employé, audit, événements, pointeurs) supprimés ; absence vérifiée.
+Non testée en réel : la purge elle-même (aucun événement de plus de 13 mois n'existe ; couverte par les tests avec horloge simulée).
+
+## Mise en production (réalisée)
 Ajouter deux colonnes à `security_heads` (`anchorSeq` entier, `anchorHash` texte 64) : nécessaires seulement à la purge (sans elles, la purge échouerait ; le reste fonctionne).
 
 ## Limites
