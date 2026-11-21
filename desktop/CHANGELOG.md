@@ -1,5 +1,9 @@
 # Historique des versions — Dogui Mart Pro pour Windows
 
+## 1.0.2
+- Correctif : le poste ne synchronise plus les tables de la plateforme (rattachement d'un nouveau poste au cloud réparé ; aucune donnée de la plateforme n'est copiée sur un poste de commerce).
+- Essai de bout en bout validé sur le vrai cloud (27 contrôles).
+
 ## 1.0.1
 - Sauvegardes vérifiées (quotidiennes, manuelles, avant restauration), copie externe automatique, alerte à 48 h.
 - Export chiffré `.dmpbackup` et restauration (liste ou fichier), restauration sur un nouveau PC.

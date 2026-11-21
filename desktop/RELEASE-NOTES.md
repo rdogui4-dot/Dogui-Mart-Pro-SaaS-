@@ -3,10 +3,9 @@
 Logiciel de caisse, stock, achats, clients et comptabilité avec **réseau local intégré** : un PC du magasin (le *poste principal*) garde les données, les partage aux autres appareils et les copie automatiquement dans le cloud dès qu'Internet est là. Sans Internet, la caisse continue.
 
 ### Nouveautés de cette version
-- **Sauvegardes** (Paramètres → Sauvegardes) : une copie par jour, vérifiée aussitôt (contrôle d'intégrité), plus « Sauvegarder maintenant » ; **copie externe automatique** vers une clé USB ou un disque réseau ; alerte si aucune sauvegarde valide n'a moins de 48 heures.
-- **Export chiffré** (`.dmpbackup`, AES-256, phrase secrète de votre choix — perdue, le fichier est irrécupérable) et **restauration** depuis la liste ou un fichier, avec copie de sécurité avant.
-- **Nouveau PC après une panne** : sur l'écran de connexion d'un poste vierge, « Restaurer une sauvegarde (nouveau PC) ».
-- Un poste rattaché au cloud restaure via « Rétablir depuis le cloud » (la restauration d'un fichier y est volontairement désactivée).
+- **Correctif important — rattachement au cloud** : le poste ne demande plus les tables de la plateforme (liens de paiement, formules, configuration MASTER, cache de marchés). Avec la v1.0.1, le rattachement d'un nouveau poste à un commerce du cloud pouvait échouer (« Erreur interne ») ; c'est corrigé et validé sur le vrai cloud. **Mettez à jour dès que la proposition apparaît.**
+- Validé de bout en bout sur le vrai cloud : rattachement, ventes, employés créés sur le poste (connexion possible au cloud), photos, retour au cloud.
+- Les sauvegardes vérifiées, la copie externe, l'export chiffré et la restauration de la v1.0.1 sont inchangés.
 
 ### Installer
 1. Téléchargez **`Dogui-Mart-Pro-Setup.exe`** ci-dessous (Windows 10 ou 11, 64 bits).
