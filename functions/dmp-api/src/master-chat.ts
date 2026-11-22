@@ -5,6 +5,8 @@ import { marginOf, type MarginLine } from "../../../src/domain/master-report";
 import { addDays, boundsOf, todayIn } from "../../../src/domain/overview";
 import { DEFAULT_TIMEZONE, isTimezone } from "../../../src/domain/promotions";
 import { isPeriodCode, periodWindow, AI_QIDS, PROMPT_VERSION, CLASSIFY_SYSTEM, GUIDED, LIMITS, WRITE_SYSTEM, checkWrite, classifyInput, cleanQuestion, dayKey, matchQuestion, parseClassify, parseWrite, retentionCutoff, writeInput, type Answer } from "../../../src/domain/master-chat";
+import { detectSecrets } from "../../../src/domain/ai-guard";
+import { readJournal, recordSecurityEvent } from "./security-log";
 import { AiError, aiConfig, aiStatus, geminiJson, type AiConfig } from "./ai-gemini";
 import { MIN, iso, parse } from "./crm";
 import { roleKind } from "./fin-rules";
@@ -203,6 +205,14 @@ export async function aiWriteVia(call: Caller, answer: Answer, text: string): Pr
   const w = parseWrite(await call(WRITE_SYSTEM, writeInput(answer, text))); const chk = w ? checkWrite(w, answer) : { ok: false, reason: "rédaction illisible" };
   return w && chk.ok ? { answer: { ...answer, conclusion: w.conclusion, observations: w.observations.length ? w.observations : answer.observations }, reason: "" } : { answer: null, reason: chk.reason };
 }
+/** Journal d'activité : jamais de texte libre venu du fournisseur ou du modèle (parenthèses retirées, longueur bornée). */
+const auditNotes = (notes: string[]) => notes.join(" ").replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim().slice(0, 150);
+/** Alerte de budget (SEC-C2A-05) : 80 % puis 100 % du plafond global de jetons du jour, une seule fois par jour et par palier (journal de la plateforme). */
+export async function budgetAlert(store: Store, ctx: Ctx, cfg: AiConfig) {
+  const used = await globalTokensToday(store); const pct = used / cfg.globalDailyTokens; const kind = pct >= 1 ? "ai.budget.full" : pct >= 0.8 ? "ai.budget.warn" : null; if (!kind) return;
+  const day = quotaDay(); const j = await readJournal(store, "platform").catch(() => null); if (!j || j.rows.some((r) => r.kind === kind && r.target === `jour:${day}`)) return;
+  await recordSecurityEvent(store, { tenantId: "platform", kind, outcome: "denied", actorId: "system", actorRole: "system", target: `jour:${day}`, requestId: ctx.requestId, source: ctx.source ?? "cloud" });
+}
 const quotaDay = () => dayKey();
 const GLOBAL_PREFIX = "ug";
 /** Compteur de jetons de TOUTE la plateforme pour le jour (plafond global de coût). Mise à jour par lecture puis écriture : l'application est volontairement approximative sous forte concurrence (plafond souple). */
@@ -222,7 +232,7 @@ async function userGuard(store: Store, ctx: Ctx) {
 /** Purge au fil des consultations : lignes de décompte de plus de 90 jours (60 au plus par appel). */
 async function purgeUsage(store: Store, tenantId: string) { const cut = dayKey(new Date(Date.now() - 90 * 864e5)); const old = (await store.scan("md_usage", { tenantId }, { maxRows: 4000 })).rows.filter((r) => String(r.day) < cut).slice(0, 60); for (const r of old) await store.remove("md_usage", r.$id); }
 async function quotaUsed(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.length; }
-async function tokensToday(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.reduce((s, r) => s + Number(r.tokensIn ?? 0) + Number(r.tokensOut ?? 0), 0); }
+export async function tokensToday(store: Store, tenantId: string): Promise<number> { return (await store.scan("md_usage", { tenantId, day: quotaDay() }, { maxRows: LIMITS.daily + 5 })).rows.reduce((s, r) => s + Number(r.tokensIn ?? 0) + Number(r.tokensOut ?? 0), 0); }
 async function claimQuota(store: Store, ctx: Ctx): Promise<string> { const day = quotaDay(); let n = (await quotaUsed(store, ctx.tenantId)) + 1; for (; n <= LIMITS.daily; n++) { const id = `us${sha(`${ctx.tenantId}|${day}|${n}`).slice(0, 28)}`; if (await store.create("md_usage", id, ctx.tenantId, { tenantId: ctx.tenantId, day, n, userId: ctx.userId })) return id; } throw new HttpError(429, `Plafond atteint : ${LIMITS.daily} questions par jour pour l'entreprise. Revenez demain.`); }
 
 export const aiMode = () => { const s = aiStatus(); const waiting = s.enabledFlag && s.keyPresent && s.modelSet && !s.billingConfirmed;
@@ -246,6 +256,7 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
   reader(ctx); await needMaster(store, ctx); const rk = String(b.requestKey ?? ""); if (!/^[A-Za-z0-9_-]{12,64}$/.test(rk)) throw new HttpError(400, "Identifiant de demande invalide");
   const uid = `mu${sha(`${ctx.tenantId}|${ctx.userId}|${rk}|u`).slice(0, 28)}`; const aid = `ma${sha(`${ctx.tenantId}|${ctx.userId}|${rk}|a`).slice(0, 28)}`;
   const prevU = await store.get("md_msgs", uid); if (prevU) { if (prevU.tenantId !== ctx.tenantId || prevU.userId !== ctx.userId) throw new HttpError(404, "Introuvable"); const prevA = await store.get("md_msgs", aid); return { chatId: String(prevU.chatId), user: view(prevU), assistant: prevA ? view(prevA) : null, duplicate: true }; }
+  if (!b.qid) { const sec = detectSecrets(b.text); if (sec.length) { await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: "ai.secret.blocked", outcome: "denied", actorId: ctx.userId, actorRole: ctx.roles[0] ?? "", target: `question:${sec.join("+")}`, requestId: ctx.requestId, source: ctx.source ?? "cloud", throttleKey: ctx.userId }); throw new HttpError(422, "Votre message semble contenir un secret (clé, jeton ou mot de passe). Il n'a pas été traité, transmis ni conservé. Retirez-le et reformulez votre question."); } }
   await userGuard(store, ctx);
   let text: string; let qid = ""; let days = 7;
   if (b.qid) { const g = GUIDED.find((x) => x.id === b.qid); if (!g) throw new HttpError(400, "Question inconnue"); qid = g.id; text = g.label; const d = Number(b.days ?? 7); days = isPeriodCode(d) ? d : 7; }
@@ -269,17 +280,17 @@ export async function chatAsk(store: Store, ctx: Ctx, b: { chatId?: string; text
     try { answer = await TOOLS[qid]!({ store, ctx, shop: shop ?? ({ $id: "", name: "Entreprise" } as Row), days }); }
     catch (e) { if (e instanceof HttpError && (e.status === 402 || e.status === 403)) answer = fail(qid, e.message); else { await store.remove("md_usage", claim); throw e; } }
     if (ai && AI_QIDS.includes(qid) && answer.facts.length) { // rédaction : le modèle reformule, les chiffres et les sources restent ceux de l'outil ; toute rédaction non vérifiée est écartée
-      try { const w = await aiWriteVia(callAi, answer, text); if (w.answer) { answer = { ...w.answer, ai: { used: true, model: ai.model, style: ai.style, prompt: PROMPT_VERSION } }; mode = "ai"; } else notes.push(`Rédaction par IA écartée (${w.reason}) : réponse calculée affichée.`); }
+      try { const w = await aiWriteVia(callAi, answer, text); if (w.answer) { answer = { ...w.answer, ai: { used: true, model: ai.model, style: ai.style, prompt: PROMPT_VERSION } }; mode = "ai"; } else { notes.push(`Rédaction par IA écartée (${w.reason}) : réponse calculée affichée.`); await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: "ai.output.rejected", outcome: "denied", actorId: ctx.userId, actorRole: ctx.roles[0] ?? "", target: `${/secret/.test(w.reason) ? "secret" : /contenu non autorisé/.test(w.reason) ? "contenu" : /nombre/.test(w.reason) ? "nombre" : "forme"}`, requestId: ctx.requestId, source: ctx.source ?? "cloud", throttleKey: "out" }); } }
       catch (e) { notes.push(e instanceof AiError ? `${e.message} : réponse calculée affichée.` : "Rédaction par IA indisponible : réponse calculée affichée."); }
     }
   }
   if (!answer.ai) answer = { ...answer, ai: { used: false, ...(ai ? { model: ai.model, style: ai.style, prompt: PROMPT_VERSION } : {}), ...(notes.length ? { note: notes.join(" ") } : {}) } };
   if (claim && (tok.in || tok.out || attempted)) await store.update("md_usage", claim, { tokensIn: tok.in, tokensOut: tok.out, aiUsed: mode === "ai" ? 1 : 0, fallback: attempted && notes.length ? 1 : 0 });
-  if (tok.in || tok.out) await addGlobalTokens(store, tok.in, tok.out).catch(() => undefined);
+  if (tok.in || tok.out) { await addGlobalTokens(store, tok.in, tok.out).catch(() => undefined); if (cfg) await budgetAlert(store, ctx, cfg).catch(() => undefined); }
   if (!b.chatId) await store.create("md_chats", chatId, ctx.tenantId, { tenantId: ctx.tenantId, userId: ctx.userId, title: text.slice(0, LIMITS.title), createdAt: t, updatedAt: t });
   await store.create("md_msgs", uid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "user", text, qid, mode, createdAt: t });
   await store.create("md_msgs", aid, ctx.tenantId, { tenantId: ctx.tenantId, chatId, userId: ctx.userId, role: "assistant", text: answer.conclusion.slice(0, 1000), data: JSON.stringify(answer), qid, mode, createdAt: new Date(Date.parse(t) + 1).toISOString() });
   if (b.chatId) await store.update("md_chats", chatId, { updatedAt: t });
-  await audit(store, ctx, "chat.ask", mode === "ai" || tok.in || tok.out ? `${qid || "non-apparié"} · mode IA (prompt ${PROMPT_VERSION}) · transmis : question (${text.length} car.) + résultats agrégés sans donnée nominative · jetons ${tok.in}/${tok.out}${notes.length ? " · repli : " + notes.join(" ").slice(0, 150) : ""}` : `${qid || "non-apparié"} · mode guidé · aucune donnée transmise à un fournisseur externe${notes.length ? " · " + notes.join(" ").slice(0, 150) : ""}`);
+  await audit(store, ctx, "chat.ask", mode === "ai" || tok.in || tok.out ? `${qid || "non-apparié"} · mode IA (prompt ${PROMPT_VERSION}) · transmis : question (${text.length} car.) + résultats agrégés sans donnée nominative · jetons ${tok.in}/${tok.out}${notes.length ? " · repli : " + auditNotes(notes) : ""}` : `${qid || "non-apparié"} · mode guidé · aucune donnée transmise à un fournisseur externe${notes.length ? " · " + auditNotes(notes) : ""}`);
   return { chatId, user: view((await store.get("md_msgs", uid))!), assistant: view((await store.get("md_msgs", aid))!), duplicate: false };
 }

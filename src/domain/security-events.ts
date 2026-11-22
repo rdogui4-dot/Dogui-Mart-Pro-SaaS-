@@ -44,6 +44,10 @@ export const EVENT_KINDS = {
   "platform.master.hook.rotate": { severity: "critical", label: "Jeton du webhook de paiement renouvelé", scope: "platform" },
   "platform.master.hook.save": { severity: "warning", label: "Configuration du webhook de paiement modifiée", scope: "platform" },
   "platform.payment.review": { severity: "info", label: "Paiement examiné par la plateforme", scope: "platform" },
+  "ai.secret.blocked": { severity: "warning", label: "Assistant IA : message contenant un secret refusé (non transmis, non conservé)", scope: "tenant" },
+  "ai.output.rejected": { severity: "info", label: "Assistant IA : rédaction du modèle écartée par le contrôle", scope: "tenant" },
+  "ai.budget.warn": { severity: "warning", label: "Assistant IA : 80 % du plafond global de jetons du jour atteint", scope: "platform" },
+  "ai.budget.full": { severity: "critical", label: "Assistant IA : plafond global de jetons du jour atteint", scope: "platform" },
 } as const satisfies Record<string, { severity: Severity; label: string; scope: "tenant" | "platform" }>;
 export type EventKind = keyof typeof EVENT_KINDS;
 export const isEventKind = (k: unknown): k is EventKind => typeof k === "string" && Object.hasOwn(EVENT_KINDS, k);

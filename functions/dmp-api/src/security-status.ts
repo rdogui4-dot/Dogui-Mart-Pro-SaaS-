@@ -1,3 +1,5 @@
+import { aiConfig, aiStatus } from "./ai-gemini";
+import { tokensToday } from "./master-chat";
 import { UNMEASURED, evaluateStatus, scoreOf, type StatusInput } from "../../../src/domain/security-status";
 import { AUDIT_TO_EVENT, normAt } from "../../../src/domain/security-events";
 import { parseHost } from "./hosting";
@@ -30,6 +32,12 @@ export async function securityStatus(store: Store, ctx: Ctx) {
       const recorded = journal.rows.filter((r) => kinds.has(String(r.kind)) && ts(r) >= first).length;
       input.coverage = { expected, recorded };
     }
+  }
+  // Assistant IA (S4-a)
+  if (journal) {
+    const t7d = Date.parse(now) - 7 * 24 * 3_600_000; const recent = journal.rows.filter((r) => Date.parse(normAt(String(r.at))) >= t7d); const n = (kind: string, f: (t: string) => boolean = () => true) => recent.filter((r) => r.kind === kind && f(String(r.target))).reduce((c, r) => c + Number(r.count ?? 1), 0);
+    const st = aiStatus(); const cfg = aiConfig(); let budgetPct: number | null = null; if (cfg) { try { budgetPct = (await tokensToday(store, ctx.tenantId)) / cfg.dailyTokens * 100; } catch { budgetPct = null; } }
+    input.ia = { enabledFlag: st.enabledFlag, billingConfirmed: st.billingConfirmed, active: !!cfg, blocked7d: n("ai.secret.blocked"), rejected7d: n("ai.output.rejected"), leaks7d: n("ai.output.rejected", (t) => t === "secret"), budgetPct };
   }
   const checks = evaluateStatus(input);
   return { measuredAt: now, checks, ...scoreOf(checks), limits: [...UNMEASURED] };

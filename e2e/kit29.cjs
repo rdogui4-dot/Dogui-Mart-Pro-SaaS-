@@ -20,8 +20,8 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!(await page.getByRole("link", { name: /Security Guardian/ }).count())) throw new Error("entrée de menu absente");
     await page.screenshot({ path: path.join(OUT, "kit29-controles-1440.png"), fullPage: true });
   });
-  await step("9 contrôles : sauvegardes « Inconnu » (aucune mesure, jamais conforme), synchronisation « Sans objet », 2FA « À surveiller » puis « Conforme » une fois mesurée", async () => {
-    const cards = page.getByRole("listitem", { name: /.+/ }); const n = await cards.count(); if (n !== 9) throw new Error("contrôles : " + n);
+  await step("10 contrôles : sauvegardes « Inconnu » (aucune mesure, jamais conforme), synchronisation « Sans objet », 2FA « À surveiller » puis « Conforme » une fois mesurée", async () => {
+    const cards = page.getByRole("listitem", { name: /.+/ }); const n = await cards.count(); if (n !== 10) throw new Error("contrôles : " + n);
     const back = page.getByRole("listitem", { name: "Sauvegardes du poste" }); const bt = await back.innerText(); if (!/Inconnu/.test(bt) || !/aucune mesure/.test(bt) || /Conforme/.test(bt)) throw new Error("sauvegardes : " + bt);
     if (!/Sans objet/.test(await page.getByRole("listitem", { name: "Synchronisation du poste avec le cloud" }).innerText())) throw new Error("sync");
     const m = page.getByRole("listitem", { name: "Double authentification des propriétaires" }); if (!/À surveiller/.test(await m.innerText())) throw new Error("2FA avant : " + (await m.innerText()));

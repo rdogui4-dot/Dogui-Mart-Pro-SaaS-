@@ -20,6 +20,8 @@ export type StatusInput = {
   privileges?: { last72h: number; last7d: number } | null;
   /** Actions sensibles du journal d'activité (depuis le premier événement de sécurité) et événements de sécurité correspondants ; null = non mesurable */
   coverage?: { expected: number; recorded: number } | null;
+  /** Assistant IA (SEC-C2A) : verrous de la plateforme et incidents vus par le garde sur 7 jours ; null = non mesurable */
+  ia?: { enabledFlag: boolean; billingConfirmed: boolean; active: boolean; blocked7d: number; rejected7d: number; leaks7d: number; budgetPct: number | null } | null;
 };
 const H = 3_600_000; const ago = (iso: string | null, now: string) => (iso && !Number.isNaN(Date.parse(iso)) ? (Date.parse(now) - Date.parse(iso)) / H : null);
 const mk = (c: Omit<Check, "measuredAt"> & { measuredAt?: string | null }, now: string): Check => ({ ...c, measuredAt: c.state === "unknown" || c.state === "na" ? null : (c.measuredAt ?? now) });
@@ -80,6 +82,14 @@ export function evaluateStatus(i: StatusInput): Check[] {
   out.push(mk(!i.coverage ? { id: "journal_coverage", title: "Journal de sécurité complet", weight: 10, state: "unknown", evidence: "Aucun événement de sécurité de référence ou journal illisible : rien à comparer.", source: "Journal de sécurité et journal d'activité" }
     : i.coverage.recorded >= i.coverage.expected ? { id: "journal_coverage", title: "Journal de sécurité complet", weight: 10, state: "ok", evidence: `${i.coverage.expected} action(s) sensible(s) du journal d'activité, ${i.coverage.recorded} événement(s) de sécurité correspondant(s).`, source: "Journal de sécurité et journal d'activité" }
     : { id: "journal_coverage", title: "Journal de sécurité complet", weight: 10, state: "watch", evidence: `${i.coverage.expected - i.coverage.recorded} action(s) sensible(s) n'ont pas d'événement de sécurité (${i.coverage.recorded} sur ${i.coverage.expected}).`, source: "Journal de sécurité et journal d'activité", advice: "Des événements n'ont pas été écrits ou ont été supprimés : examiner le journal et contacter l'administrateur de la plateforme." }, now));
+  // 10. Assistant IA : verrous et incidents (SEC-C2A-04/05/07)
+  const IA = { id: "ia_garde", title: "Assistant IA : verrous et garde", weight: 10, source: "Configuration de l'assistant et journal de sécurité" };
+  out.push(mk(!i.ia ? { ...IA, state: "unknown", evidence: "Configuration de l'assistant ou journal illisible : non mesuré." }
+    : !i.ia.enabledFlag ? { ...IA, state: "na", evidence: "Assistant IA désactivé : aucune donnée n'est transmise à un fournisseur." }
+    : !i.ia.active ? { ...IA, state: "ok", evidence: `IA demandée mais verrous incomplets (${i.ia.billingConfirmed ? "clé ou modèle manquant" : "offre payante non confirmée"}) : l'assistant reste en mode guidé, rien n'est transmis.` }
+    : i.ia.leaks7d > 0 ? { ...IA, state: "critical", evidence: `${i.ia.leaks7d} réponse(s) du modèle contenant un secret ont été écartées ces 7 jours.`, advice: "Prévenir l'administrateur de la plateforme : un secret a transité par le modèle." }
+    : i.ia.blocked7d >= 3 || (i.ia.budgetPct !== null && i.ia.budgetPct >= 80) ? { ...IA, state: "watch", evidence: i.ia.blocked7d >= 3 ? `${i.ia.blocked7d} message(s) contenant un secret ont été refusés ces 7 jours.` : `Consommation de l'IA du jour à ${Math.round(i.ia.budgetPct!)} % du plafond du commerce.`, advice: i.ia.blocked7d >= 3 ? "Rappeler aux utilisateurs de ne jamais saisir de mot de passe ou de clé dans l'assistant." : "Au plafond, l'assistant répond en mode guidé jusqu'à demain." }
+    : { ...IA, state: "ok", evidence: `Verrous confirmés ; ${i.ia.blocked7d} message(s) refusé(s) et ${i.ia.rejected7d} rédaction(s) écartée(s) ces 7 jours ; aucun secret en sortie.` }, now));
   return out;
 }
 
