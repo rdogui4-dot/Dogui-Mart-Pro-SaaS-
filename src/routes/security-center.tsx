@@ -112,10 +112,11 @@ function AccountsTab() {
   const run = async () => {
     if (!ask) return; const a = ask; setAsk(null); setBusy(true); setMsg(""); setErr("");
     try {
-      if (a.kind === "backup") { await bk!.now(); setMsg("Sauvegarde effectuée et vérifiée."); }
-      else if (a.kind === "revoke") { const r = await api<{ revoked: number }>(s, "security.sessions.revoke", { userId: a.m!.userId }); setMsg(`Sessions de ${a.m!.name} fermées (${r.revoked}).`); }
-      else { await api(s, "staff.update", { userId: a.m!.userId, active: a.kind === "enable" }); setMsg(a.kind === "enable" ? `Compte de ${a.m!.name} réactivé.` : `Compte de ${a.m!.name} désactivé.`); }
-      await done();
+      let done_msg = "";
+      if (a.kind === "backup") { await bk!.now(); done_msg = "Sauvegarde effectuée et vérifiée."; }
+      else if (a.kind === "revoke") { const r = await api<{ revoked: number }>(s, "security.sessions.revoke", { userId: a.m!.userId }); done_msg = `Sessions de ${a.m!.name} fermées (${r.revoked}).`; }
+      else { await api(s, "staff.update", { userId: a.m!.userId, active: a.kind === "enable" }); done_msg = a.kind === "enable" ? `Compte de ${a.m!.name} réactivé.` : `Compte de ${a.m!.name} désactivé.`; }
+      await done(); setMsg(done_msg); // le message n'apparaît qu'une fois les listes et le journal relus : jamais « fait » devant un journal pas encore à jour
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   const acts = (m: Member) => m.role === "owner" ? <span className="text-xs text-muted">Aucune action sur un propriétaire</span> : (

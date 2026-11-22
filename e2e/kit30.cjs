@@ -3,14 +3,15 @@
 const path = require("path"), fs = require("fs");
 const { start } = require("./harness.cjs");
 const OUT = path.join(__dirname, "out"); fs.mkdirSync(OUT, { recursive: true });
-const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 3).join(" | ").slice(0, 400)); } };
+const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 3).join(" | ").slice(0, 1500)); } };
 (async () => {
   const h = await start({ plan: "business", expect: [] }); const { page, st } = h; const T = "t1";
   const mk = async (name, username, role) => (await h.call("staff.create", { name, username, password: "motdepasse1", role, shopIds: [h.shop] }, "")).body.data.userId;
   const moussa = await mk("Moussa Diop", "moussa", "cashier"); await mk("Awa Fall", "awa", "manager"); st.security.set(moussa, { lastLogin: new Date().toISOString(), sessions24h: 2, mfa: false });
   const open = async (w = 1440, hh = 1000) => { await page.setViewportSize({ width: w, height: hh }); await page.goto(h.url("securite")); await page.getByRole("region", { name: "Niveau de sécurité" }).waitFor({ timeout: 15000 }); await page.getByRole("tab", { name: /Comptes et actions/ }).click(); await page.getByRole("region", { name: "Comptes du commerce" }).waitFor({ timeout: 8000 }); if (w >= 768) await page.getByRole("table", { name: "Comptes du commerce" }).waitFor({ timeout: 8000 }); };
   const row = (n) => page.getByRole("table", { name: "Comptes du commerce" }).getByRole("row", { name: new RegExp(n) });
-  const jr = async () => { await page.getByRole("tab", { name: /Journal de sécurité/ }).click(); await page.getByText(/Chaîne vérifiée|Rupture/).waitFor({ timeout: 8000 }); const t = (await page.getByRole("table", { name: "Journal de sécurité" }).innerText()).replace(/\s+/g, " "); await page.getByRole("tab", { name: /Comptes et actions/ }).click(); await page.getByRole("table", { name: "Comptes du commerce" }).waitFor(); return t; };
+  // Le journal affiche d'abord les données en cache puis se relit : on attend que le texte attendu apparaisse (au lieu de lire le tableau tout de suite).
+  const jr = async (...expect) => { await page.getByRole("tab", { name: /Journal de sécurité/ }).click(); await page.getByText(/Chaîne vérifiée|Rupture/).waitFor({ timeout: 8000 }); const read = async () => (await page.getByRole("table", { name: "Journal de sécurité" }).innerText()).replace(/\s+/g, " "); const t0 = Date.now(); let t = await read(); while (expect.some((re) => !re.test(t)) && Date.now() - t0 < 8000) { await page.waitForTimeout(150); t = await read(); } await page.getByRole("tab", { name: /Comptes et actions/ }).click(); await page.getByRole("table", { name: "Comptes du commerce" }).waitFor(); return t; };
 
   await step("onglet « Comptes et actions » : employés avec état, connexion, sessions, 2FA ; le propriétaire n'a aucune action ; sauvegarde immédiate expliquée hors poste Windows", async () => {
     await open(); const t = (await page.getByRole("table", { name: "Comptes du commerce" }).innerText()).replace(/\s+/g, " ");
@@ -27,14 +28,14 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   await step("fermer les sessions après confirmation : message, compte visé seulement, événement au journal", async () => {
     await row("Moussa Diop").getByRole("button", { name: /Fermer les sessions de Moussa Diop/ }).click(); await page.getByRole("alertdialog").getByRole("button", { name: "Fermer les sessions" }).click();
     await page.getByRole("status").filter({ hasText: "Sessions de Moussa Diop fermées" }).waitFor({ timeout: 8000 }); if (JSON.stringify(st.revoked) !== JSON.stringify([moussa])) throw new Error("comptes visés : " + JSON.stringify(st.revoked));
-    const t = await jr(); if (!/Sessions d'un employé fermées/.test(t)) throw new Error("journal : " + t.slice(0, 300));
+    const t = await jr(/Sessions d'un employé fermées/); if (!/Sessions d'un employé fermées/.test(t)) throw new Error("journal : " + t.slice(0, 300));
   });
   await step("désactiver puis réactiver : état mis à jour, événements dédiés, aucun mot de passe dans le journal", async () => {
     await row("Awa Fall").getByRole("button", { name: /Désactiver le compte de Awa Fall/ }).click(); const dlg = page.getByRole("alertdialog"); if (!/ne verra plus aucune donnée/.test(await dlg.innerText())) throw new Error("texte"); await dlg.getByRole("button", { name: "Désactiver le compte" }).click();
     await page.getByRole("status").filter({ hasText: "Compte de Awa Fall désactivé" }).waitFor({ timeout: 8000 }); await page.waitForFunction(() => /Désactivé/.test(document.body.innerText), null, { timeout: 8000 });
     if (!(await row("Awa Fall").getByRole("button", { name: /Réactiver le compte de Awa Fall/ }).count())) throw new Error("bouton Réactiver absent");
     await row("Awa Fall").getByRole("button", { name: /Réactiver le compte de Awa Fall/ }).click(); await page.getByRole("alertdialog").getByRole("button", { name: "Réactiver le compte" }).click(); await page.getByRole("status").filter({ hasText: "Compte de Awa Fall réactivé" }).waitFor({ timeout: 8000 });
-    const t = await jr(); if (!/Compte d'un employé désactivé/.test(t) || !/Compte d'un employé réactivé/.test(t)) throw new Error("événements : " + t.slice(0, 400)); if (/motdepasse|awa|moussa/i.test(t)) throw new Error("donnée sensible");
+    const t = await jr(/Compte d'un employé désactivé/, /Compte d'un employé réactivé/); if (!/Compte d'un employé désactivé/.test(t) || !/Compte d'un employé réactivé/.test(t)) throw new Error("événements : " + t.slice(0, 400)); if (/motdepasse|awa|moussa/i.test(t)) throw new Error("donnée sensible");
     await page.screenshot({ path: path.join(OUT, "kit30-journal-1440.png"), fullPage: true });
   });
   await step("erreur du serveur affichée clairement (alerte), sans message de succès", async () => {
