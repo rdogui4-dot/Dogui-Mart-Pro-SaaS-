@@ -74,7 +74,7 @@ export async function syncIssues(cfg: Cfg, deps: Deps, alerts: Alert[], simulati
   }
   const live = new Set(alerts.map((a) => issueTitle(a.id, simulation)));
   for (const i of open) {
-    const k = issueIdOf(i.title); if (!k || k.simulation !== simulation || live.has(i.title)) continue; // les simulations ne ferment que les simulations, et inversement
+    const k = issueIdOf(i.title); if (!k || live.has(i.title)) continue; if (simulation && !k.simulation) continue; // une simulation ne ferme JAMAIS un ticket réel ; une exécution réelle ferme aussi les tickets de simulation (jamais un incident)
     await gh(cfg, deps, `/issues/${i.number}/comments`, { method: "POST", body: JSON.stringify({ body: "Situation rétablie : le moniteur ne détecte plus cette alerte. Ticket clos automatiquement." }) });
     await gh(cfg, deps, `/issues/${i.number}`, { method: "PATCH", body: JSON.stringify({ state: "closed", state_reason: "completed" }) }); closed.push(k.id);
   }

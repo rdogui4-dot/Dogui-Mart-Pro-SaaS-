@@ -73,10 +73,11 @@ describe("moniteur : tickets d'alerte", () => {
     const c: any[] = []; const r = await syncIssues(cfg, deps(issues([{ number: 4, title: "[Alerte sécurité] api_down" }, { number: 9, title: "Question d'un client" }], c)), [], false);
     expect(r.closed).toEqual(["api_down"]); expect(c.map((x) => `${x.m} ${x.u.split("/issues/")[1]}`)).toEqual(["POST 4/comments", "PATCH 4"]); expect(c[1].body.state).toBe("closed");
   });
-  it("les simulations ne ferment que les simulations (et inversement) : un essai ne masque jamais un incident réel", async () => {
+  it("une simulation ne ferme JAMAIS un ticket réel (un essai ne masque pas un incident) ; une exécution réelle ferme les tickets de simulation (jamais un incident)", async () => {
     const c: any[] = []; await syncIssues(cfg, deps(issues([{ number: 4, title: "[Alerte sécurité] api_down" }], c)), [], true); expect(c).toEqual([]);
-    const d: any[] = []; await syncIssues(cfg, deps(issues([{ number: 5, title: "[SIMULATION] [Alerte sécurité] api_down" }], d)), [], false); expect(d).toEqual([]);
-    const e: any[] = []; const r = await syncIssues(cfg, deps(issues([{ number: 5, title: "[SIMULATION] [Alerte sécurité] api_down" }], e)), [], true); expect(r.closed).toEqual(["api_down"]);
+    const d: any[] = []; const r = await syncIssues(cfg, deps(issues([{ number: 5, title: "[SIMULATION] [Alerte sécurité] api_down" }], d)), [], false); expect(r.closed).toEqual(["api_down"]);
+    const e: any[] = []; expect((await syncIssues(cfg, deps(issues([{ number: 5, title: "[SIMULATION] [Alerte sécurité] api_down" }], e)), [], true)).closed).toEqual(["api_down"]);
+    const f: any[] = []; expect((await syncIssues(cfg, deps(issues([{ number: 6, title: "[SIMULATION] [Alerte sécurité] api_down" }], f)), [{ id: "api_down", severity: "critical", title: "t", detail: "d" }], false)).closed).toEqual(["api_down"]); // alerte réelle identique : le ticket réel s'ouvre, la simulation se ferme
   });
   it("échec de GitHub : l'erreur remonte (le moniteur échoue au lieu de se taire)", async () => { await expect(syncIssues(cfg, deps(mkFetch([(u) => (u.includes("/issues?") ? J({}, 500) : undefined)])), [A], false)).rejects.toThrow(/HTTP 500/); });
 });

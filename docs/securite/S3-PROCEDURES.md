@@ -41,7 +41,7 @@ Signes : pas de **bilan du lundi**, ticket `moniteur_muet`, ou aucune exécution
 - `panne` : les sondes visent une adresse inexistante → alertes de coupure ;
 - `derive` : la « version publiée » est faussée → alertes de dérive ;
 - `ancre` : le numéro du journal semble avoir reculé → `journal_rewind`.
-L'exécution échoue (c'est le but), les tickets portent le préfixe `[SIMULATION]` et se ferment à la simulation suivante ou à l'exécution réelle suivante qui ne les reproduit pas ; l'ancre réelle n'est pas modifiée.
+L'exécution échoue (c'est le but) ; les tickets portent le préfixe `[SIMULATION]`. Une simulation ne ferme **jamais** un ticket réel ; la **prochaine exécution réelle ferme les tickets de simulation** (ils ne sont jamais un incident). L'ancre réelle n'est pas modifiée.
 
 ## Limites assumées
 - Le moniteur partage le domaine de confiance **GitHub** avec le code (protection de branche partielle, 2FA activée, secret scanning actif).
