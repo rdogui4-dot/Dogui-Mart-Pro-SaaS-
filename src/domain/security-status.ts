@@ -16,6 +16,10 @@ export type StatusInput = {
   /** Événements du journal : refus des 24 dernières heures et total ; null = journal illisible */
   journal: { denied24h: number; total: number } | null;
   chain: { ok: boolean; checked: number; problems: string[]; fromStart: boolean } | null;
+  /** Changements de privilèges (élévation de rôle, droits étendus) : sur 72 h et sur 7 jours ; null = journal illisible */
+  privileges?: { last72h: number; last7d: number } | null;
+  /** Actions sensibles du journal d'activité (depuis le premier événement de sécurité) et événements de sécurité correspondants ; null = non mesurable */
+  coverage?: { expected: number; recorded: number } | null;
 };
 const H = 3_600_000; const ago = (iso: string | null, now: string) => (iso && !Number.isNaN(Date.parse(iso)) ? (Date.parse(now) - Date.parse(iso)) / H : null);
 const mk = (c: Omit<Check, "measuredAt"> & { measuredAt?: string | null }, now: string): Check => ({ ...c, measuredAt: c.state === "unknown" || c.state === "na" ? null : (c.measuredAt ?? now) });
@@ -68,6 +72,14 @@ export function evaluateStatus(i: StatusInput): Check[] {
     : i.journal.total === 0 ? { id: "journal_chain", title: "Intégrité du journal de sécurité", weight: 20, state: "unknown", evidence: "Aucun événement enregistré : rien à vérifier.", source: "Journal de sécurité" }
     : i.chain.ok ? { id: "journal_chain", title: "Intégrité du journal de sécurité", weight: 20, state: "ok", evidence: `${i.chain.checked} événement(s) vérifié(s)${i.chain.fromStart ? " depuis l'origine" : " depuis le premier événement conservé"} : chaîne intacte.`, source: "Journal de sécurité" }
     : { id: "journal_chain", title: "Intégrité du journal de sécurité", weight: 20, state: "critical", evidence: `Rupture de chaîne : ${i.chain.problems[0] ?? "anomalie"}`, source: "Journal de sécurité", advice: "Le journal a été modifié ou des événements ont été supprimés : contacter l'administrateur de la plateforme." }, now));
+  // 8. Changements de privilèges (SEC-C3-06) : une élévation récente est à vérifier par le propriétaire (un compte propriétaire compromis commencerait par là).
+  out.push(mk(!i.privileges ? { id: "privileges", title: "Changements de privilèges (7 jours)", weight: 5, state: "unknown", evidence: "Journal illisible : non mesuré.", source: "Journal de sécurité" }
+    : i.privileges.last72h > 0 ? { id: "privileges", title: "Changements de privilèges (7 jours)", weight: 5, state: "watch", evidence: `${i.privileges.last72h} changement(s) de rôle ou de droits ces 72 heures (${i.privileges.last7d} sur 7 jours).`, source: "Journal de sécurité", advice: "Vérifier dans le journal que ces changements sont bien les vôtres." }
+    : { id: "privileges", title: "Changements de privilèges (7 jours)", weight: 5, state: "ok", evidence: `Aucun changement ces 72 heures (${i.privileges.last7d} sur 7 jours).`, source: "Journal de sécurité" }, now));
+  // 9. Journal alimenté : chaque action sensible tracée au journal d'activité doit avoir son événement (l'écriture du journal de sécurité ne fait jamais échouer l'opération : un échec serait sinon silencieux).
+  out.push(mk(!i.coverage ? { id: "journal_coverage", title: "Journal de sécurité complet", weight: 10, state: "unknown", evidence: "Aucun événement de sécurité de référence ou journal illisible : rien à comparer.", source: "Journal de sécurité et journal d'activité" }
+    : i.coverage.recorded >= i.coverage.expected ? { id: "journal_coverage", title: "Journal de sécurité complet", weight: 10, state: "ok", evidence: `${i.coverage.expected} action(s) sensible(s) du journal d'activité, ${i.coverage.recorded} événement(s) de sécurité correspondant(s).`, source: "Journal de sécurité et journal d'activité" }
+    : { id: "journal_coverage", title: "Journal de sécurité complet", weight: 10, state: "watch", evidence: `${i.coverage.expected - i.coverage.recorded} action(s) sensible(s) n'ont pas d'événement de sécurité (${i.coverage.recorded} sur ${i.coverage.expected}).`, source: "Journal de sécurité et journal d'activité", advice: "Des événements n'ont pas été écrits ou ont été supprimés : examiner le journal et contacter l'administrateur de la plateforme." }, now));
   return out;
 }
 

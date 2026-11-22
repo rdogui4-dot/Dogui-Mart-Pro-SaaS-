@@ -5,7 +5,7 @@ const { start } = require("./harness.cjs");
 const OUT = path.join(__dirname, "out"); fs.mkdirSync(OUT, { recursive: true });
 const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); } catch (e) { console.log("FAIL", name, "→", String(e.message).split("\n").slice(0, 3).join(" | ").slice(0, 400)); } };
 (async () => {
-  const h = await start({ plan: "business", expect: ["security.status", "security.events"] }); const { page, st } = h; const T = "t1";
+  const h = await start({ plan: "business", expect: ["security.status", "security.events", "stk.alerts"] }); const { page, st } = h; const T = "t1";
   const cashier = (await h.call("staff.create", { name: "Moussa", username: "moussa", password: "motdepasse1", role: "cashier", shopIds: [h.shop] }, "")).body.data.userId;
   await h.handle(st, cashier, { action: "staff.create", tenantId: T, shopId: "", payload: {} }, {}); // refus : droits insuffisants (événement du commerce)
   await h.handle(st, "etranger", { action: "sales.list", tenantId: T, shopId: h.shop, payload: {} }, {}); // étranger : va au journal de la plateforme, jamais à celui du commerce
@@ -20,8 +20,8 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
     if (!(await page.getByRole("link", { name: /Security Guardian/ }).count())) throw new Error("entrée de menu absente");
     await page.screenshot({ path: path.join(OUT, "kit29-controles-1440.png"), fullPage: true });
   });
-  await step("7 contrôles : sauvegardes « Inconnu » (aucune mesure, jamais conforme), synchronisation « Sans objet », 2FA « À surveiller » puis « Conforme » une fois mesurée", async () => {
-    const cards = page.getByRole("listitem", { name: /.+/ }); const n = await cards.count(); if (n !== 7) throw new Error("contrôles : " + n);
+  await step("9 contrôles : sauvegardes « Inconnu » (aucune mesure, jamais conforme), synchronisation « Sans objet », 2FA « À surveiller » puis « Conforme » une fois mesurée", async () => {
+    const cards = page.getByRole("listitem", { name: /.+/ }); const n = await cards.count(); if (n !== 9) throw new Error("contrôles : " + n);
     const back = page.getByRole("listitem", { name: "Sauvegardes du poste" }); const bt = await back.innerText(); if (!/Inconnu/.test(bt) || !/aucune mesure/.test(bt) || /Conforme/.test(bt)) throw new Error("sauvegardes : " + bt);
     if (!/Sans objet/.test(await page.getByRole("listitem", { name: "Synchronisation du poste avec le cloud" }).innerText())) throw new Error("sync");
     const m = page.getByRole("listitem", { name: "Double authentification des propriétaires" }); if (!/À surveiller/.test(await m.innerText())) throw new Error("2FA avant : " + (await m.innerText()));

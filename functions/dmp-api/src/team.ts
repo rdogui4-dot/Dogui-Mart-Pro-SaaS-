@@ -6,6 +6,7 @@ import { checkLot, ensureLot, expiredPolicyOf, lotsWithStock, serialRowId } from
 import { refuseBundle } from "./bundles";
 import { stockFor, stockScaledVariant } from "./checkout";
 import { recordSecurityEvent } from "./security-log";
+import { isElevation } from "../../../src/domain/security-events";
 import { HttpError, need, type Ctx, type Store, needModule } from "./store";
 import { assertQuota, entitlementOf, getSub, grantLifetime } from "./subscriptions";
 import { labelsFor } from "./permissions";
@@ -111,6 +112,8 @@ export async function updateStaff(store: Store, ctx: Ctx, b: { userId: string; n
     await store.setLabels(s.$id, labelsFor(role, modulesFor(role, patch.access ?? s.access), shops, active));
   }
   if (Object.keys(patch).length) await store.update("staff", s.$id, patch);
+  if (b.access !== undefined && !patch.role) { const was = modulesFor(String(s.role ?? ""), s.access); const now = modulesFor(String(s.role ?? ""), patch.access); if (now.some((m) => !was.includes(m))) await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: "staff.rights", outcome: "accepted", actorId: ctx.userId, actorRole: "owner", target: "compte:employé", source: ctx.source ?? "cloud", requestId: ctx.requestId }); } // accès étendus (modules ajoutés)
+  if (patch.role && patch.role !== s.role) await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: isElevation(String(s.role ?? ""), String(patch.role)) ? "staff.role.elevate" : "staff.role.change", outcome: "accepted", actorId: ctx.userId, actorRole: "owner", target: "compte:employé", source: ctx.source ?? "cloud", requestId: ctx.requestId }); // une élévation de privilèges est un geste de sécurité
   if (b.active !== undefined && (s.active !== false) !== !!b.active) await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: b.active ? "staff.enable" : "staff.disable", outcome: "accepted", actorId: ctx.userId, actorRole: "owner", target: "compte:employé", source: ctx.source ?? "cloud", requestId: ctx.requestId }); // événement dédié : la désactivation d'un compte est un geste de sécurité
   await store.create("audit_log", `${newId()}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: parse<string[]>(s.shopIds, [])[0] ?? "", userId: ctx.userId, action: "staff.update", detail: `${s.name} ${Object.keys(patch).join(",")}` });
   return { ok: true };

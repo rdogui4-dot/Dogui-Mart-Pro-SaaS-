@@ -22,5 +22,13 @@ Date : 2026-11-22 · Plan : `S3-PLAN.md`. Décisions prises (délégation du pro
 2. Vérifier en réel : `health.ping` et `GET /health` (versions = commit publié) ; un faux jeton de webhook produit bien l'événement `hook.rejected` (preuve que `dmp-hooks` est à jour).
 3. Lancer le moniteur en réel puis les trois simulations (panne, dérive, ancre) : échec attendu, ticket `[SIMULATION]` ouvert, e-mail GitHub, fermeture ensuite ; mesurer le délai réel des exécutions planifiées.
 
+## S3-c — Contrôles du Centre de sécurité (code, **pas encore publié**)
+- **Événements dédiés** : « Rôle d'un employé élevé » (avertissement : le nouveau rôle donne plus d'accès : consultant < caissier < magasinier = comptable < gérant), « Rôle modifié » (information), « droits étendus » (modules ajoutés par la liste d'accès ; modules retirés : aucun événement). Écrits par la modification d'employé, avec le numéro de requête.
+- **Contrôle « Changements de privilèges (7 jours) »** : à surveiller si une élévation ou une extension de droits a eu lieu dans les 72 dernières heures (avec le conseil de vérifier qu'elle est bien de vous), sinon conforme avec le décompte sur 7 jours. Lien vers l'équipe.
+- **Contrôle « Journal de sécurité complet »** : compare les actions sensibles tracées au **journal d'activité** (création/modification d'employé, mot de passe, fermeture de sessions, hébergement du poste) aux événements de sécurité correspondants, depuis le premier événement conservé. Moins d'événements que d'actions ⇒ à surveiller avec le nombre manquant : c'est le seul moyen de voir un **échec d'écriture du journal** (qui ne fait jamais échouer l'opération) ou une suppression d'événements. Journal sans événement : inconnu (rien à comparer) ; les actions antérieures au journal ne comptent pas.
+- Neuf contrôles au total ; le score tient compte des poids (5 et 10).
+- Limite : l'ajout d'un **nouveau propriétaire** n'a pas d'action dans l'application (pas d'événement à écrire) ; il reste visible dans « Équipe & Permissions ».
+- Preuves : tests du domaine (9 contrôles, états, jamais « ok » sans mesure), 7 tests serveur (élévation, baisse, nom sans effet, droits étendus/retirés, isolation entre commerces, complétude normale puis écriture en échec simulée, journal vide, actions antérieures), e2e `kit29` (9 contrôles). 1808 tests verts, typecheck propre.
+
 ## Reste du lot S3
-S3-c (contrôles « changements de privilèges » et « activité du journal » dans le Centre de sécurité). S3-d reporté.
+S3-d reporté (clé de lecture non fournie, D18).

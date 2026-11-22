@@ -19,6 +19,7 @@ export function levelOf(score: number | null): { label: string; tone: StatusTone
 /** Page où traiter chaque constat (liens existants de l'application ; aucun lien vers une page qui n'existe pas). */
 export const CHECK_LINK: Record<string, { to: string; onglet?: string; label: string }> = {
   mfa_owner: { to: "/reglages", onglet: "equipe", label: "Voir l'équipe et les comptes" },
+  privileges: { to: "/reglages", onglet: "equipe", label: "Voir l'équipe et les rôles" },
   subscription: { to: "/reglages", onglet: "abonnement", label: "Voir l'abonnement" },
   sync: { to: "/reglages", onglet: "synchronisation", label: "Ouvrir la synchronisation" },
   backups: { to: "/reglages", onglet: "sauvegardes", label: "Ouvrir les sauvegardes" },

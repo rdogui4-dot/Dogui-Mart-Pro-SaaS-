@@ -68,10 +68,25 @@ describe("journal de sécurité", () => {
 describe("score : règles visibles", () => {
   it("moyenne pondérée des seuls contrôles mesurés (ok 100 %, à surveiller 50 %, critique 0) ; couverture = part du poids mesurée", () => {
     const checks = evaluateStatus({ ...NONE, owners: [{ userId: "a", mfa: true }], subscription: { status: "active", renewsAt: "2027-01-01T00:00:00Z" }, host: { hosted: false }, journal: { denied24h: 0, total: 3 }, chain: { ok: true, checked: 3, problems: [], fromStart: true } });
-    const sc = scoreOf(checks); expect(sc.score).toBe(100); expect(sc.unknown).toBe(1); expect(sc.coverage).toBeLessThan(100); expect(sc.coverage).toBeGreaterThan(50);
+    const sc = scoreOf(checks); expect(sc.score).toBe(100); expect(sc.unknown).toBe(3); expect(sc.coverage).toBeLessThan(100); expect(sc.coverage).toBeGreaterThan(50);
     const w = scoreOf(evaluateStatus({ ...NONE, owners: [{ userId: "a", mfa: false }], subscription: { status: "active", renewsAt: "2027-01-01T00:00:00Z" } })); expect(w.score).toBe(Math.round(((20 * 0.5 + 10) / 30) * 100));
   });
   it("un contrôle critique fait baisser le score ; « sans objet » ne compte pas", () => {
     const checks = evaluateStatus({ ...NONE, subscription: { status: "expired" }, host: { hosted: false } }); expect(scoreOf(checks).score).toBe(0); expect(scoreOf(checks).total).toBe(checks.filter((c) => c.state !== "na").length);
   });
+});
+
+describe("changements de privilèges et journal complet (S3-c)", () => {
+  it("aucune donnée : inconnu (jamais ok)", () => { expect(get(NONE, "privileges").state).toBe("unknown"); expect(get(NONE, "journal_coverage").state).toBe("unknown"); });
+  it("privilèges : rien = ok ; une élévation dans les 72 h = à surveiller avec conseil ; plus ancien = ok avec le décompte", () => {
+    expect(get({ ...NONE, privileges: { last72h: 0, last7d: 0 } }, "privileges").state).toBe("ok");
+    const w = get({ ...NONE, privileges: { last72h: 2, last7d: 3 } }, "privileges"); expect(w.state).toBe("watch"); expect(w.advice).toBeTruthy(); expect(w.evidence).toContain("2 changement");
+    const o = get({ ...NONE, privileges: { last72h: 0, last7d: 2 } }, "privileges"); expect(o.state).toBe("ok"); expect(o.evidence).toContain("2 sur 7 jours");
+  });
+  it("journal complet : autant d'événements que d'actions sensibles = ok ; moins = à surveiller avec le nombre manquant ; non mesurable = inconnu", () => {
+    expect(get({ ...NONE, coverage: { expected: 4, recorded: 4 } }, "journal_coverage").state).toBe("ok"); expect(get({ ...NONE, coverage: { expected: 0, recorded: 0 } }, "journal_coverage").state).toBe("ok");
+    const w = get({ ...NONE, coverage: { expected: 5, recorded: 3 } }, "journal_coverage"); expect(w.state).toBe("watch"); expect(w.evidence).toContain("2 action"); expect(w.advice).toBeTruthy();
+    expect(get({ ...NONE, coverage: { expected: 3, recorded: 7 } }, "journal_coverage").state).toBe("ok"); expect(get({ ...NONE, coverage: null }, "journal_coverage").state).toBe("unknown");
+  });
+  it("neuf contrôles au total, identifiants uniques", () => { const c = evaluateStatus(NONE); expect(c.length).toBe(9); expect(new Set(c.map((x) => x.id)).size).toBe(9); });
 });

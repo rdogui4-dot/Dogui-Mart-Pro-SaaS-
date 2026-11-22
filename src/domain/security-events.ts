@@ -21,6 +21,8 @@ export const EVENT_KINDS = {
   "staff.invite.create": { severity: "info", label: "Invitation créée", scope: "tenant" },
   "staff.invite.renew": { severity: "info", label: "Invitation renouvelée", scope: "tenant" },
   "staff.invite.revoke": { severity: "info", label: "Invitation révoquée", scope: "tenant" },
+  "staff.role.elevate": { severity: "warning", label: "Rôle d'un employé élevé (accès étendu)", scope: "tenant" },
+  "staff.role.change": { severity: "info", label: "Rôle d'un employé modifié", scope: "tenant" },
   "staff.disable": { severity: "warning", label: "Compte d'un employé désactivé", scope: "tenant" },
   "staff.enable": { severity: "info", label: "Compte d'un employé réactivé", scope: "tenant" },
   "staff.sessions.revoke": { severity: "warning", label: "Sessions d'un employé fermées", scope: "tenant" },
@@ -81,3 +83,9 @@ export function verifyChain(rows: ChainRow[], head?: { seq: number; hash: string
   if (head && !last && head.seq > (anchor?.seq ?? 0)) problems.push(`tous les événements (n°${(anchor?.seq ?? 0) + 1} à ${head.seq}) sont absents`);
   return { ok: problems.length === 0, checked: sorted.length, firstSeq: sorted[0]?.seq ?? null, lastSeq: last?.seq ?? null, problems, fromStart: !(anchor && anchor.seq > 0) && sorted[0]?.seq === 1 };
 }
+
+/** Niveau d'accès d'un rôle d'employé (pour repérer une ÉLÉVATION de privilèges). Rôle inconnu = le plus restreint. */
+export const ROLE_RANK: Record<string, number> = { viewer: 0, cashier: 1, stockkeeper: 2, accountant: 2, manager: 3 };
+export const isElevation = (from: string, to: string): boolean => (ROLE_RANK[to] ?? 0) > (ROLE_RANK[from] ?? 0);
+/** Actions du journal d'ACTIVITÉ (audit_log) qui doivent chacune laisser un événement de sécurité : sert à repérer un événement manquant (écriture en échec ou suppression). */
+export const AUDIT_TO_EVENT: Record<string, string> = { "staff.create": "staff.create", "staff.update": "staff.update", "staff.password_reset": "staff.resetPassword", "staff.sessions.revoke": "staff.sessions.revoke", "host.claim": "host.claim", "host.release": "host.release" };

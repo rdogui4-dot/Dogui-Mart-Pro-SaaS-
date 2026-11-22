@@ -98,3 +98,39 @@ describe("rétention du journal (13 mois) et ancrage de la chaîne", () => {
     expect((await ok(call("root", "platform.security.purge", {}, "", ""))).purged).toBe(1); expect((await readJournal(st, PLATFORM_JOURNAL)).chain.ok).toBe(true);
   });
 });
+
+// Le magasin en mémoire ne date pas les lignes comme Appwrite ($createdAt) : on date ici les lignes du journal d'activité, comme en production.
+const dateAudit = (store: MemoryStore) => { const orig = store.create.bind(store); (store as any).create = (t: string, id: string, tn: string, d: Record<string, unknown>) => orig(t, id, tn, t === "audit_log" ? { $createdAt: new Date().toISOString(), ...d } : d); };
+describe("S3-c : changements de privilèges et complétude du journal", () => {
+  beforeEach(() => dateAudit(st));
+  it("élever le rôle d'un employé : événement « élevé » (avertissement) et contrôle à surveiller ; baisser : événement « modifié » (information), sans alerte", async () => {
+    await ok(call("own", "staff.update", { userId: U.caissier, role: "manager" }, "")); const e = (await ok(call("own", "security.events", { kind: "staff.role.elevate" }, "", T))).events; expect(e.length).toBe(1); expect(e[0]).toMatchObject({ severity: "warning", actorRole: "owner", target: "compte:employé" });
+    const s1 = await status(); expect(chk(s1, "privileges").state).toBe("watch"); expect(chk(s1, "privileges").evidence).toMatch(/1 changement/);
+    await ok(call("own", "staff.update", { userId: U.caissier, role: "cashier" }, "")); expect((await ok(call("own", "security.events", { kind: "staff.role.change" }, "", T))).events.length).toBe(1);
+  });
+  it("sans changement de rôle (nom, boutiques) : aucun événement de privilège ; contrôle ok", async () => {
+    await ok(call("own", "staff.update", { userId: U.caissier, name: "Autre nom" }, "")); const ev = (await ok(call("own", "security.events", {}, "", T))).events.map((x: any) => x.kind); expect(ev.some((k: string) => k.startsWith("staff.role"))).toBe(false); expect(chk(await status(), "privileges").state).toBe("ok");
+  });
+  it("accès étendus (modules ajoutés) : événement « droits » ; retirés : aucun", async () => {
+    await ok(call("own", "staff.update", { userId: U.caissier, access: ["pos", "customers", "stock"] }, "")); expect((await ok(call("own", "security.events", { kind: "staff.rights" }, "", T))).events.length).toBe(1);
+    await ok(call("own", "staff.update", { userId: U.caissier, access: ["pos"] }, "")); expect((await ok(call("own", "security.events", { kind: "staff.rights" }, "", T))).events.length).toBe(1);
+  });
+  it("les privilèges d'un autre commerce ne comptent pas", async () => {
+    await st.grant("tenantsst002", "own2", ["owner"], []); await recordSecurityEvent(st, { tenantId: "tenantsst002", kind: "staff.role.elevate", outcome: "accepted", actorId: "own2", source: "cloud" }); expect(chk(await status(), "privileges").state).toBe("ok");
+  });
+  it("journal complet : usage normal = ok ; un événement qui n'a pas pu s'écrire alors que l'action a eu lieu = à surveiller (échec autrement silencieux)", async () => {
+    await ok(call("own", "staff.update", { userId: U.caissier, name: "A" }, "")); expect(chk(await status(), "journal_coverage").state).toBe("ok");
+    const real = st.batch.bind(st); (st as any).batch = async (ops: any[]) => { if (ops.some((o) => o.table === "security_events")) throw new Error("panne simulée"); return real(ops); };
+    await ok(call("own", "staff.update", { userId: U.caissier, name: "B" }, "")); await ok(call("own", "staff.update", { userId: U.caissier, name: "C" }, "")); (st as any).batch = real;
+    const c = chk(await status(), "journal_coverage"); expect(c.state).toBe("watch"); expect(c.evidence).toMatch(/n'ont pas d'événement/); expect(c.advice).toBeTruthy();
+  });
+  it("journal sans événement : complétude inconnue (rien à comparer), jamais ok", async () => {
+    const empty = new MemoryStore(); await empty.grant("tenantsst009", "o9", ["owner"], []); const r = await handle(empty, "o9", { action: "security.status", tenantId: "tenantsst009", shopId: "", payload: {} }, { cloud: true }); expect(chk((r.body as any).data, "journal_coverage").state).toBe("unknown");
+  });
+  it("les actions antérieures au journal ne comptent pas (journal créé après elles)", async () => {
+    const s2 = new MemoryStore(); dateAudit(s2); await s2.grant("tenantsst010", "o10", ["owner"], []); const shop = (await (async () => { const r: any = await handle(s2, "o10", { action: "shop.create", tenantId: "tenantsst010", shopId: "", payload: { name: "X" } }, { cloud: true }); return r.body.data.shopId; })());
+    await s2.create("audit_log", "vieux1", "tenantsst010", { tenantId: "tenantsst010", shopId: shop, userId: "o10", action: "staff.update", detail: "ancien" }); await new Promise((r) => setTimeout(r, 20));
+    await recordSecurityEvent(s2, { tenantId: "tenantsst010", kind: "staff.update", outcome: "accepted", actorId: "o10", source: "cloud" });
+    const r: any = await handle(s2, "o10", { action: "security.status", tenantId: "tenantsst010", shopId: "", payload: {} }, { cloud: true }); expect(chk(r.body.data, "journal_coverage").state).toBe("ok");
+  });
+});

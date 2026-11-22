@@ -1,5 +1,5 @@
 import { UNMEASURED, evaluateStatus, scoreOf, type StatusInput } from "../../../src/domain/security-status";
-import { normAt } from "../../../src/domain/security-events";
+import { AUDIT_TO_EVENT, normAt } from "../../../src/domain/security-events";
 import { parseHost } from "./hosting";
 import { PLATFORM_JOURNAL, purgeSecurityEvents, readJournal, recordSecurityEvent } from "./security-log";
 import { HttpError, need, type Ctx, type Store } from "./store";
@@ -7,7 +7,7 @@ import { HttpError, need, type Ctx, type Store } from "./store";
 /** Centre de sécurité : état MESURÉ du commerce (propriétaire seulement). Chaque lecture qui échoue donne « inconnu », jamais « ok ». */
 export async function securityStatus(store: Store, ctx: Ctx) {
   need(ctx, "owner"); const now = new Date().toISOString();
-  const [sub, owners, journal] = await Promise.all([store.get("subscriptions", ctx.tenantId).catch(() => null), store.listOwners(ctx.tenantId).then((l) => l, () => null), readJournal(store, ctx.tenantId).catch(() => null)]);
+  const [sub, owners, journal, audit] = await Promise.all([store.get("subscriptions", ctx.tenantId).catch(() => null), store.listOwners(ctx.tenantId).then((l) => l, () => null), readJournal(store, ctx.tenantId).catch(() => null), store.scan("audit_log", { tenantId: ctx.tenantId }, { maxRows: 5000 }).then((r) => r.rows, () => null)]);
   const mfas = owners ? await Promise.all(owners.map(async (o) => ({ userId: o.userId, mfa: ctx.probe?.noMfa ? null : await store.userSecurity(o.userId).then((u) => u.mfa, () => null) as boolean | null }))) : null;
   const since = Date.parse(now) - 24 * 3_600_000;
   const denied24h = journal ? journal.rows.filter((r) => String(r.kind).startsWith("access.denied.") && Date.parse(normAt(String(r.at))) >= since).reduce((n, r) => n + Number(r.count ?? 1), 0) : 0;
@@ -19,6 +19,18 @@ export async function securityStatus(store: Store, ctx: Ctx) {
     journal: journal ? { denied24h, total: journal.total } : null,
     chain: journal ? { ok: journal.chain.ok, checked: journal.chain.checked, problems: journal.chain.problems, fromStart: journal.chain.fromStart && !journal.truncated } : null,
   };
+  // Changements de privilèges et complétude du journal (S3-c).
+  if (journal) {
+    const ts = (r: Record<string, unknown>) => Date.parse(normAt(String(r.at))); const t72 = Date.parse(now) - 72 * 3_600_000, t7d = Date.parse(now) - 7 * 24 * 3_600_000;
+    const priv = journal.rows.filter((r) => r.kind === "staff.role.elevate" || r.kind === "staff.rights"); input.privileges = { last72h: priv.filter((r) => ts(r) >= t72).length, last7d: priv.filter((r) => ts(r) >= t7d).length };
+    // Référence = le premier événement CONSERVÉ du journal (avant lui, rien n'est comparable : journal créé après ces actions, ou purgé).
+    if (audit && journal.rows.length) {
+      const first = Math.min(...journal.rows.map(ts)); const kinds = new Set(Object.values(AUDIT_TO_EVENT));
+      const expected = audit.filter((r) => Object.hasOwn(AUDIT_TO_EVENT, String(r.action)) && Date.parse(normAt(String(r.$createdAt ?? ""))) >= first - 5_000).length; // 5 s de marge : l'activité s'écrit un instant avant l'événement
+      const recorded = journal.rows.filter((r) => kinds.has(String(r.kind)) && ts(r) >= first).length;
+      input.coverage = { expected, recorded };
+    }
+  }
   const checks = evaluateStatus(input);
   return { measuredAt: now, checks, ...scoreOf(checks), limits: [...UNMEASURED] };
 }
