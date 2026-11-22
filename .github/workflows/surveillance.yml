@@ -1,0 +1,52 @@
+name: Surveillance
+# Moniteur indépendant (lot S3) : tâche planifiée, aucun identifiant Appwrite. Observe la sonde de santé, les versions en ligne (dérive), le site, les certificats et l'ancre du journal ;
+# toute alerte fait ÉCHOUER cette exécution (e-mail GitHub) et ouvre un ticket « [Alerte sécurité] … » (fermé tout seul au rétablissement).
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      simuler:
+        description: "Simulation commandée : panne, derive ou ancre (vide = surveillance réelle)"
+        required: false
+        default: ""
+      reinitialiser_ancre:
+        description: "Action humaine : repartir de l'ancre actuelle du journal (après un nettoyage volontaire de la base)"
+        type: boolean
+        required: false
+        default: false
+permissions:
+  contents: read
+  issues: write
+  actions: read
+concurrency:
+  group: surveillance
+  cancel-in-progress: false
+jobs:
+  surveiller:
+    name: Surveiller
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Restaurer la mémoire du moniteur (ancre du journal, session anonyme)
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .monitor
+          key: moniteur-etat-${{ github.run_id }}
+          restore-keys: moniteur-etat-
+      - name: Surveiller
+        run: npx vite-node scripts/monitor.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MON_SIMULATE: ${{ inputs.simuler }}
+          MON_RESET_ANCHOR: ${{ inputs.reinitialiser_ancre && '1' || '' }}
+      - name: Enregistrer la mémoire du moniteur
+        if: always() && inputs.simuler == ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .monitor
+          key: moniteur-etat-${{ github.run_id }}

@@ -63,6 +63,7 @@ import { hostClaim, hostRelease, hostStatus } from "./hosting";
 import { listPromotions, promotionAnalytics, promotionJournal, promotionRecommendations } from "./promotions-pro";
 import { isCategory } from "../../../src/domain/pricing";
 import { securityEvents } from "./security-log";
+import { healthPing } from "./health";
 import { platformSecurityPurge, revokeStaffSessions, securityStatus } from "./security-status";
 import { archiveArticle, needFeature, deleteArticle, saveArticle, saveProduct, setArticleImage } from "./articles";
 import { cancelPo, createPo, invoicePo, payInvoice, receivePo } from "./purchasing";
@@ -235,7 +236,7 @@ export const ACTIONS = {
   "tenant.init": initTenant, "shop.create": createShop, "staff.create": createStaff, "staff.update": updateStaff, "staff.resetPassword": resetStaffPassword, "team.overview": teamOverview, "staff.invite.create": inviteCreate, "staff.invite.list": inviteList, "staff.invite.renew": inviteRenew, "staff.invite.revoke": inviteRevoke, "invite.peek": invitePeek, "invite.accept": inviteAccept, "stock.transfer": transferStock,
   "subscription.get": subscriptionGet, "subscription.checkout": subscriptionCheckout, "subscription.submitProof": subscriptionSubmitProof, "subscription.receipt": subscriptionReceipt,
   "platform.me": platformMe, "platform.subscription.lifetime": platformLifetime, "platform.renewals.list": platformRenewals, "platform.renewals.markReminded": platformMarkReminded, "platform.payments.list": platformPayments, "platform.payment.review": platformReview, "platform.subscription.grant": platformGrant, "platform.settings.save": platformSettingsSave, "platform.settings.get": platformSettingsGet,
-  "security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind }), "security.status": securityStatus, "security.sessions.revoke": revokeStaffSessions, "platform.security.purge": platformSecurityPurge, "platform.security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind, scope: "platform" }),
+  "security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind }), "health.ping": (st: Store) => healthPing(st), "security.status": securityStatus, "security.sessions.revoke": revokeStaffSessions, "platform.security.purge": platformSecurityPurge, "platform.security.events": (st: Store, c: Ctx, b: any) => securityEvents(st, c, { limit: b?.limit, kind: b?.kind, scope: "platform" }),
   "report.consolidated": consolidatedReport,
   "payment_link.cancel": cancelPaymentLink, "payment_link.status": paymentLinkStatus,
 } as const;

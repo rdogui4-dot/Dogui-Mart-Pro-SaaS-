@@ -11,6 +11,16 @@ const run = async (k: string, body: unknown) => { const { default: fn } = await 
 const journal = async (kind: string) => ((await adm("platform.security.events", { kind })).body as any).data.events as any[];
 
 beforeEach(() => { st = new MemoryStore(); _resetThrottle(); process.env.APPWRITE_FUNCTION_API_ENDPOINT = "x"; process.env.APPWRITE_FUNCTION_PROJECT_ID = "p"; });
+const health = async (path: string, method = "GET") => { const { default: fn } = await import("./main"); let out: { body: any; status: number } = { body: null, status: 0 }; await fn({ req: { method, headers: { "x-appwrite-key": "k" }, path, query: {} }, res: { json: (b: unknown, s?: number) => { out = { body: b, status: s ?? 200 }; return out; } } } as any); return out; };
+describe("dmp-hooks — sonde de santé publique", () => {
+  it("GET /health : version, ancre du journal, service ; aucun jeton, aucune donnée ; les autres chemins GET restent refusés", async () => {
+    const r = await health("/health"); expect(r.status).toBe(200); expect(Object.keys(r.body).sort()).toEqual(["at", "builtAt", "journal", "ok", "service", "version"]); expect(r.body.service).toBe("dmp-hooks"); expect(r.body.journal).toEqual({ seq: 0 });
+    expect((await health("/health/")).status).toBe(200); expect((await health("/autre")).status).toBe(404); expect((await health("/healthx")).status).toBe(404); expect((await health("/")).status).toBe(404);
+  });
+  it("la sonde n'écrit rien et ne compte pas comme un jeton invalide (pas de frein de rafale déclenché)", async () => {
+    for (let i = 0; i < 50; i++) expect((await health("/health")).status).toBe(200); expect(st.rows("security_events").length).toBe(0);
+  });
+});
 describe("dmp-hooks — journal de sécurité", () => {
   it("jeton refusé : événement regroupé, sans le jeton ni le corps ; notification valide puis doublon : événements distincts", async () => {
     await adm("platform.master.hook.save", { mapping: MAP, links: { first: "https://s.example/a", month: "https://s.example/m" }, baseUrl: "https://h.example.test" });

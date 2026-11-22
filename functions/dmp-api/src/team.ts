@@ -111,7 +111,7 @@ export async function updateStaff(store: Store, ctx: Ctx, b: { userId: string; n
     await store.setLabels(s.$id, labelsFor(role, modulesFor(role, patch.access ?? s.access), shops, active));
   }
   if (Object.keys(patch).length) await store.update("staff", s.$id, patch);
-  if (b.active !== undefined && (s.active !== false) !== !!b.active) await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: b.active ? "staff.enable" : "staff.disable", outcome: "accepted", actorId: ctx.userId, actorRole: "owner", target: "compte:employé", source: ctx.source ?? "cloud" }); // événement dédié : la désactivation d'un compte est un geste de sécurité
+  if (b.active !== undefined && (s.active !== false) !== !!b.active) await recordSecurityEvent(store, { tenantId: ctx.tenantId, kind: b.active ? "staff.enable" : "staff.disable", outcome: "accepted", actorId: ctx.userId, actorRole: "owner", target: "compte:employé", source: ctx.source ?? "cloud", requestId: ctx.requestId }); // événement dédié : la désactivation d'un compte est un geste de sécurité
   await store.create("audit_log", `${newId()}`, ctx.tenantId, { tenantId: ctx.tenantId, shopId: parse<string[]>(s.shopIds, [])[0] ?? "", userId: ctx.userId, action: "staff.update", detail: `${s.name} ${Object.keys(patch).join(",")}` });
   return { ok: true };
 }

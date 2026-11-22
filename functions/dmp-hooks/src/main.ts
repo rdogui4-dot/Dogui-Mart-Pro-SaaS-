@@ -2,6 +2,7 @@
 import { appwriteStore } from "../../dmp-api/src/appwrite-store";
 import { TOKEN_RE, processWebhook } from "../../dmp-api/src/master-pay";
 import { recordSecurityEvent } from "../../dmp-api/src/security-log";
+import { healthPing } from "../../dmp-api/src/health";
 
 /** Frein de rafale (par instance) : au-delà de 30 jetons invalides par minute, réponse 429 immédiate sans aucun travail. */
 const bad = { at: 0, n: 0 };
@@ -10,6 +11,8 @@ const tooMany = () => { const now = Date.now(); if (now - bad.at > 60_000) { bad
 type Req = { method: string; headers: Record<string, string>; query?: Record<string, string>; path?: string; bodyRaw?: string; bodyText?: string; bodyJson?: unknown };
 type Res = { json(body: unknown, status?: number): unknown };
 export default async ({ req, res }: { req: Req; res: Res }) => {
+  // Sonde de santé publique (moniteur indépendant) : version déployée et ancre du journal, aucune donnée de commerce, aucun jeton.
+  if (req.method === "GET" && /^\/health\/?(\?.*)?$/.test(String(req.path ?? ""))) { const store = appwriteStore(process.env.APPWRITE_FUNCTION_API_ENDPOINT!, process.env.APPWRITE_FUNCTION_PROJECT_ID!, req.headers["x-appwrite-key"]!, process.env.DATABASE_ID || "dmp"); return res.json({ ...(await healthPing(store)), service: "dmp-hooks" }, 200); }
   if (req.method !== "POST") return res.json({ ok: false }, 404);
   if (tooMany()) return res.json({ ok: false }, 429);
   const token = String(req.query?.k ?? /[?&]k=([A-Za-z0-9]+)/.exec(String(req.path ?? ""))?.[1] ?? ""); if (!TOKEN_RE.test(token)) { bad.n++; return res.json({ ok: false }, 404); } // jeton mal formé : refusé sans toucher à la base (ni journal : le frein de rafale ci-dessus suffit)

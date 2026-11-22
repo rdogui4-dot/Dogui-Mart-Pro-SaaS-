@@ -29,6 +29,8 @@ jobs:
         run: npm run build
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
+      - name: "Version publiée (version.json, lue par le moniteur indépendant pour détecter une dérive)"
+        run: printf '{"version":"%s","builtAt":"%s"}\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > dist/version.json
       - name: Repli SPA et désactivation de Jekyll
         run: |
           # GitHub Pages sert 404.html pour toute adresse inconnue : c'est ce qui permet d'ouvrir /<dépôt>/reglages?... directement.
@@ -68,3 +70,4 @@ jobs:
             exit 0
           fi
           node scripts/deploy-function.mjs
+          node scripts/deploy-function.mjs --function dmp-hooks

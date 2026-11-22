@@ -9,7 +9,10 @@ import { join } from "node:path";
 import { Client, Functions } from "node-appwrite";
 import { InputFile } from "node-appwrite/file";
 
-const FUNCTION_ID = "dmp-api", ENTRY = "dist/main.js", DIR = "functions/dmp-api";
+// Fonction à déployer : « dmp-api » (par défaut) ou « dmp-hooks » (--function dmp-hooks). Les deux sont publiées à chaque version : sinon elles dérivent l'une de l'autre.
+const arg = process.argv.indexOf("--function"); const FUNCTION_ID = arg > 0 ? String(process.argv[arg + 1]) : "dmp-api";
+if (!["dmp-api", "dmp-hooks"].includes(FUNCTION_ID)) { console.error(`Fonction inconnue : ${FUNCTION_ID}`); process.exit(1); }
+const ENTRY = "dist/main.js", DIR = `functions/${FUNCTION_ID}`;
 const dry = process.argv.includes("--dry-run");
 if (!existsSync(join(DIR, ENTRY))) { console.error(`${join(DIR, ENTRY)} introuvable : lancez d'abord « npm run functions:build ».`); process.exit(1); }
 

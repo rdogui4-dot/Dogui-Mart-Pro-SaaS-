@@ -7,7 +7,7 @@ import { assertQuota, assertWritable } from "./subscriptions";
 import { HttpError, need, type Ctx, type Store } from "./store";
 
 export const INVITE_DAYS = 7;
-export const PUBLIC_ACTIONS: ReadonlySet<string> = new Set(["invite.peek", "invite.accept"]);
+export const PUBLIC_ACTIONS: ReadonlySet<string> = new Set(["invite.peek", "invite.accept", "health.ping"]);
 const safeId = (s: unknown) => String(s ?? "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 36);
 const parse = <T,>(s: unknown, fb: T): T => { try { return JSON.parse(String(s)) as T; } catch { return fb; } };
 const hex = (b: ArrayBuffer | Uint8Array) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");

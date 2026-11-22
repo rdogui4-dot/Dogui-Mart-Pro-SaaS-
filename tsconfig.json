@@ -5,5 +5,5 @@
     "skipLibCheck": true, "noEmit": true, "types": ["vite/client"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "functions", "desktop/src/logic.ts", "desktop/src/logic.test.ts", "desktop/src/boot.ts", "scripts/*.d.ts", "vite.config.ts"]
+  "include": ["src", "functions", "desktop/src/logic.ts", "desktop/src/logic.test.ts", "desktop/src/boot.ts", "scripts/*.d.ts", "scripts/monitor.ts", "scripts/monitor-lib.ts", "scripts/bilan.ts", "vite.config.ts"]
 }

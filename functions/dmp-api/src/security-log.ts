@@ -89,3 +89,6 @@ export async function purgeSecurityEvents(store: Store, tenantId: string, opts: 
   }
   return { purged, anchorSeq };
 }
+
+/** Dernier numéro du journal de la plateforme (0 si aucun événement) : ancre lue par la sonde de santé. */
+export async function journalAnchor(store: Store): Promise<number> { const h = await store.get("security_heads", headId(PLATFORM_JOURNAL)); return h ? Number(h.seq) : 0; }
