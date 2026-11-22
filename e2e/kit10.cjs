@@ -30,7 +30,7 @@ const step = async (name, fn) => { try { await fn(); console.log("OK  ", name); 
   });
   await step("encart MASTER (constats réels) ; un top client ouvre sa fiche", async () => {
     const md = await page.getByRole("region", { name: "MASTER DOGUI — CRM" }).innerText(); if (!/3 nouveau\(x\) client\(s\)/.test(md)) throw new Error(md.slice(0, 300));
-    await page.getByRole("region", { name: "Top clients (CA)" }).getByRole("button", { name: /Awa Diop/ }).click(); await page.getByRole("dialog").last().waitFor({ timeout: 6000 }); if (!/Awa Diop/.test(await page.getByRole("dialog").last().innerText())) throw new Error("fiche"); await page.keyboard.press("Escape");
+    await page.getByRole("region", { name: "Top clients (CA)" }).getByRole("button", { name: /Awa Diop/ }).click(); await page.getByRole("dialog").last().waitFor({ timeout: 6000 }); await page.getByRole("dialog").last().getByText(/Awa Diop/).first().waitFor({ timeout: 8000 }); /* le contenu de la fiche arrive après l'ouverture de la fenêtre : on l'attend (course sous charge) */ await page.keyboard.press("Escape"); await page.getByRole("dialog").waitFor({ state: "detached", timeout: 6000 }).catch(() => {});
   });
   await step("seconde ligne : Tableau, Opportunités, Agenda ; formule Business : onglets Pro verrouillés", async () => {
     await page.getByRole("tab", { name: "Tableau" }).click(); await page.getByText("Clients par segment").waitFor({ timeout: 8000 });
