@@ -46,3 +46,14 @@ describe("client du cloud (Appwrite REST)", () => {
     await start(); let kept: unknown = "x"; const c = createCloudClient({ endpoint: base, projectId: "p1" }, { onSession: (s) => { kept = s; } }); await c.login("a@b.sn", "bon"); await c.logout(); expect(kept).toBeNull(); expect(c.hasSession()).toBe(false); expect(seen.at(-1)).toMatchObject({ method: "DELETE" });
   });
 });
+
+import { unreachableMessage } from "./cloud";
+describe("message d'erreur quand le cloud est injoignable (au lieu de « fetch failed »)", () => {
+  const e = (name: string, code: string, msg = "fetch failed") => Object.assign(new TypeError(msg), { name, cause: { code, message: code } });
+  const B = "https://fra.cloud.appwrite.io/v1";
+  it("pas d'Internet / DNS : le dit, avec l'hôte", () => { const m = unreachableMessage(e("TypeError", "ENOTFOUND"), B); expect(m).toMatch(/fra\.cloud\.appwrite\.io/); expect(m).toMatch(/accès à Internet/); expect(m).not.toBe("fetch failed"); });
+  it("délai dépassé", () => { expect(unreachableMessage(Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }), B)).toMatch(/ne répond pas à temps/); expect(unreachableMessage(e("TypeError", "UND_ERR_CONNECT_TIMEOUT"), B)).toMatch(/ne répond pas à temps/); });
+  it("certificat refusé : cite la date du PC et l'antivirus", () => { expect(unreachableMessage(e("TypeError", "UNABLE_TO_VERIFY_LEAF_SIGNATURE"), B)).toMatch(/date et l'heure du PC/); expect(unreachableMessage(e("TypeError", "CERT_HAS_EXPIRED"), B)).toMatch(/antivirus/); });
+  it("connexion refusée ou coupée : pare-feu, antivirus, proxy", () => { expect(unreachableMessage(e("TypeError", "ECONNREFUSED"), B)).toMatch(/pare-feu/); expect(unreachableMessage(e("TypeError", "ECONNRESET"), B)).toMatch(/proxy/); });
+  it("cause inconnue : message général, jamais « fetch failed » seul ; la cause technique reste visible pour le support", () => { const m = unreachableMessage(new TypeError("fetch failed"), B); expect(m).toMatch(/injoignable/); expect(m).toMatch(/fetch failed/); expect(m.length).toBeGreaterThan(40); });
+});

@@ -9,12 +9,23 @@ export type CloudSession = { fallbackCookies: string; email: string; userId: str
 type Fetch = typeof fetch;
 export class CloudError extends Error { constructor(public status: number, message: string, public network = false) { super(message); } }
 
+/** Message clair quand le cloud est injoignable : « fetch failed » seul ne dit rien à l'utilisateur. Cause technique entre parenthèses pour le support. */
+export function unreachableMessage(e: unknown, base: string): string {
+  const err = e as { name?: string; message?: string; cause?: { code?: string; message?: string } }; const code = String(err.cause?.code ?? ""); const host = (() => { try { return new URL(base).host; } catch { return "le cloud"; } })();
+  const tech = ` (${[code, err.cause?.message && err.cause.message !== err.message ? err.cause.message : err.message].filter(Boolean).join(" : ").slice(0, 120)})`;
+  if (err.name === "TimeoutError" || err.name === "AbortError" || /TIMEOUT|TIMEDOUT/.test(code)) return `Le cloud (${host}) ne répond pas à temps. Vérifiez votre connexion Internet, puis réessayez${tech}.`;
+  if (/^(ENOTFOUND|EAI_AGAIN)$/.test(code)) return `Impossible de trouver ${host} : le PC n'a pas accès à Internet (ou le DNS ne répond pas). Vérifiez le Wi-Fi ou le câble, puis réessayez${tech}.`;
+  if (/CERT|SSL|TLS|SELF_SIGNED|LEAF_SIGNATURE|ALTNAME/.test(code)) return `La connexion sécurisée à ${host} est refusée. Vérifiez la date et l'heure du PC (fuseau compris) ; un antivirus ou un pare-feu qui inspecte le trafic HTTPS peut aussi la bloquer${tech}.`;
+  if (/^(ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|EPIPE)$/.test(code)) return `${host} est inaccessible depuis ce PC : Internet coupé, pare-feu, antivirus ou proxy qui bloque l'application${tech}.`;
+  return `Le cloud (${host}) est injoignable depuis ce PC. Vérifiez Internet, le pare-feu, l'antivirus et la date du PC, puis réessayez${tech}.`;
+}
+
 export function createCloudClient(cfg: CloudConfig, opts: { fetch?: Fetch; session?: CloudSession | null; onSession?: (s: CloudSession | null) => void } = {}) {
   const f: Fetch = opts.fetch ?? fetch; let session = opts.session ?? null; const base = cfg.endpoint.replace(/\/+$/, ""); const fn = cfg.functionId ?? "dmp-api";
   const headers = (extra: Record<string, string> = {}, withSession = true): Record<string, string> => ({ "content-type": "application/json", "x-appwrite-project": cfg.projectId, ...(withSession && session ? { "x-fallback-cookies": session.fallbackCookies } : {}), ...extra });
   const call = async (method: string, path: string, body?: unknown, withSession = true): Promise<Response> => {
     try { return await f(`${base}${path}`, { method, headers: headers({}, withSession), ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(30_000) }); }
-    catch (e) { throw new CloudError(0, (e as Error).message || "Cloud injoignable", true); }
+    catch (e) { throw new CloudError(0, unreachableMessage(e, base), true); }
   };
   const json = async (r: Response) => { const t = await r.text(); try { return JSON.parse(t) as Record<string, unknown>; } catch { return {} as Record<string, unknown>; } };
 
